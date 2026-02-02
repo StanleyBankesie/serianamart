@@ -28,7 +28,10 @@ export default function App() {
             <ToastContainer position="top-right" theme="dark" />
             <Routes>
               <Route path="/login" element={<LoginPage />} />
-              <Route path="/forgot-password" element={<ForgotPasswordRequest />} />
+              <Route
+                path="/forgot-password"
+                element={<ForgotPasswordRequest />}
+              />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route
                 path="/select-branch"

@@ -18,6 +18,7 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 4000000,
       },
       manifest: {
+        id: "omnisuite-erp",
         name: "OmniSuite ERP",
         short_name: "OmniSuite",
         description: "Enterprise Resource Planning system",
@@ -31,11 +32,13 @@ export default defineConfig({
             src: "/src/assets/resources/OMNISUITE_WHITE_LOGO.png",
             sizes: "192x192",
             type: "image/png",
+            purpose: "any",
           },
           {
             src: "/src/assets/resources/OMNISUITE_WHITE_LOGO.png",
             sizes: "512x512",
             type: "image/png",
+            purpose: "any",
           },
           {
             src: "/src/assets/resources/OMNISUITE_WHITE_LOGO.png",

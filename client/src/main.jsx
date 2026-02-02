@@ -28,18 +28,23 @@ async function clearPwaCachesOnce() {
   }
 }
 
-clearPwaCachesOnce();
+if (import.meta.env.DEV) {
+  clearPwaCachesOnce();
+}
 
 (function setFavicons() {
   try {
     const head = document.head || document.getElementsByTagName("head")[0];
-    const rels = ["icon", "shortcut icon"];
+    const rels = ["icon", "shortcut icon", "apple-touch-icon", "apple-touch-icon-precomposed"];
     rels.forEach((rel) => {
       let link = document.querySelector(`link[rel="${rel}"]`);
       if (!link) {
         link = document.createElement("link");
         link.setAttribute("rel", rel);
         link.setAttribute("type", "image/png");
+        if (rel.startsWith("apple-touch-icon")) {
+          link.setAttribute("sizes", "180x180");
+        }
         head.appendChild(link);
       }
       link.setAttribute("href", iconClearUrl);
