@@ -178,9 +178,9 @@
 
     .card {
       @apply max-w-none;
-      width: calc(100% + 15px);
-      margin-left: -7.5px;
-      margin-right: -7.5px;
+      width: calc(100% + 48px);
+      margin-left: -24px;
+      margin-right: -24px;
     }
 
     .card-header {
