@@ -95,12 +95,25 @@ export default function AppShell() {
   useEffect(() => {
     function onBeforeInstallPrompt(e) {
       e.preventDefault();
+      try {
+        console.log("beforeinstallprompt fired");
+      } catch {}
       setInstallPrompt(e);
       setShowInstall(true);
     }
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
     return () =>
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+  }, []);
+  useEffect(() => {
+    function onAppInstalled() {
+      try {
+        console.log("PWA appinstalled event");
+      } catch {}
+      setShowInstall(false);
+    }
+    window.addEventListener("appinstalled", onAppInstalled);
+    return () => window.removeEventListener("appinstalled", onAppInstalled);
   }, []);
 
   const [sidebarOpen, setSidebarOpen] = useState(() => {

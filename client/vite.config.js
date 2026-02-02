@@ -9,7 +9,10 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       injectRegister: "auto",
-      includeAssets: ["/src/assets/resources/OMNISUITE_WHITE_LOGO.png"],
+      includeAssets: [
+        "/src/assets/resources/OMNISUITE_WHITE_LOGO.png",
+        "/src/assets/resources/OMNISUITE_ICON_CLEAR.png",
+      ],
       workbox: {
         maximumFileSizeToCacheInBytes: 4000000,
       },
