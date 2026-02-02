@@ -1,0 +1,2404 @@
+import React, { useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
+import { api } from "api/client";
+import { Printer, Download, Plus } from "lucide-react";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
+import { useAuth } from "../../../../auth/AuthContext.jsx";
+import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
+import { toast } from "react-toastify";
+
+function escapeHtml(v) {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function resolvePath(obj, rawPath) {
+  const path = String(rawPath || "")
+    .trim()
+    .replace(/^\./, "");
+  if (!path) return undefined;
+  const parts = path.split(".").filter(Boolean);
+  let cur = obj;
+  for (const p of parts) {
+    if (cur == null) return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+
+function renderTemplateString(templateHtml, data, root = data) {
+  let out = String(templateHtml ?? "");
+
+  out = out.replace(
+    /{{#each\s+([^}]+)}}([\s\S]*?){{\/each}}/g,
+    (_m, expr, inner) => {
+      const key = String(expr || "").trim();
+      const val = key.startsWith("@root.")
+        ? resolvePath(root, key.slice(6))
+        : (resolvePath(data, key) ?? resolvePath(root, key));
+      const arr = Array.isArray(val) ? val : [];
+      return arr
+        .map((item) => renderTemplateString(inner, item ?? {}, root))
+        .join("");
+    },
+  );
+
+  out = out.replace(/{{{\s*([^}]+?)\s*}}}/g, (_m, expr) => {
+    const key = String(expr || "").trim();
+    let val;
+    if (key === "this" || key === ".") val = data;
+    else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
+    else val = resolvePath(data, key) ?? resolvePath(root, key);
+    return String(val ?? "");
+  });
+
+  out = out.replace(/{{\s*([^}]+?)\s*}}/g, (_m, expr) => {
+    const key = String(expr || "").trim();
+    let val;
+    if (key === "this" || key === ".") val = data;
+    else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
+    else val = resolvePath(data, key) ?? resolvePath(root, key);
+    return escapeHtml(val);
+  });
+
+  return out;
+}
+
+function wrapDoc(bodyHtml) {
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Invoice</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 24px; color: #0f172a; background: #fff; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { border: 1px solid #e2e8f0; padding: 6px 8px; vertical-align: top; }
+      th { background: #f8fafc; text-align: left; }
+      .right { text-align: right; }
+      .center { text-align: center; }
+    </style>
+  </head>
+  <body>${bodyHtml || ""}</body>
+</html>`;
+}
+
+async function waitForImages(container) {
+  const imgs = Array.from(container.querySelectorAll("img"));
+  if (!imgs.length) return;
+  await Promise.all(
+    imgs.map(
+      (img) =>
+        new Promise((resolve) => {
+          if (img.complete) return resolve();
+          const done = () => resolve();
+          img.addEventListener("load", done, { once: true });
+          img.addEventListener("error", done, { once: true });
+        }),
+    ),
+  );
+}
+
+export default function InvoiceForm() {
+  const navigate = useNavigate();
+  const { id } = useParams();
+  const isEdit = Boolean(id);
+  const { user } = useAuth();
+  const { search } = useLocation();
+  const searchParams = new URLSearchParams(search);
+  const actionParam = searchParams.get("action");
+  const modeParam = searchParams.get("mode");
+  const readOnly = modeParam === "view";
+  const canEdit = !readOnly;
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [customers, setCustomers] = useState([]);
+  const [itemsCatalog, setItemsCatalog] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [warehouses, setWarehouses] = useState([]);
+  const [currencies, setCurrencies] = useState([]);
+  const [taxes, setTaxes] = useState([]);
+  const [form, setForm] = useState({
+    invoice_no: "",
+    invoice_date: new Date().toISOString().split("T")[0],
+    customer_id: "",
+    sales_order_id: "",
+    status: "POSTED",
+    warehouse_id: "",
+    price_type: "RETAIL",
+    payment_type: "CASH",
+    currency_id: "",
+    exchange_rate: 1,
+    city: "",
+    state: "",
+    country: "",
+    phone: "",
+    remarks: "",
+  });
+
+  const [lines, setLines] = useState([]);
+  const [newItem, setNewItem] = useState({
+    item_id: "",
+    item_name: "",
+    qty: "",
+    unit_price: "",
+    discount_percent: "",
+    tax_type: "",
+    tax_rate: undefined,
+    remarks: "",
+  });
+  const pdfRef = useRef(null);
+  const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
+  const [companyInfo, setCompanyInfo] = useState({
+    name: "",
+    address: "",
+    phone: "",
+    email: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    country: "",
+    website: "",
+    taxId: "",
+    registrationNo: "",
+    logoUrl: "",
+  });
+  const [preparedBy, setPreparedBy] = useState("");
+  const [customerPrices, setCustomerPrices] = useState([]);
+  const [invoiceTemplateHtml, setInvoiceTemplateHtml] = useState(null);
+
+  // Helper function to format invoice number with '-' between INV and digits
+  const formatInvoiceNumber = (invoiceNo) => {
+    if (!invoiceNo || typeof invoiceNo !== "string") return invoiceNo;
+    if (
+      invoiceNo.startsWith("INV") &&
+      invoiceNo.length === 9 &&
+      /^\d{6}$/.test(invoiceNo.substring(3))
+    ) {
+      return `INV-${invoiceNo.substring(3)}`;
+    }
+    return invoiceNo;
+  };
+
+  const fetchAvailable = async (warehouseId, itemId) => {
+    if (!warehouseId || !itemId) return 0;
+    try {
+      const resp = await api.get(
+        `/inventory/stock/available?warehouse_id=${warehouseId}&item_id=${itemId}`,
+      );
+      return Number(resp.data?.qty || 0);
+    } catch {
+      return 0;
+    }
+  };
+
+  useEffect(() => {
+    fetchCustomers();
+    fetchItems();
+    fetchOrders();
+    fetchWarehouses();
+    fetchCurrencies();
+    fetchTaxCodes();
+    fetchCompanyInfo();
+    if (isEdit) {
+      fetchInvoice();
+    } else {
+      const due = calcDueDate(form.invoice_date, form.payment_terms);
+      setForm((p) => ({ ...p, due_date: due }));
+      api
+        .get("/sales/invoices/next-no")
+        .then((resp) => {
+          const nextNo = resp.data?.nextNo;
+          if (nextNo) {
+            setForm((p) => ({ ...p, invoice_no: formatInvoiceNumber(nextNo) }));
+          }
+        })
+        .catch(() => {
+          setForm((p) => ({
+            ...p,
+            invoice_no: p.invoice_no || "INV-000001",
+          }));
+        });
+    }
+  }, [isEdit, id]);
+  useEffect(() => {
+    if (isEdit) {
+      fetchOrders();
+    }
+  }, [form.sales_order_id]);
+
+  useEffect(() => {
+    const run = async () => {
+      if (!isEdit) return;
+      if (actionParam === "print") {
+        try {
+          await ensureTaxComponentsLoaded();
+        } catch {}
+        setTimeout(() => window.print(), 200);
+      } else if (actionParam === "pdf") {
+        const el = pdfRef.current;
+        if (!el) return;
+        const original = el.style.cssText;
+        el.style.cssText =
+          original +
+          ";position:fixed;left:-10000px;top:0;display:block;z-index:-1;background:white;width:794px;padding:32px;";
+        try {
+          const canvas = await html2canvas(el, {
+            scale: 2,
+            useCORS: true,
+          });
+          const imgData = canvas.toDataURL("image/png");
+          const pdf = new jsPDF("p", "mm", "a4");
+          const pageWidth = pdf.internal.pageSize.getWidth();
+          const pageHeight = pdf.internal.pageSize.getHeight();
+          const imgWidth = pageWidth;
+          const imgHeight = (canvas.height * imgWidth) / canvas.width;
+          let rendered = 0;
+          while (rendered < imgHeight) {
+            pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
+            rendered += pageHeight;
+            if (rendered < imgHeight) pdf.addPage();
+          }
+          const fname =
+            "Invoice_" +
+            (form.invoice_no || new Date().toISOString().slice(0, 10)) +
+            ".pdf";
+          pdf.save(fname);
+        } finally {
+          el.style.cssText = original;
+        }
+      }
+    };
+    run();
+  }, [actionParam, isEdit]);
+
+  const fetchCustomers = async () => {
+    try {
+      const response = await api.get("/sales/customers");
+      setCustomers(
+        Array.isArray(response.data?.items) ? response.data.items : [],
+      );
+    } catch (error) {
+      console.error("Error fetching customers:", error);
+    }
+  };
+
+  const fetchItems = async () => {
+    try {
+      const [itemsRes, stdRes] = await Promise.allSettled([
+        api.get("/inventory/items"),
+        api.get("/sales/prices/standard"),
+      ]);
+      const items =
+        itemsRes.status === "fulfilled" &&
+        Array.isArray(itemsRes.value?.data?.items)
+          ? itemsRes.value.data.items
+          : [];
+      const std =
+        stdRes.status === "fulfilled" &&
+        Array.isArray(stdRes.value?.data?.items)
+          ? stdRes.value.data.items
+          : [];
+      const latestByProduct = new Map();
+      for (const s of std) {
+        const pid = s.product_id;
+        if (!pid) continue;
+        if (!latestByProduct.has(pid)) {
+          latestByProduct.set(pid, s);
+        }
+      }
+      const joined = items.map((it) => {
+        const sp = latestByProduct.get(it.id);
+        const price =
+          sp && sp.selling_price !== undefined && sp.selling_price !== null
+            ? Number(sp.selling_price)
+            : it.selling_price;
+        return { ...it, selling_price: price };
+      });
+      setItemsCatalog(joined);
+    } catch (error) {
+      console.error("Error fetching items:", error);
+      setItemsCatalog([]);
+    }
+  };
+
+  const fetchOrders = async () => {
+    try {
+      const [ordersRes, invoicesRes] = await Promise.all([
+        api.get("/sales/orders"),
+        api.get("/sales/invoices"),
+      ]);
+      const baseOrders = Array.isArray(ordersRes.data?.items)
+        ? ordersRes.data.items
+        : [];
+      const invoices = Array.isArray(invoicesRes.data?.items)
+        ? invoicesRes.data.items
+        : [];
+      const usedSoIds = new Set(
+        invoices
+          .map((inv) => inv?.sales_order_id)
+          .filter((v) => v !== undefined && v !== null)
+          .map((v) => String(v)),
+      );
+      let filtered = baseOrders.filter((o) => !usedSoIds.has(String(o.id)));
+      if (isEdit && form.sales_order_id) {
+        const sid = String(form.sales_order_id);
+        const exists = filtered.some((o) => String(o.id) === sid);
+        if (!exists) {
+          try {
+            const res = await api.get(`/sales/orders/${form.sales_order_id}`);
+            const item = res.data?.item;
+            if (item) {
+              filtered = [item, ...filtered];
+            }
+          } catch {}
+        }
+      }
+      setOrders(filtered);
+    } catch (error) {
+      console.error("Error fetching orders:", error);
+    }
+  };
+
+  const fetchWarehouses = async () => {
+    try {
+      const response = await api.get("/inventory/warehouses");
+      setWarehouses(
+        Array.isArray(response.data?.items) ? response.data.items : [],
+      );
+    } catch (error) {
+      console.error("Error fetching warehouses:", error);
+    }
+  };
+
+  const fetchCurrencies = async () => {
+    try {
+      const response = await api.get("/finance/currencies");
+      const arr = Array.isArray(response.data?.items)
+        ? response.data.items
+        : [];
+      setCurrencies(arr);
+      const cedi =
+        arr.find(
+          (c) =>
+            String(c.code || c.currency_code || "").toUpperCase() === "GHS",
+        ) ||
+        arr.find((c) =>
+          /ghana|cedi/i.test(String(c.name || c.currency_name || "")),
+        );
+      setForm((p) => ({
+        ...p,
+        currency_id: p.currency_id || cedi?.id || "",
+        exchange_rate: p.exchange_rate || 1,
+      }));
+    } catch (error) {
+      console.error("Error fetching currencies:", error);
+    }
+  };
+
+  const fetchTaxCodes = async () => {
+    try {
+      const response = await api.get("/finance/tax-codes");
+      const fetchedTaxes = Array.isArray(response.data?.items)
+        ? response.data.items
+        : [];
+      const mappedTaxes = fetchedTaxes.map((t) => ({
+        value: t.id,
+        label: t.name,
+        rate: Number(t.rate_percent),
+      }));
+      setTaxes(mappedTaxes);
+      if (mappedTaxes.length > 0 && !newItem.tax_type) {
+        setNewItem((prev) => ({ ...prev, tax_type: mappedTaxes[0].value }));
+      }
+    } catch (error) {
+      console.error("Error fetching tax codes:", error);
+    }
+  };
+
+  const fetchCustomerPrices = async () => {
+    if (!form.customer_id) return;
+    try {
+      const response = await api.get(
+        `/sales/prices/customer?customer_id=${form.customer_id}`,
+      );
+      setCustomerPrices(
+        Array.isArray(response.data?.items) ? response.data.items : [],
+      );
+    } catch (error) {
+      console.error("Error fetching customer prices:", error);
+    }
+  };
+  const fetchTaxComponentsForCode = async (taxCodeId) => {
+    const key = String(taxCodeId || "");
+    if (!key) return;
+    try {
+      const resp = await api.get(`/finance/tax-codes/${taxCodeId}/components`);
+      const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
+      setTaxComponentsByCode((prev) => ({ ...prev, [key]: items }));
+    } catch {}
+  };
+  const ensureTaxComponentsLoaded = async () => {
+    const uniqueTaxIds = Array.from(
+      new Set(lines.map((i) => String(i.tax_type)).filter(Boolean)),
+    );
+    const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
+    if (missing.length) {
+      await Promise.all(missing.map((id) => fetchTaxComponentsForCode(id)));
+    }
+  };
+  const calcTaxComponentsTotals = () => {
+    const sub = lines.reduce((s, i) => s + (i.net || 0), 0);
+    const compTotals = {};
+    lines.forEach((i) => {
+      const comps = taxComponentsByCode[String(i.tax_type)] || [];
+      comps.forEach((c) => {
+        const rate = Number(c.rate_percent) || 0;
+        const amt = ((i.net || 0) * rate) / 100;
+        const name = c.component_name;
+        if (!compTotals[name])
+          compTotals[name] = { amount: 0, rate, sort_order: c.sort_order || 0 };
+        compTotals[name].amount += amt;
+      });
+    });
+    const components = Object.keys(compTotals)
+      .map((name) => ({
+        name,
+        amount: compTotals[name].amount,
+        rate: compTotals[name].rate,
+        sort_order: compTotals[name].sort_order,
+      }))
+      .sort((a, b) => a.sort_order - b.sort_order);
+    const taxTotal = components.reduce((s, c) => s + c.amount, 0);
+    const total = sub + taxTotal;
+    return { sub, components, taxTotal, total };
+  };
+  const calcAggregates = () => {
+    const grossSub = lines.reduce((s, i) => s + (i.sub || 0), 0);
+    const discountTotal = lines.reduce((s, i) => s + (i.discAmt || 0), 0);
+    const netSub = lines.reduce((s, i) => s + (i.net || 0), 0);
+    const tc = calcTaxComponentsTotals();
+    const grand = netSub + tc.taxTotal;
+    return {
+      grossSub,
+      discountTotal,
+      netSub,
+      components: tc.components,
+      taxTotal: tc.taxTotal,
+      grand,
+    };
+  };
+
+  const toAbsoluteUrl = (url) => {
+    const u = String(url || "").trim();
+    if (!u) return "";
+    if (
+      u.startsWith("http://") ||
+      u.startsWith("https://") ||
+      u.startsWith("data:")
+    )
+      return u;
+    const origin =
+      typeof window !== "undefined" && window.location
+        ? window.location.origin
+        : "";
+    if (!origin) return u;
+    if (u.startsWith("/")) return origin + u;
+    return origin + "/" + u;
+  };
+
+  const fetchInvoiceTemplateHtml = async () => {
+    if (invoiceTemplateHtml !== null) return invoiceTemplateHtml;
+    try {
+      const res = await api.get("/admin/document-templates/INVOICE");
+      const tpl = String(res.data?.item?.template_html || "").trim();
+      setInvoiceTemplateHtml(tpl);
+      return tpl;
+    } catch {
+      setInvoiceTemplateHtml("");
+      return "";
+    }
+  };
+
+  const buildInvoiceTemplateData = () => {
+    const customer = customers.find(
+      (c) => String(c.id) === String(form.customer_id),
+    );
+    const aggregates = calcAggregates();
+    const items = (Array.isArray(lines) ? lines : []).map((l) => {
+      const qty = Number(l.qty || 0);
+      const unit = Number(l.unit_price || 0);
+      const total = Number(l.total || 0);
+      const disc = Number(l.discAmt || 0);
+      const net = Number(l.net || 0);
+      return {
+        item_name: String(l.item_name || ""),
+        qty: qty.toFixed(2),
+        unit_price: unit.toFixed(2),
+        total: total.toFixed(2),
+        discount: disc.toFixed(2),
+        net: net.toFixed(2),
+      };
+    });
+    return {
+      company: {
+        name: companyInfo.name || "Company",
+        address: companyInfo.address || "",
+        city: companyInfo.city || "",
+        state: companyInfo.state || "",
+        postalCode: companyInfo.postalCode || "",
+        country: companyInfo.country || "",
+        phone: companyInfo.phone || "",
+        email: companyInfo.email || "",
+        website: companyInfo.website || "",
+        taxId: companyInfo.taxId || "",
+        registrationNo: companyInfo.registrationNo || "",
+        logoUrl: toAbsoluteUrl(companyInfo.logoUrl || ""),
+        logoHtml: toAbsoluteUrl(companyInfo.logoUrl || "")
+          ? `<img src="${toAbsoluteUrl(companyInfo.logoUrl || "")}" alt="${String(
+              companyInfo.name || "Company",
+            )
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;")
+              .replace(
+                /'/g,
+                "&#39;",
+              )}" style="max-height:80px;object-fit:contain;" />`
+          : "",
+      },
+      invoice: {
+        invoice_no: String(form.invoice_no || ""),
+        invoice_date: String(form.invoice_date || ""),
+        due_date: String(form.due_date || ""),
+        payment_type: String(form.payment_type || ""),
+        price_type: String(form.price_type || ""),
+        currency: String(
+          currencies.find((c) => String(c.id) === String(form.currency_id))
+            ?.code || "",
+        ),
+        prepared_by: String(preparedBy || ""),
+      },
+      customer: {
+        id: String(customer?.id || ""),
+        code: String(customer?.customer_code || ""),
+        name: String(customer?.customer_name || ""),
+        type: String(customer?.customer_type || ""),
+        contactPerson: String(customer?.contact_person || ""),
+        email: String(customer?.email || ""),
+        phone: String(customer?.phone || form.phone || ""),
+        mobile: String(customer?.mobile || ""),
+        address: String(customer?.address || ""),
+        city: String(customer?.city || form.city || ""),
+        state: String(customer?.state || form.state || ""),
+        zone: String(customer?.zone || ""),
+        country: String(customer?.country || form.country || ""),
+        paymentTerms: String(customer?.payment_terms || ""),
+        creditLimit: Number(customer?.credit_limit || 0).toFixed(2),
+      },
+      items,
+      totals: {
+        subtotal: Number(aggregates.grossSub || 0).toFixed(2),
+        discount: Number(aggregates.discountTotal || 0).toFixed(2),
+        netSubtotal: Number(aggregates.netSub || 0).toFixed(2),
+        tax: Number(aggregates.taxTotal || 0).toFixed(2),
+        total: Number(aggregates.grand || 0).toFixed(2),
+      },
+    };
+  };
+
+  const printUsingInvoiceTemplate = async () => {
+    const tpl = await fetchInvoiceTemplateHtml();
+    if (!tpl) return false;
+    const data = buildInvoiceTemplateData();
+    const html = wrapDoc(renderTemplateString(tpl, data));
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
+    const doc =
+      iframe.contentWindow?.document || iframe.contentDocument || null;
+    if (!doc) {
+      document.body.removeChild(iframe);
+      return true;
+    }
+    doc.open();
+    doc.write(html);
+    doc.close();
+    const win = iframe.contentWindow || window;
+    const handlePrint = () => {
+      win.focus();
+      try {
+        win.print();
+      } catch {}
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+      }, 100);
+    };
+    setTimeout(handlePrint, 200);
+    return true;
+  };
+
+  const downloadPdfUsingInvoiceTemplate = async () => {
+    const tpl = await fetchInvoiceTemplateHtml();
+    if (!tpl) return false;
+    const data = buildInvoiceTemplateData();
+    const html = renderTemplateString(tpl, data);
+    const container = document.createElement("div");
+    container.style.position = "fixed";
+    container.style.left = "-10000px";
+    container.style.top = "0";
+    container.style.width = "794px";
+    container.style.background = "white";
+    container.style.padding = "32px";
+    container.innerHTML = html;
+    document.body.appendChild(container);
+    try {
+      await waitForImages(container);
+      const canvas = await html2canvas(container, { scale: 2, useCORS: true });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let rendered = 0;
+      while (rendered < imgHeight) {
+        pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
+        rendered += pageHeight;
+        if (rendered < imgHeight) pdf.addPage();
+      }
+      const fname =
+        "Invoice_" +
+        (form.invoice_no || new Date().toISOString().slice(0, 10)) +
+        ".pdf";
+      pdf.save(fname);
+    } finally {
+      document.body.removeChild(container);
+    }
+    return true;
+  };
+
+  const fetchCompanyInfo = async () => {
+    try {
+      const usernameFromAuth = user?.username || "";
+      setPreparedBy(usernameFromAuth);
+      const meResp = await api.get("/admin/me");
+      const companyId = meResp.data?.scope?.companyId;
+      const usernameFromApi = meResp.data?.user?.username || "";
+      if (!usernameFromAuth && usernameFromApi) {
+        setPreparedBy(usernameFromApi);
+      }
+      if (companyId) {
+        const cResp = await api.get(`/admin/companies/${companyId}`);
+        const item = cResp.data?.item || {};
+        setCompanyInfo((prev) => ({
+          ...prev,
+          name: item.name || prev.name || "",
+          address: item.address || prev.address || "",
+          phone: item.telephone || prev.phone || "",
+          email: item.email || prev.email || "",
+          city: item.city || prev.city || "",
+          state: item.state || prev.state || "",
+          postalCode: item.postal_code || prev.postalCode || "",
+          country: item.country || prev.country || "",
+          website: item.website || prev.website || "",
+          taxId: item.tax_id || prev.taxId || "",
+          registrationNo: item.registration_no || prev.registrationNo || "",
+          logoUrl:
+            item.has_logo === 1 || item.has_logo === true
+              ? `/api/admin/companies/${companyId}/logo`
+              : defaultLogo,
+        }));
+      } else {
+        setCompanyInfo((prev) => ({
+          ...prev,
+          logoUrl: prev.logoUrl || defaultLogo,
+        }));
+      }
+    } catch {
+      if (user?.username) {
+        setPreparedBy(user.username);
+      }
+      setCompanyInfo((prev) => ({
+        ...prev,
+        logoUrl: prev.logoUrl || defaultLogo,
+      }));
+    }
+  };
+
+  const fetchInvoice = async () => {
+    try {
+      setLoading(true);
+      const response = await api.get(`/sales/invoices/${id}`);
+      const data = response.data?.item;
+      if (data) {
+        setForm({
+          invoice_no: data.invoice_no || "",
+          invoice_date: toYmd(data.invoice_date || new Date()),
+          customer_id: data.customer_id || "",
+          status: data.status || "POSTED",
+          due_date: toYmd(data.due_date || ""),
+          city: "",
+          state: "",
+          country: "",
+          phone: "",
+          remarks: data.remarks || "",
+          warehouse_id: data.warehouse_id || "",
+          price_type: data.price_type || "RETAIL",
+          payment_type: data.payment_type || "CASH",
+          currency_id: data.currency_id || "",
+          exchange_rate: Number(data.exchange_rate || 1),
+          sales_order_id: data.sales_order_id || "",
+        });
+        const cust = customers.find(
+          (c) => String(c.id) === String(data.customer_id),
+        );
+        if (cust) {
+          setForm((p) => ({
+            ...p,
+            city: cust.city || "",
+            state: cust.state || "",
+            country: cust.country || "",
+            phone: cust.phone || cust.customer_phone || "",
+          }));
+        }
+      }
+      if (response.data?.details) {
+        let mapped = response.data.details.map((d, i) => {
+          const qty = Math.round(Number(d.quantity || 0) * 100) / 100;
+          const unit = Math.round(Number(d.unit_price || 0) * 100) / 100;
+          const disc = Math.round(Number(d.discount_percent || 0) * 100) / 100;
+          const taxId = d.tax_id || "";
+          const taxRate =
+            d.tax_rate !== undefined && d.tax_rate !== null
+              ? Number(d.tax_rate)
+              : taxes.find((t) => String(t.value) === String(taxId))?.rate || 0;
+          const fallback = calcItemTotals({
+            qty,
+            unit_price: unit,
+            discount_percent: disc,
+            tax_type: taxId,
+          });
+          const netAmt =
+            d.net_amount !== undefined && d.net_amount !== null
+              ? Math.round(Number(d.net_amount) * 100) / 100
+              : fallback.net;
+          const taxAmt =
+            d.tax_amount !== undefined && d.tax_amount !== null
+              ? Math.round(Number(d.tax_amount) * 100) / 100
+              : fallback.taxAmt;
+          const totalAmt =
+            d.total_amount !== undefined && d.total_amount !== null
+              ? Math.round(Number(d.total_amount) * 100) / 100
+              : fallback.total;
+          return {
+            line_id: i + 1,
+            item_id: d.item_id,
+            item_name: d.item_name || "",
+            remarks: d.remarks || "",
+            qty,
+            unit_price: unit,
+            discount_percent: disc,
+            tax_rate: taxRate,
+            tax_type: taxId,
+            sub: Math.round(Number(qty * unit) * 100) / 100,
+            discAmt: Math.round(Number((qty * unit * disc) / 100) * 100) / 100,
+            net: netAmt,
+            taxAmt,
+            total: totalAmt,
+          };
+        });
+        const wh = data.warehouse_id || form.warehouse_id || "";
+        if (wh) {
+          const enriched = await Promise.all(
+            mapped.map(async (l) => ({
+              ...l,
+              available_qty: await fetchAvailable(wh, l.item_id),
+            })),
+          );
+          mapped = enriched;
+        }
+        setLines(mapped);
+      }
+    } catch (error) {
+      setError(error?.response?.data?.message || "Error fetching invoice");
+      console.error("Error fetching invoice:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  async function repriceLinesByPriceType(priceType) {
+    try {
+      const currentLines = [...lines];
+      const results = await Promise.all(
+        currentLines.map(async (l) => {
+          if (!l.item_id) {
+            const next = { ...l };
+            return { ...next, ...calcItemTotals(next) };
+          }
+          try {
+            const res = await api.post("/sales/prices/best-price", {
+              product_id: l.item_id,
+              customer_id: form.customer_id,
+              quantity: Number(l.qty || 1),
+              date: form.invoice_date,
+              price_type:
+                typeof priceType === "string"
+                  ? priceType
+                  : String(priceType || ""),
+              only_standard: true,
+            });
+            if (res.data && res.data.price !== undefined) {
+              const next = {
+                ...l,
+                unit_price: Math.round(Number(res.data.price || 0) * 100) / 100,
+              };
+              return { ...next, ...calcItemTotals(next) };
+            }
+          } catch {}
+          const next = { ...l };
+          return { ...next, ...calcItemTotals(next) };
+        }),
+      );
+      setLines(results);
+    } catch {}
+  }
+
+  function update(name, value) {
+    let next = { ...form, [name]: value };
+    if (name === "customer_id") {
+      const cust = customers.find((c) => c.id == value);
+      next.city = cust?.city || "";
+      next.state = cust?.state || "";
+      next.country = cust?.country || "";
+      next.phone = cust?.phone || cust?.customer_phone || "";
+      fetchCustomerPrices();
+    }
+    if (name === "sales_order_id" && value) {
+      applyOrderToInvoice(value);
+    }
+    if (name === "price_type") {
+      repriceLinesByPriceType(value);
+    }
+    setForm(next);
+  }
+
+  async function applyOrderToInvoice(orderId) {
+    try {
+      const resp = await api.get(`/sales/orders/${orderId}`);
+      const order = resp.data?.item;
+      const details = Array.isArray(resp.data?.details)
+        ? resp.data.details
+        : [];
+      if (order) {
+        setForm((p) => ({
+          ...p,
+          customer_id: order.customer_id || p.customer_id,
+          warehouse_id: order.warehouse_id || p.warehouse_id || "",
+        }));
+      }
+      if (details.length) {
+        let mapped = details.map((d) => {
+          const qty = Math.round(Number(d.qty || 0) * 100) / 100;
+          const unit = Math.round(Number(d.unit_price || 0) * 100) / 100;
+          const disc = Math.round(Number(d.discount_percent || 0) * 100) / 100;
+          const taxId = d.tax_id || "";
+          const calc = calcItemTotals({
+            qty,
+            unit_price: unit,
+            discount_percent: disc,
+            tax_type: taxId,
+          });
+          const taxRate =
+            d.tax_rate !== undefined && d.tax_rate !== null
+              ? Number(d.tax_rate)
+              : taxes.find((t) => String(t.value) === String(taxId))?.rate || 0;
+          const taxAmt =
+            d.tax_amount !== undefined && d.tax_amount !== null
+              ? Math.round(Number(d.tax_amount) * 100) / 100
+              : calc.taxAmt;
+          const totalAmt =
+            d.total_amount !== undefined && d.total_amount !== null
+              ? Math.round(Number(d.total_amount) * 100) / 100
+              : calc.total;
+          const prod = itemsCatalog.find((p) => p.id == d.item_id);
+          return {
+            line_id: Date.now() + Math.random(),
+            item_id: d.item_id,
+            item_name: d.item_name || prod?.item_name || "",
+            qty,
+            unit_price: unit,
+            discount_percent: disc,
+            tax_type: taxId,
+            tax_rate: taxRate,
+            ...calc,
+            taxAmt,
+            total: totalAmt,
+          };
+        });
+        const wh = order?.warehouse_id || form.warehouse_id || "";
+        if (wh) {
+          const enriched = await Promise.all(
+            mapped.map(async (l) => ({
+              ...l,
+              available_qty: await fetchAvailable(wh, l.item_id),
+            })),
+          );
+          mapped = enriched;
+        }
+        setLines(mapped);
+      }
+    } catch (e) {
+      console.error("Failed to apply order to invoice", e);
+    }
+  }
+
+  function handleNewItemChange(e) {
+    const { name, value } = e.target;
+    if (name === "item_id") {
+      const prod = itemsCatalog.find((p) => p.id === parseInt(value));
+      setNewItem((prev) => ({
+        ...prev,
+        item_id: value,
+        item_name: prod?.item_name || "",
+        unit_price: "",
+        qty: 1,
+      }));
+      if (value) {
+        {
+          const payload = {
+            product_id: value,
+            quantity: 1,
+            date: form.invoice_date,
+            price_type:
+              typeof form.price_type === "string"
+                ? form.price_type
+                : String(form.price_type || ""),
+            only_standard: true,
+            ...(form.customer_id ? { customer_id: form.customer_id } : {}),
+          };
+          api
+            .post("/sales/prices/best-price", payload)
+            .then((res) => {
+              if (res.data && res.data.price !== undefined) {
+                setNewItem((prev) => ({
+                  ...prev,
+                  unit_price:
+                    Math.round(Number(res.data.price || 0) * 100) / 100,
+                }));
+              }
+            })
+            .catch((err) => console.error("Error fetching price:", err));
+        }
+        api
+          .get(`/finance/item-tax/${value}`)
+          .then((resp) => {
+            const tax = resp.data?.tax;
+            if (tax) {
+              const resolvedTaxType =
+                tax.id ||
+                taxes.find((t) => t.code === tax.tax_code)?.value ||
+                null;
+              const resolvedTaxRate = resolvedTaxType
+                ? taxes.find((t) => String(t.value) === String(resolvedTaxType))
+                    ?.rate
+                : null;
+              setNewItem((prev) => ({
+                ...prev,
+                tax_type: resolvedTaxType ?? prev.tax_type,
+                tax_rate:
+                  resolvedTaxRate !== null && resolvedTaxRate !== undefined
+                    ? resolvedTaxRate
+                    : tax.tax_rate,
+              }));
+            } else {
+              setNewItem((prev) => ({
+                ...prev,
+                tax_rate: undefined,
+              }));
+            }
+          })
+          .catch(() => {
+            setNewItem((prev) => ({
+              ...prev,
+              tax_rate: undefined,
+            }));
+          });
+        const wh = form.warehouse_id;
+        if (wh) {
+          fetchAvailable(wh, Number(value)).then((aq) =>
+            setNewItem((prev) => ({ ...prev, available_qty: aq })),
+          );
+        } else {
+          setNewItem((prev) => ({ ...prev, available_qty: undefined }));
+        }
+      }
+    } else {
+      if (
+        name === "unit_price" ||
+        name === "qty" ||
+        name === "discount_percent"
+      ) {
+        const num = value === "" ? "" : Math.round(Number(value) * 100) / 100;
+        setNewItem((prev) => ({ ...prev, [name]: num }));
+      } else {
+        setNewItem((prev) => ({ ...prev, [name]: value }));
+      }
+    }
+  }
+
+  function addLine() {
+    if (!newItem.item_id || !newItem.qty || !newItem.unit_price) {
+      return;
+    }
+    if (
+      form.warehouse_id &&
+      newItem.available_qty !== undefined &&
+      Number(newItem.qty || 0) > Number(newItem.available_qty || 0)
+    ) {
+      toast.error("Quantity exceeds available stock for selected warehouse");
+      return;
+    }
+    const calculations = calcItemTotals(newItem);
+    setLines((prev) => [
+      ...prev,
+      {
+        ...newItem,
+        line_id: Date.now(),
+        ...calculations,
+        available_qty: newItem.available_qty,
+      },
+    ]);
+    setNewItem({
+      item_id: "",
+      item_name: "",
+      qty: "",
+      unit_price: "",
+      discount_percent: "",
+      tax_type: taxes.length > 0 ? taxes[0].value : "",
+      tax_rate: undefined,
+      remarks: "",
+      available_qty: undefined,
+    });
+  }
+
+  async function fetchAndApplyBestPrice(idx, itemId) {
+    try {
+      const payload = {
+        product_id: itemId,
+        quantity: 1,
+        date: form.invoice_date,
+        price_type:
+          typeof form.price_type === "string"
+            ? form.price_type
+            : String(form.price_type || ""),
+        only_standard: true,
+        ...(form.customer_id ? { customer_id: form.customer_id } : {}),
+      };
+      const res = await api.post("/sales/prices/best-price", payload);
+      if (res.data && res.data.price !== undefined) {
+        setLines((prev) =>
+          prev.map((l, i) => {
+            if (i !== idx) return l;
+            const next = {
+              ...l,
+              unit_price: Math.round(Number(res.data.price || 0) * 100) / 100,
+            };
+            return { ...next, ...calcItemTotals(next) };
+          }),
+        );
+      }
+    } catch (e) {
+      console.error("Error fetching price:", e);
+    }
+  }
+
+  function updateLine(idx, patch) {
+    if (patch.item_id) {
+      fetchAndApplyBestPrice(idx, patch.item_id);
+    }
+    setLines((prev) =>
+      prev.map((l, i) => {
+        if (i !== idx) return l;
+        let next = { ...l, ...patch };
+        if ("unit_price" in patch) {
+          next.unit_price =
+            patch.unit_price === "" || patch.unit_price == null
+              ? ""
+              : Math.round(Number(patch.unit_price) * 100) / 100;
+        }
+        if ("qty" in patch) {
+          next.qty =
+            patch.qty === "" || patch.qty == null
+              ? ""
+              : Math.round(Number(patch.qty) * 100) / 100;
+        }
+        if ("discount_percent" in patch) {
+          next.discount_percent =
+            patch.discount_percent === "" || patch.discount_percent == null
+              ? ""
+              : Math.round(Number(patch.discount_percent) * 100) / 100;
+        }
+        if (patch.item_id) {
+          const prod = itemsCatalog.find((p) => p.id == patch.item_id);
+          next.item_name = prod?.item_name || next.item_name || "";
+          fetchItemTax(patch.item_id, (tax) => {
+            next.tax_rate = tax?.tax_rate;
+            next.tax_type = tax?.tax_code || next.tax_type || "VAT15";
+          });
+          if (form.warehouse_id) {
+            fetchAvailable(
+              Number(form.warehouse_id),
+              Number(patch.item_id),
+            ).then((aq) => {
+              setLines((pv) =>
+                pv.map((ln, j) =>
+                  j === idx
+                    ? { ...next, available_qty: aq, ...calcItemTotals(next) }
+                    : ln,
+                ),
+              );
+            });
+            return next;
+          }
+        }
+        if (patch.tax_type) {
+          const tr =
+            taxes.find((t) => String(t.value) === String(patch.tax_type))
+              ?.rate || 0;
+          next.tax_rate = tr;
+        }
+        next = { ...next, ...calcItemTotals(next) };
+        return next;
+      }),
+    );
+  }
+
+  function getItemCode(itemId) {
+    const p = itemsCatalog.find((x) => String(x.id) === String(itemId));
+    return p ? p.item_code || "" : "";
+  }
+
+  function removeLine(lineId) {
+    setLines((p) => p.filter((x) => x.line_id !== lineId));
+  }
+
+  function calcItemTotals(itm) {
+    const qty = Math.round(Number(itm.qty || 0) * 100) / 100;
+    const price = Math.round(Number(itm.unit_price || 0) * 100) / 100;
+    const disc = Math.round(Number(itm.discount_percent || 0) * 100) / 100;
+    const sub = Math.round(qty * price * 100) / 100;
+    const discAmt = Math.round(((sub * disc) / 100) * 100) / 100;
+    const net = Math.round((sub - discAmt) * 100) / 100;
+    const taxRate =
+      taxes.find((t) => String(t.value) === String(itm.tax_type))?.rate || 0;
+    const taxAmt = Math.round(((net * taxRate) / 100) * 100) / 100;
+    const total = Math.round((net + taxAmt) * 100) / 100;
+    return { sub, discAmt, net, taxAmt, total, line_total: total };
+  }
+
+  useEffect(() => {
+    const wh = form.warehouse_id;
+    if (!wh) {
+      setLines((prev) => prev.map((l) => ({ ...l, available_qty: undefined })));
+      setNewItem((prev) => ({ ...prev, available_qty: undefined }));
+      return;
+    }
+    (async () => {
+      const enriched = await Promise.all(
+        lines.map(async (l) => ({
+          ...l,
+          available_qty: await fetchAvailable(wh, l.item_id),
+        })),
+      );
+      setLines(enriched);
+      if (newItem.item_id) {
+        const aq = await fetchAvailable(wh, Number(newItem.item_id));
+        setNewItem((prev) => ({ ...prev, available_qty: aq }));
+      }
+    })();
+  }, [form.warehouse_id]);
+
+  function calcGrandTotal() {
+    const sub = lines.reduce((s, l) => s + Number(l.net || 0), 0);
+    const tax = lines.reduce((s, l) => s + Number(l.taxAmt || 0), 0);
+    return { sub, tax, total: sub + tax };
+  }
+  function toYmd(value) {
+    if (!value) return "";
+    if (value instanceof Date) return value.toISOString().split("T")[0];
+    const s = String(value);
+    if (s.includes("T")) return s.split("T")[0];
+    return s.slice(0, 10);
+  }
+
+  function calcDueDate(dateStr, days) {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    d.setDate(d.getDate() + Number(days || 0));
+    return d.toISOString().split("T")[0];
+  }
+
+  function fetchItemTax(itemId, cb) {
+    api
+      .get(`/finance/item-tax/${itemId}`)
+      .then((resp) => cb(resp.data?.tax || null))
+      .catch(() => cb(null));
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      if (!form.warehouse_id) {
+        toast.error("Select Warehouse before saving the invoice");
+        setLoading(false);
+        return;
+      }
+      const pendingLineReady =
+        newItem.item_id && newItem.qty && newItem.unit_price;
+      const workingLines = pendingLineReady
+        ? [
+            ...lines,
+            {
+              ...newItem,
+              ...calcItemTotals(newItem),
+            },
+          ]
+        : [...lines];
+      if (!workingLines.length) {
+        toast.error("Add at least one item before saving the invoice");
+        setLoading(false);
+        return;
+      }
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      let invoiceNo = form.invoice_no;
+      if (!invoiceNo) {
+        const randomSuffix = Math.floor(Math.random() * 1000)
+          .toString()
+          .padStart(3, "0");
+        invoiceNo = `INV-${dateStr}-${randomSuffix}`;
+      }
+      const sums = (() => {
+        const sub = workingLines.reduce((s, l) => s + Number(l.net || 0), 0);
+        const tax = workingLines.reduce((s, l) => s + Number(l.taxAmt || 0), 0);
+        return { sub, tax, total: sub + tax };
+      })();
+      const payload = {
+        ...form,
+        invoice_date: toYmd(form.invoice_date),
+        invoice_no: invoiceNo,
+        customer_id: Number(form.customer_id),
+        due_date: toYmd(form.due_date) || null,
+        warehouse_id: form.warehouse_id ? Number(form.warehouse_id) : null,
+        price_type: form.price_type,
+        payment_type: form.payment_type,
+        currency_id: form.currency_id ? Number(form.currency_id) : null,
+        exchange_rate: Number(form.exchange_rate || 1),
+        total_amount: Math.round(Number(sums.total || 0) * 100) / 100,
+        tax_amount: Math.round(Number(sums.tax || 0) * 100) / 100,
+        net_amount: Math.round(Number(sums.sub || 0) * 100) / 100,
+        ...(form.sales_order_id
+          ? { sales_order_id: Number(form.sales_order_id) }
+          : {}),
+        items: workingLines.map((l) => {
+          const rawTax = l.tax_type;
+          const numericTax = Number(rawTax);
+          let effTaxId =
+            Number.isFinite(numericTax) && numericTax > 0 ? numericTax : null;
+          if (!effTaxId && rawTax) {
+            const byLabel = taxes.find(
+              (t) =>
+                String(t.label || "").toUpperCase() ===
+                String(rawTax || "").toUpperCase(),
+            );
+            if (byLabel) effTaxId = Number(byLabel.value);
+          }
+          const effRate =
+            taxes.find((t) => Number(t.value) === Number(effTaxId))?.rate || 0;
+          return {
+            item_id: l.item_id,
+            quantity: Math.round(Number(l.qty || 0) * 100) / 100,
+            unit_price: Math.round(Number(l.unit_price || 0) * 100) / 100,
+            discount_percent:
+              Math.round(Number(l.discount_percent || 0) * 100) / 100,
+            tax_id: effTaxId || null,
+            tax_rate: effRate,
+            tax_amount: Math.round(Number(l.taxAmt || 0) * 100) / 100,
+            total_amount: Math.round(Number(l.total || 0) * 100) / 100,
+            net_amount: Math.round(Number(l.net || 0) * 100) / 100,
+          };
+        }),
+      };
+      let savedId = 0;
+      if (isEdit) {
+        const resp = await api.put(`/sales/invoices/${id}`, payload);
+        savedId = Number(resp?.data?.id || id);
+      } else {
+        const resp = await api.post("/sales/invoices", payload);
+        savedId = Number(resp?.data?.id || 0);
+      }
+      try {
+        const subResp = await api.post(`/sales/invoices/${savedId}/submit`);
+        const pstatus = subResp?.data?.payment_status || "UNPAID";
+        toast.success(`Invoice ${invoiceNo} saved and submitted (${pstatus})`);
+        navigate("/sales/invoices");
+      } catch (subErr) {
+        const smsg =
+          subErr?.response?.data?.message || "Failed to submit invoice";
+        if (/already submitted/i.test(smsg)) {
+          toast.info(`Invoice ${invoiceNo} already submitted`);
+          navigate("/sales/invoices");
+        } else if (
+          /no line items/i.test(smsg) ||
+          /warehouse_id is required/i.test(smsg) ||
+          /insufficient stock/i.test(smsg)
+        ) {
+          toast.error(smsg);
+        } else {
+          toast.error(smsg);
+        }
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.message || "Error saving invoice";
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <style>{`
+        @media print {
+          @page { margin: 1cm; }
+          body { 
+            background: white; 
+            -webkit-print-color-adjust: exact; 
+            print-color-adjust: exact; 
+          }
+          #root > div > header,
+          #root > div > div > aside { display: none !important; }
+          .print\\:hidden { display: none !important; }
+          .print\\:block { display: block !important; }
+          #root > div > div > main { padding: 0 !important; }
+          input, select, textarea {
+            border: none !important;
+            background: transparent !important;
+            padding: 0 !important;
+            appearance: none !important;
+            -webkit-appearance: none !important;
+            resize: none;
+            overflow: visible;
+          }
+        }
+        .quotation-table { 
+          border-collapse: collapse; 
+          table-layout: fixed; 
+          width: 100%; 
+          max-width: 100%; 
+          border-spacing: 0; 
+          box-sizing: border-box;
+          margin: 0 auto;
+        }
+        .quotation-table th, .quotation-table td { 
+          border: 1px solid #000000; 
+          box-sizing: border-box; 
+          word-break: break-word; 
+          overflow-wrap: anywhere; 
+          white-space: normal; 
+          padding: 6px 4px;
+          font-size: 10px;
+        }
+        .quotation-table thead th { 
+          background: #0E3646; 
+          color: #ffffff; 
+        }
+        .quotation-table thead th:last-child,
+        .quotation-table tbody td:last-child {
+          background: #ffffff;
+          color: #000000;
+        }
+        .quotation-table thead th:last-child {
+          border-top: 1px solid #ffffff;
+          border-right: 1px solid #ffffff;
+          border-bottom: 1px solid #ffffff;
+          border-left: 1px solid #000000;
+        }
+        .quotation-table tbody td:last-child {
+          border-top: 1px solid #ffffff;
+          border-right: 1px solid #ffffff;
+          border-bottom: 1px solid #ffffff;
+          border-left: 1px solid #000000;
+        }
+        @media print {
+          .quotation-table {
+            width: 100%;
+            max-width: 100%;
+          }
+          .quotation-table thead th:last-child,
+          .quotation-table tbody td:last-child {
+            background: #ffffff !important;
+            color: #000000 !important;
+          }
+          .quotation-table thead th:last-child {
+            border-top: 1px solid #ffffff !important;
+            border-right: 1px solid #ffffff !important;
+            border-bottom: 1px solid #ffffff !important;
+            border-left: 1px solid #000000 !important;
+          }
+          .quotation-table tbody td:last-child {
+            border-top: 1px solid #ffffff !important;
+            border-right: 1px solid #ffffff !important;
+            border-bottom: 1px solid #ffffff !important;
+            border-left: 1px solid #000000 !important;
+          }
+        }
+      `}</style>
+      <div className="card print:hidden">
+        <div className="card-header bg-brand text-white rounded-t-lg">
+          <div className="flex justify-between items-center text-white">
+            <div>
+              <h1 className="text-2xl font-bold dark:text-brand-300">
+                {isEdit ? "Edit Invoice" : "New Invoice"}
+              </h1>
+              <p className="text-sm mt-1">Create and manage sales invoices</p>
+            </div>
+            <div className="flex gap-2 items-center">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await ensureTaxComponentsLoaded();
+                  } catch {}
+                  try {
+                    const used = await printUsingInvoiceTemplate();
+                    if (!used) window.print();
+                  } catch {
+                    window.print();
+                  }
+                }}
+                className="btn-secondary"
+                title="Print"
+              >
+                <Printer className="w-4 h-4 inline mr-1" />
+                Print
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const used = await downloadPdfUsingInvoiceTemplate();
+                    if (used) return;
+                  } catch {}
+                  const el = pdfRef.current;
+                  if (!el) return;
+                  const original = el.style.cssText;
+                  el.style.cssText =
+                    original +
+                    ";position:fixed;left:-10000px;top:0;display:block;z-index:-1;background:white;width:794px;padding:32px;";
+                  try {
+                    const canvas = await html2canvas(el, {
+                      scale: 2,
+                      useCORS: true,
+                    });
+                    const imgData = canvas.toDataURL("image/png");
+                    const pdf = new jsPDF("p", "mm", "a4");
+                    const pageWidth = pdf.internal.pageSize.getWidth();
+                    const pageHeight = pdf.internal.pageSize.getHeight();
+                    const imgWidth = pageWidth;
+                    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                    let rendered = 0;
+                    while (rendered < imgHeight) {
+                      pdf.addImage(
+                        imgData,
+                        "PNG",
+                        0,
+                        -rendered,
+                        imgWidth,
+                        imgHeight,
+                      );
+                      rendered += pageHeight;
+                      if (rendered < imgHeight) pdf.addPage();
+                    }
+                    const fname =
+                      "Invoice_" +
+                      (form.invoice_no ||
+                        new Date().toISOString().slice(0, 10)) +
+                      ".pdf";
+                    pdf.save(fname);
+                  } finally {
+                    el.style.cssText = original;
+                  }
+                }}
+                className="btn-secondary"
+                title="Download PDF"
+              >
+                <Download className="w-4 h-4 inline mr-1" />
+                Download PDF
+              </button>
+              <Link to="/sales/invoices" className="btn-success">
+                Back
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <form onSubmit={submit} className="print:hidden">
+        <div className="card">
+          <div className="card-body space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="label">Invoice #</label>
+                <input
+                  className="input bg-gray-50"
+                  value={form.invoice_no}
+                  onChange={(e) => update("invoice_no", e.target.value)}
+                  placeholder="Auto-generated"
+                  readOnly={!isEdit && !form.invoice_no}
+                  disabled={readOnly}
+                />
+              </div>
+              <div>
+                <label className="label">Invoice Date *</label>
+                <input
+                  className="input"
+                  type="date"
+                  value={form.invoice_date}
+                  onChange={(e) => update("invoice_date", e.target.value)}
+                  required
+                  disabled={readOnly}
+                />
+              </div>
+              <div>
+                <label className="label">Customer *</label>
+                <select
+                  className="input"
+                  value={form.customer_id}
+                  onChange={(e) => update("customer_id", e.target.value)}
+                  required
+                  disabled={readOnly}
+                >
+                  <option value="">Select Customer</option>
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.customer_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">Warehouse</label>
+                <select
+                  className="input"
+                  value={form.warehouse_id}
+                  onChange={(e) => update("warehouse_id", e.target.value)}
+                  required
+                  disabled={readOnly}
+                >
+                  <option value="">Select Warehouse</option>
+                  {warehouses.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.warehouse_code} - {w.warehouse_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">Sales Order</label>
+                <select
+                  className="input"
+                  value={form.sales_order_id}
+                  onChange={(e) => update("sales_order_id", e.target.value)}
+                  disabled={readOnly}
+                >
+                  <option value="">Select Sales Order (Optional)</option>
+                  {orders.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.order_no}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">Price Type</label>
+                <select
+                  className="input"
+                  value={form.price_type}
+                  onChange={(e) => update("price_type", e.target.value)}
+                  disabled={readOnly}
+                >
+                  <option value="RETAIL">Retail</option>
+                  <option value="WHOLESALE">Wholesale</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Payment Type</label>
+                <select
+                  className="input"
+                  value={form.payment_type}
+                  onChange={(e) => update("payment_type", e.target.value)}
+                  disabled={readOnly}
+                >
+                  <option value="CASH">Cash</option>
+                  <option value="CHEQUE">Cheque</option>
+                  <option value="CREDIT">Credit</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Currency</label>
+                <select
+                  className="input"
+                  value={form.currency_id}
+                  onChange={(e) => update("currency_id", e.target.value)}
+                  disabled={readOnly}
+                >
+                  <option value="">Select Currency</option>
+                  {currencies.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.code} - {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">City</label>
+                <input
+                  className="input bg-gray-50"
+                  value={form.city}
+                  onChange={(e) => update("city", e.target.value)}
+                  placeholder="Auto"
+                  readOnly
+                />
+              </div>
+              <div>
+                <label className="label">State</label>
+                <input
+                  className="input bg-gray-50"
+                  value={form.state}
+                  onChange={(e) => update("state", e.target.value)}
+                  placeholder="Auto"
+                  readOnly
+                />
+              </div>
+              <div>
+                <label className="label">Country</label>
+                <input
+                  className="input bg-gray-50"
+                  value={form.country}
+                  onChange={(e) => update("country", e.target.value)}
+                  placeholder="Auto"
+                  readOnly
+                />
+              </div>
+              <div>
+                <label className="label">Phone</label>
+                <input
+                  className="input bg-gray-50"
+                  value={form.phone}
+                  onChange={(e) => update("phone", e.target.value)}
+                  placeholder="Auto"
+                  readOnly
+                />
+              </div>
+            </div>
+
+            <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+              <div className="flex justify-between items-center mb-3">
+                <div className="font-semibold">Invoice Items</div>
+              </div>
+              <div className="bg-gray-50 p-4 rounded-lg mb-6 border border-gray-200">
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-3">
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Item *
+                    </label>
+                    <select
+                      name="item_id"
+                      value={newItem.item_id}
+                      onChange={handleNewItemChange}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                    >
+                      <option value="">Select Item</option>
+                      {itemsCatalog.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.item_code} - {p.item_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Qty *
+                    </label>
+                    <input
+                      type="number"
+                      name="qty"
+                      value={newItem.qty === "" ? "" : newItem.qty}
+                      onChange={handleNewItemChange}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                      min="1"
+                      step="1"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Available
+                    </label>
+                    <input
+                      type="text"
+                      value={
+                        form.warehouse_id
+                          ? Number(newItem.available_qty || 0).toFixed(2)
+                          : ""
+                      }
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-50"
+                      readOnly
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Price *
+                    </label>
+                    <input
+                      type="number"
+                      name="unit_price"
+                      value={
+                        newItem.unit_price === "" ? "" : newItem.unit_price
+                      }
+                      onChange={handleNewItemChange}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                      step="1"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Disc %
+                    </label>
+                    <input
+                      type="number"
+                      name="discount_percent"
+                      value={
+                        newItem.discount_percent === ""
+                          ? ""
+                          : newItem.discount_percent
+                      }
+                      onChange={handleNewItemChange}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                      min="0"
+                      max="100"
+                      step="1"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Tax
+                    </label>
+                    <select
+                      name="tax_type"
+                      value={newItem.tax_type}
+                      onChange={handleNewItemChange}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                    >
+                      {taxes.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
+                    {newItem.tax_rate !== undefined && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        Tax rate: {Number(newItem.tax_rate).toFixed(2)}%
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      onClick={addLine}
+                      className="bg-[#0E3646] text-white px-4 py-2 rounded-lg hover:bg-[#092530] flex items-center gap-2 transition-colors text-sm"
+                    >
+                      <Plus className="w-4 h-4" /> Add Item
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="overflow-x-auto rounded-lg border border-gray-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Item
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Code
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Qty
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Available
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Price
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Disc%
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Tax Code
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Net
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Tax
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Total
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Remarks
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Action
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 bg-white">
+                    {lines.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan="10"
+                          className="px-4 py-8 text-center text-gray-500"
+                        >
+                          No items added yet
+                        </td>
+                      </tr>
+                    ) : (
+                      lines.map((i, idx) => (
+                        <tr key={i.line_id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-gray-900">
+                            {canEdit ? (
+                              <select
+                                className="input w-full"
+                                value={i.item_id}
+                                onChange={(e) =>
+                                  updateLine(idx, {
+                                    item_id: Number(e.target.value),
+                                  })
+                                }
+                              >
+                                <option value="">Select Item</option>
+                                {itemsCatalog.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.item_code} - {p.item_name}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              i.item_name
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {getItemCode(i.item_id)}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {canEdit ? (
+                              <input
+                                className="input w-full"
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={i.qty === "" ? "" : i.qty}
+                                onChange={(e) =>
+                                  updateLine(idx, {
+                                    qty:
+                                      e.target.value === ""
+                                        ? ""
+                                        : Number(e.target.value),
+                                  })
+                                }
+                              />
+                            ) : (
+                              i.qty
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {form.warehouse_id
+                              ? Number(i.available_qty || 0).toFixed(2)
+                              : ""}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {canEdit ? (
+                              <input
+                                className="input w-full"
+                                type="number"
+                                step="1"
+                                value={i.unit_price === "" ? "" : i.unit_price}
+                                onChange={(e) =>
+                                  updateLine(idx, {
+                                    unit_price:
+                                      e.target.value === ""
+                                        ? ""
+                                        : Number(e.target.value),
+                                  })
+                                }
+                              />
+                            ) : (
+                              parseFloat(i.unit_price).toFixed(2)
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {canEdit ? (
+                              <input
+                                className="input w-full"
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="1"
+                                value={
+                                  i.discount_percent === ""
+                                    ? ""
+                                    : i.discount_percent || 0
+                                }
+                                onChange={(e) =>
+                                  updateLine(idx, {
+                                    discount_percent:
+                                      e.target.value === ""
+                                        ? ""
+                                        : Number(e.target.value),
+                                  })
+                                }
+                              />
+                            ) : (
+                              parseFloat(i.discount_percent || 0).toFixed(2)
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {canEdit ? (
+                              <select
+                                className="input w-full"
+                                value={i.tax_type}
+                                onChange={(e) =>
+                                  updateLine(idx, { tax_type: e.target.value })
+                                }
+                              >
+                                {taxes.map((t) => (
+                                  <option key={t.value} value={t.value}>
+                                    {t.label}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              taxes.find(
+                                (t) => String(t.value) === String(i.tax_type),
+                              )?.label || ""
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {Number(i.net || 0).toFixed(2)}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {Number(i.taxAmt || 0).toFixed(2)}
+                          </td>
+                          <td className="px-4 py-3 font-medium text-gray-900">
+                            {Number(i.total || 0).toFixed(2)}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {canEdit ? (
+                              <input
+                                className="input w-full"
+                                type="text"
+                                value={i.remarks || ""}
+                                onChange={(e) =>
+                                  updateLine(idx, { remarks: e.target.value })
+                                }
+                              />
+                            ) : (
+                              i.remarks || ""
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => removeLine(i.line_id)}
+                                className="text-red-600 hover:text-red-900 transition-colors"
+                              >
+                                Discard
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  <tfoot className="bg-gray-50">
+                    <tr>
+                      <td
+                        colSpan="6"
+                        className="px-4 py-3 text-right font-semibold text-gray-700"
+                      >
+                        Totals:
+                      </td>
+                      <td className="px-4 py-3 font-bold text-gray-900">
+                        {calcGrandTotal().sub.toFixed(2)}
+                      </td>
+                      <td className="px-4 py-3 font-bold text-gray-900">
+                        {calcGrandTotal().tax.toFixed(2)}
+                      </td>
+                      <td className="px-4 py-3 font-bold text-gray-900">
+                        {calcGrandTotal().total.toFixed(2)}
+                      </td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div />
+                <div className="space-y-2">
+                  <div className="flex justify-between font-medium">
+                    <span>Subtotal:</span>
+                    <span>{calcAggregates().grossSub.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-medium">
+                    <span>Total Discount:</span>
+                    <span>{calcAggregates().discountTotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-medium">
+                    <span>Total Tax:</span>
+                    <span>{calcAggregates().taxTotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold text-slate-900">
+                    <span>Grand Total:</span>
+                    <span>{calcAggregates().grand.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="label">Remarks / Notes</label>
+              <textarea
+                className="input"
+                rows={3}
+                value={form.remarks}
+                onChange={(e) => update("remarks", e.target.value)}
+                placeholder="Additional notes or terms..."
+                disabled={readOnly}
+              />
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Link to="/sales/invoices" className="btn-success">
+                Cancel
+              </Link>
+              {!readOnly && (
+                <button
+                  className="btn-success"
+                  type="submit"
+                  disabled={loading}
+                >
+                  {loading ? "Saving..." : "Save Invoice"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </form>
+      <div className="hidden print:block p-8 max-w-[19cm] mx-auto">
+        <div className="grid grid-cols-3 gap-4 items-start mb-4">
+          <div className="flex items-center gap-3">
+            <img
+              src={companyInfo.logoUrl || defaultLogo}
+              alt={companyInfo.name || "Company"}
+              className="w-16 h-16 object-contain border border-gray-300"
+            />
+            <div className="text-sm">
+              <div className="font-semibold text-base">
+                {companyInfo.name || "Company"}
+              </div>
+              {companyInfo.address && <div>{companyInfo.address}</div>}
+              {(companyInfo.city ||
+                companyInfo.state ||
+                companyInfo.country) && (
+                <div>
+                  {[companyInfo.city, companyInfo.state, companyInfo.country]
+                    .filter(Boolean)
+                    .join(", ")}
+                </div>
+              )}
+              <div className="flex gap-3">
+                {companyInfo.phone && <span>{companyInfo.phone}</span>}
+                {companyInfo.email && <span>{companyInfo.email}</span>}
+              </div>
+            </div>
+          </div>
+          <div className="text-center">
+            <div className="text-xl font-semibold">Invoice</div>
+          </div>
+          <div className="text-right text-sm">
+            <div>DATE: {form.invoice_date || ""}</div>
+            <div>Invoice #: {form.invoice_no || ""}</div>
+            <div>
+              Customer:{" "}
+              {customers.find((c) => String(c.id) === String(form.customer_id))
+                ?.customer_name || ""}
+            </div>
+            <div>City: {form.city || ""}</div>
+            <div>State: {form.state || ""}</div>
+            <div>Country: {form.country || ""}</div>
+            <div>Phone: {form.phone || ""}</div>
+            <div>Price Type: {form.price_type || ""}</div>
+            <div>Payment Type: {form.payment_type || ""}</div>
+            <div>
+              Currency:{" "}
+              {currencies.find((c) => String(c.id) === String(form.currency_id))
+                ?.code || ""}
+            </div>
+            <div>
+              Warehouse:{" "}
+              {warehouses.find(
+                (w) => String(w.id) === String(form.warehouse_id),
+              )?.warehouse_name || ""}
+            </div>
+            <div>Prepared by: {preparedBy || ""}</div>
+          </div>
+        </div>
+        <div className="mb-2 mx-auto">
+          <table className="quotation-table text-sm">
+            <colgroup>
+              <col style={{ width: "35%" }} />
+              <col style={{ width: "15%" }} />
+              <col style={{ width: "25%" }} />
+              <col style={{ width: "25%" }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th className="px-2 py-2 text-left">Description</th>
+                <th className="px-2 py-2 text-right">Quantity</th>
+                <th className="px-2 py-2 text-right">Unit Price</th>
+                <th className="px-2 py-2 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((i) => (
+                <tr key={i.line_id}>
+                  <td className="px-2 py-2">{i.item_name}</td>
+                  <td className="px-2 py-2 text-right">
+                    {Number(i.qty || 0).toFixed(2)}
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    {Number(i.unit_price || 0).toFixed(2)}
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    {Number(i.total || 0).toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="grid grid-cols-2 gap-6">
+          <div></div>
+          <div>
+            <div>
+              <div className="grid grid-cols-2">
+                <div className="px-2 py-1 font-medium">Subtotal</div>
+                <div className="px-2 py-1 text-right">
+                  {calcAggregates().grossSub.toFixed(2)}
+                </div>
+                <div className="px-2 py-1 font-medium">Discount</div>
+                <div className="px-2 py-1 text-right">
+                  {calcAggregates().discountTotal.toFixed(2)}
+                </div>
+                <div className="px-2 py-1 font-medium">Net Sub Total</div>
+                <div className="px-2 py-1 text-right font-semibold">
+                  {calcAggregates().netSub.toFixed(2)}
+                </div>
+                {calcAggregates().components.map((c) => (
+                  <React.Fragment key={c.name}>
+                    <div className="px-2 py-1">
+                      {c.name} [{c.rate}%]
+                    </div>
+                    <div className="px-2 py-1 text-right">
+                      {c.amount.toFixed(2)}
+                    </div>
+                  </React.Fragment>
+                ))}
+                <div className="px-2 py-1 font-semibold">Total</div>
+                <div className="px-2 py-1 text-right font-semibold">
+                  {calcAggregates().grand.toFixed(2)}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="mt-6 text-center text-sm">
+          THANK YOU FOR YOUR BUSINESS!
+        </div>
+      </div>
+      <div
+        ref={pdfRef}
+        className="hidden p-8 bg-white"
+        style={{ width: "794px", maxWidth: "794px" }}
+      >
+        <div className="grid grid-cols-3 gap-4 items-start mb-4">
+          <div className="flex items-center gap-3">
+            <img
+              src={companyInfo.logoUrl || defaultLogo}
+              alt={companyInfo.name || "Company"}
+              className="w-16 h-16 object-contain border border-gray-300"
+            />
+            <div className="text-sm">
+              <div className="font-semibold text-base">
+                {companyInfo.name || "Company"}
+              </div>
+              {companyInfo.address && <div>{companyInfo.address}</div>}
+              {(companyInfo.city ||
+                companyInfo.state ||
+                companyInfo.country) && (
+                <div>
+                  {[companyInfo.city, companyInfo.state, companyInfo.country]
+                    .filter(Boolean)
+                    .join(", ")}
+                </div>
+              )}
+              <div className="flex gap-3">
+                {companyInfo.phone && <span>{companyInfo.phone}</span>}
+                {companyInfo.email && <span>{companyInfo.email}</span>}
+              </div>
+            </div>
+          </div>
+          <div className="text-center">
+            <div className="text-xl font-semibold">Invoice</div>
+          </div>
+          <div className="text-right text-sm">
+            <div>DATE: {form.invoice_date || ""}</div>
+            <div>Invoice #: {form.invoice_no || ""}</div>
+            <div>
+              Customer:{" "}
+              {customers.find((c) => String(c.id) === String(form.customer_id))
+                ?.customer_name || ""}
+            </div>
+            <div>City: {form.city || ""}</div>
+            <div>State: {form.state || ""}</div>
+            <div>Country: {form.country || ""}</div>
+            <div>Phone: {form.phone || ""}</div>
+            <div>Price Type: {form.price_type || ""}</div>
+            <div>Payment Type: {form.payment_type || ""}</div>
+            <div>
+              Currency:{" "}
+              {currencies.find((c) => String(c.id) === String(form.currency_id))
+                ?.code || ""}
+            </div>
+            <div>
+              Warehouse:{" "}
+              {warehouses.find(
+                (w) => String(w.id) === String(form.warehouse_id),
+              )?.warehouse_name || ""}
+            </div>
+            <div>Prepared by: {preparedBy || ""}</div>
+          </div>
+        </div>
+        <div
+          className="mb-2"
+          style={{ width: "100%", overflow: "visible", margin: "0 auto" }}
+        >
+          <table
+            className="quotation-table text-sm"
+            style={{ width: "100%", tableLayout: "fixed" }}
+          >
+            <colgroup>
+              <col style={{ width: "35%" }} />
+              <col style={{ width: "15%" }} />
+              <col style={{ width: "25%" }} />
+              <col style={{ width: "25%" }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th className="px-2 py-2 text-left">Description</th>
+                <th className="px-2 py-2 text-right">Quantity</th>
+                <th className="px-2 py-2 text-right">Unit Price</th>
+                <th className="px-2 py-2 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((i) => (
+                <tr key={i.line_id}>
+                  <td className="px-2 py-2">{i.item_name}</td>
+                  <td className="px-2 py-2 text-right">
+                    {Number(i.qty || 0).toFixed(2)}
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    {Number(i.unit_price || 0).toFixed(2)}
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    {Number(i.total || 0).toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="grid grid-cols-2 gap-6">
+          <div></div>
+          <div>
+            <div>
+              <div className="grid grid-cols-2">
+                <div className="px-2 py-1 font-medium">Subtotal</div>
+                <div className="px-2 py-1 text-right">
+                  {calcAggregates().grossSub.toFixed(2)}
+                </div>
+                <div className="px-2 py-1 font-medium">Discount</div>
+                <div className="px-2 py-1 text-right">
+                  {calcAggregates().discountTotal.toFixed(2)}
+                </div>
+                <div className="px-2 py-1 font-medium">Net Sub Total</div>
+                <div className="px-2 py-1 text-right font-semibold">
+                  {calcAggregates().netSub.toFixed(2)}
+                </div>
+                {calcAggregates().components.map((c) => (
+                  <div key={c.name} className="contents">
+                    <div className="px-2 py-1">
+                      {c.name} [{c.rate}%]
+                    </div>
+                    <div className="px-2 py-1 text-right">
+                      {c.amount.toFixed(2)}
+                    </div>
+                  </div>
+                ))}
+                <div className="px-2 py-1 font-semibold">Total</div>
+                <div className="px-2 py-1 text-right font-semibold">
+                  {calcAggregates().grand.toFixed(2)}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

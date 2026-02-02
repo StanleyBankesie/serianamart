@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POS Finance Posting</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 30px;
+        }
+
+        .header-section {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-group label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .form-group input[type="date"] {
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            background: #0E3646;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.3s;
+            margin-bottom: 20px;
+        }
+
+        .btn-primary:hover {
+            background: #0a2833;
+        }
+
+        .content-wrapper {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 20px;
+        }
+
+        .table-section {
+            overflow-x: auto;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+
+        .search-box {
+            position: relative;
+            flex: 1;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 8px 35px 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .search-icon {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #999;
+        }
+
+        .select-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .select-wrapper label {
+            font-size: 13px;
+            color: #666;
+        }
+
+        .select-wrapper select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .btn-go {
+            background: #0E3646;
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .btn-actions {
+            background: white;
+            color: #333;
+            border: 1px solid #ddd;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        thead {
+            background: #0E3646;
+            color: white;
+        }
+
+        th {
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        th:first-child {
+            text-align: center;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        td:first-child {
+            text-align: center;
+            font-weight: 500;
+        }
+
+        tbody tr:hover {
+            background: #f8f9fa;
+        }
+
+        .text-right {
+            text-align: right !important;
+        }
+
+        .total-row {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+
+        .denomination-panel {
+            background: #4A9DC6;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            height: fit-content;
+        }
+
+        .denomination-panel h3 {
+            font-size: 18px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .denom-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .denom-row {
+            display: grid;
+            grid-template-columns: 1fr 80px 100px;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .denom-label {
+            font-size: 14px;
+        }
+
+        .denom-input {
+            padding: 8px;
+            border: none;
+            border-radius: 4px;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        .denom-total {
+            padding: 8px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 4px;
+            text-align: right;
+            font-size: 14px;
+        }
+
+        .grand-total {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(255,255,255,0.15);
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .post-button {
+            margin-top: 20px;
+            width: 100%;
+            background: #0E3646;
+            color: white;
+            border: none;
+            padding: 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        .post-button:hover {
+            background: #0a2833;
+        }
+
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 5px;
+            margin-top: 15px;
+            font-size: 13px;
+        }
+
+        .pagination span {
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header-section">
+            <div class="form-group">
+                <label>Voucher no.</label>
+                <input type="text" id="voucherNo" placeholder="Auto-generated">
+            </div>
+            <div class="form-group">
+                <label>Voucher Date</label>
+                <input type="date" id="voucherDate">
+            </div>
+            <div class="form-group">
+                <label>Till</label>
+                <select id="till">
+                    <option>TILL 1</option>
+                    <option>TILL 2</option>
+                    <option>TILL 3</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Warehouse</label>
+                <select id="warehouse">
+                    <option>Shop 1</option>
+                    <option>Shop 2</option>
+                    <option>Shop 3</option>
+                </select>
+            </div>
+        </div>
+
+        <button class="btn-primary" onclick="populateTransactions()">POPULATE DATA</button>
+
+        <div class="content-wrapper">
+            <div class="table-section">
+                <div class="controls">
+                    <div class="search-box">
+                        <input type="text" id="searchInput" placeholder="Search..." onkeyup="searchTable()">
+                        <span class="search-icon">🔍</span>
+                    </div>
+                    <button class="btn-go">Go</button>
+                    <div class="select-wrapper">
+                        <label>Rows</label>
+                        <select id="rowsSelect" onchange="changeRows()">
+                            <option>10</option>
+                            <option>25</option>
+                            <option selected>50</option>
+                            <option>100</option>
+                        </select>
+                    </div>
+                    <button class="btn-actions">Actions ▼</button>
+                </div>
+
+                <table id="transactionTable">
+                    <thead>
+                        <tr>
+                            <th>Sr No</th>
+                            <th>Account Name</th>
+                            <th>Credit</th>
+                            <th>Debit</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                        <tr>
+                            <td colspan="4" style="text-align: center; padding: 40px; color: #999;">
+                                Click "POPULATE DATA" to load transactions
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="pagination">
+                    <span>1 - 5</span>
+                </div>
+            </div>
+
+            <div class="denomination-panel">
+                <h3>Denomination Cash Count</h3>
+                <div class="denom-grid" id="denomGrid">
+                    <!-- Denominations will be populated here -->
+                </div>
+                <div class="grand-total">
+                    <span>TOTAL:</span>
+                    <span id="cashTotal">0.00</span>
+                </div>
+                <button class="post-button" onclick="postToFinance()">POST TO FINANCE</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const denominations = [200, 100, 50, 20, 10, 5, 2, 1, 0.50, 0.20, 0.10, 0.05];
+        
+        // Initialize page
+        document.getElementById('voucherDate').valueAsDate = new Date();
+        
+        // Create denomination inputs
+        function createDenominations() {
+            const grid = document.getElementById('denomGrid');
+            denominations.forEach((denom, idx) => {
+                const row = document.createElement('div');
+                row.className = 'denom-row';
+                row.innerHTML = `
+                    <div class="denom-label">GHS ${denom.toFixed(2)}</div>
+                    <input type="number" class="denom-input" id="denom${idx}" value="0" min="0" onchange="calculateDenominations()">
+                    <div class="denom-total" id="total${idx}">0.00</div>
+                `;
+                grid.appendChild(row);
+            });
+        }
+
+        createDenominations();
+
+        // Calculate denomination totals
+        function calculateDenominations() {
+            let grandTotal = 0;
+            denominations.forEach((denom, idx) => {
+                const count = parseFloat(document.getElementById(`denom${idx}`).value) || 0;
+                const total = denom * count;
+                document.getElementById(`total${idx}`).textContent = total.toFixed(2);
+                grandTotal += total;
+            });
+            document.getElementById('cashTotal').textContent = grandTotal.toFixed(2);
+        }
+
+        // Sample transaction data
+        function populateTransactions() {
+            const transactions = [
+                { account: 'Covid 1% On Sales', credit: 3.85, debit: 0 },
+                { account: 'Sales Account', credit: 384.62, debit: 0 },
+                { account: 'Vat On Sales 3%', credit: 11.54, debit: 0 },
+                { account: 'Cash Account Ghs', credit: 0, debit: 400.00 },
+                { account: 'ROUND OFF', credit: 0, debit: 0.01 }
+            ];
+
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            
+            let totalCredit = 0;
+            let totalDebit = 0;
+
+            transactions.forEach((trans, idx) => {
+                totalCredit += trans.credit;
+                totalDebit += trans.debit;
+                
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${idx + 1}</td>
+                    <td>${trans.account}</td>
+                    <td class="text-right">${trans.credit > 0 ? trans.credit.toFixed(2) : ''}</td>
+                    <td class="text-right">${trans.debit > 0 ? trans.debit.toFixed(2) : ''}</td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            // Add total row
+            const totalRow = document.createElement('tr');
+            totalRow.className = 'total-row';
+            totalRow.innerHTML = `
+                <td></td>
+                <td></td>
+                <td class="text-right">${totalCredit.toFixed(2)}</td>
+                <td class="text-right">${totalDebit.toFixed(2)}</td>
+            `;
+            tbody.appendChild(totalRow);
+        }
+
+        // Search functionality
+        function searchTable() {
+            const input = document.getElementById('searchInput').value.toLowerCase();
+            const rows = document.querySelectorAll('#tableBody tr:not(.total-row)');
+            
+            rows.forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = text.includes(input) ? '' : 'none';
+            });
+        }
+
+        // Change rows display
+        function changeRows() {
+            const value = document.getElementById('rowsSelect').value;
+            console.log(`Displaying ${value} rows`);
+        }
+
+        // Post to finance
+        function postToFinance() {
+            const cashTotal = document.getElementById('cashTotal').textContent;
+            const voucherNo = document.getElementById('voucherNo').value || 'Auto-generated';
+            const voucherDate = document.getElementById('voucherDate').value;
+            const till = document.getElementById('till').value;
+            const warehouse = document.getElementById('warehouse').value;
+
+            if (confirm(`Post transaction to finance?\n\nVoucher: ${voucherNo}\nDate: ${voucherDate}\nTill: ${till}\nWarehouse: ${warehouse}\nCash Total: GHS ${cashTotal}`)) {
+                alert('Transaction posted to finance successfully!');
+                
+                // Reset form
+                document.getElementById('voucherNo').value = '';
+                document.getElementById('tableBody').innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px; color: #999;">Click "POPULATE DATA" to load transactions</td></tr>';
+                
+                // Reset denominations
+                denominations.forEach((_, idx) => {
+                    document.getElementById(`denom${idx}`).value = '0';
+                    document.getElementById(`total${idx}`).textContent = '0.00';
+                });
+                document.getElementById('cashTotal').textContent = '0.00';
+            }
+        }
+    </script>
+</body>
+</html>

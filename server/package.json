@@ -1,0 +1,30 @@
+{
+  "name": "omnisuite-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "dev": "nodemon bootstrap.js",
+    "build": "node scripts/build.js",
+    "start": "node bootstrap.js",
+    "db:init": "node scripts/init_db.js",
+    "db:export": "node scripts/export_dump.js",
+    "db:drop-logo-columns": "node scripts/drop_company_logo_columns.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "joi": "^17.13.3",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^6.9.10",
+    "multer": "^2.0.2",
+    "mysql2": "^3.11.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
