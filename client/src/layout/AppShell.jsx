@@ -116,6 +116,18 @@ export default function AppShell() {
     return () => window.removeEventListener("appinstalled", onAppInstalled);
   }, []);
 
+  const onInstallClick = async () => {
+    try {
+      if (installPrompt?.prompt) {
+        await installPrompt.prompt();
+      } else {
+        alert(
+          "Install OmniSuite:\n\nUse your browser menu and choose “Install App” or “Add to Home Screen”.",
+        );
+      }
+    } catch {}
+  };
+
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window !== "undefined") {
       return window.matchMedia("(min-width: 768px)").matches;
@@ -354,17 +366,7 @@ export default function AppShell() {
           <button
             type="button"
             className="btn-outline px-3 py-1"
-            onClick={async () => {
-              try {
-                if (installPrompt?.prompt) {
-                  await installPrompt.prompt();
-                } else {
-                  alert(
-                    "Install OmniSuite:\n\nUse your browser menu and choose “Install App” or “Add to Home Screen”.",
-                  );
-                }
-              } catch {}
-            }}
+            onClick={onInstallClick}
             disabled={false}
             aria-disabled={false}
             title={
@@ -701,6 +703,41 @@ export default function AppShell() {
           </div>
         </main>
       </div>
+      {showInstall && (
+        <div className="fixed bottom-4 right-4 z-[60] card p-3 shadow-erp-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                Install OmniSuite
+              </div>
+              <div className="text-xs text-slate-600 dark:text-slate-400">
+                Install this app on your device
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn-primary px-3 py-1"
+              onClick={onInstallClick}
+              title={
+                installPrompt
+                  ? "Install OmniSuite"
+                  : "Use browser menu to install (Add to Home Screen)"
+              }
+            >
+              Install
+            </button>
+            <button
+              type="button"
+              className="btn-secondary px-3 py-1"
+              onClick={() => setShowInstall(false)}
+              aria-label="Dismiss"
+              title="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
