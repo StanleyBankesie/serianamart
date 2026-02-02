@@ -177,7 +177,10 @@
     }
 
     .card {
-      @apply w-full max-w-none;
+      @apply max-w-none;
+      width: calc(100% + 15px);
+      margin-left: -7.5px;
+      margin-right: -7.5px;
     }
 
     .card-header {

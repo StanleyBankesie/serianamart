@@ -12,6 +12,7 @@ import ResetPasswordPage from "./pages/ResetPasswordPage.jsx";
 import { Provider } from "react-redux";
 import { store } from "./store/store.js";
 import BranchSelectionPage from "./pages/BranchSelectionPage.jsx";
+import { PWAInstallBanner } from "./components/PWAInstallBanner.jsx";
 
 import AppShell from "./layout/AppShell.jsx";
 
@@ -25,6 +26,7 @@ export default function App() {
       <Provider store={store}>
         <ThemeProvider>
           <AuthProvider>
+            <PWAInstallBanner />
             <ToastContainer position="top-right" theme="dark" />
             <Routes>
               <Route path="/login" element={<LoginPage />} />
