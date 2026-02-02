@@ -91,7 +91,7 @@ export default function AppShell() {
   }, []);
 
   const [installPrompt, setInstallPrompt] = useState(null);
-  const [showInstall, setShowInstall] = useState(true);
+  const [showInstall, setShowInstall] = useState(false);
   useEffect(() => {
     function onBeforeInstallPrompt(e) {
       e.preventDefault();
@@ -120,10 +120,6 @@ export default function AppShell() {
     try {
       if (installPrompt?.prompt) {
         await installPrompt.prompt();
-      } else {
-        alert(
-          "Install OmniSuite:\n\nUse your browser menu and choose “Install App” or “Add to Home Screen”.",
-        );
       }
     } catch {}
   };
@@ -703,7 +699,7 @@ export default function AppShell() {
           </div>
         </main>
       </div>
-      {showInstall && (
+      {showInstall && installPrompt && (
         <div className="fixed bottom-4 right-4 z-[60] card p-3 shadow-erp-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
           <div className="flex items-center gap-3">
             <div className="flex-1">
