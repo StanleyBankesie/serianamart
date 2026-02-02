@@ -4,6 +4,7 @@ import { VitePWA } from "vite-plugin-pwa";
 import path from "path";
 
 export default defineConfig({
+  base: "./",
   plugins: [
     react(),
     VitePWA({
@@ -20,7 +21,8 @@ export default defineConfig({
         name: "OmniSuite ERP",
         short_name: "OmniSuite",
         description: "Enterprise Resource Planning system",
-        start_url: "/",
+        start_url: ".",
+        scope: ".",
         display: "standalone",
         background_color: "#0E3646",
         theme_color: "#0E3646",

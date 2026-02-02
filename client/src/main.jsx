@@ -4,6 +4,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import "antd/dist/reset.css";
 import "./styles.css";
+import iconClearUrl from "./assets/resources/OMNISUITE_ICON_CLEAR.png?url";
 
 async function clearPwaCachesOnce() {
   const key = "omnisuite_favicon_reset_v3";
@@ -28,6 +29,23 @@ async function clearPwaCachesOnce() {
 }
 
 clearPwaCachesOnce();
+
+(function setFavicons() {
+  try {
+    const head = document.head || document.getElementsByTagName("head")[0];
+    const rels = ["icon", "shortcut icon"];
+    rels.forEach((rel) => {
+      let link = document.querySelector(`link[rel="${rel}"]`);
+      if (!link) {
+        link = document.createElement("link");
+        link.setAttribute("rel", rel);
+        link.setAttribute("type", "image/png");
+        head.appendChild(link);
+      }
+      link.setAttribute("href", iconClearUrl);
+    });
+  } catch {}
+})();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
