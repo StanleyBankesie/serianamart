@@ -18,8 +18,10 @@ import AppShell from "./layout/AppShell.jsx";
 const LoadingScreen = () => null;
 
 export default function App() {
+  const base = (import.meta.env.BASE_URL || "/").replace(/\/+$/, "");
+  const basename = base.startsWith("/") ? base : "/";
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <Provider store={store}>
         <ThemeProvider>
           <AuthProvider>
