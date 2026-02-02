@@ -91,7 +91,7 @@ export default function AppShell() {
   }, []);
 
   const [installPrompt, setInstallPrompt] = useState(null);
-  const [showInstall, setShowInstall] = useState(false);
+  const [showInstall, setShowInstall] = useState(true);
   useEffect(() => {
     function onBeforeInstallPrompt(e) {
       e.preventDefault();
@@ -321,40 +321,6 @@ export default function AppShell() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100 flex flex-col">
-      {showInstall && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[70]">
-          <div className="card shadow-erp-lg">
-            <div className="card-body flex items-center gap-3">
-              <div className="text-sm font-semibold">
-                Install OmniSuite for quick access
-              </div>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={async () => {
-                  try {
-                    await installPrompt?.prompt();
-                    setShowInstall(false);
-                  } catch {
-                    setShowInstall(false);
-                  }
-                }}
-              >
-                Install
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  setShowInstall(false);
-                }}
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       <header className="flex justify-between items-center px-6 py-1 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-sm z-50 sticky top-0">
         <div className="flex items-center gap-3">
           <button
@@ -385,6 +351,30 @@ export default function AppShell() {
             Role-based + Branch-based
           </div> */}
           <ThemeToggle />
+          <button
+            type="button"
+            className="btn-outline px-3 py-1"
+            onClick={async () => {
+              try {
+                if (installPrompt?.prompt) {
+                  await installPrompt.prompt();
+                } else {
+                  alert(
+                    "Install OmniSuite:\n\nUse your browser menu and choose “Install App” or “Add to Home Screen”.",
+                  );
+                }
+              } catch {}
+            }}
+            disabled={false}
+            aria-disabled={false}
+            title={
+              installPrompt
+                ? "Install OmniSuite"
+                : "Use browser menu to install (Add to Home Screen)"
+            }
+          >
+            Install
+          </button>
 
           <div className="relative" ref={profileRef}>
             <button
