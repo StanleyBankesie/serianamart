@@ -11,8 +11,8 @@ export default defineConfig({
       registerType: "autoUpdate",
       injectRegister: "auto",
       includeAssets: [
-        "/src/assets/resources/OMNISUITE_WHITE_LOGO.png",
-        "/src/assets/resources/OMNISUITE_ICON_CLEAR.png",
+        "pwa-192x192.png",
+        "pwa-512x512.png",
       ],
       workbox: {
         maximumFileSizeToCacheInBytes: 4000000,
@@ -29,19 +29,19 @@ export default defineConfig({
         theme_color: "#0E3646",
         icons: [
           {
-            src: "/src/assets/resources/OMNISUITE_WHITE_LOGO.png",
+            src: "pwa-192x192.png",
             sizes: "192x192",
             type: "image/png",
             purpose: "any",
           },
           {
-            src: "/src/assets/resources/OMNISUITE_WHITE_LOGO.png",
+            src: "pwa-512x512.png",
             sizes: "512x512",
             type: "image/png",
             purpose: "any",
           },
           {
-            src: "/src/assets/resources/OMNISUITE_WHITE_LOGO.png",
+            src: "maskable-icon-512x512.png",
             sizes: "512x512",
             type: "image/png",
             purpose: "maskable",

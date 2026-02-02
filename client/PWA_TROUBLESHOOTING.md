@@ -5,9 +5,11 @@
 If the install banner is not visible, follow these steps to identify the issue:
 
 ### 1. Check Browser Console (F12)
+
 Open Developer Tools and look for `[PWA]` messages to diagnose issues:
 
 **Expected logs (when banner should appear):**
+
 ```
 [PWA] Service Worker active: true
 [PWA] Manifest present: true
@@ -15,6 +17,7 @@ Open Developer Tools and look for `[PWA]` messages to diagnose issues:
 ```
 
 **If beforeinstallprompt doesn't fire:**
+
 ```
 [PWA] beforeinstallprompt event not triggered. Possible reasons:
 1. App not served over HTTPS
@@ -43,11 +46,13 @@ Open Developer Tools and look for `[PWA]` messages to diagnose issues:
 The banner now includes debug mode for testing when the real beforeinstallprompt event isn't firing:
 
 **Option A: Via URL Parameter**
+
 ```
 http://localhost:5173/?pwa-debug=true
 ```
 
 **Option B: Via Browser Console**
+
 ```javascript
 localStorage.setItem("pwa-debug-mode", "true");
 location.reload();
@@ -60,22 +65,25 @@ The banner will appear with a "DEBUG MODE" badge and behave normally for testing
 ### Issue 1: Banner Not Appearing at All
 
 **Check 1: Verify the Component is Mounted**
+
 ```javascript
 // In DevTools Console
-document.querySelector('[class*="from-blue-600"]')
+document.querySelector('[class*="from-blue-600"]');
 // Should return the banner element if it exists
 ```
 
 **Check 2: Verify Manifest File**
+
 ```javascript
 // In DevTools Console
-fetch('/manifest.webmanifest')
-  .then(r => r.json())
-  .then(m => console.log('Manifest:', m))
-  .catch(e => console.error('Manifest error:', e))
+fetch("/manifest.webmanifest")
+  .then((r) => r.json())
+  .then((m) => console.log("Manifest:", m))
+  .catch((e) => console.error("Manifest error:", e));
 ```
 
 Should return:
+
 ```json
 {
   "name": "OmniSuite ERP",
@@ -90,39 +98,45 @@ Should return:
 Go to DevTools > Application > Service Workers
 
 Should show:
+
 - ✅ Service Worker registered and active
 - ✅ Status shows "activated and running"
 
 If not:
+
 ```javascript
 // In console, manually unregister and reload
-navigator.serviceWorker.getRegistrations().then(regs => {
-  regs.forEach(reg => reg.unregister());
+navigator.serviceWorker.getRegistrations().then((regs) => {
+  regs.forEach((reg) => reg.unregister());
   location.reload();
 });
 ```
 
 **Check 4: Verify Manifest Link in HTML**
+
 ```javascript
 // In DevTools Console
-document.querySelector('link[rel="manifest"]')
+document.querySelector('link[rel="manifest"]');
 // Should return: <link rel="manifest" href="/manifest.webmanifest">
 ```
 
 ### Issue 2: App Already Detected as Installed (Not PWA)
 
 The banner won't show if:
+
 - App is already installed as PWA
 - Browser is in standalone mode
 
 **To verify:**
+
 ```javascript
 // In DevTools Console
-window.matchMedia("(display-mode: standalone)").matches
+window.matchMedia("(display-mode: standalone)").matches;
 // Returns true if running as installed PWA
 ```
 
 **To test fresh install:**
+
 ```javascript
 // In DevTools Console, clear the install state:
 localStorage.removeItem("pwa-debug-mode");
@@ -130,8 +144,8 @@ localStorage.clear();
 sessionStorage.clear();
 
 // Unregister service worker
-navigator.serviceWorker.getRegistrations().then(regs => {
-  regs.forEach(reg => reg.unregister());
+navigator.serviceWorker.getRegistrations().then((regs) => {
+  regs.forEach((reg) => reg.unregister());
   location.reload();
 });
 ```
@@ -139,6 +153,7 @@ navigator.serviceWorker.getRegistrations().then(regs => {
 ### Issue 3: Browser Version Too Old
 
 Some browsers require minimum versions:
+
 - Chrome: 42+
 - Edge: 79+
 - Firefox: 58+ (Android only)
@@ -151,21 +166,23 @@ Some browsers require minimum versions:
 Go to DevTools > Application > Manifest
 
 Check for errors. Common issues:
+
 - ❌ Missing `display: "standalone"`
 - ❌ Invalid icon paths
 - ❌ Missing required fields
 - ❌ Invalid JSON syntax
 
 The vite-plugin-pwa should handle this automatically, but verify:
+
 ```javascript
 // Check manifest validity
-fetch('/manifest.webmanifest')
-  .then(r => r.json())
-  .then(m => {
-    const required = ['name', 'short_name', 'start_url', 'display', 'icons'];
-    const missing = required.filter(field => !m[field]);
-    if (missing.length) console.error('Missing fields:', missing);
-    else console.log('Manifest looks good!', m);
+fetch("/manifest.webmanifest")
+  .then((r) => r.json())
+  .then((m) => {
+    const required = ["name", "short_name", "start_url", "display", "icons"];
+    const missing = required.filter((field) => !m[field]);
+    if (missing.length) console.error("Missing fields:", missing);
+    else console.log("Manifest looks good!", m);
   });
 ```
 
@@ -214,12 +231,13 @@ location.reload();
 ```
 
 Or manually dispatch the event:
+
 ```javascript
 // Create a fake install prompt event
-const fakeEvent = new Event('beforeinstallprompt');
+const fakeEvent = new Event("beforeinstallprompt");
 fakeEvent.preventDefault = () => {};
 fakeEvent.prompt = async () => {};
-fakeEvent.userChoice = Promise.resolve({ outcome: 'accepted' });
+fakeEvent.userChoice = Promise.resolve({ outcome: "accepted" });
 
 window.dispatchEvent(fakeEvent);
 ```
@@ -229,6 +247,7 @@ window.dispatchEvent(fakeEvent);
 Use these tools to verify your PWA setup:
 
 ### Google Lighthouse (Built into DevTools)
+
 1. Open DevTools
 2. Go to Lighthouse tab
 3. Select "PWA" category
@@ -236,7 +255,9 @@ Use these tools to verify your PWA setup:
 5. Check for PWA compliance issues
 
 ### Web.dev Measure
+
 Visit: https://web.dev/measure/
+
 - Enter your app URL
 - Get detailed PWA checklist
 - See what's missing or broken
@@ -256,14 +277,14 @@ Before deploying to production:
 
 ## Common Issues & Fixes
 
-| Issue | Cause | Fix |
-|-------|-------|-----|
-| Banner not appearing | Service worker not registered | Hard refresh (Ctrl+Shift+R), clear cache, check DevTools |
-| Banner not appearing | Manifest file 404 | Verify manifest link in index.html, check manifest.webmanifest exists |
-| "Install Now" does nothing | No beforeinstallprompt event | Enable debug mode, check browser support, verify HTTPS |
-| App already installed | Running as PWA | Not an issue, banner won't show (by design) |
-| Banner dismissed, won't return | User dismissed it | Clear localStorage: `localStorage.clear()` and reload |
-| Works in dev, not in production | HTTP used instead of HTTPS | Deploy on HTTPS only |
+| Issue                           | Cause                         | Fix                                                                   |
+| ------------------------------- | ----------------------------- | --------------------------------------------------------------------- |
+| Banner not appearing            | Service worker not registered | Hard refresh (Ctrl+Shift+R), clear cache, check DevTools              |
+| Banner not appearing            | Manifest file 404             | Verify manifest link in index.html, check manifest.webmanifest exists |
+| "Install Now" does nothing      | No beforeinstallprompt event  | Enable debug mode, check browser support, verify HTTPS                |
+| App already installed           | Running as PWA                | Not an issue, banner won't show (by design)                           |
+| Banner dismissed, won't return  | User dismissed it             | Clear localStorage: `localStorage.clear()` and reload                 |
+| Works in dev, not in production | HTTP used instead of HTTPS    | Deploy on HTTPS only                                                  |
 
 ## Advanced: Custom Install Behavior
 

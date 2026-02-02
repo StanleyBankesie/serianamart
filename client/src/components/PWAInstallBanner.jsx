@@ -10,7 +10,9 @@ export function PWAInstallBanner() {
 
   // Check for debug mode in URL or localStorage
   useEffect(() => {
-    const debugParam = new URLSearchParams(window.location.search).get("pwa-debug");
+    const debugParam = new URLSearchParams(window.location.search).get(
+      "pwa-debug",
+    );
     const debugStored = localStorage.getItem("pwa-debug-mode");
     if (debugParam === "true" || debugStored === "true") {
       setIsDebugMode(true);
@@ -23,7 +25,11 @@ export function PWAInstallBanner() {
     // OR in debug mode (for testing)
     if ((isInstallable || isDebugMode) && !isInstalled) {
       setShowBanner(true);
-      console.log("[PWA] Banner visibility:", { isInstallable, isInstalled, isDebugMode });
+      console.log("[PWA] Banner visibility:", {
+        isInstallable,
+        isInstalled,
+        isDebugMode,
+      });
     }
   }, [isInstallable, isInstalled, isDebugMode]);
 
@@ -72,7 +78,11 @@ export function PWAInstallBanner() {
             <div>
               <p className="font-semibold text-sm sm:text-base">
                 Install OmniSuite
-                {isDebugMode && <span className="ml-2 text-xs bg-yellow-600 px-2 py-1 rounded">DEBUG MODE</span>}
+                {isDebugMode && (
+                  <span className="ml-2 text-xs bg-yellow-600 px-2 py-1 rounded">
+                    DEBUG MODE
+                  </span>
+                )}
               </p>
               <p className="text-xs sm:text-sm text-blue-100">
                 Get faster access and offline support. Install our app on your

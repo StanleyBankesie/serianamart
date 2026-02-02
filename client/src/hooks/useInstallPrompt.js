@@ -6,6 +6,13 @@ export function useInstallPrompt() {
   const [isInstalled, setIsInstalled] = useState(false);
 
   useEffect(() => {
+    // Log environment info for debugging
+    console.log("[PWA] Environment:", {
+      https: window.location.protocol === "https:",
+      url: window.location.href,
+      userAgent: navigator.userAgent,
+    });
+
     // Check if the app is already installed
     if (window.matchMedia("(display-mode: standalone)").matches) {
       setIsInstalled(true);
@@ -15,11 +22,34 @@ export function useInstallPrompt() {
 
     // Check if PWA requirements are met
     const checkPWASupport = async () => {
-      const hasServiceWorker =
-        "serviceWorker" in navigator && navigator.serviceWorker.controller;
+      const hasServiceWorkerAPI = "serviceWorker" in navigator;
+      const hasActiveServiceWorker = navigator.serviceWorker.controller;
       const hasManifest = document.querySelector('link[rel="manifest"]');
-      console.log("[PWA] Service Worker active:", !!navigator.serviceWorker.controller);
-      console.log("[PWA] Manifest present:", !!hasManifest);
+      const manifestHref = document.querySelector('link[rel="manifest"]')?.href;
+
+      console.log("[PWA] PWA Support Check:", {
+        serviceWorkerAPI: hasServiceWorkerAPI,
+        activeServiceWorker: !!hasActiveServiceWorker,
+        manifest: !!hasManifest,
+        manifestUrl: manifestHref,
+        httpsRequired: window.location.protocol === "https:",
+      });
+
+      // Try to fetch and validate the manifest
+      if (manifestHref) {
+        try {
+          const response = await fetch(manifestHref);
+          const manifest = await response.json();
+          console.log("[PWA] Manifest loaded:", manifest);
+          if (response.status !== 200) {
+            console.error(
+              `[PWA] Manifest returned status ${response.status} (expected 200)`,
+            );
+          }
+        } catch (error) {
+          console.error("[PWA] Failed to load manifest:", error);
+        }
+      }
     };
 
     checkPWASupport();
@@ -47,13 +77,20 @@ export function useInstallPrompt() {
     const debugTimer = setTimeout(() => {
       if (!installPrompt) {
         console.warn(
-          "[PWA] beforeinstallprompt event not triggered. Possible reasons:",
-          "1. App not served over HTTPS",
-          "2. Service Worker not registered",
-          "3. Manifest file missing or invalid",
-          "4. Browser doesn't support PWA install prompt",
-          "5. App engagement criteria not met"
+          "[PWA] beforeinstallprompt event not triggered after 3 seconds.",
         );
+        console.warn("[PWA] Common causes:");
+        console.warn("  1. ❌ App not served over HTTPS (required!)");
+        console.warn("  2. ❌ Service Worker not registered or not active");
+        console.warn("  3. ❌ Manifest file not found (404) or invalid JSON");
+        console.warn("  4. ❌ Browser doesn't support PWA install (old Safari)");
+        console.warn("  5. ❌ App engagement criteria not met (varies by browser)");
+        console.warn("");
+        console.warn("[PWA] For Plesk hosting specifically:");
+        console.warn("  • HTTPS must be enabled (Let's Encrypt is free in Plesk)");
+        console.warn("  • Rebuild and redeploy: npm run build");
+        console.warn("  • Clear all caches (browser, Plesk, service worker)");
+        console.warn("  • Check that manifest.webmanifest exists in deployed files");
       }
     }, 3000);
 
