@@ -1,15 +1,16 @@
 import React from "react";
 import ModuleDashboard from "../../../components/ModuleDashboard.jsx";
+import { api } from "../../../api/client.js";
 
 /**
  * Finance Module Home Page
  * Provides navigation to all finance features including vouchers, accounting setup, and reports
  */
 export default function FinanceHome() {
-  const stats = [
+  const [stats, setStats] = React.useState([
     {
       icon: "💰",
-      value: "$245,000",
+      value: "₵245,000",
       label: "Cash Balance",
       change: "↑ 5% this month",
       changeType: "positive",
@@ -25,13 +26,48 @@ export default function FinanceHome() {
     },
     {
       icon: "📉",
-      value: "$32,000",
+      value: "₵32,000",
       label: "Monthly Expenses",
       change: "↓ 2% vs last month",
       changeType: "positive",
       path: "/finance/reports",
     },
-  ];
+  ]);
+
+  React.useEffect(() => {
+    let mounted = true;
+    async function load() {
+      try {
+        const resp = await api.get("/bi/dashboards");
+        const cash = Number(resp?.data?.summary?.finance?.cash_balance || 0);
+        const pending = Number(
+          resp?.data?.summary?.finance?.pending_vouchers || 0,
+        );
+        const expenses = Number(
+          resp?.data?.summary?.finance?.monthly_expenses || 0,
+        );
+        if (mounted) {
+          setStats((prev) => {
+            const next = [...prev];
+            next[0] = {
+              ...next[0],
+              value: `₵${cash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            };
+            next[1] = { ...next[1], value: String(pending) };
+            next[2] = {
+              ...next[2],
+              value: `₵${expenses.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            };
+            return next;
+          });
+        }
+      } catch {}
+    }
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const sections = [
     {

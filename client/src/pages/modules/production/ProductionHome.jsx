@@ -7,13 +7,39 @@ import WorkOrderList from './work-orders/WorkOrderList.jsx';
 import WorkOrderForm from './work-orders/WorkOrderForm.jsx';
 import ProductionReports from './reports/ProductionReports.jsx';
 import ModuleDashboard from '../../../components/ModuleDashboard.jsx';
+import { api } from '../../../api/client.js';
 
 function ProductionLanding() {
-  const stats = [
+  const [stats, setStats] = React.useState([
     { icon: '🏭', value: '12', label: 'Active Work Orders', change: '3 due today', changeType: 'neutral', path: '/production/work-orders' },
     { icon: '⚙', value: '94%', label: 'Efficiency', change: '↑ 2% this week', changeType: 'positive', path: '/production/reports' },
     { icon: '🧩', value: '45', label: 'Active BOMs', change: '5 new this month', changeType: 'neutral', path: '/production/bom' }
-  ];
+  ]);
+
+  React.useEffect(() => {
+    let mounted = true;
+    async function load() {
+      try {
+        const resp = await api.get('/bi/dashboards');
+        const workOrders = Number(resp?.data?.summary?.production?.active_work_orders || 0);
+        const efficiency = Number(resp?.data?.summary?.production?.efficiency_percent || 0);
+        const boms = Number(resp?.data?.summary?.production?.active_boms || 0);
+        if (mounted) {
+          setStats((prev) => {
+            const next = [...prev];
+            next[0] = { ...next[0], value: String(workOrders) };
+            next[1] = { ...next[1], value: `${efficiency}%` };
+            next[2] = { ...next[2], value: String(boms) };
+            return next;
+          });
+        }
+      } catch {}
+    }
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const sections = [
     {

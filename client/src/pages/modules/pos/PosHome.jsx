@@ -12,10 +12,12 @@ import PosPostToFinance from "./finance/PosPostToFinance.jsx";
 import ModuleDashboard from "../../../components/ModuleDashboard.jsx";
 import api from "../../../api/client.js";
 import PosDayManagement from "./day/PosDayManagement.jsx";
+import { useAuth } from "../../../auth/AuthContext.jsx";
 
 function PosLanding() {
   const [overview, setOverview] = useState(null);
   const [now, setNow] = useState(new Date());
+  const { token } = useAuth();
 
   useEffect(() => {
     let cancelled = false;
@@ -32,14 +34,14 @@ function PosLanding() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [token]);
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
   const fmt = (n) =>
-    `$${Number(n || 0).toLocaleString(undefined, {
+    `GH₵${Number(n || 0).toLocaleString(undefined, {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}`;

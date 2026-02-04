@@ -1,6 +1,7 @@
 import React from "react";
 import { Link, Route, Routes } from "react-router-dom";
 import ModuleDashboard from "../../../components/ModuleDashboard";
+import { api } from "../../../api/client.js";
 
 import RoleList from "./roles/RoleList.jsx";
 import RoleForm from "./roles/RoleForm.jsx";
@@ -23,7 +24,7 @@ import UserPermissionAssignment from "./permissions/UserPermissionAssignment.jsx
 import SettingsPage from "./SettingsPage.jsx";
 
 function AdministrationLanding() {
-  const stats = [
+  const [stats, setStats] = React.useState([
     {
       // icon: "👥",
       value: "120",
@@ -48,7 +49,32 @@ function AdministrationLanding() {
       changeType: "neutral",
       path: "/administration/workflows",
     },
-  ];
+  ]);
+
+  React.useEffect(() => {
+    let mounted = true;
+    async function load() {
+      try {
+        const resp = await api.get("/bi/dashboards");
+        const users = Number(resp?.data?.summary?.administration?.users || 0);
+        const sessions = Number(resp?.data?.summary?.administration?.active_sessions || 0);
+        const pending = Number(resp?.data?.summary?.administration?.pending_workflows || 0);
+        if (mounted) {
+          setStats((prev) => {
+            const next = [...prev];
+            next[0] = { ...next[0], value: String(users) };
+            next[1] = { ...next[1], value: String(sessions) };
+            next[2] = { ...next[2], value: String(pending) };
+            return next;
+          });
+        }
+      } catch {}
+    }
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const sections = [
     {

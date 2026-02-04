@@ -7,13 +7,39 @@ import ReportList from './reports/ReportList.jsx';
 import ReportForm from './reports/ReportForm.jsx';
 import BiReportsPage from './reports/BiReportsPage.jsx';
 import ModuleDashboard from '../../../components/ModuleDashboard.jsx';
+import { api } from '../../../api/client.js';
 
 function BusinessIntelligenceLanding() {
-  const stats = [
+  const [stats, setStats] = React.useState([
     { icon: '📊', value: '15', label: 'Active Dashboards', change: '2 created this week', changeType: 'positive', path: '/business-intelligence/dashboards' },
     { icon: '🧾', value: '8', label: 'Scheduled Reports', change: 'Running daily', changeType: 'neutral', path: '/business-intelligence/reports' },
     { icon: '💾', value: 'Connected', label: 'Data Sources', change: 'All systems online', changeType: 'positive', path: '/business-intelligence/bi-reports' }
-  ];
+  ]);
+
+  React.useEffect(() => {
+    let mounted = true;
+    async function load() {
+      try {
+        const resp = await api.get('/bi/dashboards');
+        const dashboards = Number(resp?.data?.summary?.bi?.active_dashboards || 0);
+        const scheduled = Number(resp?.data?.summary?.bi?.scheduled_reports || 0);
+        const dataSources = String(resp?.data?.summary?.bi?.data_sources_status || '').trim();
+        if (mounted) {
+          setStats((prev) => {
+            const next = [...prev];
+            next[0] = { ...next[0], value: String(dashboards) };
+            next[1] = { ...next[1], value: String(scheduled) };
+            next[2] = { ...next[2], value: dataSources || next[2].value };
+            return next;
+          });
+        }
+      } catch {}
+    }
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const sections = [
     {

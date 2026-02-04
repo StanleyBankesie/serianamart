@@ -62,6 +62,8 @@ const SalesModuleHome = () => {
       try {
         const resp = await api.get("/bi/dashboards");
         const total = Number(resp?.data?.summary?.sales?.total || 0);
+        const openOrders = Number(resp?.data?.summary?.sales?.open_orders || 0);
+        const pendingDeliveries = Number(resp?.data?.summary?.sales?.pending_deliveries || 0);
         if (mounted) {
           setStats((prev) => {
             const next = [...prev];
@@ -70,6 +72,8 @@ const SalesModuleHome = () => {
               value: `GHS ${Number(total).toLocaleString()}`,
               label: "Total Sales (Last 30 Days)",
             };
+            next[1] = { ...next[1], value: String(openOrders) };
+            next[2] = { ...next[2], value: String(pendingDeliveries) };
             return next;
           });
         }

@@ -1,6 +1,7 @@
 import React from "react";
 import { Link, Route, Routes } from "react-router-dom";
 import ModuleDashboard from "../../../components/ModuleDashboard";
+import { api } from "../../../api/client.js";
 
 import ProjectList from "./projects/ProjectList.jsx";
 import ProjectForm from "./projects/ProjectForm.jsx";
@@ -9,7 +10,7 @@ import TaskForm from "./tasks/TaskForm.jsx";
 import ProjectReports from "./reports/ProjectReports.jsx";
 
 function ProjectManagementLanding() {
-  const stats = [
+  const [stats, setStats] = React.useState([
     {
       icon: "📁",
       value: "8",
@@ -34,7 +35,32 @@ function ProjectManagementLanding() {
       changeType: "positive",
       path: "/project-management/reports",
     },
-  ];
+  ]);
+
+  React.useEffect(() => {
+    let mounted = true;
+    async function load() {
+      try {
+        const resp = await api.get("/bi/dashboards");
+        const projects = Number(resp?.data?.summary?.projects?.active_projects || 0);
+        const tasks = Number(resp?.data?.summary?.projects?.open_tasks || 0);
+        const onTime = Number(resp?.data?.summary?.projects?.on_time_percent || 0);
+        if (mounted) {
+          setStats((prev) => {
+            const next = [...prev];
+            next[0] = { ...next[0], value: String(projects) };
+            next[1] = { ...next[1], value: String(tasks) };
+            next[2] = { ...next[2], value: `${onTime}%` };
+            return next;
+          });
+        }
+      } catch {}
+    }
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const sections = [
     {

@@ -95,10 +95,14 @@ function InventoryHomeIndex() {
       try {
         const resp = await api.get("/bi/dashboards");
         const items = Number(resp?.data?.summary?.inventory?.items || 0);
+        const reqs = Number(resp?.data?.summary?.inventory?.pending_requisitions || 0);
+        const transfers = Number(resp?.data?.summary?.inventory?.incoming_transfers || 0);
         if (mounted) {
           setStats((prev) => {
             const next = [...prev];
             next[0] = { ...next[0], value: String(items) };
+            next[1] = { ...next[1], value: String(reqs) };
+            next[2] = { ...next[2], value: String(transfers) };
             return next;
           });
         }

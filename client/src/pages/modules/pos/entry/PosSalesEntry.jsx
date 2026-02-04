@@ -488,6 +488,7 @@ export default function PosSalesEntry() {
   }, [tendered, total]);
   const cartRef = useRef(null);
   const barcodeDebounceRef = useRef(null);
+  const barcodeInputRef = useRef(null);
 
   const selectedPaymentMode = useMemo(() => {
     if (!paymentModes.length || !selectedPaymentModeId) return null;
@@ -571,6 +572,11 @@ export default function PosSalesEntry() {
     setEntryItemId(String(prod.id));
     setEntryBarcode("");
     setEntryQty(1);
+    if (barcodeInputRef.current) {
+      try {
+        barcodeInputRef.current.focus();
+      } catch {}
+    }
     if (cartRef.current) {
       try {
         cartRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -643,6 +649,11 @@ export default function PosSalesEntry() {
     setEntryItemId(String(prods[prods.length - 1].id));
     setEntryBarcode("");
     setEntryQty(1);
+    if (barcodeInputRef.current) {
+      try {
+        barcodeInputRef.current.focus();
+      } catch {}
+    }
     if (cartRef.current) {
       try {
         cartRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -824,6 +835,13 @@ export default function PosSalesEntry() {
       ),
     );
   }, [cart]);
+  useEffect(() => {
+    if (dayOpen && barcodeInputRef.current) {
+      try {
+        barcodeInputRef.current.focus();
+      } catch {}
+    }
+  }, [dayOpen]);
 
   async function checkout() {
     if (!cart.length || saving) return;
@@ -912,6 +930,11 @@ export default function PosSalesEntry() {
     setEntryItemId("");
     setEntryQty(1);
     setSaleTimestamp(null);
+    if (barcodeInputRef.current) {
+      try {
+        barcodeInputRef.current.focus();
+      } catch {}
+    }
   }
 
   async function loadReceiptSettings() {
@@ -1188,6 +1211,8 @@ export default function PosSalesEntry() {
                     placeholder="Scan or type barcode"
                     value={entryBarcode}
                     onChange={(e) => setEntryBarcode(e.target.value)}
+                    ref={barcodeInputRef}
+                    autoFocus
                     disabled={!dayOpen}
                   />
                 </div>

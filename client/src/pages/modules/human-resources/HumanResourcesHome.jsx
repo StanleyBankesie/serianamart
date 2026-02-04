@@ -40,12 +40,22 @@ function HRDashboard() {
       try {
         const resp = await api.get('/bi/dashboards');
         const employees = Number(resp?.data?.summary?.hr?.employees || 0);
+        const onLeave = Number(resp?.data?.summary?.hr?.on_leave || 0);
+        const payrollStatus = String(resp?.data?.summary?.hr?.payroll_status || '').trim();
         if (mounted) {
           setStats((prev) => {
             const next = [...prev];
             next[0] = {
               ...next[0],
               value: String(employees),
+            };
+            next[1] = {
+              ...next[1],
+              value: String(onLeave),
+            };
+            next[2] = {
+              ...next[2],
+              value: payrollStatus || next[2].value,
             };
             return next;
           });

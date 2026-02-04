@@ -9,13 +9,39 @@ import PmScheduleList from './pm-schedules/PmScheduleList.jsx';
 import PmScheduleForm from './pm-schedules/PmScheduleForm.jsx';
 import MaintenanceReports from './reports/MaintenanceReports.jsx';
 import ModuleDashboard from '../../../components/ModuleDashboard.jsx';
+import { api } from '../../../api/client.js';
 
 function MaintenanceLanding() {
-  const stats = [
+  const [stats, setStats] = React.useState([
     { icon: '🛠', value: '8', label: 'Open Work Orders', change: '2 critical', changeType: 'negative', path: '/maintenance/work-orders' },
     { icon: '🗓', value: '4', label: 'Overdue PMs', change: 'Needs attention', changeType: 'negative', path: '/maintenance/pm-schedules' },
     { icon: '🏷', value: '98%', label: 'Asset Health', change: '↑ 1% this month', changeType: 'positive', path: '/maintenance/assets' }
-  ];
+  ]);
+
+  React.useEffect(() => {
+    let mounted = true;
+    async function load() {
+      try {
+        const resp = await api.get('/bi/dashboards');
+        const openWos = Number(resp?.data?.summary?.maintenance?.open_work_orders || 0);
+        const overdue = Number(resp?.data?.summary?.maintenance?.overdue_pms || 0);
+        const health = Number(resp?.data?.summary?.maintenance?.asset_health_percent || 0);
+        if (mounted) {
+          setStats((prev) => {
+            const next = [...prev];
+            next[0] = { ...next[0], value: String(openWos) };
+            next[1] = { ...next[1], value: String(overdue) };
+            next[2] = { ...next[2], value: `${health}%` };
+            return next;
+          });
+        }
+      } catch {}
+    }
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const sections = [
     {
