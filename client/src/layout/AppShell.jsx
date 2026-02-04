@@ -625,23 +625,6 @@ export default function AppShell() {
               </span>
               Home
             </NavLink>
-            <NavLink
-              to="/dashboard"
-              className={({ isActive }) =>
-                `flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group ` +
-                (isActive
-                  ? "bg-brand-800 text-white shadow-lg border-l-4 border-primary-light"
-                  : "text-brand-200 hover:bg-brand-800 hover:text-white border-l-4 border-transparent")
-              }
-            >
-              <span
-                className="w-6 text-lg leading-none opacity-80 group-hover:opacity-100 transition-opacity"
-                aria-hidden="true"
-              >
-                📊
-              </span>
-              Dashboard
-            </NavLink>
             {modules
               .filter((m) => hasModuleAccess(m.label))
               .map((m) => (
