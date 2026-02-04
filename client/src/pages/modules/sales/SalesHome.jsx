@@ -63,7 +63,9 @@ const SalesModuleHome = () => {
         const resp = await api.get("/bi/dashboards");
         const total = Number(resp?.data?.summary?.sales?.total || 0);
         const openOrders = Number(resp?.data?.summary?.sales?.open_orders || 0);
-        const pendingDeliveries = Number(resp?.data?.summary?.sales?.pending_deliveries || 0);
+        const pendingDeliveries = Number(
+          resp?.data?.summary?.sales?.pending_deliveries || 0,
+        );
         if (mounted) {
           setStats((prev) => {
             const next = [...prev];
@@ -285,11 +287,26 @@ export default function SalesHome() {
       <Route path="/bulk-upload" element={<BulkCustomerUpload />} />
       <Route path="/reports" element={<SalesReports />} />
       <Route path="/reports/sales-return" element={<SalesReturnReportPage />} />
-      <Route path="/reports/sales-register" element={<SalesRegisterReportPage />} />
-      <Route path="/reports/delivery-register" element={<DeliveryRegisterReportPage />} />
-      <Route path="/reports/debtors-balance" element={<DebtorsBalanceReportPage />} />
-      <Route path="/reports/sales-profitability" element={<SalesProfitabilityReportPage />} />
-      <Route path="/reports/sales-tracking" element={<SalesTrackingReportPage />} />
+      <Route
+        path="/reports/sales-register"
+        element={<SalesRegisterReportPage />}
+      />
+      <Route
+        path="/reports/delivery-register"
+        element={<DeliveryRegisterReportPage />}
+      />
+      <Route
+        path="/reports/debtors-balance"
+        element={<DebtorsBalanceReportPage />}
+      />
+      <Route
+        path="/reports/sales-profitability"
+        element={<SalesProfitabilityReportPage />}
+      />
+      <Route
+        path="/reports/sales-tracking"
+        element={<SalesTrackingReportPage />}
+      />
       <Route path="/returns" element={<SalesReturnList />} />
     </Routes>
   );

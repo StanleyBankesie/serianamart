@@ -28,6 +28,8 @@ import BusinessIntelligenceHome from "../pages/modules/business-intelligence/Bus
 import logoDark from "../assets/resources/OMNISUITE_WHITE_LOGO.png";
 import logoLight from "../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { api } from "../api/client.js";
+import useOfflineQueue from "../offline/useOfflineQueue.js";
+import FloatingInstallButton from "../components/FloatingInstallButton.jsx";
 
 const modules = [
   {
@@ -71,6 +73,16 @@ const modules = [
 export default function AppShell() {
   const { user, scope, setScope, logout, hasModuleAccess } = useAuth();
   const { theme } = useTheme();
+  const { pending, failed, completed, items, lastEvent } = useOfflineQueue();
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [savedToast, setSavedToast] = useState(false);
+  useEffect(() => {
+    if (lastEvent === "queued") {
+      setSavedToast(true);
+      const t = setTimeout(() => setSavedToast(false), 3000);
+      return () => clearTimeout(t);
+    }
+  }, [lastEvent]);
 
   const [online, setOnline] = useState(
     typeof navigator !== "undefined" ? navigator.onLine !== false : true,
@@ -89,40 +101,6 @@ export default function AppShell() {
       window.removeEventListener("offline", onOffline);
     };
   }, []);
-
-  const [installPrompt, setInstallPrompt] = useState(null);
-  const [showInstall, setShowInstall] = useState(false);
-  useEffect(() => {
-    function onBeforeInstallPrompt(e) {
-      e.preventDefault();
-      try {
-        console.log("beforeinstallprompt fired");
-      } catch {}
-      setInstallPrompt(e);
-      setShowInstall(true);
-    }
-    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
-    return () =>
-      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
-  }, []);
-  useEffect(() => {
-    function onAppInstalled() {
-      try {
-        console.log("PWA appinstalled event");
-      } catch {}
-      setShowInstall(false);
-    }
-    window.addEventListener("appinstalled", onAppInstalled);
-    return () => window.removeEventListener("appinstalled", onAppInstalled);
-  }, []);
-
-  const onInstallClick = async () => {
-    try {
-      if (installPrompt?.prompt) {
-        await installPrompt.prompt();
-      }
-    } catch {}
-  };
 
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window !== "undefined") {
@@ -359,20 +337,6 @@ export default function AppShell() {
             Role-based + Branch-based
           </div> */}
           <ThemeToggle />
-          <button
-            type="button"
-            className="btn-outline px-3 py-1 hidden md:inline-flex"
-            onClick={onInstallClick}
-            disabled={false}
-            aria-disabled={false}
-            title={
-              installPrompt
-                ? "Install OmniSuite"
-                : "Use browser menu to install (Add to Home Screen)"
-            }
-          >
-            Install
-          </button>
 
           <div className="relative" ref={profileRef}>
             <button
@@ -473,10 +437,55 @@ export default function AppShell() {
           </div>
         </div>
       </header>
+      {savedToast && (
+        <div className="px-6 py-2 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 border-b border-green-300 dark:border-green-800 text-sm">
+          Saved Offline
+        </div>
+      )}
       {!online && (
         <div className="px-6 py-2 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 border-b border-yellow-300 dark:border-yellow-800 text-sm">
           Offline mode enabled. Pages and assets are cached. Actions queue for
           sync.
+        </div>
+      )}
+      {queueOpen && (
+        <div className="px-6 py-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+          <div className="text-sm">
+            Pending {pending} • Failed {failed} • Completed {completed}
+          </div>
+          <div className="mt-3">
+            <div className="grid grid-cols-1 gap-2">
+              {items.map((it) => (
+                <div
+                  key={it.id}
+                  className="flex items-center justify-between px-3 py-2 rounded border border-slate-200 dark:border-slate-800"
+                >
+                  <div className="text-xs">
+                    <span className="font-semibold">
+                      {it.method.toUpperCase()}
+                    </span>{" "}
+                    <span className="text-slate-500">{it.url}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={
+                        it.status === "pending"
+                          ? "badge bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900 dark:text-yellow-200 dark:border-yellow-800"
+                          : it.status === "failed"
+                            ? "badge bg-red-100 text-red-800 border-red-300 dark:bg-red-900 dark:text-red-200 dark:border-red-800"
+                            : "badge bg-green-100 text-green-800 border-green-300 dark:bg-green-900 dark:text-green-200 dark:border-green-800"
+                      }
+                    >
+                      {it.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {items.length === 0 && (
+                <div className="text-xs text-slate-500">No queued items</div>
+              )}
+            </div>
+          </div>
         </div>
       )}
       {contextModalOpen && (
@@ -682,41 +691,7 @@ export default function AppShell() {
           </div>
         </main>
       </div>
-      {showInstall && installPrompt && (
-        <div className="fixed bottom-4 right-4 z-[60] card p-3 shadow-erp-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-          <div className="flex items-center gap-3">
-            <div className="flex-1">
-              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                Install OmniSuite
-              </div>
-              <div className="text-xs text-slate-600 dark:text-slate-400">
-                Install this app on your device
-              </div>
-            </div>
-            <button
-              type="button"
-              className="btn-primary px-3 py-1"
-              onClick={onInstallClick}
-              title={
-                installPrompt
-                  ? "Install OmniSuite"
-                  : "Use browser menu to install (Add to Home Screen)"
-              }
-            >
-              Install
-            </button>
-            <button
-              type="button"
-              className="btn-secondary px-3 py-1"
-              onClick={() => setShowInstall(false)}
-              aria-label="Dismiss"
-              title="Dismiss"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
+      <FloatingInstallButton />
     </div>
   );
 }

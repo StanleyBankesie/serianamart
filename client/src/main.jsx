@@ -6,6 +6,14 @@ import "antd/dist/reset.css";
 import "./styles.css";
 import iconClearUrl from "./assets/resources/OMNISUITE_ICON_CLEAR.png?url";
 
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("/sw.js")
+      .catch((err) => console.error("SW registration failed:", err));
+  });
+}
+
 async function clearPwaCachesOnce() {
   const key = "omnisuite_favicon_reset_v3";
   try {

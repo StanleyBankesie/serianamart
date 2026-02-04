@@ -1,4 +1,9 @@
 import axios from "axios";
+import {
+  queueMutation,
+  startSyncEngine,
+  getQueueSnapshot,
+} from "../offline/syncEngine.js";
 
 export const api = axios.create({
   headers: {
@@ -26,6 +31,32 @@ const envBase =
 api.defaults.baseURL =
   envBase || (isLocal ? "/api" : "https://serianaserver.omnisuite-erp.com/api");
 
+startSyncEngine();
+
+api.interceptors.request.use(
+  async (config) => {
+    const method = String(config.method || "get").toLowerCase();
+    if (["post", "put", "patch", "delete"].includes(method)) {
+      if (!navigator.onLine) {
+        const queued = await queueMutation({
+          method,
+          url: config.url,
+          data: config.data,
+          headers: config.headers,
+        });
+        return Promise.reject({
+          isOfflineQueued: true,
+          queued,
+          config,
+          snapshot: getQueueSnapshot(),
+        });
+      }
+    }
+    return config;
+  },
+  (error) => Promise.reject(error),
+);
+
 // api.interceptors.request.use(
 //   (config) => {
 //     const token = localStorage.getItem("token");
@@ -51,6 +82,20 @@ api.interceptors.response.use(
     };
   },
   (error) => {
+    if (error && error.isOfflineQueued) {
+      return Promise.resolve({
+        data: {
+          queued: true,
+          offline: true,
+          id: error.queued?.id,
+          snapshot: error.snapshot,
+        },
+        status: 202,
+        statusText: "Accepted (queued)",
+        headers: {},
+        config: error.config,
+      });
+    }
     if (
       error.response?.status === 401 &&
       error.config?.headers?.Authorization
