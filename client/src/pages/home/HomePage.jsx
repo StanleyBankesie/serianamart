@@ -313,7 +313,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-slate-50/50 p-6 md:p-8 font-sans text-slate-900">
-      <div className="max-w-7xl mx-auto space-y-8">
+      <div className="max-w-7xl mx-auto space-y-8 fullbleed-sm">
         {/* Header Section */}
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-brand-900 to-brand-800 p-8 shadow-erp text-white">
           <div className="relative z-10">

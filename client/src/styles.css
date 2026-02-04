@@ -190,6 +190,13 @@
     .card-body {
       @apply px-4 py-3;
     }
+
+    .fullbleed-sm {
+      @apply max-w-none;
+      width: calc(100% + 24px);
+      margin-left: -12px;
+      margin-right: -12px;
+    }
   }
 
   @media (min-width: 768px) and (max-width: 1023px) {

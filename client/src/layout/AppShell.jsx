@@ -361,7 +361,7 @@ export default function AppShell() {
           <ThemeToggle />
           <button
             type="button"
-            className="btn-outline px-3 py-1"
+            className="btn-outline px-3 py-1 hidden md:inline-flex"
             onClick={onInstallClick}
             disabled={false}
             aria-disabled={false}

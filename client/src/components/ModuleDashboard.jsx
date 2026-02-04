@@ -42,7 +42,7 @@ const ModuleDashboard = ({
   }, [stats.length]);
 
   return (
-    <div className="p-6 space-y-8 animate-fade-in">
+    <div className="p-6 space-y-8 animate-fade-in fullbleed-sm">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-brand-900 dark:text-white tracking-tight mb-2">
