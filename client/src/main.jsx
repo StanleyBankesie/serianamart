@@ -5,14 +5,9 @@ import App from "./App.jsx";
 import "antd/dist/reset.css";
 import "./styles.css";
 import iconClearUrl from "./assets/resources/OMNISUITE_ICON_CLEAR.png?url";
+import { registerSW } from "virtual:pwa-register";
 
-if ("serviceWorker" in navigator && import.meta.env.PROD) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker
-      .register("/sw.js")
-      .catch((err) => console.error("SW registration failed:", err));
-  });
-}
+registerSW({ immediate: true });
 
 async function clearPwaCachesOnce() {
   const key = "omnisuite_favicon_reset_v3";
@@ -43,7 +38,12 @@ if (import.meta.env.DEV) {
 (function setFavicons() {
   try {
     const head = document.head || document.getElementsByTagName("head")[0];
-    const rels = ["icon", "shortcut icon", "apple-touch-icon", "apple-touch-icon-precomposed"];
+    const rels = [
+      "icon",
+      "shortcut icon",
+      "apple-touch-icon",
+      "apple-touch-icon-precomposed",
+    ];
     rels.forEach((rel) => {
       let link = document.querySelector(`link[rel="${rel}"]`);
       if (!link) {
