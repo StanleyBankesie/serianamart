@@ -6,14 +6,14 @@ import { useUoms } from "@/hooks/useUoms";
 import { useItemCategories } from "@/hooks/useItemCategories";
 import { useItemTypes } from "@/hooks/useItemTypes";
 
-export default function ItemForm() {
+export default function ItemForm({ forceNew = false, onSaved, initialValues }) {
   const { uoms, loading: uomsLoading } = useUoms();
   const { categories, loading: categoriesLoading } = useItemCategories();
   const { itemTypes, loading: itemTypesLoading } = useItemTypes();
   console.log("ItemForm mounting");
   const { id } = useParams();
   const navigate = useNavigate();
-  const isNew = id === "new";
+  const isNew = forceNew || id === "new";
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -60,18 +60,18 @@ export default function ItemForm() {
     ])
       .then(([groupsRes, accountsRes, taxesRes, currenciesRes]) => {
         setItemGroups(
-          Array.isArray(groupsRes.data?.items) ? groupsRes.data.items : []
+          Array.isArray(groupsRes.data?.items) ? groupsRes.data.items : [],
         );
         setAccounts(
-          Array.isArray(accountsRes.data?.items) ? accountsRes.data.items : []
+          Array.isArray(accountsRes.data?.items) ? accountsRes.data.items : [],
         );
         setTaxes(
-          Array.isArray(taxesRes.data?.items) ? taxesRes.data.items : []
+          Array.isArray(taxesRes.data?.items) ? taxesRes.data.items : [],
         );
         setCurrencies(
           Array.isArray(currenciesRes.data?.items)
             ? currenciesRes.data.items
-            : []
+            : [],
         );
       })
       .catch(() => {});
@@ -82,7 +82,13 @@ export default function ItemForm() {
         .get("/inventory/items/next-code")
         .then((res) => {
           if (res.data?.nextCode) {
-            setFormData((prev) => ({ ...prev, item_code: res.data.nextCode }));
+            setFormData((prev) => {
+              const base = { ...prev, item_code: res.data.nextCode };
+              if (initialValues && typeof initialValues === "object") {
+                return { ...base, ...initialValues };
+              }
+              return base;
+            });
           }
         })
         .catch(() => {});
@@ -193,12 +199,24 @@ export default function ItemForm() {
       };
 
       if (isNew) {
-        await api.post("/inventory/items", payload);
+        const res = await api.post("/inventory/items", payload);
+        if (onSaved) {
+          try {
+            onSaved(res?.data || { item: payload });
+          } catch {}
+        } else {
+          navigate("/inventory/items");
+        }
       } else {
-        await api.put(`/inventory/items/${id}`, payload);
+        const res = await api.put(`/inventory/items/${id}`, payload);
+        if (onSaved) {
+          try {
+            onSaved(res?.data || { item: payload });
+          } catch {}
+        } else {
+          navigate("/inventory/items");
+        }
       }
-
-      navigate("/inventory/items");
     } catch (e2) {
       setError(e2?.response?.data?.message || "Failed to save item");
     } finally {
@@ -347,7 +365,7 @@ export default function ItemForm() {
                         <option key={t.id} value={t.type_code}>
                           {t.type_name}
                         </option>
-                      ) : null
+                      ) : null,
                     )
                   )}
                 </select>
@@ -370,7 +388,7 @@ export default function ItemForm() {
                         <option key={c.id} value={c.id}>
                           {c.category_name}
                         </option>
-                      ) : null
+                      ) : null,
                     )
                   )}
                 </select>
@@ -414,7 +432,7 @@ export default function ItemForm() {
                       <option key={g.id} value={g.id}>
                         {g.group_name}
                       </option>
-                    ) : null
+                    ) : null,
                   )}
                 </select>
               </div>
@@ -546,7 +564,7 @@ export default function ItemForm() {
                     .filter(
                       (a) =>
                         !a.nature ||
-                        ["EXPENSE", "COST_OF_SALES"].includes(a.nature)
+                        ["EXPENSE", "COST_OF_SALES"].includes(a.nature),
                     )
                     .map((a) => (
                       <option key={a.id} value={a.id}>
@@ -582,7 +600,7 @@ export default function ItemForm() {
                         !a.group_name ||
                         a.group_name.toUpperCase().includes("INCOME") ||
                         a.group_name.toUpperCase().includes("REVENUE") ||
-                        a.group_name.toUpperCase().includes("SALES")
+                        a.group_name.toUpperCase().includes("SALES"),
                     )
                     .map((a) => (
                       <option key={a.id} value={a.id}>

@@ -4,6 +4,7 @@ import { Trash2 } from "lucide-react";
 import api from "../../../../api/client.js";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
+import ItemForm from "../../inventory/ItemForm.jsx";
 
 function FilterableSelect({
   value,
@@ -117,7 +118,7 @@ function wrapReceiptDoc(bodyHtml) {
 }
 
 export default function PosSalesEntry() {
-  const { user } = useAuth();
+  const { user, hasAccess } = useAuth();
   const [now, setNow] = useState(new Date());
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState([]);
@@ -149,6 +150,13 @@ export default function PosSalesEntry() {
   const [dayLoading, setDayLoading] = useState(true);
   const [terminalCode, setTerminalCode] = useState("");
   const [amountPaid, setAmountPaid] = useState("");
+  const [notFoundModal, setNotFoundModal] = useState({ open: false, code: "" });
+  const [noStockModal, setNoStockModal] = useState({
+    open: false,
+    itemName: "",
+  });
+  const [itemSetupModal, setItemSetupModal] = useState(false);
+  const [permissionMessage, setPermissionMessage] = useState("");
   const [companyInfo, setCompanyInfo] = useState({
     name: "",
     address: "",
@@ -535,6 +543,13 @@ export default function PosSalesEntry() {
       initialQtyOverride !== undefined ? initialQtyOverride : entryQty;
     const qty = Math.max(1, Number(sourceQty || 1));
     if (!prod || !qty) return;
+    if (Number(prod.availQty || 0) < 1) {
+      setNoStockModal({
+        open: true,
+        itemName: prod.name || prod.code || "Selected item",
+      });
+      return;
+    }
     const unitPrice = await resolveStandardPrice(
       prod.id,
       entryPriceType,
@@ -807,6 +822,8 @@ export default function PosSalesEntry() {
       barcodeDebounceRef.current = setTimeout(() => {
         addEntryToCartForProduct(match, 1);
       }, 120);
+    } else {
+      setNotFoundModal({ open: true, code: v });
     }
     return () => {
       if (barcodeDebounceRef.current) {
@@ -1139,6 +1156,40 @@ export default function PosSalesEntry() {
       }, 100);
     };
     setTimeout(handlePrint, 200);
+  }
+
+  async function reloadProducts() {
+    try {
+      const res = await api.get("/inventory/items");
+      const raw = Array.isArray(res.data?.items) ? res.data.items : [];
+      const mapped = raw
+        .filter((it) => it && it.is_active !== false)
+        .map((it) => ({
+          id: it.id,
+          name: it.item_name || "",
+          code: it.item_code || "",
+          price: Number(it.selling_price ?? 0),
+          availQty: Number(it.avail_qty ?? 0),
+          image_url: it.image_url || "",
+          barcode: it.barcode || "",
+        }));
+      setProducts(mapped);
+    } catch (e) {
+      setItemsError(e?.response?.data?.message || "Failed to load items");
+    }
+  }
+
+  function handleAddItemFromNotFound() {
+    const allowed =
+      typeof hasAccess === "function"
+        ? hasAccess("/inventory/items/new", "create")
+        : true;
+    if (!allowed) {
+      setPermissionMessage("You do not have permission");
+      return;
+    }
+    setPermissionMessage("");
+    setItemSetupModal(true);
   }
 
   return (
@@ -1556,6 +1607,93 @@ export default function PosSalesEntry() {
           </div>
         </div>
       </div>
+
+      {notFoundModal.open && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="text-xl font-bold text-red-700">Item Not Found</div>
+            <div className="mt-2 text-sm">
+              The scanned/entered code "{notFoundModal.code}" is not in the
+              system.
+            </div>
+            {permissionMessage ? (
+              <div className="mt-2 text-sm text-red-600">
+                {permissionMessage}
+              </div>
+            ) : null}
+            <div className="mt-4 flex gap-2 justify-end">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setNotFoundModal({ open: false, code: "" })}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleAddItemFromNotFound}
+              >
+                Add Item
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {itemSetupModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg w-full max-w-5xl overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div className="text-lg font-semibold">New Item Setup</div>
+              <button
+                type="button"
+                className="btn btn-sm btn-link"
+                onClick={() => setItemSetupModal(false)}
+              >
+                ✖
+              </button>
+            </div>
+            <div className="max-h-[80vh] overflow-y-auto p-4">
+              <ItemForm
+                forceNew
+                initialValues={{
+                  barcode: entryBarcode || "",
+                  item_name: "",
+                }}
+                onSaved={async () => {
+                  setItemSetupModal(false);
+                  setNotFoundModal({ open: false, code: "" });
+                  await reloadProducts();
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {noStockModal.open && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="text-xl font-bold text-amber-700">
+              No Stock Available
+            </div>
+            <div className="mt-2 text-sm">
+              There is no stock available for "{noStockModal.itemName}". Sales
+              cannot be made for this product.
+            </div>
+            <div className="mt-4 flex gap-2 justify-end">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setNoStockModal({ open: false, itemName: "" })}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">

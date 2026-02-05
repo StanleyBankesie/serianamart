@@ -19,9 +19,14 @@ export const api = axios.create({
   ],
 });
 
-const isLocal =
-  typeof window !== "undefined" &&
-  ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const origin =
+  typeof window !== "undefined" && window.location
+    ? window.location.origin
+    : "";
+const runtimeOverride =
+  typeof window !== "undefined"
+    ? window.__OMNI_API_BASE__ || localStorage.getItem("omni.apiBase") || ""
+    : "";
 const envBase =
   typeof import.meta !== "undefined" &&
   import.meta.env &&
@@ -29,7 +34,7 @@ const envBase =
     ? import.meta.env.VITE_API_BASE_URL
     : "";
 api.defaults.baseURL =
-  envBase || (isLocal ? "/api" : "https://serianaserver.omnisuite-erp.com/api");
+  runtimeOverride || envBase || (origin ? origin + "/api" : "/api");
 
 startSyncEngine();
 

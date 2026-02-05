@@ -30,8 +30,7 @@ self.addEventListener("activate", (event) => {
       await Promise.all(
         keys
           .filter(
-            (k) =>
-              ![APP_SHELL_CACHE, STATIC_CACHE, RUNTIME_CACHE].includes(k),
+            (k) => ![APP_SHELL_CACHE, STATIC_CACHE, RUNTIME_CACHE].includes(k),
           )
           .map((k) => caches.delete(k)),
       );
@@ -106,6 +105,15 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(
-    caches.match(req).then((cached) => cached || fetch(req).catch(() => cached)),
+    caches.match(req).then((cached) => {
+      if (cached) return cached;
+      return fetch(req).catch(async () => {
+        if (req.mode === "navigate") {
+          const html = await caches.match("/index.html");
+          if (html) return html;
+        }
+        return new Response("", { status: 503 });
+      });
+    }),
   );
 });

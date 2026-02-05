@@ -6,13 +6,11 @@ export default function FloatingInstallButton() {
   const { isInstallable, isInstalled, isPWASupported, handleInstall } =
     usePWAInstall();
   const [showHelp, setShowHelp] = useState(false);
-  const [visible, setVisible] = useState(false);
+  const [visible, setVisible] = useState(true);
 
   useEffect(() => {
-    const shouldShow =
-      !isInstalled && (isInstallable || (isPWASupported && !isInstalled));
-    setVisible(shouldShow);
-  }, [isInstallable, isInstalled, isPWASupported]);
+    setVisible(true);
+  }, []);
 
   if (!visible) return null;
 

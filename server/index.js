@@ -35,6 +35,10 @@ if (fs.existsSync(path.join(__dirname, ".env.local"))) {
 
 const app = express();
 
+console.log(
+  `Environment: ${process.env.NODE_ENV || "development"} | DB host: ${process.env.DB_HOST} | DB name: ${process.env.DB_NAME}`,
+);
+
 /* ---------------- CORS ---------------- */
 const allowedOrigins = [
   "http://localhost:5173",
@@ -72,6 +76,17 @@ app.use(express.static(path.join(__dirname, "public")));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* ---------------- DB ---------------- */
+try {
+  await query("SELECT 1");
+  console.log("Database connection OK");
+} catch (err) {
+  const code = String(err?.code || "");
+  const msg = String(err?.message || "");
+  console.error("Database connection failed:", code, msg);
+  console.error(
+    "Verify DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME in server/.env.local or server/.env.",
+  );
+}
 
 /* ---------------- ROUTES ---------------- */
 app.use("/api/admin", adminRoutes);

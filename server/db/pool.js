@@ -1,12 +1,32 @@
-import mysql from 'mysql2/promise';
-import dotenv from 'dotenv';
+import mysql from "mysql2/promise";
+import dotenv from "dotenv";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const env = process.env.NODE_ENV || "development";
+const baseEnv = path.join(__dirname, "..", ".env");
+const modeEnv = path.join(__dirname, "..", `.env.${env}`);
+const localEnv = path.join(__dirname, "..", ".env.local");
+const modeLocalEnv = path.join(__dirname, "..", `.env.${env}.local`);
+
+if (fs.existsSync(baseEnv)) dotenv.config({ path: baseEnv });
+if (fs.existsSync(modeEnv)) dotenv.config({ path: modeEnv, override: true });
+if (env !== "production" && fs.existsSync(localEnv)) {
+  dotenv.config({ path: localEnv, override: true });
+}
+if (fs.existsSync(modeLocalEnv)) {
+  dotenv.config({ path: modeLocalEnv, override: true });
+}
 
 function requiredEnv(name) {
   const v = process.env[name];
   if (!v) {
-    throw new Error(`Missing required env var ${name}. Create server/.env (copy from .env.example) and set it.`);
+    throw new Error(
+      `Missing required env var ${name}. Create server/.env (copy from .env.example) and set it.`,
+    );
   }
   return v;
 }
@@ -16,26 +36,31 @@ function optionalEnv(name, fallback) {
   return v === undefined ? fallback : v;
 }
 
-const DB_HOST = requiredEnv('DB_HOST');
-const DB_USER = requiredEnv('DB_USER');
-const DB_NAME = requiredEnv('DB_NAME');
-const DB_PORT = Number(optionalEnv('DB_PORT', 3306));
+const DB_HOST = requiredEnv("DB_HOST");
+const DB_USER = requiredEnv("DB_USER");
+const DB_NAME = requiredEnv("DB_NAME");
+const DB_PORT = Number(optionalEnv("DB_PORT", 3306));
 
 // Important: allow empty password ONLY if it is explicitly set to empty string in .env.
 // If DB_PASSWORD is undefined, it usually means you forgot to create server/.env.
 if (process.env.DB_PASSWORD === undefined) {
   throw new Error(
-    'DB_PASSWORD is not set. Create server/.env and set DB_PASSWORD to your MySQL password (or set it to an empty value intentionally).'
+    "DB_PASSWORD is not set. Create server/.env and set DB_PASSWORD to your MySQL password (or set it to an empty value intentionally).",
   );
 }
 
-if (process.env.DB_PASSWORD.startsWith(' ')) {
-  throw new Error('DB_PASSWORD has a leading space. Remove the space after "DB_PASSWORD=" in server/.env.');
+if (process.env.DB_PASSWORD.startsWith(" ")) {
+  throw new Error(
+    'DB_PASSWORD has a leading space. Remove the space after "DB_PASSWORD=" in server/.env.',
+  );
 }
 
-if (process.env.DB_PASSWORD.startsWith('$2a$') || process.env.DB_PASSWORD.startsWith('$2b$')) {
+if (
+  process.env.DB_PASSWORD.startsWith("$2a$") ||
+  process.env.DB_PASSWORD.startsWith("$2b$")
+) {
   throw new Error(
-    'DB_PASSWORD looks like a bcrypt hash (e.g. $2a$...). DB_PASSWORD must be your MySQL user password. Put the bcrypt hash into createAdminUser.sql, not into server/.env.'
+    "DB_PASSWORD looks like a bcrypt hash (e.g. $2a$...). DB_PASSWORD must be your MySQL user password. Put the bcrypt hash into createAdminUser.sql, not into server/.env.",
   );
 }
 

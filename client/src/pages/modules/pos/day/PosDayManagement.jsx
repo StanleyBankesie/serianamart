@@ -363,14 +363,15 @@ export default function PosDayManagement() {
       toast.warn("Complete all opening checklist items");
       return;
     }
-    if (!openData.dateTime || !openData.supervisor) {
-      toast.warn("Provide opening date/time and supervisor");
+    if (!openData.supervisor) {
+      toast.warn("Provide supervisor");
       return;
     }
     try {
+      const dtNow = toLocalInputDateTime(new Date());
       const payload = {
         terminal: terminalId,
-        openingDateTime: openData.dateTime,
+        openingDateTime: dtNow,
         openingFloat: Number(openData.float || 0),
         supervisor: openData.supervisor,
         notes: openData.notes,
@@ -452,8 +453,7 @@ export default function PosDayManagement() {
         setClosing((prev) => ({
           ...prev,
           dateTime:
-            toLocalInputDateTime(item.close_datetime || "") ||
-            closing.dateTime,
+            toLocalInputDateTime(item.close_datetime || "") || closing.dateTime,
           actualCash:
             item.actual_cash === null || item.actual_cash === undefined
               ? String(closing.actualCash || "")
@@ -799,11 +799,9 @@ export default function PosDayManagement() {
                     <input
                       type="datetime-local"
                       className="input"
-                      value={openData.dateTime}
-                      onChange={(e) =>
-                        setOpenData((p) => ({ ...p, dateTime: e.target.value }))
-                      }
-                      required
+                    value={toLocalInputDateTime(now)}
+                    readOnly
+                    disabled
                     />
                   </div>
                   <div>
