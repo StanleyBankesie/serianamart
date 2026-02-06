@@ -311,6 +311,18 @@ export default function HomePage() {
     },
   ];
 
+  const approvedNotifications = useMemo(
+    () =>
+      notifications.filter((n) =>
+        String(n?.message || "")
+          .toLowerCase()
+          .includes("approved"),
+      ),
+    [notifications],
+  );
+  const [showApprovedDetails, setShowApprovedDetails] = useState(false);
+  const [showPendingDetails, setShowPendingDetails] = useState(false);
+
   return (
     <div className="min-h-screen bg-slate-50/50 p-6 md:p-8 font-sans text-slate-900">
       <div className="max-w-7xl mx-auto space-y-8 fullbleed-sm">
@@ -470,55 +482,138 @@ export default function HomePage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Notifications Card */}
+              {/* Notifications Card (Subsections only) */}
               <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100">
                 <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
                   <span className="text-brand-500">🔔</span> Notifications
                 </h2>
-                {notifications.length > 0 ? (
-                  <div className="space-y-3">
-                    {notifications.slice(0, 5).map((note, idx) => (
-                      <div
-                        key={idx}
-                        className="flex gap-3 items-start p-2 hover:bg-slate-50 rounded-lg transition-colors"
-                      >
-                        <div className="mt-1 w-2 h-2 rounded-full bg-brand-500 shrink-0" />
-                        <div className="flex-1">
-                          <p className="text-sm text-slate-800 leading-snug">
-                            {note.message}
-                          </p>
-                          <p className="text-xs text-slate-400 mt-1">
-                            {note.date || "Just now"}
-                          </p>
-                        </div>
-                        <div className="ml-auto flex items-center gap-2">
-                          {extractInstanceIdFromLink(note.link) ? (
-                            <button
-                              onClick={() =>
-                                openApprovalModal(
-                                  extractInstanceIdFromLink(note.link),
-                                )
-                              }
-                              className="px-3 py-1 text-xs font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-md transition-colors"
-                            >
-                              Pending Approval
-                            </button>
-                          ) : null}
-                          <button
-                            onClick={() => markNotificationRead(note.id)}
-                            className="px-3 py-1 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
-                          >
-                            Mark Read
-                          </button>
-                        </div>
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-slate-200 p-4 flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-bold text-slate-800">
+                        Approved Documents
                       </div>
-                    ))}
+                      <div className="text-xs text-slate-500">
+                        {approvedNotifications.length} Approved
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setShowApprovedDetails((v) => !v)}
+                    >
+                      View Details
+                    </button>
                   </div>
-                ) : (
-                  <div className="text-center py-6 text-slate-500 text-sm">
-                    No new notifications.
+                  {showApprovedDetails && (
+                    <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+                      {approvedNotifications.length === 0 ? (
+                        <div className="p-3 text-sm text-slate-500">
+                          No approved documents found.
+                        </div>
+                      ) : (
+                        approvedNotifications.slice(0, 10).map((note) => (
+                          <div
+                            key={note.id}
+                            className="p-3 flex items-start gap-3 hover:bg-slate-50 transition-colors"
+                          >
+                            <div className="w-8 h-8 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-sm font-bold">
+                              ✓
+                            </div>
+                            <div className="flex-1">
+                              <div className="text-sm font-medium text-slate-900">
+                                {note.message}
+                              </div>
+                              <div className="text-xs text-slate-500">
+                                {note.date || "Just now"}
+                              </div>
+                            </div>
+                            {extractInstanceIdFromLink(note.link) ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  navigate(
+                                    `/administration/workflows/approvals/${extractInstanceIdFromLink(
+                                      note.link,
+                                    )}`,
+                                  )
+                                }
+                                className="px-3 py-1 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
+                              >
+                                View
+                              </button>
+                            ) : null}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+
+                  <div className="rounded-lg border border-slate-200 p-4 flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-bold text-slate-800">
+                        Pending Documents
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {uniquePending.length} Pending
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setShowPendingDetails((v) => !v)}
+                    >
+                      View Details
+                    </button>
                   </div>
-                )}
+                  {showPendingDetails && (
+                    <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+                      {uniquePending.length === 0 ? (
+                        <div className="p-3 text-sm text-slate-500">
+                          No pending documents found.
+                        </div>
+                      ) : (
+                        uniquePending.slice(0, 10).map((item) => (
+                          <div
+                            key={item.workflow_instance_id}
+                            className="p-3 flex items-start justify-between hover:bg-slate-50 transition-colors"
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="w-8 h-8 rounded-full bg-yellow-100 text-yellow-700 flex items-center justify-center text-sm font-bold">
+                                !
+                              </div>
+                              <div>
+                                <div className="text-sm font-medium text-slate-900">
+                                  {docLabel(item)}
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                  {item.submitted_at
+                                    ? new Date(
+                                        item.submitted_at,
+                                      ).toLocaleString()
+                                    : "Just now"}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  navigate(
+                                    `/administration/workflows/approvals/${item.workflow_instance_id}`,
+                                  )
+                                }
+                                className="px-3 py-1 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
+                              >
+                                View
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Recent Activity / System Status (Industry Standard Filler) */}

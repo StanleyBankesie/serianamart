@@ -9,51 +9,8 @@ import * as workflowController from "../controllers/workflow.controller.js";
 const router = express.Router();
 
 // ==========================================
-// WORKFLOW DEFINITIONS (CRUD)
-// ==========================================
-
-// List Workflows
-router.get(
-  "/",
-  requireAuth,
-  requireCompanyScope,
-  workflowController.listWorkflows,
-);
-
-// Get Workflow Detail
-router.get(
-  "/:id",
-  requireAuth,
-  requireCompanyScope,
-  workflowController.getWorkflow,
-);
-
-// Create Workflow
-router.post(
-  "/",
-  requireAuth,
-  requireCompanyScope,
-  workflowController.createWorkflow,
-);
-
-// Update Workflow
-router.put(
-  "/:id",
-  requireAuth,
-  requireCompanyScope,
-  workflowController.updateWorkflow,
-);
-
-// Delete Workflow
-router.delete(
-  "/:id",
-  requireAuth,
-  requireCompanyScope,
-  workflowController.deleteWorkflow,
-);
-
-// ==========================================
 // WORKFLOW EXECUTION & NOTIFICATIONS
+// (Specific routes MUST be defined before generic /:id routes)
 // ==========================================
 
 // Start Workflow for a Document
@@ -101,6 +58,50 @@ router.post(
   requireAuth,
   requireCompanyScope,
   workflowController.performAction,
+);
+
+// ==========================================
+// WORKFLOW DEFINITIONS (CRUD)
+// ==========================================
+
+// List Workflows
+router.get(
+  "/",
+  requireAuth,
+  requireCompanyScope,
+  workflowController.listWorkflows,
+);
+
+// Create Workflow
+router.post(
+  "/",
+  requireAuth,
+  requireCompanyScope,
+  workflowController.createWorkflow,
+);
+
+// Update Workflow
+router.put(
+  "/:id",
+  requireAuth,
+  requireCompanyScope,
+  workflowController.updateWorkflow,
+);
+
+// Delete Workflow
+router.delete(
+  "/:id",
+  requireAuth,
+  requireCompanyScope,
+  workflowController.deleteWorkflow,
+);
+
+// Get Workflow Detail (Wildcard - MUST BE LAST GET)
+router.get(
+  "/:id",
+  requireAuth,
+  requireCompanyScope,
+  workflowController.getWorkflow,
 );
 
 export default router;

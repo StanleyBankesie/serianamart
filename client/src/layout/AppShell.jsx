@@ -691,7 +691,7 @@ export default function AppShell() {
           </div>
         </main>
       </div>
-      <FloatingInstallButton />
+      {/* <FloatingInstallButton /> */}
     </div>
   );
 }
