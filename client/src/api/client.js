@@ -22,13 +22,21 @@ export const api = axios.create({
 const isLocal =
   typeof window !== "undefined" &&
   ["localhost", "127.0.0.1"].includes(window.location.hostname);
-const envBase =
+const rawBase =
   typeof import.meta !== "undefined" &&
   import.meta.env &&
   import.meta.env.VITE_API_BASE_URL
-    ? import.meta.env.VITE_API_BASE_URL
+    ? String(import.meta.env.VITE_API_BASE_URL).trim()
     : "";
-api.defaults.baseURL = envBase || "/api";
+let normalizedBase = rawBase;
+if (normalizedBase) {
+  if (!/^https?:\/\//i.test(normalizedBase)) {
+    normalizedBase = normalizedBase.startsWith("/")
+      ? normalizedBase
+      : `/${normalizedBase}`;
+  }
+}
+api.defaults.baseURL = normalizedBase || "/api";
 
 startSyncEngine();
 
