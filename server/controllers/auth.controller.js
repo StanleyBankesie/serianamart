@@ -188,7 +188,7 @@ export const requestPasswordResetOtp = async (req, res, next) => {
         otp_code: otp,
       },
     );
-    const subject = "Password Reset OTP";
+    const subject = "Omnisuite ERP Password Reset OTP";
     const text = `Your OTP is ${otp}. It expires in 10 minutes.`;
     const html = `<p>Your OTP is <strong>${otp}</strong>. It expires in 10 minutes.</p>`;
     const mailed = await sendMail({
