@@ -36,6 +36,15 @@ if (normalizedBase) {
       : `/${normalizedBase}`;
   }
 }
+const host =
+  typeof window !== "undefined" && window.location
+    ? String(window.location.hostname || "")
+    : "";
+if (!normalizedBase) {
+  if (/^serianamart\.omnisuite-erp\.com$/i.test(host)) {
+    normalizedBase = "https://serianaserver.omnisuite-erp.com/api";
+  }
+}
 api.defaults.baseURL = normalizedBase || "/api";
 
 startSyncEngine();
