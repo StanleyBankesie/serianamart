@@ -9,8 +9,12 @@ export default function FloatingInstallButton() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
+    // Only show if PWA is supported AND not already installed
+    // AND we either have the install prompt OR are on a browser that *might* show it
     const shouldShow =
-      !isInstalled && (isInstallable || (isPWASupported && !isInstalled));
+      isPWASupported &&
+      !isInstalled &&
+      (isInstallable || /Mobile|Android|iPad|iPhone/.test(navigator.userAgent));
     setVisible(shouldShow);
   }, [isInstallable, isInstalled, isPWASupported]);
 
@@ -22,7 +26,9 @@ export default function FloatingInstallButton() {
         <div className="card p-3 shadow-erp-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
           <div className="text-sm font-semibold">Install</div>
           <div className="text-xs text-slate-600 dark:text-slate-400">
-            Use browser menu to install if prompt does not appear.
+            {/iPad|iPhone|iPod/.test(navigator.userAgent)
+              ? "Tap Share → Add to Home Screen"
+              : "Tap menu → Install / Add to Home Screen"}
           </div>
           <div className="mt-2 flex justify-end">
             <button
@@ -41,7 +47,8 @@ export default function FloatingInstallButton() {
         aria-label="Install app"
         onClick={async () => {
           if (isInstallable) {
-            await handleInstall();
+            const accepted = await handleInstall();
+            if (!accepted) setShowHelp(true); // user dismissed prompt
           } else {
             setShowHelp(true);
             setTimeout(() => setShowHelp(false), 4000);
