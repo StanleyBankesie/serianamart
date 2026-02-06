@@ -44,6 +44,7 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
   "https://serianamart.omnisuite-erp.com",
+  "https://serianaserver.omnisuite-erp.com",
 ];
 
 app.use(
@@ -69,7 +70,10 @@ app.options("*", cors());
 app.use(express.json({ limit: "2mb" }));
 
 /* ---------------- STATIC FILES ---------------- */
-// Serve frontend (public folder)
+const clientDist = path.join(__dirname, "..", "client", "dist");
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+}
 app.use(express.static(path.join(__dirname, "public")));
 
 // Serve uploads
@@ -105,12 +109,16 @@ app.use("/api/bi", biRoutes);
 app.use("/api/", healthRoutes);
 app.use("/api", authRoutes);
 /* ---------------- ROOT ---------------- */
-// API info page (does NOT block routes)
-app.get("/", (req, res) => {
-  res.send("OmniSuite ERP API");
-});
-
-app.get("/favicon.ico", (req, res) => res.status(204).end());
+if (fs.existsSync(clientDist)) {
+  app.get(/^\/(?!api).*/, (req, res) => {
+    res.sendFile(path.join(clientDist, "index.html"));
+  });
+} else {
+  app.get("/", (req, res) => {
+    res.send("OmniSuite ERP API");
+  });
+  app.get("/favicon.ico", (req, res) => res.status(204).end());
+}
 
 /* ---------------- ERRORS ---------------- */
 app.use(notFound);
