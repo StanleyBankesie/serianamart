@@ -33,8 +33,16 @@ const envBase =
   import.meta.env.VITE_API_BASE_URL
     ? import.meta.env.VITE_API_BASE_URL
     : "";
-api.defaults.baseURL =
-  runtimeOverride || envBase || (origin ? origin + "/api" : "/api");
+if (
+  typeof import.meta !== "undefined" &&
+  import.meta.env &&
+  import.meta.env.DEV
+) {
+  api.defaults.baseURL = "/api";
+} else {
+  api.defaults.baseURL =
+    runtimeOverride || envBase || (origin ? origin + "/api" : "/api");
+}
 
 startSyncEngine();
 
