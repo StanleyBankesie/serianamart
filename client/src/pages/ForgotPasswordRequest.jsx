@@ -17,7 +17,7 @@ export default function ForgotPasswordRequest() {
     setError(null);
     setLoading(true);
     try {
-      await api.post("/auth/forgot-password/request-otp", {
+      await api.post("/forgot-password/request-otp", {
         username,
         email,
       });

@@ -10,6 +10,7 @@ import UserForm from "./users/UserForm.jsx";
 import WorkflowList from "./workflows/WorkflowList.jsx";
 import WorkflowForm from "./workflows/WorkflowForm.jsx";
 import MyApprovals from "./workflows/MyApprovals.jsx";
+import ApprovedDocuments from "./workflows/ApprovedDocuments.jsx";
 import DocumentReview from "./workflows/DocumentReview.jsx";
 import ExceptionalPermissionList from "./exceptional-permissions/ExceptionalPermissionList.jsx";
 import ExceptionalPermissionForm from "./exceptional-permissions/ExceptionalPermissionForm.jsx";
@@ -270,6 +271,7 @@ export default function AdministrationHome() {
       <Route path="/workflows/new" element={<WorkflowForm />} />
       <Route path="/workflows/:id" element={<WorkflowForm />} />
       <Route path="/workflows/approvals" element={<MyApprovals />} />
+      <Route path="/workflows/approved" element={<ApprovedDocuments />} />
       <Route
         path="/workflows/approvals/:instanceId"
         element={<DocumentReview />}

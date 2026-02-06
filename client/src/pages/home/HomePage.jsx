@@ -320,8 +320,6 @@ export default function HomePage() {
       ),
     [notifications],
   );
-  const [showApprovedDetails, setShowApprovedDetails] = useState(false);
-  const [showPendingDetails, setShowPendingDetails] = useState(false);
 
   return (
     <div className="min-h-screen bg-slate-50/50 p-6 md:p-8 font-sans text-slate-900">
@@ -482,7 +480,6 @@ export default function HomePage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Notifications Card (Subsections only) */}
               <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100">
                 <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
                   <span className="text-brand-500">🔔</span> Notifications
@@ -500,54 +497,13 @@ export default function HomePage() {
                     <button
                       type="button"
                       className="btn-secondary"
-                      onClick={() => setShowApprovedDetails((v) => !v)}
+                      onClick={() =>
+                        navigate("/administration/workflows/approved")
+                      }
                     >
                       View Details
                     </button>
                   </div>
-                  {showApprovedDetails && (
-                    <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
-                      {approvedNotifications.length === 0 ? (
-                        <div className="p-3 text-sm text-slate-500">
-                          No approved documents found.
-                        </div>
-                      ) : (
-                        approvedNotifications.slice(0, 10).map((note) => (
-                          <div
-                            key={note.id}
-                            className="p-3 flex items-start gap-3 hover:bg-slate-50 transition-colors"
-                          >
-                            <div className="w-8 h-8 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-sm font-bold">
-                              ✓
-                            </div>
-                            <div className="flex-1">
-                              <div className="text-sm font-medium text-slate-900">
-                                {note.message}
-                              </div>
-                              <div className="text-xs text-slate-500">
-                                {note.date || "Just now"}
-                              </div>
-                            </div>
-                            {extractInstanceIdFromLink(note.link) ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  navigate(
-                                    `/administration/workflows/approvals/${extractInstanceIdFromLink(
-                                      note.link,
-                                    )}`,
-                                  )
-                                }
-                                className="px-3 py-1 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
-                              >
-                                View
-                              </button>
-                            ) : null}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
 
                   <div className="rounded-lg border border-slate-200 p-4 flex items-center justify-between">
                     <div>
@@ -561,58 +517,13 @@ export default function HomePage() {
                     <button
                       type="button"
                       className="btn-secondary"
-                      onClick={() => setShowPendingDetails((v) => !v)}
+                      onClick={() =>
+                        navigate("/administration/workflows/approvals")
+                      }
                     >
                       View Details
                     </button>
                   </div>
-                  {showPendingDetails && (
-                    <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
-                      {uniquePending.length === 0 ? (
-                        <div className="p-3 text-sm text-slate-500">
-                          No pending documents found.
-                        </div>
-                      ) : (
-                        uniquePending.slice(0, 10).map((item) => (
-                          <div
-                            key={item.workflow_instance_id}
-                            className="p-3 flex items-start justify-between hover:bg-slate-50 transition-colors"
-                          >
-                            <div className="flex items-start gap-3">
-                              <div className="w-8 h-8 rounded-full bg-yellow-100 text-yellow-700 flex items-center justify-center text-sm font-bold">
-                                !
-                              </div>
-                              <div>
-                                <div className="text-sm font-medium text-slate-900">
-                                  {docLabel(item)}
-                                </div>
-                                <div className="text-xs text-slate-500">
-                                  {item.submitted_at
-                                    ? new Date(
-                                        item.submitted_at,
-                                      ).toLocaleString()
-                                    : "Just now"}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  navigate(
-                                    `/administration/workflows/approvals/${item.workflow_instance_id}`,
-                                  )
-                                }
-                                className="px-3 py-1 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
-                              >
-                                View
-                              </button>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
                 </div>
               </div>
 
