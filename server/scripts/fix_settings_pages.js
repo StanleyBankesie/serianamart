@@ -5,7 +5,7 @@ async function fixSettingsPages() {
     console.log("Removing old Settings pages...");
     // Delete the old Settings page entry
     await query(
-      "DELETE FROM adm_pages WHERE path = '/administration/settings' AND name = 'Settings'"
+      "DELETE FROM adm_pages WHERE path = '/administration/settings' AND name = 'Settings'",
     );
     console.log("Deleted old Settings page");
 
@@ -47,7 +47,7 @@ async function fixSettingsPages() {
       try {
         await query(
           "INSERT IGNORE INTO adm_pages (module, name, code, path) VALUES (:module, :name, :code, :path)",
-          page
+          page,
         );
         console.log(`Inserted page: ${page.name}`);
       } catch (err) {

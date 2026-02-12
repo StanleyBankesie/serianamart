@@ -1365,7 +1365,6 @@ const logoUpload = multer({
 
 router.get("/me", requireAuth, requireCompanyScope, requireBranchScope, getMe);
 
-
 // ===== COMPANIES =====
 
 router.get(
