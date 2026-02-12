@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
+import UnitConversionModal from "@/components/UnitConversionModal";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import jsPDF from "jspdf";
@@ -52,7 +53,15 @@ export default function PurchaseOrdersImportForm() {
   const [currencies, setCurrencies] = useState([]);
   const [standardPrices, setStandardPrices] = useState([]);
   const [taxes, setTaxes] = useState([]);
+  const [unitConversions, setUnitConversions] = useState([]);
   const pdfRef = useRef(null);
+  const [convModal, setConvModal] = useState({
+    open: false,
+    itemId: null,
+    defaultUom: "",
+    currentUom: "",
+    rowIdx: null,
+  });
 
   // Form State
   const [formData, setFormData] = useState({
@@ -126,12 +135,14 @@ export default function PurchaseOrdersImportForm() {
     let mounted = true;
     async function loadLookups() {
       try {
-        const [supRes, whRes, itemsRes, quotRes] = await Promise.allSettled([
-          api.get("/purchase/suppliers"),
-          api.get("/inventory/warehouses"),
-          api.get("/inventory/items"),
-          api.get("/purchase/quotations"),
-        ]);
+        const [supRes, whRes, itemsRes, quotRes, convRes] =
+          await Promise.allSettled([
+            api.get("/purchase/suppliers"),
+            api.get("/inventory/warehouses"),
+            api.get("/inventory/items"),
+            api.get("/purchase/quotations"),
+            api.get("/inventory/unit-conversions"),
+          ]);
 
         if (!mounted) return;
 
@@ -171,6 +182,13 @@ export default function PurchaseOrdersImportForm() {
                 )
               : [];
           setQuotations(filtered);
+        }
+        if (convRes.status === "fulfilled") {
+          setUnitConversions(
+            Array.isArray(convRes.value.data?.items)
+              ? convRes.value.data.items
+              : [],
+          );
         }
 
         if (supRes.status === "rejected" && quotRes.status === "fulfilled") {
@@ -605,9 +623,7 @@ export default function PurchaseOrdersImportForm() {
         try {
           const sup = suppliers.find((s) => String(s.id) === supId);
           const acctSearch =
-            (sup &&
-              sup.supplier_code &&
-              String(sup.supplier_code).trim()) ||
+            (sup && sup.supplier_code && String(sup.supplier_code).trim()) ||
             (sup ? `SU-${String(Number(sup.id || 0)).padStart(6, "0")}` : "");
           if (acctSearch) {
             const res = await api.get("/finance/accounts", {
@@ -1530,6 +1546,11 @@ export default function PurchaseOrdersImportForm() {
                 </div>
 
                 <div className="overflow-x-auto">
+                  <div className="mb-2 text-xs text-slate-600">
+                    If a unit conversion exists for the selected item and UOM,
+                    use the “number of UOM” button beside the UOM to convert
+                    quantity to the item’s default for accurate costing.
+                  </div>
                   <table className="w-full border-collapse bg-white rounded-lg overflow-hidden">
                     <thead className="bg-[#0E3646] text-white">
                       <tr>
@@ -1629,6 +1650,51 @@ export default function PurchaseOrdersImportForm() {
                                         ),
                                     )}
                                 </select>
+                                {(() => {
+                                  const it = availableItems.find(
+                                    (ai) =>
+                                      String(ai.id) === String(row.item_id),
+                                  );
+                                  const defaultUom =
+                                    (it?.uom && String(it.uom)) ||
+                                    (defaultUomCode
+                                      ? String(defaultUomCode)
+                                      : "");
+                                  const currentUom = String(row.uom || "");
+                                  const hasConversion =
+                                    Array.isArray(unitConversions) &&
+                                    unitConversions.some(
+                                      (c) =>
+                                        Number(c.is_active) &&
+                                        Number(c.item_id) ===
+                                          Number(row.item_id) &&
+                                        String(c.from_uom) === currentUom &&
+                                        String(c.to_uom) === defaultUom,
+                                    );
+                                  const showBtn =
+                                    currentUom &&
+                                    defaultUom &&
+                                    currentUom !== defaultUom &&
+                                    String(row.item_id || "") &&
+                                    hasConversion;
+                                  return showBtn ? (
+                                    <button
+                                      type="button"
+                                      className="ml-2 px-2 py-1 text-xs border border-brand text-brand rounded hover:bg-brand hover:text-white transition-colors"
+                                      onClick={() =>
+                                        setConvModal({
+                                          open: true,
+                                          itemId: row.item_id,
+                                          defaultUom: defaultUom,
+                                          currentUom: currentUom,
+                                          rowIdx: idx,
+                                        })
+                                      }
+                                    >
+                                      {`number of ${currentUom}`}
+                                    </button>
+                                  ) : null;
+                                })()}
                               </td>
                               <td className="p-3">
                                 <input
@@ -2124,6 +2190,43 @@ export default function PurchaseOrdersImportForm() {
           </div>
         </div>
       )}
+      <UnitConversionModal
+        open={convModal.open}
+        itemId={convModal.itemId}
+        defaultUom={convModal.defaultUom}
+        currentUom={convModal.currentUom}
+        onClose={() =>
+          setConvModal({
+            open: false,
+            itemId: null,
+            defaultUom: "",
+            currentUom: "",
+            rowIdx: null,
+          })
+        }
+        onApply={(payload) => {
+          const { converted_qty } = payload || {};
+          const idx = convModal.rowIdx;
+          if (idx == null) return;
+          setItems((prev) => {
+            const updated = [...prev];
+            const row = { ...updated[idx] };
+            const qty = Number(converted_qty || 0);
+            row.qty = qty;
+            row.uom = convModal.defaultUom || row.uom;
+            const price = Number(row.unit_price || 0);
+            const discPct = Number(row.discount_percent || 0);
+            const taxPct = Number(row.tax_percent || 0);
+            const base = qty * price;
+            const disc = base * (discPct / 100);
+            const taxable = base - disc;
+            const tax = taxable * (taxPct / 100);
+            row.line_total = taxable + tax;
+            updated[idx] = row;
+            return updated;
+          });
+        }}
+      />
     </div>
   );
 }

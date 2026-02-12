@@ -1,109 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { api } from "api/client";
+import { useUoms } from "@/hooks/useUoms";
+import UnitConversionModal from "@/components/UnitConversionModal";
 import { Printer, Download, Plus } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { toast } from "react-toastify";
-
-function escapeHtml(v) {
-  return String(v ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function resolvePath(obj, rawPath) {
-  const path = String(rawPath || "")
-    .trim()
-    .replace(/^\./, "");
-  if (!path) return undefined;
-  const parts = path.split(".").filter(Boolean);
-  let cur = obj;
-  for (const p of parts) {
-    if (cur == null) return undefined;
-    cur = cur[p];
-  }
-  return cur;
-}
-
-function renderTemplateString(templateHtml, data, root = data) {
-  let out = String(templateHtml ?? "");
-
-  out = out.replace(
-    /{{#each\s+([^}]+)}}([\s\S]*?){{\/each}}/g,
-    (_m, expr, inner) => {
-      const key = String(expr || "").trim();
-      const val = key.startsWith("@root.")
-        ? resolvePath(root, key.slice(6))
-        : (resolvePath(data, key) ?? resolvePath(root, key));
-      const arr = Array.isArray(val) ? val : [];
-      return arr
-        .map((item) => renderTemplateString(inner, item ?? {}, root))
-        .join("");
-    },
-  );
-
-  out = out.replace(/{{{\s*([^}]+?)\s*}}}/g, (_m, expr) => {
-    const key = String(expr || "").trim();
-    let val;
-    if (key === "this" || key === ".") val = data;
-    else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-    else val = resolvePath(data, key) ?? resolvePath(root, key);
-    return String(val ?? "");
-  });
-
-  out = out.replace(/{{\s*([^}]+?)\s*}}/g, (_m, expr) => {
-    const key = String(expr || "").trim();
-    let val;
-    if (key === "this" || key === ".") val = data;
-    else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-    else val = resolvePath(data, key) ?? resolvePath(root, key);
-    return escapeHtml(val);
-  });
-
-  return out;
-}
-
-function wrapDoc(bodyHtml) {
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Invoice</title>
-    <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 24px; color: #0f172a; background: #fff; }
-      table { border-collapse: collapse; width: 100%; }
-      th, td { border: 1px solid #e2e8f0; padding: 6px 8px; vertical-align: top; }
-      th { background: #f8fafc; text-align: left; }
-      .right { text-align: right; }
-      .center { text-align: center; }
-    </style>
-  </head>
-  <body>${bodyHtml || ""}</body>
-</html>`;
-}
-
-async function waitForImages(container) {
-  const imgs = Array.from(container.querySelectorAll("img"));
-  if (!imgs.length) return;
-  await Promise.all(
-    imgs.map(
-      (img) =>
-        new Promise((resolve) => {
-          if (img.complete) return resolve();
-          const done = () => resolve();
-          img.addEventListener("load", done, { once: true });
-          img.addEventListener("error", done, { once: true });
-        }),
-    ),
-  );
-}
 
 export default function InvoiceForm() {
   const navigate = useNavigate();
@@ -153,6 +58,7 @@ export default function InvoiceForm() {
     tax_type: "",
     tax_rate: undefined,
     remarks: "",
+    uom: "",
   });
   const pdfRef = useRef(null);
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
@@ -172,7 +78,36 @@ export default function InvoiceForm() {
   });
   const [preparedBy, setPreparedBy] = useState("");
   const [customerPrices, setCustomerPrices] = useState([]);
-  const [invoiceTemplateHtml, setInvoiceTemplateHtml] = useState(null);
+  const { uoms } = useUoms();
+  const defaultUomCode = React.useMemo(() => {
+    const list = Array.isArray(uoms) ? uoms : [];
+    const pcs =
+      list.find((u) => String(u.uom_code || "").toUpperCase() === "PCS") ||
+      list[0];
+    if (pcs && pcs.uom_code) return pcs.uom_code;
+    return "PCS";
+  }, [uoms]);
+  const [convModal, setConvModal] = useState({
+    open: false,
+    itemId: null,
+    defaultUom: "",
+    currentUom: "",
+    rowId: null,
+  });
+  const [unitConversions, setUnitConversions] = useState([]);
+
+  useEffect(() => {
+    api
+      .get("/inventory/unit-conversions")
+      .then((res) => {
+        setUnitConversions(
+          Array.isArray(res.data?.items) ? res.data.items : [],
+        );
+      })
+      .catch(() => {
+        setUnitConversions([]);
+      });
+  }, []);
 
   // Helper function to format invoice number with '-' between INV and digits
   const formatInvoiceNumber = (invoiceNo) => {
@@ -514,182 +449,7 @@ export default function InvoiceForm() {
     return origin + "/" + u;
   };
 
-  const fetchInvoiceTemplateHtml = async () => {
-    if (invoiceTemplateHtml !== null) return invoiceTemplateHtml;
-    try {
-      const res = await api.get("/admin/document-templates/INVOICE");
-      const tpl = String(res.data?.item?.template_html || "").trim();
-      setInvoiceTemplateHtml(tpl);
-      return tpl;
-    } catch {
-      setInvoiceTemplateHtml("");
-      return "";
-    }
-  };
-
-  const buildInvoiceTemplateData = () => {
-    const customer = customers.find(
-      (c) => String(c.id) === String(form.customer_id),
-    );
-    const aggregates = calcAggregates();
-    const items = (Array.isArray(lines) ? lines : []).map((l) => {
-      const qty = Number(l.qty || 0);
-      const unit = Number(l.unit_price || 0);
-      const total = Number(l.total || 0);
-      const disc = Number(l.discAmt || 0);
-      const net = Number(l.net || 0);
-      return {
-        item_name: String(l.item_name || ""),
-        qty: qty.toFixed(2),
-        unit_price: unit.toFixed(2),
-        total: total.toFixed(2),
-        discount: disc.toFixed(2),
-        net: net.toFixed(2),
-      };
-    });
-    return {
-      company: {
-        name: companyInfo.name || "Company",
-        address: companyInfo.address || "",
-        city: companyInfo.city || "",
-        state: companyInfo.state || "",
-        postalCode: companyInfo.postalCode || "",
-        country: companyInfo.country || "",
-        phone: companyInfo.phone || "",
-        email: companyInfo.email || "",
-        website: companyInfo.website || "",
-        taxId: companyInfo.taxId || "",
-        registrationNo: companyInfo.registrationNo || "",
-        logoUrl: toAbsoluteUrl(companyInfo.logoUrl || ""),
-        logoHtml: toAbsoluteUrl(companyInfo.logoUrl || "")
-          ? `<img src="${toAbsoluteUrl(companyInfo.logoUrl || "")}" alt="${String(
-              companyInfo.name || "Company",
-            )
-              .replace(/&/g, "&amp;")
-              .replace(/</g, "&lt;")
-              .replace(/>/g, "&gt;")
-              .replace(/"/g, "&quot;")
-              .replace(
-                /'/g,
-                "&#39;",
-              )}" style="max-height:80px;object-fit:contain;" />`
-          : "",
-      },
-      invoice: {
-        invoice_no: String(form.invoice_no || ""),
-        invoice_date: String(form.invoice_date || ""),
-        due_date: String(form.due_date || ""),
-        payment_type: String(form.payment_type || ""),
-        price_type: String(form.price_type || ""),
-        currency: String(
-          currencies.find((c) => String(c.id) === String(form.currency_id))
-            ?.code || "",
-        ),
-        prepared_by: String(preparedBy || ""),
-      },
-      customer: {
-        id: String(customer?.id || ""),
-        code: String(customer?.customer_code || ""),
-        name: String(customer?.customer_name || ""),
-        type: String(customer?.customer_type || ""),
-        contactPerson: String(customer?.contact_person || ""),
-        email: String(customer?.email || ""),
-        phone: String(customer?.phone || form.phone || ""),
-        mobile: String(customer?.mobile || ""),
-        address: String(customer?.address || ""),
-        city: String(customer?.city || form.city || ""),
-        state: String(customer?.state || form.state || ""),
-        zone: String(customer?.zone || ""),
-        country: String(customer?.country || form.country || ""),
-        paymentTerms: String(customer?.payment_terms || ""),
-        creditLimit: Number(customer?.credit_limit || 0).toFixed(2),
-      },
-      items,
-      totals: {
-        subtotal: Number(aggregates.grossSub || 0).toFixed(2),
-        discount: Number(aggregates.discountTotal || 0).toFixed(2),
-        netSubtotal: Number(aggregates.netSub || 0).toFixed(2),
-        tax: Number(aggregates.taxTotal || 0).toFixed(2),
-        total: Number(aggregates.grand || 0).toFixed(2),
-      },
-    };
-  };
-
-  const printUsingInvoiceTemplate = async () => {
-    const tpl = await fetchInvoiceTemplateHtml();
-    if (!tpl) return false;
-    const data = buildInvoiceTemplateData();
-    const html = wrapDoc(renderTemplateString(tpl, data));
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    document.body.appendChild(iframe);
-    const doc =
-      iframe.contentWindow?.document || iframe.contentDocument || null;
-    if (!doc) {
-      document.body.removeChild(iframe);
-      return true;
-    }
-    doc.open();
-    doc.write(html);
-    doc.close();
-    const win = iframe.contentWindow || window;
-    const handlePrint = () => {
-      win.focus();
-      try {
-        win.print();
-      } catch {}
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 100);
-    };
-    setTimeout(handlePrint, 200);
-    return true;
-  };
-
-  const downloadPdfUsingInvoiceTemplate = async () => {
-    const tpl = await fetchInvoiceTemplateHtml();
-    if (!tpl) return false;
-    const data = buildInvoiceTemplateData();
-    const html = renderTemplateString(tpl, data);
-    const container = document.createElement("div");
-    container.style.position = "fixed";
-    container.style.left = "-10000px";
-    container.style.top = "0";
-    container.style.width = "794px";
-    container.style.background = "white";
-    container.style.padding = "32px";
-    container.innerHTML = html;
-    document.body.appendChild(container);
-    try {
-      await waitForImages(container);
-      const canvas = await html2canvas(container, { scale: 2, useCORS: true });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let rendered = 0;
-      while (rendered < imgHeight) {
-        pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
-        rendered += pageHeight;
-        if (rendered < imgHeight) pdf.addPage();
-      }
-      const fname =
-        "Invoice_" +
-        (form.invoice_no || new Date().toISOString().slice(0, 10)) +
-        ".pdf";
-      pdf.save(fname);
-    } finally {
-      document.body.removeChild(container);
-    }
-    return true;
-  };
+  // Removed old document template fetch/print/download; using CSS-based on-page layout instead
 
   const fetchCompanyInfo = async () => {
     try {
@@ -977,6 +737,7 @@ export default function InvoiceForm() {
         item_name: prod?.item_name || "",
         unit_price: "",
         qty: 1,
+        uom: String(prod?.uom || "") || defaultUomCode,
       }));
       if (value) {
         {
@@ -1081,6 +842,7 @@ export default function InvoiceForm() {
         line_id: Date.now(),
         ...calculations,
         available_qty: newItem.available_qty,
+        uom: newItem.uom || defaultUomCode,
       },
     ]);
     setNewItem({
@@ -1093,6 +855,7 @@ export default function InvoiceForm() {
       tax_rate: undefined,
       remarks: "",
       available_qty: undefined,
+      uom: defaultUomCode,
     });
   }
 
@@ -1156,6 +919,7 @@ export default function InvoiceForm() {
         if (patch.item_id) {
           const prod = itemsCatalog.find((p) => p.id == patch.item_id);
           next.item_name = prod?.item_name || next.item_name || "";
+          next.uom = next.uom || String(prod?.uom || "") || defaultUomCode;
           fetchItemTax(patch.item_id, (tax) => {
             next.tax_rate = tax?.tax_rate;
             next.tax_type = tax?.tax_code || next.tax_type || "VAT15";
@@ -1342,6 +1106,7 @@ export default function InvoiceForm() {
             tax_amount: Math.round(Number(l.taxAmt || 0) * 100) / 100,
             total_amount: Math.round(Number(l.total || 0) * 100) / 100,
             net_amount: Math.round(Number(l.net || 0) * 100) / 100,
+            uom: String(l.uom || defaultUomCode),
           };
         }),
       };
@@ -1487,12 +1252,7 @@ export default function InvoiceForm() {
                   try {
                     await ensureTaxComponentsLoaded();
                   } catch {}
-                  try {
-                    const used = await printUsingInvoiceTemplate();
-                    if (!used) window.print();
-                  } catch {
-                    window.print();
-                  }
+                  window.print();
                 }}
                 className="btn-secondary"
                 title="Print"
@@ -1503,10 +1263,6 @@ export default function InvoiceForm() {
               <button
                 type="button"
                 onClick={async () => {
-                  try {
-                    const used = await downloadPdfUsingInvoiceTemplate();
-                    if (used) return;
-                  } catch {}
                   const el = pdfRef.current;
                   if (!el) return;
                   const original = el.style.cssText;
@@ -1725,7 +1481,7 @@ export default function InvoiceForm() {
                 <div className="font-semibold">Invoice Items</div>
               </div>
               <div className="bg-gray-50 p-4 rounded-lg mb-6 border border-gray-200">
-                <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-3">
+                <div className="grid grid-cols-1 md:grid-cols-7 gap-3 mb-3">
                   <div className="md:col-span-2">
                     <label className="block text-xs font-medium text-gray-700 mb-1">
                       Item *
@@ -1746,6 +1502,56 @@ export default function InvoiceForm() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
+                      UOM *
+                    </label>
+                    <select
+                      name="uom"
+                      value={newItem.uom || defaultUomCode}
+                      onChange={handleNewItemChange}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                    >
+                      {(Array.isArray(uoms) ? uoms : []).map((u) => (
+                        <option key={u.id} value={u.uom_code}>
+                          {u.uom_name
+                            ? `${u.uom_name} (${u.uom_code})`
+                            : u.uom_code}
+                        </option>
+                      ))}
+                    </select>
+                    {(() => {
+                      const it = itemsCatalog.find(
+                        (p) => String(p.id) === String(newItem.item_id),
+                      );
+                      const defaultUom =
+                        (it?.uom && String(it.uom)) ||
+                        (newItem.uom && String(newItem.uom)) ||
+                        (defaultUomCode ? String(defaultUomCode) : "");
+                      const currentUom = String(newItem.uom || "");
+                      const showBtn =
+                        currentUom &&
+                        defaultUom &&
+                        currentUom !== defaultUom &&
+                        String(newItem.item_id || "");
+                      return showBtn ? (
+                        <button
+                          type="button"
+                          className="mt-2 px-2 py-1 text-xs border border-brand text-brand rounded hover:bg-brand hover:text-white transition-colors"
+                          onClick={() =>
+                            setConvModal({
+                              open: true,
+                              itemId: newItem.item_id,
+                              defaultUom: defaultUom,
+                              currentUom: currentUom,
+                            })
+                          }
+                        >
+                          {`number of ${currentUom}`}
+                        </button>
+                      ) : null;
+                    })()}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
                       Qty *
                     </label>
                     <input
@@ -1757,6 +1563,49 @@ export default function InvoiceForm() {
                       min="1"
                       step="1"
                     />
+                  </div>
+                  <div className="flex items-end">
+                    {(() => {
+                      const it = itemsCatalog.find(
+                        (p) => String(p.id) === String(newItem.item_id),
+                      );
+                      const defaultUom =
+                        (it?.uom && String(it.uom)) ||
+                        (newItem.uom && String(newItem.uom)) ||
+                        (defaultUomCode ? String(defaultUomCode) : "");
+                      const nonDefaults = (
+                        Array.isArray(unitConversions) ? unitConversions : []
+                      )
+                        .filter(
+                          (c) =>
+                            Number(c.is_active) &&
+                            String(c.to_uom) === defaultUom &&
+                            Number(c.item_id) === Number(newItem.item_id),
+                        )
+                        .map((c) => String(c.from_uom));
+                      const preferredUom = nonDefaults[0] || "";
+                      const hasConv =
+                        nonDefaults.length > 0 &&
+                        preferredUom &&
+                        preferredUom !== defaultUom;
+                      return hasConv ? (
+                        <button
+                          type="button"
+                          className="ml-2 px-2 py-1 text-xs border border-brand text-brand rounded hover:bg-brand hover:text-white transition-colors"
+                          onClick={() =>
+                            setConvModal({
+                              open: true,
+                              itemId: newItem.item_id,
+                              defaultUom: defaultUom,
+                              currentUom: preferredUom,
+                              rowId: null,
+                            })
+                          }
+                        >
+                          {`number of ${preferredUom}`}
+                        </button>
+                      ) : null;
+                    })()}
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -1853,7 +1702,13 @@ export default function InvoiceForm() {
                         Code
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        UOM
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                         Qty
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Convert
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                         Available
@@ -1924,6 +1779,27 @@ export default function InvoiceForm() {
                           </td>
                           <td className="px-4 py-3 text-gray-900">
                             {canEdit ? (
+                              <select
+                                className="input w-full"
+                                value={i.uom || defaultUomCode}
+                                onChange={(e) =>
+                                  updateLine(idx, { uom: e.target.value })
+                                }
+                              >
+                                {(Array.isArray(uoms) ? uoms : []).map((u) => (
+                                  <option key={u.id} value={u.uom_code}>
+                                    {u.uom_name
+                                      ? `${u.uom_name} (${u.uom_code})`
+                                      : u.uom_code}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              i.uom || defaultUomCode
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {canEdit ? (
                               <input
                                 className="input w-full"
                                 type="number"
@@ -1942,6 +1818,51 @@ export default function InvoiceForm() {
                             ) : (
                               i.qty
                             )}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {(() => {
+                              const it = itemsCatalog.find(
+                                (p) => String(p.id) === String(i.item_id),
+                              );
+                              const defaultUom =
+                                (it?.uom && String(it.uom)) ||
+                                (i.uom && String(i.uom)) ||
+                                (defaultUomCode ? String(defaultUomCode) : "");
+                              const nonDefaults = (
+                                Array.isArray(unitConversions)
+                                  ? unitConversions
+                                  : []
+                              )
+                                .filter(
+                                  (c) =>
+                                    Number(c.is_active) &&
+                                    String(c.to_uom) === defaultUom &&
+                                    Number(c.item_id) === Number(i.item_id),
+                                )
+                                .map((c) => String(c.from_uom));
+                              const preferredUom = nonDefaults[0] || "";
+                              const hasConv =
+                                nonDefaults.length > 0 &&
+                                preferredUom &&
+                                preferredUom !== defaultUom;
+                              return hasConv ? (
+                                <button
+                                  type="button"
+                                  className="px-2 py-1 text-xs border border-brand text-brand rounded hover:bg-brand hover:text-white transition-colors"
+                                  onClick={() =>
+                                    setConvModal({
+                                      open: true,
+                                      itemId: i.item_id,
+                                      defaultUom: defaultUom,
+                                      currentUom: preferredUom,
+                                      rowId: i.line_id,
+                                    })
+                                  }
+                                >
+                                  {`number of ${preferredUom}`}
+                                </button>
+                              ) : null;
+                            })()}
                           </td>
                           <td className="px-4 py-3 text-gray-900">
                             {form.warehouse_id
@@ -2056,7 +1977,7 @@ export default function InvoiceForm() {
                   <tfoot className="bg-gray-50">
                     <tr>
                       <td
-                        colSpan="6"
+                        colSpan="7"
                         className="px-4 py-3 text-right font-semibold text-gray-700"
                       >
                         Totals:
@@ -2399,6 +2320,40 @@ export default function InvoiceForm() {
           </div>
         </div>
       </div>
+      <UnitConversionModal
+        open={convModal.open}
+        itemId={convModal.itemId}
+        defaultUom={convModal.defaultUom}
+        currentUom={convModal.currentUom}
+        onClose={() =>
+          setConvModal({
+            open: false,
+            itemId: null,
+            defaultUom: "",
+            currentUom: "",
+            rowId: null,
+          })
+        }
+        onApply={(payload) => {
+          const { converted_qty } = payload || {};
+          const qty = Number(converted_qty || 0);
+          if (convModal.rowId != null) {
+            setLines((prev) =>
+              prev.map((it) =>
+                String(it.line_id) === String(convModal.rowId)
+                  ? { ...it, qty: qty, uom: convModal.defaultUom || it.uom }
+                  : it,
+              ),
+            );
+          } else {
+            setNewItem((prev) => ({
+              ...prev,
+              qty: qty,
+              uom: convModal.defaultUom || prev.uom,
+            }));
+          }
+        }}
+      />
     </div>
   );
 }

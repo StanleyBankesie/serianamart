@@ -977,6 +977,19 @@ export default function PurchaseBillsForm() {
           </button>
         </div>
         <div className="card-body overflow-x-auto">
+          <div className="mb-2 text-xs text-slate-600">
+            Unit of Measure and Conversions: select UOM per line. If the supplier
+            billed in a different UOM than the item’s default, define or verify a
+            conversion to ensure correct quantities and amounts.
+            <span className="ml-2">
+              <Link
+                to="/inventory/unit-conversions"
+                className="text-brand font-medium underline"
+              >
+                Manage conversions
+              </Link>
+            </span>
+          </div>
           <table className="table w-full">
             <thead>
               <tr>

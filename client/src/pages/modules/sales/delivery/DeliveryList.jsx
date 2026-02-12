@@ -15,58 +15,6 @@ function escapeHtml(v) {
     .replace(/'/g, "&#39;");
 }
 
-function resolvePath(obj, rawPath) {
-  const path = String(rawPath || "")
-    .trim()
-    .replace(/^\./, "");
-  if (!path) return undefined;
-  const parts = path.split(".").filter(Boolean);
-  let cur = obj;
-  for (const p of parts) {
-    if (cur == null) return undefined;
-    cur = cur[p];
-  }
-  return cur;
-}
-
-function renderTemplateString(templateHtml, data, root = data) {
-  let out = String(templateHtml ?? "");
-
-  out = out.replace(
-    /{{#each\s+([^}]+)}}([\s\S]*?){{\/each}}/g,
-    (_m, expr, inner) => {
-      const key = String(expr || "").trim();
-      const val = key.startsWith("@root.")
-        ? resolvePath(root, key.slice(6))
-        : (resolvePath(data, key) ?? resolvePath(root, key));
-      const arr = Array.isArray(val) ? val : [];
-      return arr
-        .map((item) => renderTemplateString(inner, item ?? {}, root))
-        .join("");
-    },
-  );
-
-  out = out.replace(/{{{\s*([^}]+?)\s*}}}/g, (_m, expr) => {
-    const key = String(expr || "").trim();
-    let val;
-    if (key === "this" || key === ".") val = data;
-    else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-    else val = resolvePath(data, key) ?? resolvePath(root, key);
-    return String(val ?? "");
-  });
-
-  out = out.replace(/{{\s*([^}]+?)\s*}}/g, (_m, expr) => {
-    const key = String(expr || "").trim();
-    let val;
-    if (key === "this" || key === ".") val = data;
-    else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-    else val = resolvePath(data, key) ?? resolvePath(root, key);
-    return escapeHtml(val);
-  });
-
-  return out;
-}
-
 function wrapDoc(bodyHtml) {
   return `<!doctype html>
 <html>
@@ -241,7 +189,6 @@ export default function DeliveryList() {
     registrationNo: "",
     logoUrl: "",
   });
-  const [deliveryTemplateHtml, setDeliveryTemplateHtml] = useState(null);
 
   useEffect(() => {
     fetchDeliveries();
@@ -337,73 +284,22 @@ export default function DeliveryList() {
     }
   }
 
-  const fetchDeliveryTemplateHtml = async () => {
-    try {
-      if (
-        typeof deliveryTemplateHtml === "string" &&
-        deliveryTemplateHtml.length > 0
-      ) {
-        return deliveryTemplateHtml;
-      }
-      const res = await api.get("/admin/document-templates/DELIVERY_NOTE");
-      const tpl = String(res.data?.item?.template_html || "").trim();
-      setDeliveryTemplateHtml(tpl);
-      return tpl;
-    } catch {
-      if (deliveryTemplateHtml !== null) return deliveryTemplateHtml;
-      setDeliveryTemplateHtml("");
-      return "";
-    }
-  };
-
-  async function buildPdfFor(id) {
+  async function buildPrintHtmlFor(id) {
+    await ensureCompanyInfoLoaded();
     const res = await api.get(`/sales/deliveries/${id}`);
     const header = res.data?.item || {};
     const details = Array.isArray(res.data?.details) ? res.data.details : [];
-    const doc = new jsPDF("p", "mm", "a4");
-    let y = 15;
-    doc.setFontSize(14);
-    doc.text("Delivery Note", 10, y);
-    y += 8;
-    doc.setFontSize(11);
-    doc.text(`Delivery No: ${String(header.delivery_no || "")}`, 10, y);
-    y += 6;
-    doc.text(
-      `Date: ${
-        header.delivery_date
-          ? new Date(header.delivery_date).toLocaleDateString()
-          : ""
-      }`,
-      10,
-      y,
-    );
-    y += 6;
-    doc.text(`Customer: ${String(header.customer_name || "")}`, 10, y);
-    y += 10;
-    doc.setFontSize(10);
-    doc.text("Item", 10, y);
-    doc.text("Qty", 120, y, { align: "right" });
-    doc.text("Unit Price", 160, y, { align: "right" });
-    doc.text("Total", 200, y, { align: "right" });
-    y += 4;
-    doc.line(10, y, 200, y);
-    y += 5;
-    details.forEach((it) => {
-      if (y > 270) {
-        doc.addPage();
-        y = 15;
-      }
-      const name = String(it.item_name || it.item_code || it.item_id || "");
-      const qty = Number(it.quantity || it.qty || 0);
-      const unit = Number(it.unit_price || 0);
-      const total = unit * qty;
-      doc.text(name.slice(0, 60), 10, y);
-      doc.text(qty.toFixed(2), 120, y, { align: "right" });
-      doc.text(unit.toFixed(2), 160, y, { align: "right" });
-      doc.text(total.toFixed(2), 200, y, { align: "right" });
-      y += 5;
-    });
-    return doc;
+    const customer =
+      (await fetchCustomerFromHeader(header)) ||
+      (await fetchCustomerById(header.customer_id)) ||
+      null;
+    const data = buildDeliveryNoteTemplateData(header, details, customer);
+    const body = renderDeliveryNoteHtml(data);
+    return wrapDoc(body);
+  }
+
+  async function buildPdfFor(id) {
+    return null;
   }
 
   async function fetchCustomerById(customerId) {
@@ -573,99 +469,38 @@ export default function DeliveryList() {
     };
   };
 
-  const printUsingDeliveryTemplate = async (id) => {
-    await ensureCompanyInfoLoaded();
-    const res = await api.get(`/sales/deliveries/${id}`);
-    const header = res.data?.item || {};
-    const details = Array.isArray(res.data?.details) ? res.data.details : [];
-    const customer =
-      (await fetchCustomerFromHeader(header)) ||
-      (await fetchCustomerById(header.customer_id)) ||
-      null;
-    const data = buildDeliveryNoteTemplateData(header, details, customer);
-    const body = renderDeliveryNoteHtml(data);
-    const html = wrapDoc(body);
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    document.body.appendChild(iframe);
-    const doc =
-      iframe.contentWindow?.document || iframe.contentDocument || null;
-    if (!doc) {
-      document.body.removeChild(iframe);
-      return false;
-    }
-    doc.open();
-    doc.write(html);
-    doc.close();
-    const win = iframe.contentWindow || window;
-    const doPrint = () => {
-      win.focus();
-      try {
-        win.print();
-      } catch {}
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 100);
-    };
-    setTimeout(doPrint, 200);
-    return true;
-  };
-
-  const downloadPdfUsingDeliveryTemplate = async (id) => {
-    await ensureCompanyInfoLoaded();
-    const res = await api.get(`/sales/deliveries/${id}`);
-    const header = res.data?.item || {};
-    const details = Array.isArray(res.data?.details) ? res.data.details : [];
-    const customer =
-      (await fetchCustomerFromHeader(header)) ||
-      (await fetchCustomerById(header.customer_id)) ||
-      null;
-    const data = buildDeliveryNoteTemplateData(header, details, customer);
-    const html = renderDeliveryNoteHtml(data);
-    const container = document.createElement("div");
-    container.style.position = "fixed";
-    container.style.left = "-10000px";
-    container.style.top = "0";
-    container.style.width = "794px";
-    container.style.background = "white";
-    container.style.padding = "32px";
-    container.innerHTML = html;
-    document.body.appendChild(container);
-    try {
-      await waitForImages(container);
-      const canvas = await html2canvas(container, { scale: 2, useCORS: true });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let rendered = 0;
-      while (rendered < imgHeight) {
-        pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
-        rendered += pageHeight;
-        if (rendered < imgHeight) pdf.addPage();
-      }
-      const num = String(header.delivery_no || "DN").replaceAll(" ", "_");
-      pdf.save(`delivery-${num}.pdf`);
-    } finally {
-      document.body.removeChild(container);
-    }
-    return true;
-  };
-
   async function printDelivery(id) {
     try {
       setError("");
-      if (await printUsingDeliveryTemplate(id)) return;
-      const doc = await buildPdfFor(id);
-      doc.autoPrint && doc.autoPrint();
-      doc.output("dataurlnewwindow");
+      const html = await buildPrintHtmlFor(id);
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "fixed";
+      iframe.style.right = "0";
+      iframe.style.bottom = "0";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "0";
+      document.body.appendChild(iframe);
+      const doc =
+        iframe.contentWindow?.document || iframe.contentDocument || null;
+      if (!doc) {
+        document.body.removeChild(iframe);
+        return;
+      }
+      doc.open();
+      doc.write(html);
+      doc.close();
+      const win = iframe.contentWindow || window;
+      const doPrint = () => {
+        win.focus();
+        try {
+          win.print();
+        } catch {}
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+        }, 100);
+      };
+      setTimeout(doPrint, 200);
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to print delivery");
       console.error(err);
@@ -675,16 +510,55 @@ export default function DeliveryList() {
   async function downloadDelivery(id) {
     try {
       setError("");
-      if (await downloadPdfUsingDeliveryTemplate(id)) return;
-      const doc = await buildPdfFor(id);
-      const num = String(
-        items.find((x) => String(x.id) === String(id))?.delivery_no || "DN",
-      ).replaceAll(" ", "_");
-      doc.save(`delivery-${num}.pdf`);
+      const res = await api.get(`/sales/deliveries/${id}`);
+      const header = res.data?.item || {};
+      const details = Array.isArray(res.data?.details) ? res.data.details : [];
+      const customer =
+        (await fetchCustomerFromHeader(header)) ||
+        (await fetchCustomerById(header.customer_id)) ||
+        null;
+      const data = buildDeliveryNoteTemplateData(header, details, customer);
+      const html = renderDeliveryNoteHtml(data);
+      const container = document.createElement("div");
+      container.style.position = "fixed";
+      container.style.left = "-10000px";
+      container.style.top = "0";
+      container.style.width = "794px";
+      container.style.background = "white";
+      container.style.padding = "32px";
+      container.innerHTML = html;
+      document.body.appendChild(container);
+      try {
+        await waitForImages(container);
+        const canvas = await html2canvas(container, {
+          scale: 2,
+          useCORS: true,
+        });
+        const imgData = canvas.toDataURL("image/png");
+        const pdf = new jsPDF("p", "mm", "a4");
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const imgWidth = pageWidth;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        let rendered = 0;
+        while (rendered < imgHeight) {
+          pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
+          rendered += pageHeight;
+          if (rendered < imgHeight) pdf.addPage();
+        }
+        const num = String(header.delivery_no || "DN").replaceAll(" ", "_");
+        pdf.save(`delivery-${num}.pdf`);
+      } finally {
+        document.body.removeChild(container);
+      }
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to download delivery");
       console.error(err);
     }
+  }
+
+  async function buildPdfFor(id) {
+    return null;
   }
 
   return (

@@ -42,7 +42,7 @@ export default function PosDayManagement() {
   }, [user]);
   const [dayOpen, setDayOpen] = useState(false);
   const [openData, setOpenData] = useState({
-    dateTime: "",
+    dateTime: toLocalInputDateTime(new Date()),
     float: "",
     supervisor: "",
     notes: "",
@@ -74,7 +74,7 @@ export default function PosDayManagement() {
     return Number(openData.float || 0) + Number(salesData.cash.amount || 0);
   }, [openData.float, salesData.cash.amount]);
   const [closing, setClosing] = useState({
-    dateTime: "",
+    dateTime: toLocalInputDateTime(new Date()),
     actualCash: "",
     notes: "",
   });

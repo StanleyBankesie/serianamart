@@ -8,6 +8,19 @@ export default function SystemLogBookPage() {
   const [to, setTo] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [status, setStatus] = useState({
+    startedAt: "",
+    uptimeSeconds: 0,
+    uptimeHuman: "",
+    database: {
+      threadsConnected: 0,
+      threadsRunning: 0,
+      maxConnections: 0,
+      loadPercent: 0,
+    },
+    recentLogins: [],
+  });
 
   async function run() {
     try {
@@ -26,6 +39,39 @@ export default function SystemLogBookPage() {
   useEffect(() => {
     run();
   }, []);
+  useEffect(() => {
+    let cancelled = false;
+    let t = null;
+    async function loadStatus() {
+      try {
+        setStatusLoading(true);
+        const res = await api.get("/admin/system-status");
+        if (cancelled) return;
+        const s = res.data || {};
+        setStatus({
+          startedAt: String(s.startedAt || ""),
+          uptimeSeconds: Number(s.uptimeSeconds || 0),
+          uptimeHuman: String(s.uptimeHuman || ""),
+          database: {
+            threadsConnected: Number(s?.database?.threadsConnected || 0),
+            threadsRunning: Number(s?.database?.threadsRunning || 0),
+            maxConnections: Number(s?.database?.maxConnections || 0),
+            loadPercent: Number(s?.database?.loadPercent || 0),
+          },
+          recentLogins: Array.isArray(s.recentLogins) ? s.recentLogins : [],
+        });
+      } catch (e) {
+      } finally {
+        setStatusLoading(false);
+      }
+    }
+    loadStatus();
+    t = setInterval(loadStatus, 15000);
+    return () => {
+      cancelled = true;
+      if (t) clearInterval(t);
+    };
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -36,6 +82,59 @@ export default function SystemLogBookPage() {
             <p className="text-sm mt-1">Application events and user activity across modules</p>
           </div>
           <Link to="/administration" className="btn btn-secondary">Return to Menu</Link>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-body">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <div className="text-lg font-semibold">System Status</div>
+              <div className="text-xs text-slate-500">
+                Started {status.startedAt ? new Date(status.startedAt).toLocaleString() : "-"}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-sm">
+                Server Uptime
+              </div>
+              <div className="text-xl font-bold text-brand-700">
+                {statusLoading ? "…" : status.uptimeHuman || "-"}
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-3 rounded-lg border border-slate-200 bg-white dark:bg-slate-800">
+              <div className="text-sm text-slate-600">Database Load</div>
+              <div className="text-2xl font-bold text-brand-700">
+                {statusLoading ? "…" : `${Number(status.database.loadPercent || 0)}%`}
+              </div>
+              <div className="text-xs text-slate-500 mt-1">
+                Connected: {status.database.threadsConnected} / Max: {status.database.maxConnections}
+              </div>
+            </div>
+            <div className="p-3 rounded-lg border border-slate-200 bg-white dark:bg-slate-800">
+              <div className="text-sm text-slate-600">Threads Running</div>
+              <div className="text-2xl font-bold text-brand-700">
+                {statusLoading ? "…" : Number(status.database.threadsRunning || 0)}
+              </div>
+            </div>
+            <div className="p-3 rounded-lg border border-slate-200 bg-white dark:bg-slate-800">
+              <div className="text-sm text-slate-600">Recent Login</div>
+              <div className="text-sm mt-1 space-y-1">
+                {statusLoading && <div>Loading…</div>}
+                {!statusLoading &&
+                  (status.recentLogins.slice(0, 5).map((r) => (
+                    <div key={r.id} className="flex items-center justify-between">
+                      <span className="font-medium">{r.username || "-"}</span>
+                      <span className="text-xs text-slate-500">
+                        {r.login_time ? new Date(r.login_time).toLocaleString() : "-"}
+                      </span>
+                    </div>
+                  )) || <div className="text-xs text-slate-500">No recent logins</div>)}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

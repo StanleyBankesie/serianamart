@@ -1,9 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 
 import { api } from "api/client";
 
 import { useUoms } from "@/hooks/useUoms";
+import UnitConversionModal from "@/components/UnitConversionModal";
 
 export default function StockAdjustmentForm() {
   const { uoms, loading: uomsLoading } = useUoms();
@@ -31,16 +37,49 @@ export default function StockAdjustmentForm() {
   });
 
   const [items, setItems] = useState([]);
+  const [unitConversions, setUnitConversions] = useState([]);
+  const [convModal, setConvModal] = useState({
+    open: false,
+    itemId: null,
+    defaultUom: "",
+    currentUom: "",
+    rowId: null,
+  });
+  const defaultUomCode = useMemo(() => {
+    const list = Array.isArray(uoms) ? uoms : [];
+    const pcs =
+      list.find((u) => String(u.uom_code || "").toUpperCase() === "PCS") ||
+      list[0];
+    if (pcs && pcs.uom_code) return pcs.uom_code;
+    return "PCS";
+  }, [uoms]);
+  const conversionByKey = useMemo(() => {
+    const m = new Map();
+    for (const c of Array.isArray(unitConversions) ? unitConversions : []) {
+      if (!Number(c.is_active)) continue;
+      const key = `${c.item_id}|${c.from_uom}|${c.to_uom}`;
+      const factor = Number(c.conversion_factor || 0);
+      if (Number.isFinite(factor) && factor > 0) m.set(key, factor);
+    }
+    return m;
+  }, [unitConversions]);
 
   useEffect(() => {
     let mounted = true;
-    Promise.all([api.get("/inventory/items"), api.get("/inventory/warehouses")])
-      .then(([itemsRes, whRes]) => {
+    Promise.all([
+      api.get("/inventory/items"),
+      api.get("/inventory/warehouses"),
+      api.get("/inventory/unit-conversions"),
+    ])
+      .then(([itemsRes, whRes, convRes]) => {
         if (!mounted) return;
         setAvailableItems(
-          Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : []
+          Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : [],
         );
         setWarehouses(Array.isArray(whRes.data?.items) ? whRes.data.items : []);
+        setUnitConversions(
+          Array.isArray(convRes.data?.items) ? convRes.data.items : [],
+        );
       })
       .catch((e) => {
         if (!mounted) return;
@@ -126,13 +165,13 @@ export default function StockAdjustmentForm() {
                 unitCost: Number(d.unit_cost) || 0,
                 remarks: d.remarks || "",
               }))
-            : []
+            : [],
         );
       })
       .catch((e) => {
         if (!mounted) return;
         setError(
-          e?.response?.data?.message || "Failed to load stock adjustment"
+          e?.response?.data?.message || "Failed to load stock adjustment",
         );
       })
       .finally(() => {
@@ -186,7 +225,7 @@ export default function StockAdjustmentForm() {
       navigate("/inventory/stock-adjustments");
     } catch (e2) {
       setError(
-        e2?.response?.data?.message || "Failed to save stock adjustment"
+        e2?.response?.data?.message || "Failed to save stock adjustment",
       );
     } finally {
       setSaving(false);
@@ -222,7 +261,7 @@ export default function StockAdjustmentForm() {
           // If item changed, try to find info (though we don't have stock info in availableItems usually)
           if (field === "item_id") {
             const selected = availableItems.find(
-              (ai) => String(ai.id) === String(value)
+              (ai) => String(ai.id) === String(value),
             );
             updated.itemCode = selected?.item_code || "";
             updated.itemName = selected?.item_name || "";
@@ -231,7 +270,7 @@ export default function StockAdjustmentForm() {
           return updated;
         }
         return item;
-      })
+      }),
     );
   };
 
@@ -269,7 +308,11 @@ export default function StockAdjustmentForm() {
           <div className="flex justify-between items-center text-white">
             <div>
               <h1 className="text-2xl font-bold dark:text-brand-300">
-                {isNew ? "New Stock Adjustment" : isView ? "View Stock Adjustment" : "Edit Stock Adjustment"}
+                {isNew
+                  ? "New Stock Adjustment"
+                  : isView
+                    ? "View Stock Adjustment"
+                    : "Edit Stock Adjustment"}
               </h1>
               <p className="text-sm mt-1">
                 Adjust stock quantities for corrections
@@ -296,402 +339,471 @@ export default function StockAdjustmentForm() {
             )}
 
             <fieldset disabled={isView} className="space-y-8">
-            {/* Adjustment Type Selection */}
-            <div>
-              <h3 className="text-lg font-semibold text-slate-800 mb-4 border-b pb-2">
-                🎯 Select Adjustment Type
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div
-                  className={getTypeCardClass("PHYSICAL_COUNT")}
-                  onClick={() =>
-                    setFormData({
-                      ...formData,
-                      adjustmentType: "PHYSICAL_COUNT",
-                    })
-                  }
-                >
-                  <div className="text-3xl mb-2">📋</div>
-                  <div className="font-bold text-slate-700">Physical Count</div>
-                  <div className="text-xs text-slate-500">
-                    Based on actual inventory count
+              {/* Adjustment Type Selection */}
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800 mb-4 border-b pb-2">
+                  🎯 Select Adjustment Type
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div
+                    className={getTypeCardClass("PHYSICAL_COUNT")}
+                    onClick={() =>
+                      setFormData({
+                        ...formData,
+                        adjustmentType: "PHYSICAL_COUNT",
+                      })
+                    }
+                  >
+                    <div className="text-3xl mb-2">📋</div>
+                    <div className="font-bold text-slate-700">
+                      Physical Count
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Based on actual inventory count
+                    </div>
                   </div>
-                </div>
-                <div
-                  className={getTypeCardClass("INCREASE")}
-                  onClick={() =>
-                    setFormData({ ...formData, adjustmentType: "INCREASE" })
-                  }
-                >
-                  <div className="text-3xl mb-2">📈</div>
-                  <div className="font-bold text-slate-700">Stock Increase</div>
-                  <div className="text-xs text-slate-500">
-                    Add stock (found, corrections)
+                  <div
+                    className={getTypeCardClass("INCREASE")}
+                    onClick={() =>
+                      setFormData({ ...formData, adjustmentType: "INCREASE" })
+                    }
+                  >
+                    <div className="text-3xl mb-2">📈</div>
+                    <div className="font-bold text-slate-700">
+                      Stock Increase
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Add stock (found, corrections)
+                    </div>
                   </div>
-                </div>
-                <div
-                  className={getTypeCardClass("DECREASE")}
-                  onClick={() =>
-                    setFormData({ ...formData, adjustmentType: "DECREASE" })
-                  }
-                >
-                  <div className="text-3xl mb-2">📉</div>
-                  <div className="font-bold text-slate-700">Stock Decrease</div>
-                  <div className="text-xs text-slate-500">
-                    Reduce stock (damage, theft)
+                  <div
+                    className={getTypeCardClass("DECREASE")}
+                    onClick={() =>
+                      setFormData({ ...formData, adjustmentType: "DECREASE" })
+                    }
+                  >
+                    <div className="text-3xl mb-2">📉</div>
+                    <div className="font-bold text-slate-700">
+                      Stock Decrease
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Reduce stock (damage, theft)
+                    </div>
                   </div>
-                </div>
-                <div
-                  className={getTypeCardClass("OTHER")}
-                  onClick={() =>
-                    setFormData({ ...formData, adjustmentType: "OTHER" })
-                  }
-                >
-                  <div className="text-3xl mb-2">⚙️</div>
-                  <div className="font-bold text-slate-700">
-                    Other Adjustment
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    Miscellaneous adjustments
+                  <div
+                    className={getTypeCardClass("OTHER")}
+                    onClick={() =>
+                      setFormData({ ...formData, adjustmentType: "OTHER" })
+                    }
+                  >
+                    <div className="text-3xl mb-2">⚙️</div>
+                    <div className="font-bold text-slate-700">
+                      Other Adjustment
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Miscellaneous adjustments
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* Adjustment Information */}
-            <div>
-              <h3 className="text-lg font-semibold text-slate-800 mb-4 border-b pb-2">
-                📋 Adjustment Information
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                  <label className="label">Adjustment No</label>
-                  <input
-                    type="text"
-                    className="input bg-slate-100"
-                    value={formData.adjustmentNo}
-                    disabled
-                  />
+              {/* Adjustment Information */}
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800 mb-4 border-b pb-2">
+                  📋 Adjustment Information
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div>
+                    <label className="label">Adjustment No</label>
+                    <input
+                      type="text"
+                      className="input bg-slate-100"
+                      value={formData.adjustmentNo}
+                      disabled
+                    />
+                  </div>
+                  <div>
+                    <label className="label">
+                      Adjustment Date <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      className="input"
+                      value={formData.adjustmentDate}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          adjustmentDate: e.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Warehouse</label>
+                    <select
+                      className="input"
+                      value={formData.warehouseId}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          warehouseId: e.target.value,
+                        })
+                      }
+                    >
+                      <option value="">-- Select Warehouse --</option>
+                      {warehouses.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.warehouse_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Adjustment Type</label>
+                    <input
+                      type="text"
+                      className="input bg-slate-100"
+                      value={formData.adjustmentType}
+                      disabled
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Reference Document</label>
+                    <input
+                      type="text"
+                      className="input"
+                      placeholder="e.g., PC-2024-001"
+                      value={formData.referenceDoc}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          referenceDoc: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Status</label>
+                    <div className="mt-2">
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-bold ${
+                          formData.status === "DRAFT"
+                            ? "bg-slate-200 text-slate-700"
+                            : "bg-green-100 text-green-700"
+                        }`}
+                      >
+                        {formData.status}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="label">
-                    Adjustment Date <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    className="input"
-                    value={formData.adjustmentDate}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        adjustmentDate: e.target.value,
-                      })
-                    }
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="label">Warehouse</label>
-                  <select
-                    className="input"
-                    value={formData.warehouseId}
-                    onChange={(e) =>
-                      setFormData({ ...formData, warehouseId: e.target.value })
-                    }
-                  >
-                    <option value="">-- Select Warehouse --</option>
-                    {warehouses.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.warehouse_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Adjustment Type</label>
-                  <input
-                    type="text"
-                    className="input bg-slate-100"
-                    value={formData.adjustmentType}
-                    disabled
-                  />
-                </div>
-                <div>
-                  <label className="label">Reference Document</label>
-                  <input
-                    type="text"
-                    className="input"
-                    placeholder="e.g., PC-2024-001"
-                    value={formData.referenceDoc}
-                    onChange={(e) =>
-                      setFormData({ ...formData, referenceDoc: e.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="label">Status</label>
-                  <div className="mt-2">
-                    <span
-                      className={`px-3 py-1 rounded-full text-xs font-bold ${
-                        formData.status === "DRAFT"
-                          ? "bg-slate-200 text-slate-700"
-                          : "bg-green-100 text-green-700"
+              </div>
+
+              {/* Reason */}
+              <div>
+                <label className="label">
+                  Adjustment Reason <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  className="input"
+                  rows="2"
+                  placeholder="Provide detailed reason for this adjustment..."
+                  value={formData.reason}
+                  onChange={(e) =>
+                    setFormData({ ...formData, reason: e.target.value })
+                  }
+                  required
+                ></textarea>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {[
+                    "Physical count variance",
+                    "Damaged goods",
+                    "Expired items",
+                    "Theft/Loss",
+                    "Found items",
+                    "System error correction",
+                    "Other",
+                  ].map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => selectReason(r)}
+                      className={`px-3 py-1 rounded-full text-xs border ${
+                        formData.reason === r
+                          ? "bg-brand-500 text-white border-brand-500"
+                          : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50"
                       }`}
                     >
-                      {formData.status}
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Items Table */}
+              <div>
+                <div className="flex justify-between items-center mb-4 border-b pb-2">
+                  <h3 className="text-lg font-semibold text-slate-800">
+                    📦 Adjustment Items
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={addItem}
+                    className="btn-primary text-sm px-3 py-1 rounded bg-brand-600 text-white hover:bg-brand-700"
+                  >
+                    + Add Item
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-slate-100 text-slate-700 uppercase font-bold">
+                      <tr>
+                        <th className="p-3">Item</th>
+                        <th className="p-3 w-24">Current Stock</th>
+                        <th className="p-3 w-40">Adjusted Stock</th>
+                        <th className="p-3 w-24">Diff</th>
+                        <th className="p-3 w-20">UOM</th>
+                        <th className="p-3 w-24">Unit Cost</th>
+                        <th className="p-3 w-28">Impact</th>
+                        <th className="p-3">Remarks</th>
+                        <th className="p-3 w-16"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {items.map((item) => {
+                        const diff =
+                          Number(item.adjustedStock) -
+                          Number(item.currentStock);
+                        const impact = diff * Number(item.unitCost);
+
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-50">
+                            <td className="p-2">
+                              <select
+                                className="input text-sm py-1"
+                                value={item.item_id}
+                                onChange={(e) =>
+                                  updateItem(item.id, "item_id", e.target.value)
+                                }
+                                required
+                              >
+                                <option value="">Select Item</option>
+                                {availableItems.map((ai) => (
+                                  <option key={ai.id} value={ai.id}>
+                                    {ai.item_code} - {ai.item_name}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="p-2">
+                              <input
+                                type="number"
+                                className="input text-sm py-1 bg-slate-50"
+                                value={item.currentStock}
+                                onChange={(e) =>
+                                  updateItem(
+                                    item.id,
+                                    "currentStock",
+                                    e.target.value,
+                                  )
+                                }
+                              />
+                            </td>
+                            <td className="p-2">
+                              <div className="flex items-center gap-3">
+                                <input
+                                  type="number"
+                                  className="input text-sm py-1 font-bold w-36"
+                                  value={item.adjustedStock}
+                                  onChange={(e) =>
+                                    updateItem(
+                                      item.id,
+                                      "adjustedStock",
+                                      e.target.value,
+                                    )
+                                  }
+                                />
+                                {(() => {
+                                  const it = availableItems.find(
+                                    (ai) =>
+                                      String(ai.id) === String(item.item_id),
+                                  );
+                                  const defaultUom =
+                                    (it?.uom && String(it.uom)) ||
+                                    (item.uom && String(item.uom)) ||
+                                    (defaultUomCode
+                                      ? String(defaultUomCode)
+                                      : "");
+                                  const nonDefaults = (
+                                    Array.isArray(unitConversions)
+                                      ? unitConversions
+                                      : []
+                                  )
+                                    .filter(
+                                      (c) =>
+                                        Number(c.is_active) &&
+                                        Number(c.item_id) ===
+                                          Number(item.item_id) &&
+                                        String(c.to_uom) === defaultUom,
+                                    )
+                                    .map((c) => String(c.from_uom));
+                                  const preferredUom =
+                                    item.uom && String(item.uom) !== defaultUom
+                                      ? String(item.uom)
+                                      : nonDefaults[0] || "";
+                                  const hasConv =
+                                    nonDefaults.length > 0 &&
+                                    preferredUom &&
+                                    preferredUom !== defaultUom;
+                                  return hasConv ? (
+                                    <button
+                                      type="button"
+                                      className="px-2 py-1 text-xs border border-brand text-brand rounded hover:bg-brand hover:text-white transition-colors"
+                                      onClick={() =>
+                                        setConvModal({
+                                          open: true,
+                                          itemId: item.item_id,
+                                          defaultUom: defaultUom,
+                                          currentUom: preferredUom,
+                                          rowId: item.id,
+                                        })
+                                      }
+                                    >
+                                      {`number of ${preferredUom}`}
+                                    </button>
+                                  ) : null;
+                                })()}
+                              </div>
+                            </td>
+                            <td className="p-2 font-bold">
+                              <span
+                                className={
+                                  diff > 0
+                                    ? "text-green-600"
+                                    : diff < 0
+                                      ? "text-red-600"
+                                      : "text-slate-400"
+                                }
+                              >
+                                {diff > 0 ? "+" : ""}
+                                {diff}
+                              </span>
+                            </td>
+                            <td className="p-2">
+                              <select
+                                className="input text-sm py-1"
+                                value={item.uom}
+                                onChange={(e) =>
+                                  updateItem(item.id, "uom", e.target.value)
+                                }
+                              >
+                                {uomsLoading ? (
+                                  <option>Loading...</option>
+                                ) : (
+                                  uoms.map((u) => (
+                                    <option key={u.id} value={u.uom_code}>
+                                      {u.uom_code}
+                                    </option>
+                                  ))
+                                )}
+                              </select>
+                            </td>
+                            <td className="p-2">
+                              <input
+                                type="number"
+                                className="input text-sm py-1"
+                                value={item.unitCost}
+                                onChange={(e) =>
+                                  updateItem(
+                                    item.id,
+                                    "unitCost",
+                                    e.target.value,
+                                  )
+                                }
+                              />
+                            </td>
+                            <td className="p-2 font-medium">
+                              {impact.toFixed(2)}
+                            </td>
+                            <td className="p-2">
+                              <input
+                                type="text"
+                                className="input text-sm py-1"
+                                placeholder="Optional"
+                                value={item.remarks}
+                                onChange={(e) =>
+                                  updateItem(item.id, "remarks", e.target.value)
+                                }
+                              />
+                            </td>
+                            <td className="p-2 text-center">
+                              <button
+                                type="button"
+                                onClick={() => removeItem(item.id)}
+                                className="text-red-500 hover:text-red-700"
+                              >
+                                🗑️
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {items.length === 0 && (
+                        <tr>
+                          <td
+                            colSpan="9"
+                            className="p-8 text-center text-slate-500"
+                          >
+                            No items added. Click "Add Item" to begin.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Summary */}
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                <h4 className="font-bold text-slate-700 mb-2">
+                  🧮 Adjustment Impact Summary
+                </h4>
+                <div className="flex gap-8 text-sm">
+                  <div>
+                    Total Items Adjusted:{" "}
+                    <span className="font-bold text-brand-700">
+                      {items.length}
+                    </span>
+                  </div>
+                  <div>
+                    Net Qty Change:{" "}
+                    <span className="font-bold text-brand-700">
+                      {items.reduce(
+                        (acc, i) =>
+                          acc +
+                          (Number(i.adjustedStock) - Number(i.currentStock)),
+                        0,
+                      )}
+                    </span>
+                  </div>
+                  <div>
+                    Total Value Impact:{" "}
+                    <span className="font-bold text-brand-700">
+                      {items
+                        .reduce(
+                          (acc, i) =>
+                            acc +
+                            (Number(i.adjustedStock) - Number(i.currentStock)) *
+                              Number(i.unitCost),
+                          0,
+                        )
+                        .toFixed(2)}
                     </span>
                   </div>
                 </div>
               </div>
-            </div>
-
-            {/* Reason */}
-            <div>
-              <label className="label">
-                Adjustment Reason <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                className="input"
-                rows="2"
-                placeholder="Provide detailed reason for this adjustment..."
-                value={formData.reason}
-                onChange={(e) =>
-                  setFormData({ ...formData, reason: e.target.value })
-                }
-                required
-              ></textarea>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {[
-                  "Physical count variance",
-                  "Damaged goods",
-                  "Expired items",
-                  "Theft/Loss",
-                  "Found items",
-                  "System error correction",
-                  "Other",
-                ].map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => selectReason(r)}
-                    className={`px-3 py-1 rounded-full text-xs border ${
-                      formData.reason === r
-                        ? "bg-brand-500 text-white border-brand-500"
-                        : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50"
-                    }`}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Items Table */}
-            <div>
-              <div className="flex justify-between items-center mb-4 border-b pb-2">
-                <h3 className="text-lg font-semibold text-slate-800">
-                  📦 Adjustment Items
-                </h3>
-                <button
-                  type="button"
-                  onClick={addItem}
-                  className="btn-primary text-sm px-3 py-1 rounded bg-brand-600 text-white hover:bg-brand-700"
-                >
-                  + Add Item
-                </button>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-100 text-slate-700 uppercase font-bold">
-                    <tr>
-                      <th className="p-3">Item</th>
-                      <th className="p-3 w-24">Current Stock</th>
-                      <th className="p-3 w-24">Adjusted Stock</th>
-                      <th className="p-3 w-24">Diff</th>
-                      <th className="p-3 w-20">UOM</th>
-                      <th className="p-3 w-24">Unit Cost</th>
-                      <th className="p-3 w-28">Impact</th>
-                      <th className="p-3">Remarks</th>
-                      <th className="p-3 w-16"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {items.map((item) => {
-                      const diff =
-                        Number(item.adjustedStock) - Number(item.currentStock);
-                      const impact = diff * Number(item.unitCost);
-
-                      return (
-                        <tr key={item.id} className="hover:bg-slate-50">
-                          <td className="p-2">
-                            <select
-                              className="input text-sm py-1"
-                              value={item.item_id}
-                              onChange={(e) =>
-                                updateItem(item.id, "item_id", e.target.value)
-                              }
-                              required
-                            >
-                              <option value="">Select Item</option>
-                              {availableItems.map((ai) => (
-                                <option key={ai.id} value={ai.id}>
-                                  {ai.item_code} - {ai.item_name}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="p-2">
-                            <input
-                              type="number"
-                              className="input text-sm py-1 bg-slate-50"
-                              value={item.currentStock}
-                              onChange={(e) =>
-                                updateItem(
-                                  item.id,
-                                  "currentStock",
-                                  e.target.value
-                                )
-                              }
-                            />
-                          </td>
-                          <td className="p-2">
-                            <input
-                              type="number"
-                              className="input text-sm py-1 font-bold"
-                              value={item.adjustedStock}
-                              onChange={(e) =>
-                                updateItem(
-                                  item.id,
-                                  "adjustedStock",
-                                  e.target.value
-                                )
-                              }
-                            />
-                          </td>
-                          <td className="p-2 font-bold">
-                            <span
-                              className={
-                                diff > 0
-                                  ? "text-green-600"
-                                  : diff < 0
-                                  ? "text-red-600"
-                                  : "text-slate-400"
-                              }
-                            >
-                              {diff > 0 ? "+" : ""}
-                              {diff}
-                            </span>
-                          </td>
-                          <td className="p-2">
-                            <select
-                              className="input text-sm py-1"
-                              value={item.uom}
-                              onChange={(e) =>
-                                updateItem(item.id, "uom", e.target.value)
-                              }
-                            >
-                              {uomsLoading ? (
-                                <option>Loading...</option>
-                              ) : (
-                                uoms.map((u) => (
-                                  <option key={u.id} value={u.uom_code}>
-                                    {u.uom_code}
-                                  </option>
-                                ))
-                              )}
-                            </select>
-                          </td>
-                          <td className="p-2">
-                            <input
-                              type="number"
-                              className="input text-sm py-1"
-                              value={item.unitCost}
-                              onChange={(e) =>
-                                updateItem(item.id, "unitCost", e.target.value)
-                              }
-                            />
-                          </td>
-                          <td className="p-2 font-medium">
-                            {impact.toFixed(2)}
-                          </td>
-                          <td className="p-2">
-                            <input
-                              type="text"
-                              className="input text-sm py-1"
-                              placeholder="Optional"
-                              value={item.remarks}
-                              onChange={(e) =>
-                                updateItem(item.id, "remarks", e.target.value)
-                              }
-                            />
-                          </td>
-                          <td className="p-2 text-center">
-                            <button
-                              type="button"
-                              onClick={() => removeItem(item.id)}
-                              className="text-red-500 hover:text-red-700"
-                            >
-                              🗑️
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {items.length === 0 && (
-                      <tr>
-                        <td
-                          colspan="9"
-                          className="p-8 text-center text-slate-500"
-                        >
-                          No items added. Click "Add Item" to begin.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Summary */}
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-              <h4 className="font-bold text-slate-700 mb-2">
-                🧮 Adjustment Impact Summary
-              </h4>
-              <div className="flex gap-8 text-sm">
-                <div>
-                  Total Items Adjusted:{" "}
-                  <span className="font-bold text-brand-700">
-                    {items.length}
-                  </span>
-                </div>
-                <div>
-                  Net Qty Change:{" "}
-                  <span className="font-bold text-brand-700">
-                    {items.reduce(
-                      (acc, i) =>
-                        acc +
-                        (Number(i.adjustedStock) - Number(i.currentStock)),
-                      0
-                    )}
-                  </span>
-                </div>
-                <div>
-                  Total Value Impact:{" "}
-                  <span className="font-bold text-brand-700">
-                    {items
-                      .reduce(
-                        (acc, i) =>
-                          acc +
-                          (Number(i.adjustedStock) - Number(i.currentStock)) *
-                            Number(i.unitCost),
-                        0
-                      )
-                      .toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            </div>
             </fieldset>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
@@ -713,6 +825,28 @@ export default function StockAdjustmentForm() {
           </form>
         </div>
       </div>
+      <UnitConversionModal
+        open={convModal.open}
+        onClose={() =>
+          setConvModal({
+            open: false,
+            itemId: null,
+            defaultUom: "",
+            currentUom: "",
+            rowId: null,
+          })
+        }
+        itemId={convModal.itemId ? Number(convModal.itemId) : null}
+        defaultUom={String(convModal.defaultUom || "")}
+        currentUom={String(convModal.currentUom || "")}
+        conversions={unitConversions}
+        onApply={({ converted_qty }) => {
+          const rowId = convModal.rowId;
+          if (rowId != null) {
+            updateItem(rowId, "adjustedStock", converted_qty);
+          }
+        }}
+      />
     </div>
   );
 }

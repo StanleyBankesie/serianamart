@@ -15,8 +15,6 @@ import GRNLocalList from "./GRNLocalList.jsx";
 import GRNLocalForm from "./GRNLocalForm.jsx";
 import GRNImportList from "./GRNImportList.jsx";
 import GRNImportForm from "./GRNImportForm.jsx";
-import ServiceConfirmationsList from "./ServiceConfirmationsList.jsx";
-import ServiceConfirmationForm from "./ServiceConfirmationForm.jsx";
 import TransferAcceptanceList from "./TransferAcceptanceList.jsx";
 import TransferAcceptanceForm from "./TransferAcceptanceForm.jsx";
 import StockTakeList from "./StockTakeList.jsx";
@@ -45,7 +43,9 @@ import StockTransferRegisterReportPage from "./reports/StockTransferRegisterRepo
 import StockVerificationReportPage from "./reports/StockVerificationReportPage.jsx";
 import StockAgingAnalysisReportPage from "./reports/StockAgingAnalysisReportPage.jsx";
 import SlowMovingReportPage from "./reports/SlowMovingReportPage.jsx";
+import FastMovingReportPage from "./reports/FastMovingReportPage.jsx";
 import NonMovingReportPage from "./reports/NonMovingReportPage.jsx";
+import LowStockNotificationsPage from "./LowStockNotificationsPage.jsx";
 
 function InventoryFeaturePage({ title, description }) {
   return (
@@ -95,8 +95,12 @@ function InventoryHomeIndex() {
       try {
         const resp = await api.get("/bi/dashboards");
         const items = Number(resp?.data?.summary?.inventory?.items || 0);
-        const reqs = Number(resp?.data?.summary?.inventory?.pending_requisitions || 0);
-        const transfers = Number(resp?.data?.summary?.inventory?.incoming_transfers || 0);
+        const reqs = Number(
+          resp?.data?.summary?.inventory?.pending_requisitions || 0,
+        );
+        const transfers = Number(
+          resp?.data?.summary?.inventory?.incoming_transfers || 0,
+        );
         if (mounted) {
           setStats((prev) => {
             const next = [...prev];
@@ -305,6 +309,12 @@ function InventoryHomeIndex() {
           icon: "🐢",
         },
         {
+          name: "Fast Moving Items",
+          path: "/inventory/reports/fast-moving",
+          description: "High turnover items",
+          icon: "⚡",
+        },
+        {
           name: "Non Moving Items",
           path: "/inventory/reports/non-moving",
           description: "No movement in period",
@@ -366,6 +376,7 @@ export default function InventoryHome() {
         element={<TransferAcceptanceForm />}
       />
       <Route path="stock-reorder" element={<StockReorderPage />} />
+      <Route path="alerts/low-stock" element={<LowStockNotificationsPage />} />
       <Route path="stock-take" element={<StockTakeList />} />
       <Route path="stock-take/:id" element={<StockTakeForm />} />
       <Route path="grn-local" element={<GRNLocalList />} />
@@ -419,6 +430,7 @@ export default function InventoryHome() {
         element={<StockAgingAnalysisReportPage />}
       />
       <Route path="reports/slow-moving" element={<SlowMovingReportPage />} />
+      <Route path="reports/fast-moving" element={<FastMovingReportPage />} />
       <Route path="reports/non-moving" element={<NonMovingReportPage />} />
       <Route path="*" element={<Navigate to="/inventory" replace />} />
     </Routes>

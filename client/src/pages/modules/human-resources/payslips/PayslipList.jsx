@@ -13,7 +13,6 @@ export default function PayslipList() {
     address: "",
     logoUrl: "",
   });
-  const [templateHtml, setTemplateHtml] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -50,48 +49,6 @@ export default function PayslipList() {
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
   }
-  function resolvePath(obj, rawPath) {
-    const path = String(rawPath || "").trim().replace(/^\./, "");
-    if (!path) return undefined;
-    const parts = path.split(".").filter(Boolean);
-    let cur = obj;
-    for (const p of parts) {
-      if (cur == null) return undefined;
-      cur = cur[p];
-    }
-    return cur;
-  }
-  function renderTemplateString(templateHtml, data, root = data) {
-    let out = String(templateHtml ?? "");
-    out = out.replace(
-      /{{#each\s+([^}]+)}}([\s\S]*?){{\/each}}/g,
-      (_m, expr, inner) => {
-        const key = String(expr || "").trim();
-        const val = key.startsWith("@root.")
-          ? resolvePath(root, key.slice(6))
-          : resolvePath(data, key) ?? resolvePath(root, key);
-        const arr = Array.isArray(val) ? val : [];
-        return arr.map((item) => renderTemplateString(inner, item ?? {}, root)).join("");
-      },
-    );
-    out = out.replace(/{{{\s*([^}]+?)\s*}}}/g, (_m, expr) => {
-      const key = String(expr || "").trim();
-      let val;
-      if (key === "this" || key === ".") val = data;
-      else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-      else val = resolvePath(data, key) ?? resolvePath(root, key);
-      return String(val ?? "");
-    });
-    out = out.replace(/{{\s*([^}]+?)\s*}}/g, (_m, expr) => {
-      const key = String(expr || "").trim();
-      let val;
-      if (key === "this" || key === ".") val = data;
-      else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-      else val = resolvePath(data, key) ?? resolvePath(root, key);
-      return escapeHtml(val);
-    });
-    return out;
-  }
   function wrapDoc(bodyHtml) {
     return `<!doctype html>
 <html>
@@ -124,18 +81,6 @@ export default function PayslipList() {
       ),
     );
   }
-  const fetchPayslipTemplateHtml = async () => {
-    if (templateHtml !== null) return templateHtml;
-    try {
-      const res = await api.get("/admin/document-templates/PAYSLIP");
-      const tpl = String(res.data?.item?.template_html || "").trim();
-      setTemplateHtml(tpl);
-      return tpl;
-    } catch {
-      setTemplateHtml("");
-      return "";
-    }
-  };
   const buildPayslipData = (r) => {
     const logoUrl = String(companyInfo.logoUrl || "").trim();
     const logoHtml = logoUrl
@@ -157,10 +102,7 @@ export default function PayslipList() {
     };
   };
   async function printPayslip(r) {
-    const tpl = await fetchPayslipTemplateHtml();
-    const body = tpl
-      ? renderTemplateString(tpl, buildPayslipData(r))
-      : `<div>
+    const body = `<div>
   <div style="font-weight:800;font-size:18px;">Payslip</div>
   <div>Period: ${escapeHtml(String(r.period || ""))}</div>
   <div>Employee: ${escapeHtml(String(r.employee || ""))}</div>
@@ -197,10 +139,7 @@ export default function PayslipList() {
     setTimeout(handlePrint, 200);
   }
   async function downloadPayslipPdf(r) {
-    const tpl = await fetchPayslipTemplateHtml();
-    const body = tpl
-      ? renderTemplateString(tpl, buildPayslipData(r))
-      : `<div>
+    const body = `<div>
   <div style="font-weight:800;font-size:18px;">Payslip</div>
   <div>Period: ${escapeHtml(String(r.period || ""))}</div>
   <div>Employee: ${escapeHtml(String(r.employee || ""))}</div>

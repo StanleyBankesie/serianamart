@@ -2,6 +2,8 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 import { Save, X, Plus, Trash2, ArrowLeft } from "lucide-react";
+import { useUoms } from "@/hooks/useUoms";
+import UnitConversionModal from "@/components/UnitConversionModal";
 
 export default function StockVerificationForm() {
   const { id } = useParams();
@@ -13,6 +15,23 @@ export default function StockVerificationForm() {
   const [error, setError] = useState("");
   const [availableItems, setAvailableItems] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
+  const { uoms } = useUoms();
+  const [unitConversions, setUnitConversions] = useState([]);
+  const [convModal, setConvModal] = useState({
+    open: false,
+    itemId: null,
+    defaultUom: "",
+    currentUom: "",
+    rowId: null,
+  });
+  const defaultUomCode = useMemo(() => {
+    const list = Array.isArray(uoms) ? uoms : [];
+    const pcs =
+      list.find((u) => String(u.uom_code || "").toUpperCase() === "PCS") ||
+      list[0];
+    if (pcs && pcs.uom_code) return pcs.uom_code;
+    return "PCS";
+  }, [uoms]);
 
   const [formData, setFormData] = useState({
     verification_number: "",
@@ -45,19 +64,23 @@ export default function StockVerificationForm() {
 
     const fetchData = async () => {
       try {
-        const [itemsRes, warehousesRes] = await Promise.all([
+        const [itemsRes, warehousesRes, convRes] = await Promise.all([
           api.get("/inventory/items"),
           api.get("/inventory/warehouses"),
+          api.get("/inventory/unit-conversions"),
         ]);
 
         if (mounted) {
           setAvailableItems(
-            Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : []
+            Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : [],
           );
           setWarehouses(
             Array.isArray(warehousesRes.data?.items)
               ? warehousesRes.data.items
-              : []
+              : [],
+          );
+          setUnitConversions(
+            Array.isArray(convRes.data?.items) ? convRes.data.items : [],
           );
         }
       } catch (e) {
@@ -109,7 +132,7 @@ export default function StockVerificationForm() {
               item_id: d.item_id,
               qty: Number(d.qty) || 0,
               uom: "", // Should fetch from item details ideally
-            }))
+            })),
           );
         }
       })
@@ -157,7 +180,7 @@ export default function StockVerificationForm() {
           const updated = { ...item, [field]: value };
           if (field === "item_id") {
             const selectedItem = availableItems.find(
-              (i) => String(i.id) === String(value)
+              (i) => String(i.id) === String(value),
             );
             if (selectedItem) {
               updated.uom = selectedItem.uom || "";
@@ -166,7 +189,7 @@ export default function StockVerificationForm() {
           return updated;
         }
         return item;
-      })
+      }),
     );
   };
 
@@ -421,7 +444,7 @@ export default function StockVerificationForm() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Item
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48">
                         Variance Qty
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
@@ -451,7 +474,7 @@ export default function StockVerificationForm() {
                               onChange={(e) =>
                                 updateItem(item.id, "item_id", e.target.value)
                               }
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              className="w-1/2 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             >
                               <option value="">Select Item</option>
                               {availableItems.map((ai) => (
@@ -462,27 +485,119 @@ export default function StockVerificationForm() {
                             </select>
                           </td>
                           <td className="px-6 py-4">
-                            <input
-                              type="number"
-                              value={item.qty}
-                              onChange={(e) =>
-                                updateItem(
-                                  item.id,
-                                  "qty",
-                                  parseFloat(e.target.value) || 0
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="number"
+                                value={item.qty}
+                                onChange={(e) =>
+                                  updateItem(
+                                    item.id,
+                                    "qty",
+                                    parseFloat(e.target.value) || 0,
+                                  )
+                                }
+                                className={`${(() => {
+                                  const ai = availableItems.find(
+                                    (x) =>
+                                      String(x.id) === String(item.item_id),
+                                  );
+                                  const defaultUom =
+                                    (ai?.uom && String(ai.uom)) ||
+                                    (item.uom && String(item.uom)) ||
+                                    (defaultUomCode
+                                      ? String(defaultUomCode)
+                                      : "");
+                                  const nonDefaults = (
+                                    Array.isArray(unitConversions)
+                                      ? unitConversions
+                                      : []
+                                  )
+                                    .filter(
+                                      (c) =>
+                                        Number(c.is_active) &&
+                                        Number(c.item_id) ===
+                                          Number(item.item_id) &&
+                                        String(c.to_uom) === defaultUom,
+                                    )
+                                    .map((c) => String(c.from_uom));
+                                  const preferredUom = nonDefaults[0] || "";
+                                  const hasConv =
+                                    nonDefaults.length > 0 &&
+                                    preferredUom &&
+                                    preferredUom !== defaultUom;
+                                  return hasConv ? "w-3/4" : "w-full";
+                                })()} px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                                step="1"
+                              />
+                              {(() => {
+                                const ai = availableItems.find(
+                                  (x) => String(x.id) === String(item.item_id),
+                                );
+                                const defaultUom =
+                                  (ai?.uom && String(ai.uom)) ||
+                                  (item.uom && String(item.uom)) ||
+                                  (defaultUomCode
+                                    ? String(defaultUomCode)
+                                    : "");
+                                const nonDefaults = (
+                                  Array.isArray(unitConversions)
+                                    ? unitConversions
+                                    : []
                                 )
-                              }
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                              step="1"
-                            />
+                                  .filter(
+                                    (c) =>
+                                      Number(c.is_active) &&
+                                      Number(c.item_id) ===
+                                        Number(item.item_id) &&
+                                      String(c.to_uom) === defaultUom,
+                                  )
+                                  .map((c) => String(c.from_uom));
+                                const preferredUom = nonDefaults[0] || "";
+                                const hasConv =
+                                  nonDefaults.length > 0 &&
+                                  preferredUom &&
+                                  preferredUom !== defaultUom;
+                                return hasConv ? (
+                                  <button
+                                    type="button"
+                                    className="px-2 py-1 text-xs border border-brand text-brand rounded hover:bg-brand hover:text-white transition-colors"
+                                    onClick={() =>
+                                      setConvModal({
+                                        open: true,
+                                        itemId: item.item_id,
+                                        defaultUom: defaultUom,
+                                        currentUom: preferredUom,
+                                        rowId: item.id,
+                                      })
+                                    }
+                                  >
+                                    {`number of ${preferredUom}`}
+                                  </button>
+                                ) : null;
+                              })()}
+                            </div>
                           </td>
                           <td className="px-6 py-4">
-                            <input
-                              type="text"
-                              value={item.uom}
-                              readOnly
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500"
-                            />
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={
+                                  item.uom ||
+                                  (() => {
+                                    const ai = availableItems.find(
+                                      (x) =>
+                                        String(x.id) === String(item.item_id),
+                                    );
+                                    return (
+                                      (ai?.uom && String(ai.uom)) ||
+                                      String(defaultUomCode)
+                                    );
+                                  })()
+                                }
+                                readOnly
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500"
+                              />
+                            </div>
                           </td>
                           <td className="px-6 py-4 text-right">
                             <button
@@ -502,6 +617,28 @@ export default function StockVerificationForm() {
           </div>
         )}
       </div>
+      <UnitConversionModal
+        open={convModal.open}
+        onClose={() =>
+          setConvModal({
+            open: false,
+            itemId: null,
+            defaultUom: "",
+            currentUom: "",
+            rowId: null,
+          })
+        }
+        itemId={convModal.itemId ? Number(convModal.itemId) : null}
+        defaultUom={String(convModal.defaultUom || "")}
+        currentUom={String(convModal.currentUom || "")}
+        conversions={unitConversions}
+        onApply={({ converted_qty }) => {
+          const rowId = convModal.rowId;
+          if (rowId != null) {
+            updateItem(rowId, "qty", converted_qty);
+          }
+        }}
+      />
     </div>
   );
 }

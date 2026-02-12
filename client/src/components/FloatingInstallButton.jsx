@@ -7,16 +7,30 @@ export default function FloatingInstallButton() {
     usePWAInstall();
   const [showHelp, setShowHelp] = useState(false);
   const [visible, setVisible] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(
+    typeof window !== "undefined" ? window.innerWidth : 1920,
+  );
+
+  useEffect(() => {
+    function onResize() {
+      setViewportWidth(window.innerWidth);
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     // Only show if PWA is supported AND not already installed
     // AND we either have the install prompt OR are on a browser that *might* show it
+    // Limit to small/medium devices (<= 1024px)
     const shouldShow =
       isPWASupported &&
       !isInstalled &&
-      (isInstallable || /Mobile|Android|iPad|iPhone/.test(navigator.userAgent));
+      (isInstallable ||
+        /Mobile|Android|iPad|iPhone/.test(navigator.userAgent)) &&
+      viewportWidth <= 1024;
     setVisible(shouldShow);
-  }, [isInstallable, isInstalled, isPWASupported]);
+  }, [isInstallable, isInstalled, isPWASupported, viewportWidth]);
 
   if (!visible) return null;
 

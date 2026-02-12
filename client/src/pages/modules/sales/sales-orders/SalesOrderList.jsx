@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { api } from "api/client";
+import { api } from "../../../../api/client";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 
 export default function SalesOrderList() {
   const navigate = useNavigate();
@@ -19,6 +21,367 @@ export default function SalesOrderList() {
   const [targetApproverId, setTargetApproverId] = useState(null);
   const [submittingForward, setSubmittingForward] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [companyInfo, setCompanyInfo] = useState({
+    name: "",
+    address: "",
+    city: "",
+    state: "",
+    country: "",
+    postalCode: "",
+    phone: "",
+    email: "",
+    website: "",
+    taxId: "",
+    registrationNo: "",
+    logoUrl: "",
+  });
+  const [preparedBy, setPreparedBy] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadCompanyAndUser() {
+      try {
+        const meResp = await api.get("/admin/me");
+        const companyId = meResp.data?.scope?.companyId;
+        const u = meResp.data?.user || {};
+        const uname = String(u.username || "").trim();
+        const fname = String(u.full_name || "").trim();
+        const name = String(u.name || "").trim();
+        const email = String(u.email || "").trim();
+        const pb =
+          uname ||
+          fname ||
+          name ||
+          email ||
+          "";
+        if (mounted) setPreparedBy(pb);
+        if (!companyId) return;
+        const cResp = await api.get(`/admin/companies/${companyId}`);
+        const item = cResp.data?.item || {};
+        const logoUrl =
+          item.has_logo === 1 || item.has_logo === true
+            ? `/api/admin/companies/${companyId}/logo`
+            : "";
+        if (!mounted) return;
+        setCompanyInfo({
+          name: String(item.name || ""),
+          address: String(item.address || ""),
+          city: String(item.city || ""),
+          state: String(item.state || ""),
+          country: String(item.country || ""),
+          postalCode: String(item.postal_code || ""),
+          phone: String(item.telephone || ""),
+          email: String(item.email || ""),
+          website: String(item.website || ""),
+          taxId: String(item.tax_id || ""),
+          registrationNo: String(item.registration_no || ""),
+          logoUrl: String(logoUrl || ""),
+        });
+      } catch {}
+    }
+    loadCompanyAndUser();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  function escapeHtml(v) {
+    return String(v ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+  function wrapDoc(bodyHtml) {
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sales Order</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 16px; color: #0f172a; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { border: 1px solid #e2e8f0; padding: 6px 8px; vertical-align: top; }
+      th { background: #f8fafc; text-align: left; }
+    </style>
+  </head>
+  <body>${bodyHtml || ""}</body>
+</html>`;
+  }
+  async function waitForImages(container) {
+    const imgs = Array.from(container?.querySelectorAll?.("img") || []);
+    if (!imgs.length) return;
+    await Promise.all(
+      imgs.map(
+        (img) =>
+          new Promise((resolve) => {
+            if (img.complete) return resolve();
+            const done = () => resolve();
+            img.addEventListener("load", done, { once: true });
+            img.addEventListener("error", done, { once: true });
+          }),
+      ),
+    );
+  }
+  const buildSalesOrderTemplateDataFromApi = (header, details) => {
+    const logoUrl = String(companyInfo.logoUrl || "").trim();
+    const logoHtml = logoUrl
+      ? `<img src="${logoUrl}" alt="${escapeHtml(companyInfo.name || "Company")}" style="max-height:80px;object-fit:contain;" />`
+      : "";
+    const items = (Array.isArray(details) ? details : []).map((d, idx) => {
+      const qty = Number(d.qty ?? d.quantity ?? 0);
+      const unit = Number(d.unit_price ?? 0);
+      const disc = Number(d.discount_percent ?? 0);
+      const tax = Number(d.tax_amount ?? 0);
+      const total = Number(d.total_amount ?? qty * unit - (qty * unit * disc) / 100 + tax);
+      return {
+        sr: String(idx + 1),
+        code: String(d.item_code || ""),
+        name: String(d.item_name || ""),
+        quantity: qty.toFixed(2),
+        uom: String(d.uom || d.uom_code || ""),
+        price: unit.toFixed(2),
+        discount: disc.toFixed(2),
+        tax: tax.toFixed(2),
+        amount: total.toFixed(2),
+      };
+    });
+    const sub = items.reduce((s, it) => s + Number(it.price) * Number(it.quantity), 0);
+    const discTotal = items.reduce(
+      (s, it) => s + (Number(it.price) * Number(it.quantity) * Number(it.discount)) / 100,
+      0,
+    );
+    const taxTotal = items.reduce((s, it) => s + Number(it.tax || 0), 0);
+    const net = sub - discTotal;
+    const totalBase = header.net_amount ?? header.total_amount ?? (net + taxTotal);
+    const total = Number(totalBase ?? 0);
+    return {
+      company: {
+        name: companyInfo.name || "",
+        address: companyInfo.address || "",
+        city: companyInfo.city || "",
+        state: companyInfo.state || "",
+        country: companyInfo.country || "",
+        postalCode: companyInfo.postalCode || "",
+        phone: companyInfo.phone || "",
+        email: companyInfo.email || "",
+        website: companyInfo.website || "",
+        taxId: companyInfo.taxId || "",
+        registrationNo: companyInfo.registrationNo || "",
+        logoUrl,
+        logoHtml,
+      },
+      sales_order: {
+        number: String(header.order_no || ""),
+        date: header.order_date ? String(header.order_date).slice(0, 10) : "",
+        payment_type: String(header.payment_type || ""),
+        price_type: String(header.price_type || ""),
+      },
+      customer: {
+        name: String(header.customer_name || ""),
+        address: String(header.address || ""),
+        city: String(header.city || ""),
+        state: String(header.state || ""),
+        country: String(header.country || ""),
+        phone: String(header.phone || ""),
+        email: String(header.email || ""),
+      },
+      items,
+      totals: {
+        sub_total: sub.toFixed(2),
+        discount: discTotal.toFixed(2),
+        tax_amount: taxTotal.toFixed(2),
+        total: Number(total || 0).toFixed(2),
+      },
+      prepared_by: preparedBy || "",
+    };
+  };
+  function renderSalesOrderHtml(data) {
+    const c = data.company || {};
+    const s = data.sales_order || {};
+    const u = data.customer || {};
+    const items = Array.isArray(data.items) ? data.items : [];
+    const t = data.totals || {};
+    return `
+      <style>
+        .doc { color: #0f172a; font-size: 12px; }
+        .doc-header { display: flex; justify-content: space-between; align-items: center; }
+        .doc-title { font-weight: 800; font-size: 18px; color: #296d8f; }
+        .company-block { display: flex; gap: 12px; align-items: center; }
+        .company-logo { max-height: 80px; object-fit: contain; }
+        .company-info div { line-height: 1.4; }
+        .meta { text-align: right; font-size: 12px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        table { border-collapse: collapse; width: 100%; font-size: 12px; }
+        th, td { border: 1px solid #e2e8f0; padding: 6px 8px; vertical-align: top; }
+        th { background: #f8fafc; text-align: left; }
+        .totals { display: flex; justify-content: flex-end; margin-top: 12px; }
+        .totals table { width: 360px; }
+      </style>
+      <div class="doc">
+        <div class="doc-header">
+          <div class="company-block">
+            ${c.logoUrl ? `<img src="${c.logoUrl}" alt="${escapeHtml(c.name || "Company")}" class="company-logo" />` : ""}
+            <div class="company-info">
+              <div>${escapeHtml(c.name || "")}</div>
+              <div>${escapeHtml(c.address || "")}</div>
+              <div>${escapeHtml(c.city || "")}${c.city ? "," : ""} ${escapeHtml(c.state || "")} ${escapeHtml(c.country || "")}</div>
+              <div>${escapeHtml(c.phone || "")} ${escapeHtml(c.email || "")}</div>
+              <div>${escapeHtml(c.website || "")}</div>
+              <div>${c.taxId ? `Tax ID: ${escapeHtml(c.taxId)}` : ""}</div>
+              <div>${c.registrationNo ? `Reg No: ${escapeHtml(c.registrationNo)}` : ""}</div>
+            </div>
+          </div>
+          <div class="meta">
+            <div class="doc-title">Sales Order</div>
+            <div>Order No: ${escapeHtml(s.number || "")}</div>
+            <div>Order Date: ${escapeHtml(s.date || "")}</div>
+          </div>
+        </div>
+        <div class="grid-2" style="margin-top: 6px;">
+          <div>
+            <div style="font-weight:700;margin-bottom:4px;">Customer</div>
+            <div>${escapeHtml(u.name || "")}</div>
+            <div>${escapeHtml(u.address || "")}</div>
+            <div>${escapeHtml(u.city || "")}${u.city ? "," : ""} ${escapeHtml(u.state || "")} ${escapeHtml(u.country || "")}</div>
+            <div>${escapeHtml(u.phone || "")} ${escapeHtml(u.email || "")}</div>
+          </div>
+          <div>
+            <div style="font-weight:700;margin-bottom:4px;">Payment</div>
+            <div>Payment Type: ${escapeHtml(s.payment_type || "")}</div>
+            <div>Price Type: ${escapeHtml(s.price_type || "")}</div>
+          </div>
+        </div>
+        <table style="margin-top: 8px;">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Code</th>
+              <th>Description</th>
+              <th style="text-align:right;">Qty</th>
+              <th>UOM</th>
+              <th style="text-align:right;">Unit Price</th>
+              <th style="text-align:right;">Disc%</th>
+              <th style="text-align:right;">Tax</th>
+              <th style="text-align:right;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items
+              .map(
+                (it) => `
+                <tr>
+                  <td>${escapeHtml(it.sr || "")}</td>
+                  <td>${escapeHtml(it.code || "")}</td>
+                  <td>${escapeHtml(it.name || "")}</td>
+                  <td style="text-align:right;">${escapeHtml(it.quantity || "")}</td>
+                  <td>${escapeHtml(it.uom || "")}</td>
+                  <td style="text-align:right;">${escapeHtml(it.price || "")}</td>
+                  <td style="text-align:right;">${escapeHtml(it.discount || "")}</td>
+                  <td style="text-align:right;">${escapeHtml(it.tax || "")}</td>
+                  <td style="text-align:right;">${escapeHtml(it.amount || "")}</td>
+                </tr>
+              `,
+              )
+              .join("")}
+          </tbody>
+        </table>
+        <div class="totals">
+          <table>
+            <tbody>
+              <tr><td>Sub Total</td><td style="text-align:right;">${escapeHtml(t.sub_total || "")}</td></tr>
+              <tr><td>Discount</td><td style="text-align:right;">${escapeHtml(t.discount || "")}</td></tr>
+              <tr><td>Tax</td><td style="text-align:right;">${escapeHtml(t.tax_amount || "")}</td></tr>
+              <tr><td><strong>Total</strong></td><td style="text-align:right;"><strong>${escapeHtml(t.total || "")}</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="margin-top:10px;font-size:12px;">
+          <div>Prepared By: ${escapeHtml(String(data.prepared_by || ""))}</div>
+        </div>
+      </div>
+    `;
+  }
+  async function printSalesOrder(id) {
+    try {
+      const resp = await api.get(`/sales/orders/${id}`);
+      const header = resp.data?.item || {};
+      const details = Array.isArray(resp.data?.details) ? resp.data.details : [];
+      const data = buildSalesOrderTemplateDataFromApi(header, details);
+      const html = wrapDoc(renderSalesOrderHtml(data));
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "fixed";
+      iframe.style.right = "0";
+      iframe.style.bottom = "0";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "0";
+      document.body.appendChild(iframe);
+      const doc = iframe.contentWindow?.document || iframe.contentDocument || null;
+      if (!doc) {
+        document.body.removeChild(iframe);
+        return;
+      }
+      doc.open();
+      doc.write(html);
+      doc.close();
+      const win = iframe.contentWindow || window;
+      const doPrint = () => {
+        win.focus();
+        try {
+          win.print();
+        } catch {}
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+        }, 100);
+      };
+      setTimeout(doPrint, 200);
+    } catch {}
+  }
+  async function downloadSalesOrderPdf(id) {
+    try {
+      const resp = await api.get(`/sales/orders/${id}`);
+      const header = resp.data?.item || {};
+      const details = Array.isArray(resp.data?.details) ? resp.data.details : [];
+      const data = buildSalesOrderTemplateDataFromApi(header, details);
+      const html = renderSalesOrderHtml(data);
+      const container = document.createElement("div");
+      container.style.position = "fixed";
+      container.style.left = "-10000px";
+      container.style.top = "0";
+      container.style.width = "794px";
+      container.style.background = "white";
+      container.style.padding = "32px";
+      container.innerHTML = html;
+      document.body.appendChild(container);
+      try {
+        await waitForImages(container);
+        const canvas = await html2canvas(container, { scale: 2, useCORS: true });
+        const imgData = canvas.toDataURL("image/png");
+        const pdf = new jsPDF("p", "mm", "a4");
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const imgWidth = pageWidth;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        let rendered = 0;
+        while (rendered < imgHeight) {
+          pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
+          rendered += pageHeight;
+          if (rendered < imgHeight) pdf.addPage();
+        }
+        const fname =
+          "SalesOrder_" +
+          (String(header.order_no || "").replaceAll(" ", "_") ||
+            new Date().toISOString().slice(0, 10)) +
+          ".pdf";
+        pdf.save(fname);
+      } finally {
+        document.body.removeChild(container);
+      }
+    } catch {}
+  }
 
   useEffect(() => {
     fetchOrders();
@@ -319,7 +682,6 @@ export default function SalesOrderList() {
                     <th>Customer</th>
                     <th>Priority</th>
                     <th>Amount</th>
-                    <th>Status</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -335,7 +697,6 @@ export default function SalesOrderList() {
                           minimumFractionDigits: 2,
                         })}
                       </td>
-                      <td>{getStatusBadge(order.status)}</td>
                       <td>
                         <div className="flex gap-2">
                           <button
@@ -375,6 +736,18 @@ export default function SalesOrderList() {
                               Forward for Approval
                             </button>
                           ) : null}
+                          <button
+                            onClick={() => printSalesOrder(order.id)}
+                            className="inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
+                          >
+                            Print
+                          </button>
+                          <button
+                            onClick={() => downloadSalesOrderPdf(order.id)}
+                            className="inline-flex items-center px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold"
+                          >
+                            PDF
+                          </button>
                         </div>
                       </td>
                     </tr>

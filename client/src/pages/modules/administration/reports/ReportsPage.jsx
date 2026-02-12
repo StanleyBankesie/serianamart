@@ -1,11 +1,20 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React from "react";
+import { Link } from "react-router-dom";
 
 export default function ReportsPage() {
   const reports = [
-    { title: 'User Login Activity', description: 'Recent logins per user (placeholder)' },
-    { title: 'Permission Changes', description: 'Audit report of permission updates (placeholder)' },
-    { title: 'Workflow Queue', description: 'Documents pending approvals (placeholder)' },
+    {
+      title: "User Login Activity",
+      description: "Track user logins by date, user, and IP",
+      path: "/administration/reports/user-login-activity",
+      action: "Open Report",
+    },
+    {
+      title: "System Log Book",
+      description: "Application events and audit activity",
+      path: "/administration/reports/system-log-book",
+      action: "Open Report",
+    },
   ];
 
   return (
@@ -24,10 +33,20 @@ export default function ReportsPage() {
       <div className="card">
         <div className="card-body">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {reports.map((r, idx) => (
-              <div key={idx} className="p-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-                <div className="font-semibold text-slate-900 dark:text-slate-100">{r.title}</div>
-                <div className="text-sm mt-1">{r.description}</div>
+            {reports.map((r) => (
+              <div
+                key={r.path}
+                className="p-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col justify-between"
+              >
+                <div>
+                  <div className="font-semibold text-slate-900 dark:text-slate-100">{r.title}</div>
+                  <div className="text-sm mt-1">{r.description}</div>
+                </div>
+                <div className="mt-4">
+                  <Link to={r.path} className="btn-success">
+                    {r.action}
+                  </Link>
+                </div>
               </div>
             ))}
           </div>

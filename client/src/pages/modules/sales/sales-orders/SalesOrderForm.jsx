@@ -10,6 +10,10 @@ import { useAuth } from "../../../../auth/AuthContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { toast } from "react-toastify";
+import { useUoms } from "@/hooks/useUoms";
+import PrintPreviewModal from "../../../../components/PrintPreviewModal.jsx";
+import UnitConversionModal from "@/components/UnitConversionModal";
 import {
   Save,
   Trash2,
@@ -23,102 +27,7 @@ import {
   FileText,
 } from "lucide-react";
 
-function escapeHtml(v) {
-  return String(v ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function resolvePath(obj, rawPath) {
-  const path = String(rawPath || "")
-    .trim()
-    .replace(/^\./, "");
-  if (!path) return undefined;
-  const parts = path.split(".").filter(Boolean);
-  let cur = obj;
-  for (const p of parts) {
-    if (cur == null) return undefined;
-    cur = cur[p];
-  }
-  return cur;
-}
-
-function renderTemplateString(templateHtml, data, root = data) {
-  let out = String(templateHtml ?? "");
-
-  out = out.replace(
-    /{{#each\s+([^}]+)}}([\s\S]*?){{\/each}}/g,
-    (_m, expr, inner) => {
-      const key = String(expr || "").trim();
-      const val = key.startsWith("@root.")
-        ? resolvePath(root, key.slice(6))
-        : (resolvePath(data, key) ?? resolvePath(root, key));
-      const arr = Array.isArray(val) ? val : [];
-      return arr
-        .map((item) => renderTemplateString(inner, item ?? {}, root))
-        .join("");
-    },
-  );
-
-  out = out.replace(/{{{\s*([^}]+?)\s*}}}/g, (_m, expr) => {
-    const key = String(expr || "").trim();
-    let val;
-    if (key === "this" || key === ".") val = data;
-    else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-    else val = resolvePath(data, key) ?? resolvePath(root, key);
-    return String(val ?? "");
-  });
-
-  out = out.replace(/{{\s*([^}]+?)\s*}}/g, (_m, expr) => {
-    const key = String(expr || "").trim();
-    let val;
-    if (key === "this" || key === ".") val = data;
-    else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-    else val = resolvePath(data, key) ?? resolvePath(root, key);
-    return escapeHtml(val);
-  });
-
-  return out;
-}
-
-function wrapDoc(bodyHtml) {
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Sales Order</title>
-    <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 24px; color: #0f172a; background: #fff; }
-      table { border-collapse: collapse; width: 100%; }
-      th, td { border: 1px solid #e2e8f0; padding: 6px 8px; vertical-align: top; }
-      th { background: #f8fafc; text-align: left; }
-      .right { text-align: right; }
-      .center { text-align: center; }
-    </style>
-  </head>
-  <body>${bodyHtml || ""}</body>
-</html>`;
-}
-
-async function waitForImages(rootEl) {
-  const imgs = Array.from(rootEl.querySelectorAll("img"));
-  if (!imgs.length) return;
-  await Promise.all(
-    imgs.map(
-      (img) =>
-        new Promise((resolve) => {
-          if (img.complete) return resolve();
-          const done = () => resolve();
-          img.addEventListener("load", done, { once: true });
-          img.addEventListener("error", done, { once: true });
-        }),
-    ),
-  );
-}
+// Removed old template-string and external HTML rendering in favor of CSS-based on-page layout
 
 export default function SalesOrderForm() {
   const navigate = useNavigate();
@@ -182,7 +91,39 @@ export default function SalesOrderForm() {
     logoUrl: "",
   });
   const [preparedBy, setPreparedBy] = useState("");
-  const [salesOrderTemplateHtml, setSalesOrderTemplateHtml] = useState(null);
+  const { uoms } = useUoms();
+  const defaultUomCode = React.useMemo(() => {
+    const list = Array.isArray(uoms) ? uoms : [];
+    const pcs =
+      list.find((u) => String(u.uom_code || "").toUpperCase() === "PCS") ||
+      list[0];
+    if (pcs && pcs.uom_code) return pcs.uom_code;
+    return "PCS";
+  }, [uoms]);
+  const [convModal, setConvModal] = useState({
+    open: false,
+    itemId: null,
+    defaultUom: "",
+    currentUom: "",
+    rowId: null,
+  });
+  const [unitConversions, setUnitConversions] = useState([]);
+  const [tplPreviewOpen, setTplPreviewOpen] = useState(false);
+  const [tplPreviewHtml, setTplPreviewHtml] = useState("");
+  const [tplDownloading, setTplDownloading] = useState(false);
+
+  useEffect(() => {
+    api
+      .get("/inventory/unit-conversions")
+      .then((res) => {
+        setUnitConversions(
+          Array.isArray(res.data?.items) ? res.data.items : [],
+        );
+      })
+      .catch(() => {
+        setUnitConversions([]);
+      });
+  }, []);
 
   // New Item State
   const [newItem, setNewItem] = useState({
@@ -193,6 +134,7 @@ export default function SalesOrderForm() {
     discount_percent: 0,
     tax_type: "",
     remarks: "",
+    uom: "",
   });
 
   const statuses = [
@@ -266,6 +208,25 @@ export default function SalesOrderForm() {
     return byCode ? byCode.value : null;
   };
 
+  const generateNextOrderNo = async () => {
+    try {
+      const res = await api.get("/sales/orders");
+      const items = Array.isArray(res.data?.items) ? res.data.items : [];
+      let max = 0;
+      for (const it of items) {
+        const m = String(it.order_no || "").match(/^SO-(\d{6})$/);
+        if (m) {
+          const n = Number(m[1]);
+          if (Number.isFinite(n) && n > max) max = n;
+        }
+      }
+      const next = max + 1;
+      return `SO-${String(next).padStart(6, "0")}`;
+    } catch {
+      return "SO-000001";
+    }
+  };
+
   const fetchAvailable = async (warehouseId, itemId) => {
     if (!warehouseId || !itemId) return 0;
     try {
@@ -289,20 +250,25 @@ export default function SalesOrderForm() {
     if (isEditMode) {
       fetchOrder();
     } else {
-      api
-        .get("/sales/orders/next-no")
-        .then((resp) => {
-          const nextNo = resp.data?.nextNo;
-          if (nextNo) {
-            setFormData((p) => ({ ...p, order_no: nextNo }));
-          }
+      let mounted = true;
+      generateNextOrderNo()
+        .then((nextNo) => {
+          if (!mounted) return;
+          setFormData((p) => ({
+            ...p,
+            order_no: p.order_no || nextNo || "SO-000001",
+          }));
         })
         .catch(() => {
+          if (!mounted) return;
           setFormData((p) => ({
             ...p,
             order_no: p.order_no || "SO-000001",
           }));
         });
+      return () => {
+        mounted = false;
+      };
     }
   }, [id]);
 
@@ -504,10 +470,40 @@ export default function SalesOrderForm() {
 
   const fetchQuotations = async () => {
     try {
-      const response = await api.get("/sales/quotations");
-      setQuotations(
-        Array.isArray(response.data?.items) ? response.data.items : [],
+      const [qRes, oRes] = await Promise.all([
+        api.get("/sales/quotations"),
+        api.get("/sales/orders"),
+      ]);
+      const quotes = Array.isArray(qRes.data?.items) ? qRes.data.items : [];
+      const orders = Array.isArray(oRes.data?.items) ? oRes.data.items : [];
+      const used = new Set(
+        orders
+          .map((o) => o?.quotation_id)
+          .filter((v) => v !== undefined && v !== null)
+          .map((v) => String(v)),
       );
+      let filtered = quotes.filter((q) => !used.has(String(q.id)));
+      if (isEditMode && formData?.quotation_id) {
+        const sid = String(formData.quotation_id);
+        const exists = filtered.some((q) => String(q.id) === sid);
+        if (!exists) {
+          try {
+            const one = await api.get(`/sales/quotations/${sid}`);
+            const item = one.data?.item;
+            if (item) filtered = [item, ...filtered];
+          } catch {
+            filtered = [
+              {
+                id: formData.quotation_id,
+                quotation_no: sid,
+                customer_name: "",
+              },
+              ...filtered,
+            ];
+          }
+        }
+      }
+      setQuotations(filtered);
     } catch (error) {
       console.error("Error fetching quotations:", error);
     }
@@ -569,6 +565,7 @@ export default function SalesOrderForm() {
           }
           setItems(mappedItems);
         }
+        await fetchQuotations();
       }
     } catch (error) {
       setError(error?.response?.data?.message || "Error fetching order");
@@ -684,6 +681,7 @@ export default function SalesOrderForm() {
         item_name: prod?.item_name || "",
         unit_price: prod?.selling_price || "",
         qty: 1,
+        uom: String(prod?.uom || "") || defaultUomCode,
       }));
       if (value) {
         if (formData.customer_id) {
@@ -788,6 +786,7 @@ export default function SalesOrderForm() {
         line_id: Date.now(),
         ...calculations,
         available_qty: newItem.available_qty,
+        uom: newItem.uom || defaultUomCode,
       },
     ]);
 
@@ -801,6 +800,7 @@ export default function SalesOrderForm() {
       tax_rate: undefined,
       remarks: "",
       available_qty: undefined,
+      uom: defaultUomCode,
     });
   };
 
@@ -808,171 +808,7 @@ export default function SalesOrderForm() {
     setItems(items.filter((i) => i.line_id !== lineId));
   };
 
-  const fetchSalesOrderTemplateHtml = async () => {
-    if (salesOrderTemplateHtml !== null) return salesOrderTemplateHtml;
-    try {
-      const res = await api.get("/admin/document-templates/SALES_ORDER");
-      const tpl = String(res.data?.item?.template_html || "").trim();
-      setSalesOrderTemplateHtml(tpl);
-      return tpl;
-    } catch {
-      setSalesOrderTemplateHtml("");
-      return "";
-    }
-  };
-
-  const buildSalesOrderTemplateData = () => {
-    const logoUrl = String(companyInfo.logoUrl || "").trim();
-    const logoHtml = logoUrl
-      ? `<img src="${logoUrl}" alt="${escapeHtml(companyInfo.name || "Company")}" style="max-height:80px;object-fit:contain;" />`
-      : "";
-    const customer = customers.find(
-      (c) => String(c.id) === String(formData.customer_id),
-    );
-    const aggregates = calcAggregates();
-    const itemsData = (Array.isArray(items) ? items : []).map((i) => {
-      const qty = Number(i.qty || 0);
-      const unit = Number(i.unit_price || 0);
-      const total = Number(i.total || qty * unit);
-      return {
-        item_name: String(i.item_name || ""),
-        qty: qty.toFixed(2),
-        unit_price: unit.toFixed(2),
-        total: total.toFixed(2),
-      };
-    });
-    return {
-      company: {
-        name: companyInfo.name || "Company",
-        address: companyInfo.address || "",
-        city: companyInfo.city || "",
-        state: companyInfo.state || "",
-        postalCode: companyInfo.postalCode || "",
-        country: companyInfo.country || "",
-        phone: companyInfo.phone || "",
-        email: companyInfo.email || "",
-        website: companyInfo.website || "",
-        taxId: companyInfo.taxId || "",
-        registrationNo: companyInfo.registrationNo || "",
-        logoUrl,
-        logoHtml,
-      },
-      salesOrder: {
-        order_no: String(formData.order_no || ""),
-        order_date: String(formData.order_date || ""),
-        status: String(formData.status || ""),
-        currency: String(
-          currencies.find((c) => String(c.id) === String(formData.currency_id))
-            ?.code || "",
-        ),
-        payment_type: String(formData.payment_type || ""),
-        price_type: String(formData.price_type || ""),
-        prepared_by: String(preparedBy || ""),
-      },
-      customer: {
-        id: String(customer?.id || ""),
-        code: String(customer?.customer_code || ""),
-        name: String(customer?.customer_name || ""),
-        type: String(customer?.customer_type || ""),
-        contactPerson: String(customer?.contact_person || ""),
-        email: String(customer?.email || ""),
-        phone: String(customer?.phone || formData.phone || ""),
-        mobile: String(customer?.mobile || ""),
-        address: String(customer?.address || ""),
-        city: String(customer?.city || formData.city || ""),
-        state: String(customer?.state || formData.state || ""),
-        zone: String(customer?.zone || ""),
-        country: String(customer?.country || formData.country || ""),
-        paymentTerms: String(customer?.payment_terms || ""),
-        creditLimit: Number(customer?.credit_limit || 0).toFixed(2),
-      },
-      items: itemsData,
-      totals: {
-        subtotal: Number(aggregates.grossSub || 0).toFixed(2),
-        discount: Number(aggregates.discountTotal || 0).toFixed(2),
-        tax: Number(aggregates.taxTotal || 0).toFixed(2),
-        total: Number(aggregates.grand || 0).toFixed(2),
-      },
-    };
-  };
-
-  const printUsingSalesOrderTemplate = async () => {
-    const tpl = await fetchSalesOrderTemplateHtml();
-    if (!tpl) return false;
-    await ensureTaxComponentsLoaded();
-    const data = buildSalesOrderTemplateData();
-    const html = wrapDoc(renderTemplateString(tpl, data));
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    document.body.appendChild(iframe);
-    const doc =
-      iframe.contentWindow?.document || iframe.contentDocument || null;
-    if (!doc) {
-      document.body.removeChild(iframe);
-      return true;
-    }
-    doc.open();
-    doc.write(html);
-    doc.close();
-    const win = iframe.contentWindow || window;
-    const doPrint = () => {
-      win.focus();
-      try {
-        win.print();
-      } catch {}
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 100);
-    };
-    setTimeout(doPrint, 200);
-    return true;
-  };
-
-  const downloadPdfUsingSalesOrderTemplate = async () => {
-    const tpl = await fetchSalesOrderTemplateHtml();
-    if (!tpl) return false;
-    await ensureTaxComponentsLoaded();
-    const data = buildSalesOrderTemplateData();
-    const html = renderTemplateString(tpl, data);
-    const container = document.createElement("div");
-    container.style.position = "fixed";
-    container.style.left = "-10000px";
-    container.style.top = "0";
-    container.style.width = "794px";
-    container.style.background = "white";
-    container.style.padding = "32px";
-    container.innerHTML = html;
-    document.body.appendChild(container);
-    try {
-      await waitForImages(container);
-      const canvas = await html2canvas(container, { scale: 2, useCORS: true });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let rendered = 0;
-      while (rendered < imgHeight) {
-        pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
-        rendered += pageHeight;
-        if (rendered < imgHeight) pdf.addPage();
-      }
-      const fname =
-        "SalesOrder_" +
-        (formData.order_no || new Date().toISOString().slice(0, 10)) +
-        ".pdf";
-      pdf.save(fname);
-    } finally {
-      document.body.removeChild(container);
-    }
-    return true;
-  };
+  // Removed old document-template print/PDF in favor of CSS-based on-page layout
 
   useEffect(() => {
     const wh = formData.warehouse_id;
@@ -997,14 +833,10 @@ export default function SalesOrderForm() {
   }, [formData.warehouse_id]);
 
   const handlePrint = async () => {
-    try {
-      if (await printUsingSalesOrderTemplate()) return;
-    } catch {}
     ensureTaxComponentsLoaded().finally(() => window.print());
   };
 
   const handleDownload = async () => {
-    if (await downloadPdfUsingSalesOrderTemplate()) return;
     await ensureTaxComponentsLoaded();
     const el = pdfRef.current;
     if (!el) return;
@@ -1083,6 +915,7 @@ export default function SalesOrderForm() {
             tax_amount: item.taxAmt,
             total_amount: item.total,
             net_amount: item.net,
+            uom: String(item.uom || defaultUomCode),
           };
         }),
       };
@@ -1092,8 +925,7 @@ export default function SalesOrderForm() {
       } else {
         await api.post("/sales/orders", payload);
       }
-
-      alert(
+      toast.success(
         isEditMode
           ? "Order updated successfully!"
           : "Order created successfully!",
@@ -1113,10 +945,11 @@ export default function SalesOrderForm() {
     String(formData.status || "").toUpperCase() === "CONFIRMED";
   const viewLocked = isViewMode && isConfirmed;
   return (
-    <div
-      className={`max-w-7xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden my-6 print:shadow-none print:my-0 print:w-full print:max-w-none`}
-    >
-      <style>{`
+    <>
+      <div
+        className={`max-w-7xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden my-6 print:shadow-none print:my-0 print:w-full print:max-w-none`}
+      >
+        <style>{`
         @media print {
           @page { margin: 1cm; }
           body { 
@@ -1209,761 +1042,1014 @@ export default function SalesOrderForm() {
         }
       `}</style>
 
-      {/* Header */}
-      <div
-        className="p-6 border-b text-white print:hidden"
-        style={{ backgroundColor: "#0E3646" }}
-      >
-        <div className="flex justify-between items-center">
-          <div>
-            <h2 className="text-xl font-bold">
-              {isEditMode ? "Edit" : "New"} Sales Order
-            </h2>
-            <p className="text-sm opacity-80">
-              {isEditMode ? "Update order details" : "Create a new sales order"}
-            </p>
-          </div>
-          <div className="flex gap-4 print:hidden items-center">
-            <button
-              onClick={handleDownload}
-              className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg transition-colors text-sm font-medium border border-white/20"
-            >
-              <Download className="w-4 h-4" />
-              Download PDF
-            </button>
-            <button
-              onClick={handlePrint}
-              className="text-white hover:text-gray-200"
-            >
-              <Printer className="w-6 h-6" />
-            </button>
-            <Link
-              to="/sales/sales-orders"
-              className="text-white hover:text-gray-200"
-            >
-              <ArrowLeft className="w-6 h-6" />
-            </Link>
+        {/* Header */}
+        <div
+          className="p-6 border-b text-white print:hidden"
+          style={{ backgroundColor: "#0E3646" }}
+        >
+          <div className="flex justify-between items-center">
+            <div>
+              <h2 className="text-xl font-bold">
+                {isEditMode ? "Edit" : "New"} Sales Order
+              </h2>
+              <p className="text-sm opacity-80">
+                {isEditMode
+                  ? "Update order details"
+                  : "Create a new sales order"}
+              </p>
+            </div>
+            <div className="flex gap-4 print:hidden items-center">
+              {isEditMode ? (
+                <>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const resp = await api.post(
+                          `/documents/sales-order/${id}/render`,
+                          { format: "html" },
+                        );
+                        setTplPreviewHtml(String(resp.data || ""));
+                        setTplPreviewOpen(true);
+                      } catch (e) {
+                        toast.error(
+                          e?.response?.data?.message || "Failed to render",
+                        );
+                      }
+                    }}
+                    className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg transition-colors text-sm font-medium border border-white/20"
+                  >
+                    <FileText className="w-4 h-4" />
+                    Template Preview
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        setTplDownloading(true);
+                        const resp = await api.post(
+                          `/documents/sales-order/${id}/render?format=pdf`,
+                          {},
+                          { responseType: "blob" },
+                        );
+                        const blob = resp.data;
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `sales-order-${id}.pdf`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      } catch (e) {
+                        toast.error(
+                          e?.response?.data?.message || "Failed to download",
+                        );
+                      } finally {
+                        setTplDownloading(false);
+                      }
+                    }}
+                    className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg transition-colors text-sm font-medium border border-white/20"
+                  >
+                    <Download className="w-4 h-4" />
+                    Template PDF
+                  </button>
+                </>
+              ) : null}
+              <button
+                onClick={handleDownload}
+                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg transition-colors text-sm font-medium border border-white/20"
+              >
+                <Download className="w-4 h-4" />
+                Download PDF
+              </button>
+              <button
+                onClick={handlePrint}
+                className="text-white hover:text-gray-200"
+              >
+                <Printer className="w-6 h-6" />
+              </button>
+              <Link
+                to="/sales/sales-orders"
+                className="text-white hover:text-gray-200"
+              >
+                <ArrowLeft className="w-6 h-6" />
+              </Link>
+            </div>
           </div>
         </div>
-      </div>
-      <div className={`p-6 print:hidden`}>
-        <form onSubmit={handleSubmit}>
-          {/* Tabs */}
-          <div className="flex gap-4 border-b mb-6 print:hidden">
-            <button
-              type="button"
-              onClick={() => setActiveTab("details")}
-              className={`pb-2 px-4 font-medium transition-colors ${
-                activeTab === "details"
-                  ? "border-b-2 border-[#0E3646] text-[#0E3646]"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
+        <div className={`p-6 print:hidden`}>
+          <form onSubmit={handleSubmit}>
+            {/* Tabs */}
+            <div className="flex gap-4 border-b mb-6 print:hidden">
+              <button
+                type="button"
+                onClick={() => setActiveTab("details")}
+                className={`pb-2 px-4 font-medium transition-colors ${
+                  activeTab === "details"
+                    ? "border-b-2 border-[#0E3646] text-[#0E3646]"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Order Details
+              </button>
+            </div>
+
+            {/* Tab Content */}
+            <fieldset
+              disabled={viewLocked}
+              className={isViewMode ? "view-mode" : ""}
             >
-              Order Details
-            </button>
-          </div>
-
-          {/* Tab Content */}
-          <fieldset
-            disabled={viewLocked}
-            className={isViewMode ? "view-mode" : ""}
-          >
-            <div
-              className={
-                activeTab === "details" || "print:block" ? "block" : "hidden"
-              }
-            >
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Order #
-                  </label>
-                  <input
-                    type="text"
-                    name="order_no"
-                    value={formData.order_no}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                    placeholder="Auto-generated"
-                    readOnly={!isEditMode && !formData.order_no}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Date *
-                  </label>
-                  <input
-                    type="date"
-                    name="order_date"
-                    value={formData.order_date}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Customer *
-                  </label>
-                  <select
-                    name="customer_id"
-                    value={formData.customer_id}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                    required
-                  >
-                    <option value="">Select Customer</option>
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.customer_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Warehouse
-                  </label>
-                  <select
-                    name="warehouse_id"
-                    value={formData.warehouse_id}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                  >
-                    <option value="">Select Warehouse</option>
-                    {warehouses.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.warehouse_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Quotation Ref
-                  </label>
-                  <select
-                    name="quotation_id"
-                    value={formData.quotation_id}
-                    onChange={handleQuotationChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                  >
-                    <option value="">Select Quotation</option>
-                    {quotations.map((q) => (
-                      <option key={q.id} value={q.id}>
-                        {q.quotation_no} - {q.customer_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Status
-                  </label>
-                  <select
-                    name="status"
-                    value={formData.status}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                  >
-                    {statuses.map((s) => (
-                      <option key={s.value} value={s.value}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Priority
-                  </label>
-                  <select
-                    name="priority"
-                    value={formData.priority}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                  >
-                    {priorities.map((p) => (
-                      <option key={p.value} value={p.value}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Price Type
-                  </label>
-                  <select
-                    name="price_type"
-                    value={formData.price_type}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                  >
-                    <option value="RETAIL">Retail</option>
-                    <option value="WHOLESALE">Wholesale</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Payment Type
-                  </label>
-                  <select
-                    name="payment_type"
-                    value={formData.payment_type}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                  >
-                    <option value="CASH">Cash</option>
-                    <option value="CHEQUE">Cheque</option>
-                    <option value="CREDIT">Credit</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Currency
-                  </label>
-                  <select
-                    name="currency_id"
-                    value={formData.currency_id}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                  >
-                    {currencies.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.code || c.currency_code} -{" "}
-                        {c.name || c.currency_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Line Items Section */}
-              <div className="border-t pt-6 mb-6">
-                <h3 className="text-lg font-semibold mb-4 text-gray-800">
-                  Order Items
-                </h3>
-
-                {/* New Item Input */}
-                <div className="bg-gray-50 p-4 rounded-lg mb-6 border border-gray-200 print:hidden">
-                  <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-3">
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Item *
-                      </label>
-                      <select
-                        name="item_id"
-                        value={newItem.item_id}
-                        onChange={handleNewItemChange}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                      >
-                        <option value="">Select Item</option>
-                        {inventoryItems.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.item_code} - {p.item_name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Qty *
-                      </label>
-                      <input
-                        type="number"
-                        name="qty"
-                        value={newItem.qty}
-                        onChange={handleNewItemChange}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                        min="1"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Available
-                      </label>
-                      <input
-                        type="text"
-                        value={
-                          formData.warehouse_id
-                            ? Number(newItem.available_qty || 0).toFixed(2)
-                            : ""
-                        }
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-50"
-                        readOnly
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Price *
-                      </label>
-                      <input
-                        type="number"
-                        name="unit_price"
-                        value={newItem.unit_price}
-                        onChange={handleNewItemChange}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Disc %
-                      </label>
-                      <input
-                        type="number"
-                        name="discount_percent"
-                        value={newItem.discount_percent}
-                        onChange={handleNewItemChange}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                        min="0"
-                        max="100"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Tax
-                      </label>
-                      <select
-                        name="tax_type"
-                        value={newItem.tax_type}
-                        onChange={handleNewItemChange}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                      >
-                        {taxes.map((t) => (
-                          <option key={t.value} value={t.value}>
-                            {t.label}
-                          </option>
-                        ))}
-                      </select>
-                      {newItem.tax_rate !== undefined && (
-                        <div className="text-xs text-gray-500 mt-1">
-                          Tax rate: {Number(newItem.tax_rate).toFixed(2)}%
-                        </div>
-                      )}
-                    </div>
+              <div
+                className={
+                  activeTab === "details" || "print:block" ? "block" : "hidden"
+                }
+              >
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Order #
+                    </label>
+                    <input
+                      type="text"
+                      name="order_no"
+                      value={formData.order_no}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                      placeholder="Auto-generated"
+                      readOnly={!isEditMode && !formData.order_no}
+                    />
                   </div>
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={addItem}
-                      className="bg-[#0E3646] text-white px-4 py-2 rounded-lg hover:bg-[#092530] flex items-center gap-2 transition-colors text-sm"
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Date *
+                    </label>
+                    <input
+                      type="date"
+                      name="order_date"
+                      value={formData.order_date}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Customer *
+                    </label>
+                    <select
+                      name="customer_id"
+                      value={formData.customer_id}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                      required
                     >
-                      <Plus className="w-4 h-4" /> Add Item
-                    </button>
+                      <option value="">Select Customer</option>
+                      {customers.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.customer_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Warehouse
+                    </label>
+                    <select
+                      name="warehouse_id"
+                      value={formData.warehouse_id}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                    >
+                      <option value="">Select Warehouse</option>
+                      {warehouses.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.warehouse_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Quotation Ref
+                    </label>
+                    <select
+                      name="quotation_id"
+                      value={formData.quotation_id}
+                      onChange={handleQuotationChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                    >
+                      <option value="">Select Quotation</option>
+                      {quotations.map((q) => (
+                        <option key={q.id} value={q.id}>
+                          {q.quotation_no} - {q.customer_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Priority
+                    </label>
+                    <select
+                      name="priority"
+                      value={formData.priority}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                    >
+                      {priorities.map((p) => (
+                        <option key={p.value} value={p.value}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Price Type
+                    </label>
+                    <select
+                      name="price_type"
+                      value={formData.price_type}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                    >
+                      <option value="RETAIL">Retail</option>
+                      <option value="WHOLESALE">Wholesale</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Payment Type
+                    </label>
+                    <select
+                      name="payment_type"
+                      value={formData.payment_type}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                    >
+                      <option value="CASH">Cash</option>
+                      <option value="CHEQUE">Cheque</option>
+                      <option value="CREDIT">Credit</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Currency
+                    </label>
+                    <select
+                      name="currency_id"
+                      value={formData.currency_id}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                    >
+                      {currencies.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.code || c.currency_code} -{" "}
+                          {c.name || c.currency_name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
-                {/* Items List (adopt Quotation structure) */}
-                <div className="overflow-x-auto rounded-lg border border-gray-200">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                          Item
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                          Qty
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                {/* Line Items Section */}
+                <div className="border-t pt-6 mb-6">
+                  <h3 className="text-lg font-semibold mb-4 text-gray-800">
+                    Order Items
+                  </h3>
+
+                  {/* New Item Input */}
+                  <div className="bg-gray-50 p-4 rounded-lg mb-6 border border-gray-200 print:hidden">
+                    <div className="grid grid-cols-1 md:grid-cols-7 gap-3 mb-3">
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Item *
+                        </label>
+                        <select
+                          name="item_id"
+                          value={newItem.item_id}
+                          onChange={handleNewItemChange}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                        >
+                          <option value="">Select Item</option>
+                          {inventoryItems.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.item_code} - {p.item_name}
+                            </option>
+                          ))}
+                        </select>
+                        {(() => {
+                          const it = inventoryItems.find(
+                            (p) => String(p.id) === String(newItem.item_id),
+                          );
+                          const defaultUom =
+                            (it?.uom && String(it.uom)) ||
+                            (newItem.uom && String(newItem.uom)) ||
+                            (defaultUomCode ? String(defaultUomCode) : "");
+                          const currentUom = String(newItem.uom || "");
+                          const showBtn =
+                            currentUom &&
+                            defaultUom &&
+                            currentUom !== defaultUom &&
+                            String(newItem.item_id || "");
+                          return showBtn ? (
+                            <button
+                              type="button"
+                              className="mt-2 px-2 py-1 text-xs border border-brand text-brand rounded hover:bg-brand hover:text-white transition-colors"
+                              onClick={() =>
+                                setConvModal({
+                                  open: true,
+                                  itemId: newItem.item_id,
+                                  defaultUom: defaultUom,
+                                  currentUom: currentUom,
+                                })
+                              }
+                            >
+                              {`number of ${currentUom}`}
+                            </button>
+                          ) : null;
+                        })()}
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          UOM *
+                        </label>
+                        <select
+                          name="uom"
+                          value={newItem.uom || defaultUomCode}
+                          onChange={handleNewItemChange}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                        >
+                          {(Array.isArray(uoms) ? uoms : []).map((u) => (
+                            <option key={u.id} value={u.uom_code}>
+                              {u.uom_name
+                                ? `${u.uom_name} (${u.uom_code})`
+                                : u.uom_code}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Qty *
+                        </label>
+                        <input
+                          type="number"
+                          name="qty"
+                          value={newItem.qty}
+                          onChange={handleNewItemChange}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                          min="1"
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        {(() => {
+                          const it = inventoryItems.find(
+                            (p) => String(p.id) === String(newItem.item_id),
+                          );
+                          const defaultUom =
+                            (it?.uom && String(it.uom)) ||
+                            (newItem.uom && String(newItem.uom)) ||
+                            (defaultUomCode ? String(defaultUomCode) : "");
+                          const nonDefaults = (
+                            Array.isArray(unitConversions)
+                              ? unitConversions
+                              : []
+                          )
+                            .filter(
+                              (c) =>
+                                Number(c.is_active) &&
+                                String(c.to_uom) === defaultUom &&
+                                Number(c.item_id) === Number(newItem.item_id),
+                            )
+                            .map((c) => String(c.from_uom));
+                          const preferredUom = nonDefaults[0] || "";
+                          const hasConv =
+                            nonDefaults.length > 0 &&
+                            preferredUom &&
+                            preferredUom !== defaultUom;
+                          return hasConv ? (
+                            <button
+                              type="button"
+                              className="ml-2 px-2 py-1 text-xs border border-brand text-brand rounded hover:bg-brand hover:text-white transition-colors"
+                              onClick={() =>
+                                setConvModal({
+                                  open: true,
+                                  itemId: newItem.item_id,
+                                  defaultUom: defaultUom,
+                                  currentUom: preferredUom,
+                                  rowId: null,
+                                })
+                              }
+                            >
+                              {`number of ${preferredUom}`}
+                            </button>
+                          ) : null;
+                        })()}
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
                           Available
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                          Price
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                          Disc%
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                          Net
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        </label>
+                        <input
+                          type="text"
+                          value={
+                            formData.warehouse_id
+                              ? Number(newItem.available_qty || 0).toFixed(2)
+                              : ""
+                          }
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-50"
+                          readOnly
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Price *
+                        </label>
+                        <input
+                          type="number"
+                          name="unit_price"
+                          value={newItem.unit_price}
+                          onChange={handleNewItemChange}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Disc %
+                        </label>
+                        <input
+                          type="number"
+                          name="discount_percent"
+                          value={newItem.discount_percent}
+                          onChange={handleNewItemChange}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                          min="0"
+                          max="100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
                           Tax
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                          Total
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider print:hidden">
-                          Action
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200 bg-white">
-                      {items.length === 0 ? (
+                        </label>
+                        <select
+                          name="tax_type"
+                          value={newItem.tax_type}
+                          onChange={handleNewItemChange}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                        >
+                          {taxes.map((t) => (
+                            <option key={t.value} value={t.value}>
+                              {t.label}
+                            </option>
+                          ))}
+                        </select>
+                        {newItem.tax_rate !== undefined && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            Tax rate: {Number(newItem.tax_rate).toFixed(2)}%
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={addItem}
+                        className="bg-[#0E3646] text-white px-4 py-2 rounded-lg hover:bg-[#092530] flex items-center gap-2 transition-colors text-sm"
+                      >
+                        <Plus className="w-4 h-4" /> Add Item
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Items List (adopt Quotation structure) */}
+                  <div className="overflow-x-auto rounded-lg border border-gray-200">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-100">
                         <tr>
-                          <td
-                            colSpan="8"
-                            className="px-4 py-8 text-center text-gray-500"
-                          >
-                            No items added yet
-                          </td>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Item
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            UOM
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Qty
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Convert
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Available
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Price
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Disc%
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Net
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Tax
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Total
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider print:hidden">
+                            Action
+                          </th>
                         </tr>
-                      ) : (
-                        items.map((i) => (
-                          <tr key={i.line_id} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 text-gray-900">
-                              {i.item_name}
-                            </td>
-                            <td className="px-4 py-3 text-gray-900">{i.qty}</td>
-                            <td className="px-4 py-3 text-gray-900">
-                              {formData.warehouse_id
-                                ? Number(i.available_qty || 0).toFixed(2)
-                                : ""}
-                            </td>
-                            <td className="px-4 py-3 text-gray-900">
-                              {parseFloat(i.unit_price).toFixed(2)}
-                            </td>
-                            <td className="px-4 py-3 text-gray-900">
-                              {parseFloat(i.discount_percent || 0).toFixed(2)}
-                            </td>
-                            <td className="px-4 py-3 text-gray-900">
-                              {i.net.toFixed(2)}
-                            </td>
-                            <td className="px-4 py-3 text-gray-900">
-                              {i.taxAmt.toFixed(2)}
-                            </td>
-                            <td className="px-4 py-3 font-medium text-gray-900">
-                              {i.total.toFixed(2)}
-                            </td>
-                            <td className="px-4 py-3 print:hidden">
-                              <button
-                                type="button"
-                                onClick={() => removeItem(i.line_id)}
-                                className="text-red-600 hover:text-red-900 transition-colors"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 bg-white">
+                        {items.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan="8"
+                              className="px-4 py-8 text-center text-gray-500"
+                            >
+                              No items added yet
                             </td>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                    <tfoot className="bg-gray-50">
-                      <tr>
-                        <td
-                          colSpan="4"
-                          className="px-4 py-3 text-right font-semibold text-gray-700"
-                        >
-                          Totals:
-                        </td>
-                        <td className="px-4 py-3 font-bold text-gray-900">
-                          {calcGrandTotal().sub.toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 font-bold text-gray-900">
-                          {calcGrandTotal().tax.toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 font-bold text-gray-900">
-                          {calcGrandTotal().total.toFixed(2)}
-                        </td>
-                        <td className="print:hidden"></td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                        ) : (
+                          items.map((i) => (
+                            <tr key={i.line_id} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 text-gray-900">
+                                {i.item_name}
+                              </td>
+                              <td className="px-4 py-3 text-gray-900">
+                                {i.uom || defaultUomCode}
+                              </td>
+                              <td className="px-4 py-3 text-gray-900">
+                                {i.qty}
+                              </td>
+                              <td className="px-4 py-3 text-gray-900">
+                                {(() => {
+                                  const it = inventoryItems.find(
+                                    (p) => String(p.id) === String(i.item_id),
+                                  );
+                                  const defaultUom =
+                                    (it?.uom && String(it.uom)) ||
+                                    (i.uom && String(i.uom)) ||
+                                    (defaultUomCode
+                                      ? String(defaultUomCode)
+                                      : "");
+                                  const nonDefaults = (
+                                    Array.isArray(unitConversions)
+                                      ? unitConversions
+                                      : []
+                                  )
+                                    .filter(
+                                      (c) =>
+                                        Number(c.is_active) &&
+                                        String(c.to_uom) === defaultUom &&
+                                        Number(c.item_id) === Number(i.item_id),
+                                    )
+                                    .map((c) => String(c.from_uom));
+                                  const preferredUom = nonDefaults[0] || "";
+                                  const hasConv =
+                                    nonDefaults.length > 0 &&
+                                    preferredUom &&
+                                    preferredUom !== defaultUom;
+                                  return hasConv ? (
+                                    <button
+                                      type="button"
+                                      className="px-2 py-1 text-xs border border-brand text-brand rounded hover:bg-brand hover:text-white transition-colors"
+                                      onClick={() =>
+                                        setConvModal({
+                                          open: true,
+                                          itemId: i.item_id,
+                                          defaultUom: defaultUom,
+                                          currentUom: preferredUom,
+                                          rowId: i.line_id,
+                                        })
+                                      }
+                                    >
+                                      {`number of ${preferredUom}`}
+                                    </button>
+                                  ) : null;
+                                })()}
+                              </td>
+                              <td className="px-4 py-3 text-gray-900">
+                                {formData.warehouse_id
+                                  ? Number(i.available_qty || 0).toFixed(2)
+                                  : ""}
+                              </td>
+                              <td className="px-4 py-3 text-gray-900">
+                                {parseFloat(i.unit_price).toFixed(2)}
+                              </td>
+                              <td className="px-4 py-3 text-gray-900">
+                                {parseFloat(i.discount_percent || 0).toFixed(2)}
+                              </td>
+                              <td className="px-4 py-3 text-gray-900">
+                                {i.net.toFixed(2)}
+                              </td>
+                              <td className="px-4 py-3 text-gray-900">
+                                {i.taxAmt.toFixed(2)}
+                              </td>
+                              <td className="px-4 py-3 font-medium text-gray-900">
+                                {i.total.toFixed(2)}
+                              </td>
+                              <td className="px-4 py-3 print:hidden">
+                                <button
+                                  type="button"
+                                  onClick={() => removeItem(i.line_id)}
+                                  className="text-red-600 hover:text-red-900 transition-colors"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                      <tfoot className="bg-gray-50">
+                        <tr>
+                          <td
+                            colSpan="5"
+                            className="px-4 py-3 text-right font-semibold text-gray-700"
+                          >
+                            Totals:
+                          </td>
+                          <td className="px-4 py-3 font-bold text-gray-900">
+                            {calcGrandTotal().sub.toFixed(2)}
+                          </td>
+                          <td className="px-4 py-3 font-bold text-gray-900">
+                            {calcGrandTotal().tax.toFixed(2)}
+                          </td>
+                          <td className="px-4 py-3 font-bold text-gray-900">
+                            {calcGrandTotal().total.toFixed(2)}
+                          </td>
+                          <td className="print:hidden"></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
                 </div>
               </div>
-            </div>
-          </fieldset>
+            </fieldset>
 
-          {/* Form Actions */}
-          <div className="flex justify-end gap-3 mt-8 pt-6 border-t print:hidden">
-            <Link
-              to="/sales/sales-orders"
-              className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
-            >
-              Cancel
-            </Link>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-6 py-2 bg-[#0E3646] text-white rounded-lg hover:bg-[#092530] font-medium transition-colors flex items-center gap-2"
-            >
-              {loading ? (
-                "Saving..."
-              ) : (
-                <>
-                  <Save className="w-4 h-4" />
-                  {isEditMode ? "Update Order" : "Create Order"}
-                </>
-              )}
-            </button>
-          </div>
-        </form>
-      </div>
-      <div className="hidden print:block p-8 max-w-[19cm] mx-auto">
-        <div className="grid grid-cols-3 gap-4 items-start mb-4">
-          <div className="flex items-center gap-3">
-            <img
-              src={companyInfo.logoUrl || defaultLogo}
-              alt={companyInfo.name || "Company"}
-              className="w-16 h-16 object-contain border border-gray-300"
-            />
-            <div className="text-sm">
-              <div className="font-semibold text-base">
-                {companyInfo.name || "Company"}
-              </div>
-              {companyInfo.address && <div>{companyInfo.address}</div>}
-              {(companyInfo.city ||
-                companyInfo.state ||
-                companyInfo.country) && (
-                <div>
-                  {[companyInfo.city, companyInfo.state, companyInfo.country]
-                    .filter(Boolean)
-                    .join(", ")}
-                </div>
-              )}
-              <div className="flex gap-3">
-                {companyInfo.phone && <span>{companyInfo.phone}</span>}
-                {companyInfo.email && <span>{companyInfo.email}</span>}
-              </div>
+            {/* Form Actions */}
+            <div className="flex justify-end gap-3 mt-8 pt-6 border-t print:hidden">
+              <Link
+                to="/sales/sales-orders"
+                className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+              >
+                Cancel
+              </Link>
+              <button
+                type="submit"
+                disabled={loading}
+                className="px-6 py-2 bg-[#0E3646] text-white rounded-lg hover:bg-[#092530] font-medium transition-colors flex items-center gap-2"
+              >
+                {loading ? (
+                  "Saving..."
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    {isEditMode ? "Update Order" : "Create Order"}
+                  </>
+                )}
+              </button>
             </div>
-          </div>
-          <div className="text-center">
-            <div className="text-xl font-semibold">Sales Order</div>
-          </div>
-          <div className="text-right text-sm">
-            <div>DATE: {formData.order_date || ""}</div>
-            <div>Order #: {formData.order_no || ""}</div>
-            <div>
-              Customer:{" "}
-              {customers.find(
-                (c) => String(c.id) === String(formData.customer_id),
-              )?.customer_name || ""}
-            </div>
-            <div>City: {formData.city || ""}</div>
-            <div>State: {formData.state || ""}</div>
-            <div>Country: {formData.country || ""}</div>
-            <div>Phone: {formData.phone || ""}</div>
-            <div>Price Type: {formData.price_type || ""}</div>
-            <div>Payment Type: {formData.payment_type || ""}</div>
-            <div>
-              Currency:{" "}
-              {currencies.find(
-                (c) => String(c.id) === String(formData.currency_id),
-              )?.code || ""}
-            </div>
-            <div>
-              Warehouse:{" "}
-              {warehouses.find(
-                (w) => String(w.id) === String(formData.warehouse_id),
-              )?.warehouse_name || ""}
-            </div>
-            <div>Prepared by: {preparedBy || ""}</div>
-          </div>
+          </form>
         </div>
-        <div className="mb-2 mx-auto">
-          <table className="quotation-table text-sm">
-            <colgroup>
-              <col style={{ width: "35%" }} />
-              <col style={{ width: "15%" }} />
-              <col style={{ width: "25%" }} />
-              <col style={{ width: "25%" }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <th className="px-2 py-2 text-left">Description</th>
-                <th className="px-2 py-2 text-right">Quantity</th>
-                <th className="px-2 py-2 text-right">Unit Price</th>
-                <th className="px-2 py-2 text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((i) => (
-                <tr key={i.line_id}>
-                  <td className="px-2 py-2">{i.item_name}</td>
-                  <td className="px-2 py-2 text-right">
-                    {Number(i.qty || 0).toFixed(2)}
-                  </td>
-                  <td className="px-2 py-2 text-right">
-                    {Number(i.unit_price || 0).toFixed(2)}
-                  </td>
-                  <td className="px-2 py-2 text-right">
-                    {Number(i.total || 0).toFixed(2)}
-                  </td>
+        <div className="hidden print:block p-8 max-w-[19cm] mx-auto">
+          <div className="grid grid-cols-3 gap-4 items-start mb-4">
+            <div className="flex items-center gap-3">
+              <img
+                src={companyInfo.logoUrl || defaultLogo}
+                alt={companyInfo.name || "Company"}
+                className="w-16 h-16 object-contain border border-gray-300"
+              />
+              <div className="text-sm">
+                <div className="font-semibold text-base">
+                  {companyInfo.name || "Company"}
+                </div>
+                {companyInfo.address && <div>{companyInfo.address}</div>}
+                {(companyInfo.city ||
+                  companyInfo.state ||
+                  companyInfo.country) && (
+                  <div>
+                    {[companyInfo.city, companyInfo.state, companyInfo.country]
+                      .filter(Boolean)
+                      .join(", ")}
+                  </div>
+                )}
+                <div className="flex gap-3">
+                  {companyInfo.phone && <span>{companyInfo.phone}</span>}
+                  {companyInfo.email && <span>{companyInfo.email}</span>}
+                </div>
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-xl font-semibold">Sales Order</div>
+            </div>
+            <div className="text-right text-sm">
+              <div>DATE: {formData.order_date || ""}</div>
+              <div>Order #: {formData.order_no || ""}</div>
+              <div>
+                Customer:{" "}
+                {customers.find(
+                  (c) => String(c.id) === String(formData.customer_id),
+                )?.customer_name || ""}
+              </div>
+              <div>City: {formData.city || ""}</div>
+              <div>State: {formData.state || ""}</div>
+              <div>Country: {formData.country || ""}</div>
+              <div>Phone: {formData.phone || ""}</div>
+              <div>Price Type: {formData.price_type || ""}</div>
+              <div>Payment Type: {formData.payment_type || ""}</div>
+              <div>
+                Currency:{" "}
+                {currencies.find(
+                  (c) => String(c.id) === String(formData.currency_id),
+                )?.code || ""}
+              </div>
+              <div>
+                Warehouse:{" "}
+                {warehouses.find(
+                  (w) => String(w.id) === String(formData.warehouse_id),
+                )?.warehouse_name || ""}
+              </div>
+              <div>Prepared by: {preparedBy || ""}</div>
+            </div>
+          </div>
+          <div className="mb-2 mx-auto">
+            <table className="quotation-table text-sm">
+              <colgroup>
+                <col style={{ width: "35%" }} />
+                <col style={{ width: "15%" }} />
+                <col style={{ width: "25%" }} />
+                <col style={{ width: "25%" }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th className="px-2 py-2 text-left">Description</th>
+                  <th className="px-2 py-2 text-right">Quantity</th>
+                  <th className="px-2 py-2 text-right">Unit Price</th>
+                  <th className="px-2 py-2 text-right">Total</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="grid grid-cols-2 gap-6">
-          <div></div>
-          <div>
-            <div>
-              <div className="grid grid-cols-2">
-                <div className="px-2 py-1 font-medium">Subtotal</div>
-                <div className="px-2 py-1 text-right">
-                  {calcAggregates().grossSub.toFixed(2)}
-                </div>
-                <div className="px-2 py-1 font-medium">Discount</div>
-                <div className="px-2 py-1 text-right">
-                  {calcAggregates().discountTotal.toFixed(2)}
-                </div>
-                <div className="px-2 py-1 font-medium">Net Sub Total</div>
-                <div className="px-2 py-1 text-right font-semibold">
-                  {calcAggregates().netSub.toFixed(2)}
-                </div>
-                {calcAggregates().components.map((c) => (
-                  <React.Fragment key={c.name}>
-                    <div className="px-2 py-1">
-                      {c.name} [{c.rate}%]
-                    </div>
-                    <div className="px-2 py-1 text-right">
-                      {c.amount.toFixed(2)}
-                    </div>
-                  </React.Fragment>
+              </thead>
+              <tbody>
+                {items.map((i) => (
+                  <tr key={i.line_id}>
+                    <td className="px-2 py-2">{i.item_name}</td>
+                    <td className="px-2 py-2 text-right">
+                      {Number(i.qty || 0).toFixed(2)}
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      {Number(i.unit_price || 0).toFixed(2)}
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      {Number(i.total || 0).toFixed(2)}
+                    </td>
+                  </tr>
                 ))}
-                <div className="px-2 py-1 font-semibold">Total</div>
-                <div className="px-2 py-1 text-right font-semibold">
-                  {calcAggregates().grand.toFixed(2)}
+              </tbody>
+            </table>
+          </div>
+          <div className="grid grid-cols-2 gap-6">
+            <div></div>
+            <div>
+              <div>
+                <div className="grid grid-cols-2">
+                  <div className="px-2 py-1 font-medium">Subtotal</div>
+                  <div className="px-2 py-1 text-right">
+                    {calcAggregates().grossSub.toFixed(2)}
+                  </div>
+                  <div className="px-2 py-1 font-medium">Discount</div>
+                  <div className="px-2 py-1 text-right">
+                    {calcAggregates().discountTotal.toFixed(2)}
+                  </div>
+                  <div className="px-2 py-1 font-medium">Net Sub Total</div>
+                  <div className="px-2 py-1 text-right font-semibold">
+                    {calcAggregates().netSub.toFixed(2)}
+                  </div>
+                  {calcAggregates().components.map((c) => (
+                    <React.Fragment key={c.name}>
+                      <div className="px-2 py-1">
+                        {c.name} [{c.rate}%]
+                      </div>
+                      <div className="px-2 py-1 text-right">
+                        {c.amount.toFixed(2)}
+                      </div>
+                    </React.Fragment>
+                  ))}
+                  <div className="px-2 py-1 font-semibold">Total</div>
+                  <div className="px-2 py-1 text-right font-semibold">
+                    {calcAggregates().grand.toFixed(2)}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-        <div className="mt-6 text-center text-sm">
-          THANK YOU FOR YOUR BUSINESS!
-        </div>
-      </div>
-      <div
-        ref={pdfRef}
-        className="hidden p-8 bg-white"
-        style={{ width: "794px", maxWidth: "794px" }}
-      >
-        <div className="grid grid-cols-3 gap-4 items-start mb-4">
-          <div className="flex items-center gap-3">
-            <img
-              src={companyInfo.logoUrl || defaultLogo}
-              alt={companyInfo.name || "Company"}
-              className="w-16 h-16 object-contain border border-gray-300"
-            />
-            <div className="text-sm">
-              <div className="font-semibold text-base">
-                {companyInfo.name || "Company"}
-              </div>
-              {companyInfo.address && <div>{companyInfo.address}</div>}
-              {(companyInfo.city ||
-                companyInfo.state ||
-                companyInfo.country) && (
-                <div>
-                  {[companyInfo.city, companyInfo.state, companyInfo.country]
-                    .filter(Boolean)
-                    .join(", ")}
-                </div>
-              )}
-              <div className="flex gap-3">
-                {companyInfo.phone && <span>{companyInfo.phone}</span>}
-                {companyInfo.email && <span>{companyInfo.email}</span>}
-              </div>
-            </div>
-          </div>
-          <div className="text-center">
-            <div className="text-xl font-semibold">Sales Order</div>
-          </div>
-          <div className="text-right text-sm">
-            <div>DATE: {formData.order_date || ""}</div>
-            <div>Order #: {formData.order_no || ""}</div>
-            <div>
-              Customer:{" "}
-              {customers.find(
-                (c) => String(c.id) === String(formData.customer_id),
-              )?.customer_name || ""}
-            </div>
-            <div>City: {formData.city || ""}</div>
-            <div>State: {formData.state || ""}</div>
-            <div>Country: {formData.country || ""}</div>
-            <div>Phone: {formData.phone || ""}</div>
-            <div>Price Type: {formData.price_type || ""}</div>
-            <div>Payment Type: {formData.payment_type || ""}</div>
-            <div>
-              Currency:{" "}
-              {currencies.find(
-                (c) => String(c.id) === String(formData.currency_id),
-              )?.code || ""}
-            </div>
-            <div>
-              Warehouse:{" "}
-              {warehouses.find(
-                (w) => String(w.id) === String(formData.warehouse_id),
-              )?.warehouse_name || ""}
-            </div>
-            <div>Prepared by: {preparedBy || ""}</div>
+          <div className="mt-6 text-center text-sm">
+            THANK YOU FOR YOUR BUSINESS!
           </div>
         </div>
         <div
-          className="mb-2"
-          style={{ width: "100%", overflow: "visible", margin: "0 auto" }}
+          ref={pdfRef}
+          className="hidden p-8 bg-white"
+          style={{ width: "794px", maxWidth: "794px" }}
         >
-          <table
-            className="quotation-table text-sm"
-            style={{ width: "100%", tableLayout: "fixed" }}
-          >
-            <colgroup>
-              <col style={{ width: "35%" }} />
-              <col style={{ width: "15%" }} />
-              <col style={{ width: "25%" }} />
-              <col style={{ width: "25%" }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <th className="px-2 py-2 text-left">Description</th>
-                <th className="px-2 py-2 text-right">Quantity</th>
-                <th className="px-2 py-2 text-right">Unit Price</th>
-                <th className="px-2 py-2 text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((i) => (
-                <tr key={i.line_id}>
-                  <td className="px-2 py-2">{i.item_name}</td>
-                  <td className="px-2 py-2 text-right">
-                    {Number(i.qty || 0).toFixed(2)}
-                  </td>
-                  <td className="px-2 py-2 text-right">
-                    {Number(i.unit_price || 0).toFixed(2)}
-                  </td>
-                  <td className="px-2 py-2 text-right">
-                    {Number(i.total || 0).toFixed(2)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="grid grid-cols-2 gap-6">
-          <div></div>
-          <div>
-            <div>
-              <div className="grid grid-cols-2">
-                <div className="px-2 py-1 font-medium">Gross Subtotal</div>
-                <div className="px-2 py-1 text-right">
-                  {calcAggregates().grossSub.toFixed(2)}
+          <div className="grid grid-cols-3 gap-4 items-start mb-4">
+            <div className="flex items-center gap-3">
+              <img
+                src={companyInfo.logoUrl || defaultLogo}
+                alt={companyInfo.name || "Company"}
+                className="w-16 h-16 object-contain border border-gray-300"
+              />
+              <div className="text-sm">
+                <div className="font-semibold text-base">
+                  {companyInfo.name || "Company"}
                 </div>
-                <div className="px-2 py-1 font-medium">Discount</div>
-                <div className="px-2 py-1 text-right">
-                  {calcAggregates().discountTotal.toFixed(2)}
-                </div>
-                <div className="px-2 py-1 font-medium">Net Sub Total</div>
-                <div className="px-2 py-1 text-right font-semibold">
-                  {calcAggregates().netSub.toFixed(2)}
-                </div>
-                {calcAggregates().components.map((c) => (
-                  <div key={c.name} className="contents">
-                    <div className="px-2 py-1">
-                      {c.name} [{c.rate}%]
-                    </div>
-                    <div className="px-2 py-1 text-right">
-                      {c.amount.toFixed(2)}
-                    </div>
+                {companyInfo.address && <div>{companyInfo.address}</div>}
+                {(companyInfo.city ||
+                  companyInfo.state ||
+                  companyInfo.country) && (
+                  <div>
+                    {[companyInfo.city, companyInfo.state, companyInfo.country]
+                      .filter(Boolean)
+                      .join(", ")}
                   </div>
+                )}
+                <div className="flex gap-3">
+                  {companyInfo.phone && <span>{companyInfo.phone}</span>}
+                  {companyInfo.email && <span>{companyInfo.email}</span>}
+                </div>
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-xl font-semibold">Sales Order</div>
+            </div>
+            <div className="text-right text-sm">
+              <div>DATE: {formData.order_date || ""}</div>
+              <div>Order #: {formData.order_no || ""}</div>
+              <div>
+                Customer:{" "}
+                {customers.find(
+                  (c) => String(c.id) === String(formData.customer_id),
+                )?.customer_name || ""}
+              </div>
+              <div>City: {formData.city || ""}</div>
+              <div>State: {formData.state || ""}</div>
+              <div>Country: {formData.country || ""}</div>
+              <div>Phone: {formData.phone || ""}</div>
+              <div>Price Type: {formData.price_type || ""}</div>
+              <div>Payment Type: {formData.payment_type || ""}</div>
+              <div>
+                Currency:{" "}
+                {currencies.find(
+                  (c) => String(c.id) === String(formData.currency_id),
+                )?.code || ""}
+              </div>
+              <div>
+                Warehouse:{" "}
+                {warehouses.find(
+                  (w) => String(w.id) === String(formData.warehouse_id),
+                )?.warehouse_name || ""}
+              </div>
+              <div>Prepared by: {preparedBy || ""}</div>
+            </div>
+          </div>
+          <div
+            className="mb-2"
+            style={{ width: "100%", overflow: "visible", margin: "0 auto" }}
+          >
+            <table
+              className="quotation-table text-sm"
+              style={{ width: "100%", tableLayout: "fixed" }}
+            >
+              <colgroup>
+                <col style={{ width: "35%" }} />
+                <col style={{ width: "15%" }} />
+                <col style={{ width: "25%" }} />
+                <col style={{ width: "25%" }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th className="px-2 py-2 text-left">Description</th>
+                  <th className="px-2 py-2 text-right">Quantity</th>
+                  <th className="px-2 py-2 text-right">Unit Price</th>
+                  <th className="px-2 py-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((i) => (
+                  <tr key={i.line_id}>
+                    <td className="px-2 py-2">{i.item_name}</td>
+                    <td className="px-2 py-2 text-right">
+                      {Number(i.qty || 0).toFixed(2)}
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      {Number(i.unit_price || 0).toFixed(2)}
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      {Number(i.total || 0).toFixed(2)}
+                    </td>
+                  </tr>
                 ))}
-                <div className="px-2 py-1 font-semibold">Total</div>
-                <div className="px-2 py-1 text-right font-semibold">
-                  {calcAggregates().grand.toFixed(2)}
+              </tbody>
+            </table>
+          </div>
+          <div className="grid grid-cols-2 gap-6">
+            <div></div>
+            <div>
+              <div>
+                <div className="grid grid-cols-2">
+                  <div className="px-2 py-1 font-medium">Gross Subtotal</div>
+                  <div className="px-2 py-1 text-right">
+                    {calcAggregates().grossSub.toFixed(2)}
+                  </div>
+                  <div className="px-2 py-1 font-medium">Discount</div>
+                  <div className="px-2 py-1 text-right">
+                    {calcAggregates().discountTotal.toFixed(2)}
+                  </div>
+                  <div className="px-2 py-1 font-medium">Net Sub Total</div>
+                  <div className="px-2 py-1 text-right font-semibold">
+                    {calcAggregates().netSub.toFixed(2)}
+                  </div>
+                  {calcAggregates().components.map((c) => (
+                    <div key={c.name} className="contents">
+                      <div className="px-2 py-1">
+                        {c.name} [{c.rate}%]
+                      </div>
+                      <div className="px-2 py-1 text-right">
+                        {c.amount.toFixed(2)}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="px-2 py-1 font-semibold">Total</div>
+                  <div className="px-2 py-1 text-right font-semibold">
+                    {calcAggregates().grand.toFixed(2)}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+      <PrintPreviewModal
+        open={tplPreviewOpen}
+        onClose={() => setTplPreviewOpen(false)}
+        html={tplPreviewHtml}
+        downloading={tplDownloading}
+        onDownload={async () => {
+          try {
+            setTplDownloading(true);
+            const resp = await api.post(
+              `/documents/sales-order/${id}/render?format=pdf`,
+              {},
+              { responseType: "blob" },
+            );
+            const blob = resp.data;
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `sales-order-${id}.pdf`;
+            a.click();
+            URL.revokeObjectURL(url);
+          } catch (e) {
+            toast.error(e?.response?.data?.message || "Failed to download");
+          } finally {
+            setTplDownloading(false);
+          }
+        }}
+      />
+      <UnitConversionModal
+        open={convModal.open}
+        itemId={convModal.itemId}
+        defaultUom={convModal.defaultUom}
+        currentUom={convModal.currentUom}
+        onClose={() =>
+          setConvModal({
+            open: false,
+            itemId: null,
+            defaultUom: "",
+            currentUom: "",
+            rowId: null,
+          })
+        }
+        onApply={(payload) => {
+          const { converted_qty } = payload || {};
+          const qty = Number(converted_qty || 0);
+          if (convModal.rowId != null) {
+            setItems((prev) =>
+              prev.map((it) =>
+                String(it.line_id) === String(convModal.rowId)
+                  ? { ...it, qty: qty, uom: convModal.defaultUom || it.uom }
+                  : it,
+              ),
+            );
+          } else {
+            setNewItem((prev) => ({
+              ...prev,
+              qty: qty,
+              uom: convModal.defaultUom || prev.uom,
+            }));
+          }
+        }}
+      />
+    </>
   );
 }

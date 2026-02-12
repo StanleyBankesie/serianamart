@@ -33,89 +33,6 @@ function FilterableSelect({
   );
 }
 
-const POS_RECEIPT_SETTINGS_KEY = null;
-
-function escapeHtml(v) {
-  return String(v ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function resolvePath(obj, rawPath) {
-  const path = String(rawPath || "")
-    .trim()
-    .replace(/^\./, "");
-  if (!path) return undefined;
-  const parts = path.split(".").filter(Boolean);
-  let cur = obj;
-  for (const p of parts) {
-    if (cur == null) return undefined;
-    cur = cur[p];
-  }
-  return cur;
-}
-
-function renderTemplateString(templateHtml, data, root = data) {
-  let out = String(templateHtml ?? "");
-
-  out = out.replace(
-    /{{#each\s+([^}]+)}}([\s\S]*?){{\/each}}/g,
-    (_m, expr, inner) => {
-      const key = String(expr || "").trim();
-      const val = key.startsWith("@root.")
-        ? resolvePath(root, key.slice(6))
-        : (resolvePath(data, key) ?? resolvePath(root, key));
-      const arr = Array.isArray(val) ? val : [];
-      return arr
-        .map((item) => renderTemplateString(inner, item ?? {}, root))
-        .join("");
-    },
-  );
-
-  out = out.replace(/{{{\s*([^}]+?)\s*}}}/g, (_m, expr) => {
-    const key = String(expr || "").trim();
-    let val;
-    if (key === "this" || key === ".") val = data;
-    else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-    else val = resolvePath(data, key) ?? resolvePath(root, key);
-    return String(val ?? "");
-  });
-
-  out = out.replace(/{{\s*([^}]+?)\s*}}/g, (_m, expr) => {
-    const key = String(expr || "").trim();
-    let val;
-    if (key === "this" || key === ".") val = data;
-    else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-    else val = resolvePath(data, key) ?? resolvePath(root, key);
-    return escapeHtml(val);
-  });
-
-  return out;
-}
-
-function wrapReceiptDoc(bodyHtml) {
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>POS Receipt</title>
-    <style>
-      body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 16px; max-width: 480px; margin: 0 auto; }
-      table { border-collapse: collapse; width: 100%; }
-      th, td { padding: 4px; border-bottom: 1px solid #eee; }
-      th { text-align: left; }
-      th.right, td.right { text-align: right; }
-      @media print { button { display: none; } }
-    </style>
-  </head>
-  <body>${bodyHtml || ""}</body>
-</html>`;
-}
-
 export default function PosSalesEntry() {
   const { user } = useAuth();
   const [now, setNow] = useState(new Date());
@@ -967,6 +884,8 @@ export default function PosSalesEntry() {
     const settings = await loadReceiptSettings();
     const when = saleTimestamp ? new Date(saleTimestamp) : new Date();
     const dateStr = when.toLocaleString();
+    const cashierName =
+      user?.username || user?.name || user?.fullName || "Cashier";
     const method =
       selectedPaymentMode?.name ||
       (function () {
@@ -1078,6 +997,7 @@ export default function PosSalesEntry() {
           receiptNo || "-"
         }</span></div>
         <div class="row"><span>Date:</span><span>${dateStr}</span></div>
+        <div class="row"><span>Cashier:</span><span>${cashierName}</span></div>
         <div class="row"><span>Payment:</span><span>${method}</span></div>
         <table>
           <thead>

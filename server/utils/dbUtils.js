@@ -230,6 +230,16 @@ export async function ensurePagesSeed() {
     },
     {
       module: "Administration",
+      name: "User Login Activity Report",
+      path: "/administration/reports/user-login-activity",
+    },
+    {
+      module: "Administration",
+      name: "System Log Book Report",
+      path: "/administration/reports/system-log-book",
+    },
+    {
+      module: "Administration",
       name: "Permissions Dashboard",
       path: "/administration/permissions",
     },
@@ -237,6 +247,26 @@ export async function ensurePagesSeed() {
       module: "Administration",
       name: "User Permission Assignment",
       path: "/administration/user-permissions",
+    },
+    {
+      module: "Administration",
+      name: "Settings",
+      path: "/administration/settings",
+    },
+    {
+      module: "Administration",
+      name: "Settings List",
+      path: "/administration/settings",
+    },
+    {
+      module: "Administration",
+      name: "Settings Form",
+      path: "/administration/settings/new",
+    },
+    {
+      module: "Administration",
+      name: "Settings Edit",
+      path: "/administration/settings/:id",
     },
     { module: "Sales", name: "Quotations", path: "/sales/quotations" },
     { module: "Sales", name: "Quotation List", path: "/sales/quotations" },
@@ -1148,4 +1178,194 @@ export async function ensureWorkflowTables() {
       KEY idx_wf_task_assignee (assigned_to_user_id, action)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
+}
+
+export async function ensurePushTables() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS adm_push_subscriptions (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      user_id BIGINT UNSIGNED NOT NULL,
+      endpoint VARCHAR(500) NOT NULL,
+      p256dh VARCHAR(255) NOT NULL,
+      auth VARCHAR(100) NOT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_active_at TIMESTAMP NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_endpoint (endpoint),
+      KEY idx_user (user_id),
+      KEY idx_scope (company_id, branch_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+  if (!(await hasColumn("adm_push_subscriptions", "company_id"))) {
+    await query(
+      "ALTER TABLE adm_push_subscriptions ADD COLUMN company_id BIGINT UNSIGNED NOT NULL DEFAULT 1",
+    );
+  }
+  if (!(await hasColumn("adm_push_subscriptions", "branch_id"))) {
+    await query(
+      "ALTER TABLE adm_push_subscriptions ADD COLUMN branch_id BIGINT UNSIGNED NOT NULL DEFAULT 1",
+    );
+  }
+  if (!(await hasColumn("adm_push_subscriptions", "user_id"))) {
+    await query(
+      "ALTER TABLE adm_push_subscriptions ADD COLUMN user_id BIGINT UNSIGNED NOT NULL DEFAULT 0",
+    );
+  }
+  if (!(await hasColumn("adm_push_subscriptions", "is_active"))) {
+    await query(
+      "ALTER TABLE adm_push_subscriptions ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1",
+    );
+  }
+  if (!(await hasColumn("adm_push_subscriptions", "created_at"))) {
+    await query(
+      "ALTER TABLE adm_push_subscriptions ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    );
+  }
+  if (!(await hasColumn("adm_push_subscriptions", "last_active_at"))) {
+    await query(
+      "ALTER TABLE adm_push_subscriptions ADD COLUMN last_active_at TIMESTAMP NULL",
+    );
+  }
+}
+
+export async function ensureSalesOrderColumns() {
+  // Ensure columns used by Sales Orders exist to prevent runtime SQL errors
+  const orders = "sal_orders";
+  if (!(await hasColumn(orders, "sub_total"))) {
+    await query(
+      `ALTER TABLE ${orders} ADD COLUMN sub_total DECIMAL(18,2) DEFAULT 0`,
+    );
+  }
+  if (!(await hasColumn(orders, "tax_amount"))) {
+    await query(
+      `ALTER TABLE ${orders} ADD COLUMN tax_amount DECIMAL(18,2) DEFAULT 0`,
+    );
+  }
+  if (!(await hasColumn(orders, "currency_id"))) {
+    await query(
+      `ALTER TABLE ${orders} ADD COLUMN currency_id BIGINT UNSIGNED DEFAULT 4`,
+    );
+  }
+  if (!(await hasColumn(orders, "exchange_rate"))) {
+    await query(
+      `ALTER TABLE ${orders} ADD COLUMN exchange_rate DECIMAL(18,6) DEFAULT 1`,
+    );
+  }
+  if (!(await hasColumn(orders, "price_type"))) {
+    await query(
+      `ALTER TABLE ${orders} ADD COLUMN price_type ENUM('WHOLESALE','RETAIL') DEFAULT 'RETAIL'`,
+    );
+  }
+  if (!(await hasColumn(orders, "payment_type"))) {
+    await query(
+      `ALTER TABLE ${orders} ADD COLUMN payment_type ENUM('CASH','CHEQUE','CREDIT') DEFAULT 'CASH'`,
+    );
+  }
+  if (!(await hasColumn(orders, "warehouse_id"))) {
+    await query(
+      `ALTER TABLE ${orders} ADD COLUMN warehouse_id BIGINT UNSIGNED NULL`,
+    );
+  }
+  if (!(await hasColumn(orders, "quotation_id"))) {
+    await query(
+      `ALTER TABLE ${orders} ADD COLUMN quotation_id BIGINT UNSIGNED NULL`,
+    );
+  }
+  if (!(await hasColumn(orders, "remarks"))) {
+    await query(`ALTER TABLE ${orders} ADD COLUMN remarks VARCHAR(500) NULL`);
+  }
+
+  const orderDetails = "sal_order_details";
+  if (!(await hasColumn(orderDetails, "qty"))) {
+    await query(
+      `ALTER TABLE ${orderDetails} ADD COLUMN qty DECIMAL(18,4) NOT NULL DEFAULT 0`,
+    );
+  }
+  if (!(await hasColumn(orderDetails, "unit_price"))) {
+    await query(
+      `ALTER TABLE ${orderDetails} ADD COLUMN unit_price DECIMAL(18,4) NOT NULL DEFAULT 0`,
+    );
+  }
+  if (!(await hasColumn(orderDetails, "discount_percent"))) {
+    await query(
+      `ALTER TABLE ${orderDetails} ADD COLUMN discount_percent DECIMAL(5,2) DEFAULT 0`,
+    );
+  }
+  if (!(await hasColumn(orderDetails, "total_amount"))) {
+    await query(
+      `ALTER TABLE ${orderDetails} ADD COLUMN total_amount DECIMAL(18,2) DEFAULT 0`,
+    );
+  }
+  if (!(await hasColumn(orderDetails, "net_amount"))) {
+    await query(
+      `ALTER TABLE ${orderDetails} ADD COLUMN net_amount DECIMAL(18,2) DEFAULT 0`,
+    );
+  }
+  if (!(await hasColumn(orderDetails, "tax_amount"))) {
+    await query(
+      `ALTER TABLE ${orderDetails} ADD COLUMN tax_amount DECIMAL(18,2) DEFAULT 0`,
+    );
+  }
+  if (!(await hasColumn(orderDetails, "uom"))) {
+    await query(
+      `ALTER TABLE ${orderDetails} ADD COLUMN uom VARCHAR(50) DEFAULT 'PCS'`,
+    );
+  }
+}
+
+export async function ensureTemplateTables() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS document_templates (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      name VARCHAR(150) NOT NULL,
+      document_type VARCHAR(50) NOT NULL,
+      html_content MEDIUMTEXT NOT NULL,
+      is_default TINYINT(1) NOT NULL DEFAULT 0,
+      created_by BIGINT UNSIGNED NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_company_type (company_id, document_type),
+      KEY idx_default (company_id, document_type, is_default)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  if (!(await hasColumn("document_templates", "header_logo_url"))) {
+    await query(
+      "ALTER TABLE document_templates ADD COLUMN header_logo_url VARCHAR(500) NULL",
+    );
+  }
+  if (!(await hasColumn("document_templates", "header_name"))) {
+    await query(
+      "ALTER TABLE document_templates ADD COLUMN header_name VARCHAR(255) NULL",
+    );
+  }
+  if (!(await hasColumn("document_templates", "header_address"))) {
+    await query(
+      "ALTER TABLE document_templates ADD COLUMN header_address TEXT NULL",
+    );
+  }
+  if (!(await hasColumn("document_templates", "header_address2"))) {
+    await query(
+      "ALTER TABLE document_templates ADD COLUMN header_address2 TEXT NULL",
+    );
+  }
+  if (!(await hasColumn("document_templates", "header_phone"))) {
+    await query(
+      "ALTER TABLE document_templates ADD COLUMN header_phone VARCHAR(50) NULL",
+    );
+  }
+  if (!(await hasColumn("document_templates", "header_email"))) {
+    await query(
+      "ALTER TABLE document_templates ADD COLUMN header_email VARCHAR(255) NULL",
+    );
+  }
+  if (!(await hasColumn("document_templates", "header_website"))) {
+    await query(
+      "ALTER TABLE document_templates ADD COLUMN header_website VARCHAR(255) NULL",
+    );
+  }
 }

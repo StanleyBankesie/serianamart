@@ -312,9 +312,18 @@ export default function StockVerificationList() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {verification.adjustment_date}
-                        </div>
+                        <input
+                          type="date"
+                          value={(() => {
+                            const s = verification.adjustment_date;
+                            const d = new Date(s);
+                            if (!isNaN(d)) return d.toISOString().split("T")[0];
+                            const str = String(s || "");
+                            return str.includes("T") ? str.split("T")[0] : str;
+                          })()}
+                          readOnly
+                          className="text-sm text-gray-900 bg-transparent border-0 p-0"
+                        />
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">

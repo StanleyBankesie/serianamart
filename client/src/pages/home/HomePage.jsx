@@ -4,7 +4,7 @@ import { useAuth } from "../../auth/AuthContext";
 import client from "../../api/client";
 
 export default function HomePage() {
-  const { user, token } = useAuth();
+  const { user, token, hasAccess } = useAuth();
   const navigate = useNavigate();
   const [pendingItems, setPendingItems] = useState([]);
   const [notifications, setNotifications] = useState([]);
@@ -122,15 +122,30 @@ export default function HomePage() {
     }
     return Array.from(m.values());
   }, [pendingItems]);
+  const filteredPending = useMemo(() => {
+    const uid = Number(user?.sub || user?.id);
+    return uniquePending.filter((it) => {
+      const candidates = [
+        Number(it.approver_user_id),
+        Number(it.assigned_user_id),
+        Number(it.target_user_id),
+        Number(it.approver_id),
+        Number(it.user_id),
+      ];
+      const aid = candidates.find((x) => Number.isFinite(x) && x > 0) ?? null;
+      if (!Number.isFinite(uid) || uid <= 0) return true;
+      return aid == null || aid === uid;
+    });
+  }, [uniquePending, user?.sub, user?.id]);
   const groupedPending = useMemo(() => {
     const out = {};
-    for (const it of uniquePending) {
+    for (const it of filteredPending) {
       const k = typeKey(it);
       if (!out[k]) out[k] = [];
       out[k].push(it);
     }
     return out;
-  }, [uniquePending]);
+  }, [filteredPending]);
   const orderedGroups = useMemo(() => {
     const keys = Object.keys(groupedPending);
     const order = [
@@ -147,6 +162,33 @@ export default function HomePage() {
     const ref = it.doc_ref ? String(it.doc_ref) : `#${it.document_id}`;
     return `${t} ${ref}`;
   };
+
+  const featuredCards = [
+    {
+      title: "Sales Orders",
+      description: "Manage customer orders and track fulfillment",
+      path: "/sales/sales-orders",
+      icon: "🛒",
+    },
+    {
+      title: "Invoices",
+      description: "Generate and manage sales invoices",
+      path: "/sales/invoices",
+      icon: "🧾",
+    },
+    {
+      title: "Service Confirmation",
+      description: "Confirm delivered services from suppliers",
+      path: "/service-management/service-confirmation",
+      icon: "✅",
+    },
+    {
+      title: "Service Bills",
+      description: "Prepare and issue service bills",
+      path: "/service-management/service-bills",
+      icon: "💵",
+    },
+  ].filter((it) => hasAccess(it.path, "view"));
 
   const openApprovalModal = async (id) => {
     setShowApprovalModal(true);
@@ -311,15 +353,25 @@ export default function HomePage() {
     },
   ];
 
-  const approvedNotifications = useMemo(
-    () =>
-      notifications.filter((n) =>
-        String(n?.message || "")
-          .toLowerCase()
-          .includes("approved"),
-      ),
-    [notifications],
-  );
+  const approvedNotifications = useMemo(() => {
+    const uid = Number(user?.sub || user?.id);
+    const filtered = notifications.filter((n) => {
+      const msg = String(n?.message || "").toLowerCase();
+      const isApproved = msg.includes("approved");
+      const candidates = [
+        Number(n.user_id),
+        Number(n.target_user_id),
+        Number(n.recipient_id),
+        Number(n.assigned_user_id),
+        Number(n.request_user_id),
+      ];
+      const rid = candidates.find((x) => Number.isFinite(x) && x > 0) ?? null;
+      const belongs =
+        Number.isFinite(uid) && uid > 0 ? rid == null || rid === uid : true;
+      return isApproved && belongs;
+    });
+    return filtered;
+  }, [notifications, user?.sub, user?.id]);
 
   return (
     <div className="min-h-screen bg-slate-50/50 p-6 md:p-8 font-sans text-slate-900">
@@ -393,6 +445,36 @@ export default function HomePage() {
                 ))}
               </div>
             </div>
+            {featuredCards.length > 0 && (
+              <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100">
+                <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+                  <span className="text-blue-500">⭐</span> Featured
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {featuredCards.map((item, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => navigate(item.path)}
+                      className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm hover:shadow-md hover:border-brand-300 dark:hover:border-brand-700 border border-slate-100 dark:border-slate-700 transition-all duration-200 cursor-pointer group"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="w-9 h-9 rounded-lg bg-brand-50 dark:bg-slate-700 flex items-center justify-center text-lg group-hover:bg-brand-100 dark:group-hover:bg-slate-600 transition-colors">
+                          {item.icon}
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-brand-700 dark:group-hover:text-brand-400 transition-colors">
+                            {item.title}
+                          </div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400">
+                            {item.description}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Workflow & Notifications Section (Replaces Modules) */}
@@ -404,7 +486,7 @@ export default function HomePage() {
                   <span className="text-blue-500">✅</span> Pending Approvals
                 </h2>
                 <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-full">
-                  {uniquePending.length} Pending
+                  {filteredPending.length} Pending
                 </span>
               </div>
 
@@ -511,7 +593,7 @@ export default function HomePage() {
                         Pending Documents
                       </div>
                       <div className="text-xs text-slate-500">
-                        {uniquePending.length} Pending
+                        {filteredPending.length} Pending
                       </div>
                     </div>
                     <button

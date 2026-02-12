@@ -24,12 +24,17 @@ import ProjectManagementHome from "../pages/modules/project-management/ProjectMa
 import ProductionHome from "../pages/modules/production/ProductionHome.jsx";
 import PosHome from "../pages/modules/pos/PosHome.jsx";
 import BusinessIntelligenceHome from "../pages/modules/business-intelligence/BusinessIntelligenceHome.jsx";
+import ServiceManagementHome from "../pages/modules/service-management/ServiceManagementHome.jsx";
+import NotificationsPage from "../pages/NotificationsPage.jsx";
+import addNotification from "react-push-notification";
 
 import logoDark from "../assets/resources/OMNISUITE_WHITE_LOGO.png";
 import logoLight from "../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { api } from "../api/client.js";
 import useOfflineQueue from "../offline/useOfflineQueue.js";
 import FloatingInstallButton from "../components/FloatingInstallButton.jsx";
+import { toast } from "react-toastify";
+import { Bell } from "lucide-react";
 
 const modules = [
   {
@@ -68,12 +73,20 @@ const modules = [
     path: "/business-intelligence",
     icon: "📈",
   },
+  {
+    key: "service-management",
+    label: "Service Management",
+    path: "/service-management",
+    icon: "🛎️",
+  },
 ];
 
 export default function AppShell() {
-  const { user, scope, setScope, logout, hasModuleAccess } = useAuth();
+  const { token, user, scope, setScope, logout, hasModuleAccess } = useAuth();
   const { theme } = useTheme();
   const { pending, failed, completed, items, lastEvent } = useOfflineQueue();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [queueOpen, setQueueOpen] = useState(false);
   const [savedToast, setSavedToast] = useState(false);
   useEffect(() => {
@@ -101,6 +114,43 @@ export default function AppShell() {
       window.removeEventListener("offline", onOffline);
     };
   }, []);
+  useEffect(() => {
+    try {
+      if ("serviceWorker" in navigator) {
+        const handler = (e) => {
+          const data = e?.data || {};
+          if (data.type === "navigate" && typeof data.url === "string") {
+            navigate(data.url);
+          }
+        };
+        navigator.serviceWorker.addEventListener("message", handler);
+        return () =>
+          navigator.serviceWorker.removeEventListener("message", handler);
+      }
+    } catch {}
+  }, [navigate]);
+
+  useEffect(() => {
+    async function logPageView() {
+      try {
+        const path = location.pathname || "/";
+        const seg = path.split("/").filter(Boolean)[0] || "dashboard";
+        const moduleName = seg
+          .replace(/-/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+        await api.post("/admin/activity/log", {
+          module_name: moduleName,
+          action: "VIEW",
+          ref_no: String(user?.username || ""),
+          message: "Page View",
+          url_path: path,
+          event_time: new Date().toISOString(),
+        });
+      } catch {}
+    }
+    logPageView();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
 
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window !== "undefined") {
@@ -111,6 +161,9 @@ export default function AppShell() {
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef(null);
   const [contextModalOpen, setContextModalOpen] = useState(false);
+  const [lowStockPrompted, setLowStockPrompted] = useState(false);
+  const [lowStockCount, setLowStockCount] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const profile = useMemo(() => {
     const username = user?.username || user?.name || "Guest";
@@ -162,6 +215,180 @@ export default function AppShell() {
       mounted = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    setLowStockPrompted(false);
+    setLowStockCount(0);
+    setUnreadCount(0);
+  }, [scope?.companyId, scope?.branchId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function subscribePush() {
+      try {
+        const raw =
+          typeof localStorage !== "undefined"
+            ? localStorage.getItem("push_enabled")
+            : null;
+        const enabled = raw === null ? true : String(raw) === "1";
+        if (!enabled) return;
+        if (typeof window === "undefined") return;
+        if (!("serviceWorker" in navigator)) return;
+        if (!("PushManager" in window)) return;
+        if (!("Notification" in window)) return;
+        if (window.Notification.permission !== "granted") return;
+        const reg = await navigator.serviceWorker.ready;
+        const res = await api.get("/push/public-key");
+        const publicKey = String(res.data?.publicKey || "");
+        if (!publicKey) return;
+        function urlBase64ToUint8Array(base64String) {
+          const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+          const base64 = (base64String + padding)
+            .replace(/-/g, "+")
+            .replace(/_/g, "/");
+          const rawData = window.atob(base64);
+          const outputArray = new Uint8Array(rawData.length);
+          for (let i = 0; i < rawData.length; ++i) {
+            outputArray[i] = rawData.charCodeAt(i);
+          }
+          return outputArray;
+        }
+        const applicationServerKey = urlBase64ToUint8Array(publicKey);
+        const existing = await reg.pushManager.getSubscription();
+        if (existing && existing.endpoint) {
+          await api.post("/push/subscribe", {
+            subscription: existing.toJSON(),
+          });
+          return;
+        }
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey,
+        });
+        if (cancelled) return;
+        await api.post("/push/subscribe", { subscription: sub.toJSON() });
+      } catch {}
+    }
+    subscribePush();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+  useEffect(() => {
+    let cancelled = false;
+    let pollTimer = null;
+
+    async function loadUnread() {
+      try {
+        const res = await api.get("/workflows/notifications");
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        const unread = items.filter((n) => Number(n.is_read) !== 1).length;
+        setUnreadCount(unread);
+        if (typeof window !== "undefined") {
+          try {
+            const storeKey = "notified_notification_ids";
+            const prevRaw = localStorage.getItem(storeKey);
+            const prev = prevRaw ? JSON.parse(prevRaw) : [];
+            const prevSet = new Set(Array.isArray(prev) ? prev : []);
+            const nativeAllowed =
+              "Notification" in window &&
+              window.Notification?.permission === "granted";
+            const icon =
+              theme === "dark"
+                ? "/OMNISUITE_ICON_CLEAR.png"
+                : "/OMNISUITE_ICON_CLEAR.png";
+            for (const n of items) {
+              const id = Number(n.id);
+              const isUnread = Number(n.is_read) !== 1;
+              if (isUnread && !prevSet.has(id)) {
+                try {
+                  addNotification({
+                    title: String(n.title || "Notification"),
+                    message: String(n.message || ""),
+                    native: nativeAllowed,
+                    icon,
+                    onClick: () => {
+                      if (n.link) navigate(String(n.link));
+                      else navigate("/notifications");
+                    },
+                  });
+                } catch {}
+                prevSet.add(id);
+              }
+            }
+            localStorage.setItem(storeKey, JSON.stringify(Array.from(prevSet)));
+          } catch {}
+        }
+      } catch {}
+    }
+
+    async function checkLowStock() {
+      try {
+        if (lowStockPrompted) return;
+        const res = await api.get("/inventory/alerts/low-stock");
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        if (!items.length) return;
+        setLowStockPrompted(true);
+        setLowStockCount(items.length);
+        const count = items.length;
+        const nativeAllowed =
+          typeof window !== "undefined" &&
+          "Notification" in window &&
+          window.Notification?.permission === "granted";
+        const icon =
+          theme === "dark"
+            ? "/OMNISUITE_ICON_CLEAR.png"
+            : "/OMNISUITE_ICON_CLEAR.png";
+        if (count <= 5) {
+          for (const it of items) {
+            const qty = Number(it.qty || 0);
+            const rl = Number(it.reorder_level || 0);
+            toast.warn(
+              `${it.item_code}: stock ${qty} ≤ reorder ${rl} (${it.item_name})`,
+            );
+            try {
+              addNotification({
+                title: "Low Stock",
+                message: `${it.item_code}: stock ${qty} ≤ reorder ${rl}`,
+                native: nativeAllowed,
+                icon,
+                onClick: () => navigate("/inventory/alerts/low-stock"),
+              });
+            } catch {}
+          }
+        } else {
+          toast.warn(
+            `${count} items are at or below reorder levels. Check Inventory.`,
+          );
+          try {
+            addNotification({
+              title: "Low Stock",
+              message: `${count} items are at or below reorder levels`,
+              native: nativeAllowed,
+              icon,
+              onClick: () => navigate("/inventory/alerts/low-stock"),
+            });
+          } catch {}
+        }
+      } catch {}
+    }
+    checkLowStock();
+    loadUnread();
+    pollTimer = setInterval(loadUnread, 60000);
+    return () => {
+      cancelled = true;
+      if (pollTimer) clearInterval(pollTimer);
+    };
+  }, [scope?.companyId, scope?.branchId, lowStockPrompted]);
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      if (window.Notification.permission === "default") {
+        try {
+          window.Notification.requestPermission().catch(() => {});
+        } catch {}
+      }
+    }
   }, []);
   useEffect(() => {
     const roles = Array.isArray(user?.roles)
@@ -276,9 +503,6 @@ export default function AppShell() {
     }
   }, [dbRoles, roleOptions, branchOptions]);
 
-  const navigate = useNavigate();
-  const location = useLocation();
-
   const isRootPage = useMemo(() => {
     const path = location.pathname.replace(/\/+$/, "") || "/";
     if (path === "/" || path === "/dashboard") return true;
@@ -337,6 +561,26 @@ export default function AppShell() {
             Role-based + Branch-based
           </div> */}
           <ThemeToggle />
+          <button
+            type="button"
+            aria-label="Notifications"
+            onClick={() => navigate("/notifications")}
+            className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
+            title="Notifications"
+          >
+            <Bell size={18} />
+            {(unreadCount > 0 || lowStockCount > 0) && (
+              <span className="absolute -top-1 -right-1 text-[10px] leading-none font-bold px-1.5 py-0.5 rounded-full bg-red-600 text-white">
+                {unreadCount > 0
+                  ? unreadCount > 99
+                    ? "99+"
+                    : unreadCount
+                  : lowStockCount > 99
+                    ? "99+"
+                    : lowStockCount}
+              </span>
+            )}
+          </button>
 
           <div className="relative" ref={profileRef}>
             <button
@@ -687,11 +931,16 @@ export default function AppShell() {
                 path="/business-intelligence/*"
                 element={<BusinessIntelligenceHome />}
               />
+              <Route
+                path="/service-management/*"
+                element={<ServiceManagementHome />}
+              />
+              <Route path="/notifications" element={<NotificationsPage />} />
             </Routes>
           </div>
         </main>
       </div>
-      {/* <FloatingInstallButton /> */}
+      <FloatingInstallButton />
     </div>
   );
 }

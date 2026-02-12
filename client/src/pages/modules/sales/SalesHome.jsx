@@ -2,6 +2,7 @@ import React from "react";
 import { Routes, Route } from "react-router-dom";
 import ModuleDashboard from "../../../components/ModuleDashboard";
 import { api } from "../../../api/client.js";
+import { useAuth } from "../../../auth/AuthContext.jsx";
 
 // Import list pages
 import QuotationList from "./quotations/QuotationList.jsx";
@@ -251,6 +252,22 @@ const SalesModuleHome = () => {
     },
   ];
 
+  const { hasModuleAccess } = useAuth();
+
+  if (!hasModuleAccess("Sales")) {
+    return (
+      <div className="p-6">
+        <div className="card">
+          <div className="card-body">
+            <div className="text-center text-slate-600">
+              You do not have access to the Sales module.
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <ModuleDashboard
       title="Sales Module"
@@ -262,52 +279,134 @@ const SalesModuleHome = () => {
 };
 
 export default function SalesHome() {
+  const { hasAccess } = useAuth();
+  const NoAccess = () => (
+    <div className="p-6">
+      <div className="card">
+        <div className="card-body">
+          <div className="text-center text-slate-600">
+            You do not have permission to view this page.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <Routes>
       <Route path="/" element={<SalesModuleHome />} />
-      <Route path="/quotations" element={<QuotationList />} />
-      <Route path="/quotations/new" element={<QuotationForm />} />
-      <Route path="/quotations/:id" element={<QuotationForm />} />
-      <Route path="/sales-orders" element={<SalesOrderList />} />
-      <Route path="/sales-orders/new" element={<SalesOrderForm />} />
-      <Route path="/sales-orders/:id" element={<SalesOrderForm />} />
-      <Route path="/invoices" element={<InvoiceList />} />
-      <Route path="/invoices/new" element={<InvoiceForm />} />
-      <Route path="/invoices/:id" element={<InvoiceForm />} />
-      <Route path="delivery" element={<DeliveryList />} />
-      <Route path="delivery/new" element={<DeliveryForm />} />
-      <Route path="delivery/:id" element={<DeliveryForm />} />
-      <Route path="/price-setup" element={<PriceSetup />} />
-      <Route path="/discount-schemes" element={<DiscountSchemeList />} />
-      <Route path="/customer-credit" element={<CustomerCreditList />} />
-      <Route path="/customer-credit/:id" element={<CustomerCreditForm />} />
-      <Route path="/customers" element={<CustomerList />} />
-      <Route path="/customers/new" element={<CustomerForm />} />
-      <Route path="/customers/:id" element={<CustomerForm />} />
-      <Route path="/bulk-upload" element={<BulkCustomerUpload />} />
-      <Route path="/reports" element={<SalesReports />} />
-      <Route path="/reports/sales-return" element={<SalesReturnReportPage />} />
+      <Route
+        path="/quotations"
+        element={hasAccess("/sales/quotations", "view") ? <QuotationList /> : <NoAccess />}
+      />
+      <Route
+        path="/quotations/new"
+        element={hasAccess("/sales/quotations/new", "create") ? <QuotationForm /> : <NoAccess />}
+      />
+      <Route
+        path="/quotations/:id"
+        element={hasAccess("/sales/quotations/:id", "edit") ? <QuotationForm /> : <NoAccess />}
+      />
+      <Route
+        path="/sales-orders"
+        element={hasAccess("/sales/sales-orders", "view") ? <SalesOrderList /> : <NoAccess />}
+      />
+      <Route
+        path="/sales-orders/new"
+        element={hasAccess("/sales/sales-orders/new", "create") ? <SalesOrderForm /> : <NoAccess />}
+      />
+      <Route
+        path="/sales-orders/:id"
+        element={hasAccess("/sales/sales-orders/:id", "edit") ? <SalesOrderForm /> : <NoAccess />}
+      />
+      <Route
+        path="/invoices"
+        element={hasAccess("/sales/invoices", "view") ? <InvoiceList /> : <NoAccess />}
+      />
+      <Route
+        path="/invoices/new"
+        element={hasAccess("/sales/invoices/new", "create") ? <InvoiceForm /> : <NoAccess />}
+      />
+      <Route
+        path="/invoices/:id"
+        element={hasAccess("/sales/invoices/:id", "edit") ? <InvoiceForm /> : <NoAccess />}
+      />
+      <Route
+        path="delivery"
+        element={hasAccess("/sales/delivery", "view") ? <DeliveryList /> : <NoAccess />}
+      />
+      <Route
+        path="delivery/new"
+        element={hasAccess("/sales/delivery/new", "create") ? <DeliveryForm /> : <NoAccess />}
+      />
+      <Route
+        path="delivery/:id"
+        element={hasAccess("/sales/delivery/:id", "edit") ? <DeliveryForm /> : <NoAccess />}
+      />
+      <Route
+        path="/price-setup"
+        element={hasAccess("/sales/price-setup", "view") ? <PriceSetup /> : <NoAccess />}
+      />
+      <Route
+        path="/discount-schemes"
+        element={hasAccess("/sales/discount-schemes", "view") ? <DiscountSchemeList /> : <NoAccess />}
+      />
+      <Route
+        path="/customer-credit"
+        element={hasAccess("/sales/customer-credit", "view") ? <CustomerCreditList /> : <NoAccess />}
+      />
+      <Route
+        path="/customer-credit/:id"
+        element={hasAccess("/sales/customer-credit/:id", "edit") ? <CustomerCreditForm /> : <NoAccess />}
+      />
+      <Route
+        path="/customers"
+        element={hasAccess("/sales/customers", "view") ? <CustomerList /> : <NoAccess />}
+      />
+      <Route
+        path="/customers/new"
+        element={hasAccess("/sales/customers/new", "create") ? <CustomerForm /> : <NoAccess />}
+      />
+      <Route
+        path="/customers/:id"
+        element={hasAccess("/sales/customers/:id", "edit") ? <CustomerForm /> : <NoAccess />}
+      />
+      <Route
+        path="/bulk-upload"
+        element={hasAccess("/sales/bulk-upload", "view") ? <BulkCustomerUpload /> : <NoAccess />}
+      />
+      <Route
+        path="/reports"
+        element={hasAccess("/sales/reports", "view") ? <SalesReports /> : <NoAccess />}
+      />
+      <Route
+        path="/reports/sales-return"
+        element={hasAccess("/sales/reports/sales-return", "view") ? <SalesReturnReportPage /> : <NoAccess />}
+      />
       <Route
         path="/reports/sales-register"
-        element={<SalesRegisterReportPage />}
+        element={hasAccess("/sales/reports/sales-register", "view") ? <SalesRegisterReportPage /> : <NoAccess />}
       />
       <Route
         path="/reports/delivery-register"
-        element={<DeliveryRegisterReportPage />}
+        element={hasAccess("/sales/reports/delivery-register", "view") ? <DeliveryRegisterReportPage /> : <NoAccess />}
       />
       <Route
         path="/reports/debtors-balance"
-        element={<DebtorsBalanceReportPage />}
+        element={hasAccess("/sales/reports/debtors-balance", "view") ? <DebtorsBalanceReportPage /> : <NoAccess />}
       />
       <Route
         path="/reports/sales-profitability"
-        element={<SalesProfitabilityReportPage />}
+        element={hasAccess("/sales/reports/sales-profitability", "view") ? <SalesProfitabilityReportPage /> : <NoAccess />}
       />
       <Route
         path="/reports/sales-tracking"
-        element={<SalesTrackingReportPage />}
+        element={hasAccess("/sales/reports/sales-tracking", "view") ? <SalesTrackingReportPage /> : <NoAccess />}
       />
-      <Route path="/returns" element={<SalesReturnList />} />
+      <Route
+        path="/returns"
+        element={hasAccess("/sales/returns", "view") ? <SalesReturnList /> : <NoAccess />}
+      />
     </Routes>
   );
 }

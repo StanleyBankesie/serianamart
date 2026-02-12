@@ -56,15 +56,45 @@ export default function ShippingAdviceForm() {
     logoUrl: "",
   });
 
-  // Load Purchase Orders List
+  // Load Purchase Orders List excluding ones with existing Shipping Advice
   useEffect(() => {
-    api
-      .get("/purchase/orders?status=APPROVED")
-      .then((res) => {
-        const allOrders = Array.isArray(res.data?.items) ? res.data.items : [];
-        // Filter for IMPORT orders only
-        const importOrders = allOrders.filter((po) => po.po_type === "IMPORT");
-        setPurchaseOrders(importOrders);
+    Promise.all([
+      api.get("/purchase/orders?status=APPROVED"),
+      api.get("/purchase/shipping-advices"),
+    ])
+      .then(([poRes, saRes]) => {
+        const allOrders = Array.isArray(poRes.data?.items)
+          ? poRes.data.items
+          : [];
+        const importOrders = allOrders.filter(
+          (po) => String(po.po_type || "").toUpperCase() === "IMPORT",
+        );
+        const advices = Array.isArray(saRes.data?.items)
+          ? saRes.data.items
+          : [];
+        const activeAdvices = advices.filter(
+          (a) => String(a.status || "").toUpperCase() !== "CANCELLED",
+        );
+        const advisedPoIds = new Set(
+          activeAdvices
+            .map((a) => a.po_id || a.poId)
+            .filter((v) => v != null)
+            .map((v) => String(v)),
+        );
+        const advisedPoNos = new Set(
+          activeAdvices
+            .map((a) => a.po_no || a.poNo)
+            .filter((v) => v != null)
+            .map((v) => String(v)),
+        );
+        const filtered = importOrders.filter((po) => {
+          const pid = String(po.id);
+          const pno = String(po.po_no || po.poNo || "");
+          if (advisedPoIds.has(pid)) return false;
+          if (pno && advisedPoNos.has(pno)) return false;
+          return true;
+        });
+        setPurchaseOrders(filtered);
       })
       .catch((e) => console.error(e));
   }, []);

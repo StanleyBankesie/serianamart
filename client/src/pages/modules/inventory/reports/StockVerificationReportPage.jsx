@@ -117,11 +117,13 @@ export default function StockVerificationReportPage() {
                   y += 8;
                   doc.setFontSize(10);
                   doc.text("Date", 10, y);
-                  doc.text("Verify No", 45, y);
-                  doc.text("Item", 85, y);
-                  doc.text("System Qty", 130, y);
-                  doc.text("Physical Qty", 160, y);
-                  doc.text("Variance", 190, y, { align: "right" });
+                  doc.text("Verify No", 30, y);
+                  doc.text("Warehouse", 55, y);
+                  doc.text("Status", 85, y);
+                  doc.text("Item", 110, y);
+                  doc.text("System", 150, y);
+                  doc.text("Physical", 170, y);
+                  doc.text("Variance", 200, y, { align: "right" });
                   y += 4;
                   doc.line(10, y, 200, y);
                   y += 5;
@@ -134,9 +136,11 @@ export default function StockVerificationReportPage() {
                       ? new Date(r.verify_date).toLocaleDateString()
                       : "-";
                     const vno = String(r.verify_no || "-");
+                    const wh = String(r.warehouse_name || "-").slice(0, 14);
+                    const st = String(r.status || "-").slice(0, 10);
                     const it = String(r.item_name || r.item_code || "-").slice(
                       0,
-                      40,
+                      26,
                     );
                     const sys = String(
                       Number(r.system_qty || 0).toLocaleString(),
@@ -150,11 +154,13 @@ export default function StockVerificationReportPage() {
                       ).toLocaleString(),
                     );
                     doc.text(dt, 10, y);
-                    doc.text(vno, 45, y);
-                    doc.text(it, 85, y);
-                    doc.text(sys, 130, y);
-                    doc.text(phy, 160, y);
-                    doc.text(varq, 190, y, { align: "right" });
+                    doc.text(vno, 30, y);
+                    doc.text(wh, 55, y);
+                    doc.text(st, 85, y);
+                    doc.text(it, 110, y);
+                    doc.text(sys, 150, y);
+                    doc.text(phy, 170, y);
+                    doc.text(varq, 200, y, { align: "right" });
                     y += 5;
                   });
                   doc.save("stock-verification.pdf");
@@ -179,6 +185,8 @@ export default function StockVerificationReportPage() {
                 <tr>
                   <th>Date</th>
                   <th>Verification No</th>
+                  <th>Warehouse</th>
+                  <th>Status</th>
                   <th>Item</th>
                   <th className="text-right">System Qty</th>
                   <th className="text-right">Physical Qty</th>
@@ -194,6 +202,8 @@ export default function StockVerificationReportPage() {
                         : "-"}
                     </td>
                     <td className="font-medium">{r.verify_no || "-"}</td>
+                    <td>{r.warehouse_name || "-"}</td>
+                    <td>{r.status || "-"}</td>
                     <td>{r.item_name || r.item_code}</td>
                     <td className="text-right">
                       {Number(r.system_qty || 0).toLocaleString()}

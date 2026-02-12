@@ -29,7 +29,6 @@ export default function InvoiceList() {
     registrationNo: "",
     logoUrl: "",
   });
-  const [invoiceTemplateHtml, setInvoiceTemplateHtml] = useState(null);
 
   useEffect(() => {
     fetchAll();
@@ -102,52 +101,6 @@ export default function InvoiceList() {
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
   }
-  function resolvePath(obj, rawPath) {
-    const path = String(rawPath || "")
-      .trim()
-      .replace(/^\./, "");
-    if (!path) return undefined;
-    const parts = path.split(".").filter(Boolean);
-    let cur = obj;
-    for (const p of parts) {
-      if (cur == null) return undefined;
-      cur = cur[p];
-    }
-    return cur;
-  }
-  function renderTemplateString(templateHtml, data, root = data) {
-    let out = String(templateHtml ?? "");
-    out = out.replace(
-      /{{#each\s+([^}]+)}}([\s\S]*?){{\/each}}/g,
-      (_m, expr, inner) => {
-        const key = String(expr || "").trim();
-        const val = key.startsWith("@root.")
-          ? resolvePath(root, key.slice(6))
-          : (resolvePath(data, key) ?? resolvePath(root, key));
-        const arr = Array.isArray(val) ? val : [];
-        return arr
-          .map((item) => renderTemplateString(inner, item ?? {}, root))
-          .join("");
-      },
-    );
-    out = out.replace(/{{{\s*([^}]+?)\s*}}}/g, (_m, expr) => {
-      const key = String(expr || "").trim();
-      let val;
-      if (key === "this" || key === ".") val = data;
-      else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-      else val = resolvePath(data, key) ?? resolvePath(root, key);
-      return String(val ?? "");
-    });
-    out = out.replace(/{{\s*([^}]+?)\s*}}/g, (_m, expr) => {
-      const key = String(expr || "").trim();
-      let val;
-      if (key === "this" || key === ".") val = data;
-      else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-      else val = resolvePath(data, key) ?? resolvePath(root, key);
-      return escapeHtml(val);
-    });
-    return out;
-  }
   function wrapDoc(bodyHtml) {
     return `<!doctype html>
 <html>
@@ -180,18 +133,6 @@ export default function InvoiceList() {
       ),
     );
   }
-  const fetchInvoiceTemplateHtml = async () => {
-    if (invoiceTemplateHtml !== null) return invoiceTemplateHtml;
-    try {
-      const res = await api.get("/admin/document-templates/INVOICE");
-      const tpl = String(res.data?.item?.template_html || "").trim();
-      setInvoiceTemplateHtml(tpl);
-      return tpl;
-    } catch {
-      setInvoiceTemplateHtml("");
-      return "";
-    }
-  };
   const buildInvoiceTemplateDataFromApi = (header, details) => {
     const items = (Array.isArray(details) ? details : []).map((d) => {
       const qty = Number(d.quantity || d.qty || 0);
@@ -225,11 +166,6 @@ export default function InvoiceList() {
         taxId: companyInfo.taxId || "",
         registrationNo: companyInfo.registrationNo || "",
         logoUrl: String(companyInfo.logoUrl || ""),
-        logoHtml: String(companyInfo.logoUrl || "")
-          ? `<img src="${String(companyInfo.logoUrl || "")}" alt="${escapeHtml(
-              companyInfo.name || "Company",
-            )}" style="max-height:80px;object-fit:contain;" />`
-          : "",
       },
       invoice: {
         invoice_no: String(header.invoice_no || ""),
@@ -275,21 +211,118 @@ export default function InvoiceList() {
       },
     };
   };
+  function renderInvoiceHtml(data) {
+    const company = data.company || {};
+    const inv = data.invoice || {};
+    const cust = data.customer || {};
+    const items = Array.isArray(data.items) ? data.items : [];
+    const totals = data.totals || {};
+    return `
+      <style>
+        .doc { color: #0f172a; font-size: 12px; }
+        .doc-header { display: flex; justify-content: space-between; align-items: center; }
+        .doc-title { font-weight: 800; font-size: 18px; color: #296d8f; }
+        .company-block { display: flex; gap: 12px; align-items: center; }
+        .company-logo { max-height: 80px; object-fit: contain; }
+        .company-info div { line-height: 1.4; }
+        .meta { text-align: right; font-size: 12px; }
+        .section-title { font-weight: 700; margin-top: 8px; margin-bottom: 4px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        table { border-collapse: collapse; width: 100%; font-size: 12px; }
+        th, td { border: 1px solid #e2e8f0; padding: 6px 8px; vertical-align: top; }
+        th { background: #f8fafc; text-align: left; }
+        .totals { display: flex; justify-content: flex-end; margin-top: 12px; }
+        .totals table { width: 320px; }
+      </style>
+      <div class="doc">
+        <div class="doc-header">
+          <div class="company-block">
+            ${company.logoUrl ? `<img src="${company.logoUrl}" alt="${escapeHtml(company.name || "Company")}" class="company-logo" />` : ""}
+            <div class="company-info">
+              <div>${escapeHtml(company.name || "")}</div>
+              <div>${escapeHtml(company.address || "")}</div>
+              <div>${escapeHtml(company.city || "")}${company.city ? "," : ""} ${escapeHtml(company.state || "")} ${escapeHtml(company.country || "")}</div>
+              <div>${escapeHtml(company.phone || "")} ${escapeHtml(company.email || "")}</div>
+              <div>${escapeHtml(company.website || "")}</div>
+              <div>${company.taxId ? `Tax ID: ${escapeHtml(company.taxId)}` : ""}</div>
+              <div>${company.registrationNo ? `Reg No: ${escapeHtml(company.registrationNo)}` : ""}</div>
+            </div>
+          </div>
+          <div class="meta">
+            <div class="doc-title">Invoice</div>
+            <div>Invoice No: ${escapeHtml(inv.invoice_no || "")}</div>
+            <div>Invoice Date: ${escapeHtml(inv.invoice_date || "")}</div>
+            <div>Due Date: ${escapeHtml(inv.due_date || "")}</div>
+            <div>Status: ${escapeHtml(String(inv.status || ""))}</div>
+          </div>
+        </div>
+
+        <div class="grid-2" style="margin-top: 6px;">
+          <div>
+            <div class="section-title">Customer</div>
+            <div>${escapeHtml(cust.name || "")}</div>
+            <div>${escapeHtml(cust.address || "")}</div>
+            <div>${escapeHtml(cust.city || "")}${cust.city ? "," : ""} ${escapeHtml(cust.state || "")} ${escapeHtml(cust.country || "")}</div>
+            <div>${escapeHtml(cust.phone || "")} ${escapeHtml(cust.email || "")}</div>
+          </div>
+          <div>
+            <div class="section-title">Payment</div>
+            <div>Currency: ${escapeHtml(inv.currency || "")}</div>
+            <div>Payment Type: ${escapeHtml(inv.payment_type || "")}</div>
+            <div>Price Type: ${escapeHtml(inv.price_type || "")}</div>
+          </div>
+        </div>
+
+        <table style="margin-top: 8px;">
+          <thead>
+            <tr>
+              <th>Description</th>
+              <th style="text-align:right;">Qty</th>
+              <th style="text-align:right;">Unit Price</th>
+              <th style="text-align:right;">Discount</th>
+              <th style="text-align:right;">Net</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items
+              .map(
+                (it) => `
+                <tr>
+                  <td>${escapeHtml(it.item_name || "")}</td>
+                  <td style="text-align:right;">${escapeHtml(it.qty || "")}</td>
+                  <td style="text-align:right;">${escapeHtml(it.unit_price || "")}</td>
+                  <td style="text-align:right;">${escapeHtml(it.discount || "")}</td>
+                  <td style="text-align:right;">${escapeHtml(it.net || "")}</td>
+                </tr>
+              `,
+              )
+              .join("")}
+          </tbody>
+        </table>
+
+        <div class="totals">
+          <table>
+            <tbody>
+              <tr><td>Subtotal</td><td style="text-align:right;">${escapeHtml(totals.subtotal || "")}</td></tr>
+              <tr><td>Discount</td><td style="text-align:right;">${escapeHtml(totals.discount || "")}</td></tr>
+              <tr><td>Net Subtotal</td><td style="text-align:right;">${escapeHtml(totals.netSubtotal || "")}</td></tr>
+              <tr><td>Tax</td><td style="text-align:right;">${escapeHtml(totals.tax || "")}</td></tr>
+              <tr><td><strong>Total</strong></td><td style="text-align:right;"><strong>${escapeHtml(totals.total || "")}</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
   async function printInvoice(id) {
     try {
-      const tpl = await fetchInvoiceTemplateHtml();
-      if (!tpl) return;
       const resp = await api.get(`/sales/invoices/${id}`);
       const header = resp.data?.item || {};
       const details = Array.isArray(resp.data?.details)
         ? resp.data.details
         : [];
-      const html = wrapDoc(
-        renderTemplateString(
-          tpl,
-          buildInvoiceTemplateDataFromApi(header, details),
-        ),
-      );
+      const data = buildInvoiceTemplateDataFromApi(header, details);
+      const html = wrapDoc(renderInvoiceHtml(data));
       const iframe = document.createElement("iframe");
       iframe.style.position = "fixed";
       iframe.style.right = "0";
@@ -324,17 +357,13 @@ export default function InvoiceList() {
   }
   async function downloadInvoicePdf(id) {
     try {
-      const tpl = await fetchInvoiceTemplateHtml();
-      if (!tpl) return;
       const resp = await api.get(`/sales/invoices/${id}`);
       const header = resp.data?.item || {};
       const details = Array.isArray(resp.data?.details)
         ? resp.data.details
         : [];
-      const html = renderTemplateString(
-        tpl,
-        buildInvoiceTemplateDataFromApi(header, details),
-      );
+      const data = buildInvoiceTemplateDataFromApi(header, details);
+      const html = renderInvoiceHtml(data);
       const container = document.createElement("div");
       container.style.position = "fixed";
       container.style.left = "-10000px";

@@ -13,58 +13,6 @@ function escapeHtml(v) {
     .replace(/'/g, "&#39;");
 }
 
-function resolvePath(obj, rawPath) {
-  const path = String(rawPath || "")
-    .trim()
-    .replace(/^\./, "");
-  if (!path) return undefined;
-  const parts = path.split(".").filter(Boolean);
-  let cur = obj;
-  for (const p of parts) {
-    if (cur == null) return undefined;
-    cur = cur[p];
-  }
-  return cur;
-}
-
-function renderTemplateString(templateHtml, data, root = data) {
-  let out = String(templateHtml ?? "");
-
-  out = out.replace(
-    /{{#each\s+([^}]+)}}([\s\S]*?){{\/each}}/g,
-    (_m, expr, inner) => {
-      const key = String(expr || "").trim();
-      const val = key.startsWith("@root.")
-        ? resolvePath(root, key.slice(6))
-        : (resolvePath(data, key) ?? resolvePath(root, key));
-      const arr = Array.isArray(val) ? val : [];
-      return arr
-        .map((item) => renderTemplateString(inner, item ?? {}, root))
-        .join("");
-    },
-  );
-
-  out = out.replace(/{{{\s*([^}]+?)\s*}}}/g, (_m, expr) => {
-    const key = String(expr || "").trim();
-    let val;
-    if (key === "this" || key === ".") val = data;
-    else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-    else val = resolvePath(data, key) ?? resolvePath(root, key);
-    return String(val ?? "");
-  });
-
-  out = out.replace(/{{\s*([^}]+?)\s*}}/g, (_m, expr) => {
-    const key = String(expr || "").trim();
-    let val;
-    if (key === "this" || key === ".") val = data;
-    else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-    else val = resolvePath(data, key) ?? resolvePath(root, key);
-    return escapeHtml(val);
-  });
-
-  return out;
-}
-
 function wrapDoc(bodyHtml) {
   return `<!doctype html>
 <html>
@@ -114,7 +62,6 @@ export default function PayslipForm() {
     netPay: 0,
     status: "GENERATED",
   });
-  const [templateHtml, setTemplateHtml] = useState(null);
   const [companyInfo, setCompanyInfo] = useState({
     name: "",
     address: "",
@@ -187,30 +134,30 @@ export default function PayslipForm() {
     setForm((p) => ({ ...p, [name]: value }));
   }
 
-  const fetchPayslipTemplateHtml = async () => {
-    if (templateHtml !== null) return templateHtml;
-    try {
-      const res = await api.get("/admin/document-templates/PAYSLIP");
-      const tpl = String(res.data?.item?.template_html || "").trim();
-      setTemplateHtml(tpl);
-      return tpl;
-    } catch {
-      setTemplateHtml("");
-      return "";
-    }
-  };
-
   async function printPayslip() {
-    const tpl = await fetchPayslipTemplateHtml();
-    const body = tpl
-      ? renderTemplateString(tpl, sampleData)
-      : `<div>
-  <div style="font-weight:800;font-size:18px;">Payslip</div>
-  <div>Period: ${escapeHtml(sampleData.payslip.period)}</div>
-  <div>Employee: ${escapeHtml(sampleData.payslip.employee)}</div>
-  <div>Net Pay: ${escapeHtml(sampleData.payslip.netPay)}</div>
-  <div>Status: ${escapeHtml(sampleData.payslip.status)}</div>
-</div>`;
+    const companyName = escapeHtml(sampleData.company.name);
+    const logo = sampleData.company.logoUrl
+      ? `<img src="${sampleData.company.logoUrl}" alt="${companyName}" style="max-height:80px;object-fit:contain;" />`
+      : "";
+    const body = `<div style="display:flex;justify-content:space-between;align-items:flex-start;">
+  <div>
+    ${logo}
+    <div style="font-weight:800;font-size:18px;">${companyName}</div>
+    <div style="font-size:12px;color:#475569;">${escapeHtml(sampleData.company.address)}</div>
+  </div>
+  <div style="text-align:right;">
+    <div style="font-weight:800;font-size:20px;">PAYSLIP</div>
+    <div style="font-size:12px;">Period: ${escapeHtml(sampleData.payslip.period)}</div>
+  </div>
+</div>
+<hr />
+<div style="font-size:12px;margin-bottom:10px;"><strong>Employee:</strong> ${escapeHtml(sampleData.payslip.employee)}</div>
+<table style="font-size:12px;">
+  <tbody>
+    <tr><td>Net Pay</td><td style="text-align:right;">${escapeHtml(sampleData.payslip.netPay)}</td></tr>
+    <tr><td>Status</td><td style="text-align:right;">${escapeHtml(sampleData.payslip.status)}</td></tr>
+  </tbody>
+</table>`;
     const html = wrapDoc(body);
     const iframe = document.createElement("iframe");
     iframe.style.position = "fixed";
@@ -243,16 +190,29 @@ export default function PayslipForm() {
   }
 
   async function downloadPayslipPdf() {
-    const tpl = await fetchPayslipTemplateHtml();
-    const body = tpl
-      ? renderTemplateString(tpl, sampleData)
-      : `<div>
-  <div style="font-weight:800;font-size:18px;">Payslip</div>
-  <div>Period: ${escapeHtml(sampleData.payslip.period)}</div>
-  <div>Employee: ${escapeHtml(sampleData.payslip.employee)}</div>
-  <div>Net Pay: ${escapeHtml(sampleData.payslip.netPay)}</div>
-  <div>Status: ${escapeHtml(sampleData.payslip.status)}</div>
-</div>`;
+    const companyName = escapeHtml(sampleData.company.name);
+    const logo = sampleData.company.logoUrl
+      ? `<img src="${sampleData.company.logoUrl}" alt="${companyName}" style="max-height:80px;object-fit:contain;" />`
+      : "";
+    const body = `<div style="display:flex;justify-content:space-between;align-items:flex-start;">
+  <div>
+    ${logo}
+    <div style="font-weight:800;font-size:18px;">${companyName}</div>
+    <div style="font-size:12px;color:#475569;">${escapeHtml(sampleData.company.address)}</div>
+  </div>
+  <div style="text-align:right;">
+    <div style="font-weight:800;font-size:20px;">PAYSLIP</div>
+    <div style="font-size:12px;">Period: ${escapeHtml(sampleData.payslip.period)}</div>
+  </div>
+</div>
+<hr />
+<div style="font-size:12px;margin-bottom:10px;"><strong>Employee:</strong> ${escapeHtml(sampleData.payslip.employee)}</div>
+<table style="font-size:12px;">
+  <tbody>
+    <tr><td>Net Pay</td><td style="text-align:right;">${escapeHtml(sampleData.payslip.netPay)}</td></tr>
+    <tr><td>Status</td><td style="text-align:right;">${escapeHtml(sampleData.payslip.status)}</td></tr>
+  </tbody>
+</table>`;
     const container = document.createElement("div");
     container.style.position = "fixed";
     container.style.left = "-10000px";

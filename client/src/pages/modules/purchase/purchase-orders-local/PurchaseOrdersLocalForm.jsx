@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { api } from "api/client";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
+import UnitConversionModal from "@/components/UnitConversionModal";
 import { useUoms } from "@/hooks/useUoms";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -52,6 +53,7 @@ export default function PurchaseOrdersLocalForm() {
   const [allQuotations, setAllQuotations] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [standardPrices, setStandardPrices] = useState([]);
+  const [unitConversions, setUnitConversions] = useState([]);
   const [taxes, setTaxes] = useState([]);
   const pdfRef = useRef(null);
 
@@ -110,6 +112,13 @@ export default function PurchaseOrdersLocalForm() {
     country: "",
     logoUrl: "",
   });
+  const [convModal, setConvModal] = useState({
+    open: false,
+    itemId: null,
+    defaultUom: "",
+    currentUom: "",
+    rowIdx: null,
+  });
 
   const { uoms } = useUoms();
   const defaultUomCode = useMemo(() => {
@@ -125,12 +134,14 @@ export default function PurchaseOrdersLocalForm() {
     let mounted = true;
     async function loadLookups() {
       try {
-        const [supRes, whRes, itemsRes, quotRes] = await Promise.allSettled([
-          api.get("/purchase/suppliers"),
-          api.get("/inventory/warehouses"),
-          api.get("/inventory/items"),
-          api.get("/purchase/quotations"),
-        ]);
+        const [supRes, whRes, itemsRes, quotRes, convRes] =
+          await Promise.allSettled([
+            api.get("/purchase/suppliers"),
+            api.get("/inventory/warehouses"),
+            api.get("/inventory/items"),
+            api.get("/purchase/quotations"),
+            api.get("/inventory/unit-conversions"),
+          ]);
 
         if (!mounted) return;
         if (supRes.status === "fulfilled") {
@@ -167,6 +178,13 @@ export default function PurchaseOrdersLocalForm() {
                 )
               : [];
           setQuotations(filtered);
+        }
+        if (convRes.status === "fulfilled") {
+          setUnitConversions(
+            Array.isArray(convRes.value.data?.items)
+              ? convRes.value.data.items
+              : [],
+          );
         }
       } catch (e) {
         if (!mounted) return;
@@ -885,9 +903,9 @@ export default function PurchaseOrdersLocalForm() {
               workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
               target_user_id: targetApproverId || null,
             });
-            navigate(`/purchase/purchase-orders-local/${createdId}/edit`);
           }
         }
+        navigate("/purchase/purchase-orders-local");
         return;
       }
 
@@ -941,11 +959,10 @@ export default function PurchaseOrdersLocalForm() {
           await api.put(`/purchase/orders/${createdId}/status`, {
             status: computedStatus,
           });
-          navigate(`/purchase/purchase-orders-local/${createdId}/edit`);
         } else if (createdId) {
-          navigate(`/purchase/purchase-orders-local/${createdId}/edit`);
         }
       }
+      navigate("/purchase/purchase-orders-local");
     } catch (e2) {
       const msg =
         e2?.response?.data?.message ||
@@ -1114,6 +1131,7 @@ export default function PurchaseOrdersLocalForm() {
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
       setFormData((prev) => ({ ...prev, status: newStatus }));
       setShowForwardModal(false);
+      navigate("/purchase/purchase-orders-local");
     } catch (e) {
       setWfError(
         e?.response?.data?.message || "Failed to forward for approval",
@@ -1585,6 +1603,11 @@ export default function PurchaseOrdersLocalForm() {
                 </div>
 
                 <div className="overflow-x-auto">
+                  <div className="mb-2 text-xs text-slate-600">
+                    If a unit conversion exists for the selected item and UOM,
+                    use the “number of UOM” button beside the UOM to convert
+                    quantity to the item’s default for accurate costing.
+                  </div>
                   <table className="w-full border-collapse bg-white rounded-lg overflow-hidden">
                     <thead className="bg-[#0E3646] text-white">
                       <tr>
@@ -1684,6 +1707,57 @@ export default function PurchaseOrdersLocalForm() {
                                         ),
                                     )}
                                 </select>
+                                {(() => {
+                                  const it = availableItems.find(
+                                    (ai) =>
+                                      String(ai.id) === String(row.item_id),
+                                  );
+                                  const defaultUom =
+                                    (it?.uom && String(it.uom)) ||
+                                    (row.uom && String(row.uom)) ||
+                                    (defaultUomCode
+                                      ? String(defaultUomCode)
+                                      : "");
+                                  const nonDefaults = (
+                                    Array.isArray(unitConversions)
+                                      ? unitConversions
+                                      : []
+                                  )
+                                    .filter(
+                                      (c) =>
+                                        Number(c.is_active) &&
+                                        Number(c.item_id) ===
+                                          Number(row.item_id) &&
+                                        String(c.to_uom) === defaultUom,
+                                    )
+                                    .map((c) => String(c.from_uom));
+                                  const currentUom = String(row.uom || "");
+                                  const preferredUom =
+                                    currentUom && currentUom !== defaultUom
+                                      ? currentUom
+                                      : nonDefaults[0] || "";
+                                  const hasConv =
+                                    nonDefaults.length > 0 &&
+                                    preferredUom &&
+                                    preferredUom !== defaultUom;
+                                  return hasConv ? (
+                                    <button
+                                      type="button"
+                                      className="ml-2 px-2 py-1 text-xs border border-brand text-brand rounded hover:bg-brand hover:text-white transition-colors"
+                                      onClick={() =>
+                                        setConvModal({
+                                          open: true,
+                                          itemId: row.item_id,
+                                          defaultUom: defaultUom,
+                                          currentUom: preferredUom,
+                                          rowIdx: idx,
+                                        })
+                                      }
+                                    >
+                                      {`number of ${preferredUom}`}
+                                    </button>
+                                  ) : null;
+                                })()}
                               </td>
                               <td className="p-3">
                                 <input
@@ -2035,6 +2109,43 @@ export default function PurchaseOrdersLocalForm() {
           </div>
         </div>
       )}
+      <UnitConversionModal
+        open={convModal.open}
+        itemId={convModal.itemId}
+        defaultUom={convModal.defaultUom}
+        currentUom={convModal.currentUom}
+        onClose={() =>
+          setConvModal({
+            open: false,
+            itemId: null,
+            defaultUom: "",
+            currentUom: "",
+            rowIdx: null,
+          })
+        }
+        onApply={(payload) => {
+          const { converted_qty } = payload || {};
+          const idx = convModal.rowIdx;
+          if (idx == null) return;
+          setItems((prev) => {
+            const updated = [...prev];
+            const row = { ...updated[idx] };
+            const qty = Number(converted_qty || 0);
+            row.qty = qty;
+            row.uom = convModal.defaultUom || row.uom;
+            const price = Number(row.unit_price || 0);
+            const discPct = Number(row.discount_percent || 0);
+            const taxPct = Number(row.tax_percent || 0);
+            const base = qty * price;
+            const disc = base * (discPct / 100);
+            const taxable = base - disc;
+            const tax = taxable * (taxPct / 100);
+            row.line_total = taxable + tax;
+            updated[idx] = row;
+            return updated;
+          });
+        }}
+      />
     </div>
   );
 }

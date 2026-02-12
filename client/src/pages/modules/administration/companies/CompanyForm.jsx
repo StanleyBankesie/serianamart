@@ -72,12 +72,18 @@ export default function CompanyForm() {
           currency_id: it.currency_id || "",
         });
         try {
-          const logoResp = await api.get(`/admin/companies/${id}/logo`, {
+          const timestamp = new Date().getTime();
+          const logoResp = await api.get(`/admin/companies/${id}/logo?t=${timestamp}`, {
             responseType: "blob",
           });
-          const url = URL.createObjectURL(logoResp.data);
-          setLogoPreview(url);
-        } catch {}
+          if (logoResp.data && logoResp.data.size > 0) {
+            const url = URL.createObjectURL(logoResp.data);
+            setLogoPreview(url);
+            console.log("Logo loaded on fetch");
+          }
+        } catch (err) {
+          console.log("No logo found for company:", err?.response?.status);
+        }
       }
     } catch (err) {
       setError(err?.response?.data?.message || "Error fetching company");
@@ -92,6 +98,37 @@ export default function CompanyForm() {
       const arr = Array.isArray(resp.data?.items) ? resp.data.items : [];
       setCurrencies(arr);
     } catch {}
+  }
+
+  async function reloadLogoFromServer(companyId) {
+    try {
+      // Add timestamp to bust cache
+      const timestamp = new Date().getTime();
+      console.log("Fetching logo for company:", companyId, "timestamp:", timestamp);
+      const logoResp = await api.get(`/admin/companies/${companyId}/logo?t=${timestamp}`, {
+        responseType: "blob",
+      });
+      console.log("Logo response:", logoResp.status, "size:", logoResp.data?.size);
+      if (logoResp.data && logoResp.data.size > 0) {
+        const url = URL.createObjectURL(logoResp.data);
+        setLogoPreview(url);
+        console.log("Logo loaded successfully from server:", url);
+      } else {
+        console.warn("Logo response is empty", logoResp.data);
+        setLogoError("Logo uploaded but could not be retrieved");
+      }
+    } catch (err) {
+      console.error("Failed to load logo from server:", {
+        status: err?.response?.status,
+        statusText: err?.response?.statusText,
+        message: err?.message,
+        data: err?.response?.data,
+      });
+      // Don't set error if it's a 404 (logo doesn't exist yet), that's normal for new companies
+      if (err?.response?.status !== 404) {
+        setLogoError("Failed to load uploaded logo");
+      }
+    }
   }
 
   function handleLogoUpload(e) {
@@ -123,12 +160,19 @@ export default function CompanyForm() {
     setLogoUploading(true);
     setLogoError("");
     try {
+      console.log("Uploading logo file:", logoFile.name, logoFile.size);
       const formData = new FormData();
       formData.append("logo", logoFile);
-      await api.post(`/admin/companies/${id}/logo`, formData, {
+      const resp = await api.post(`/admin/companies/${id}/logo`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
+      console.log("Upload response:", resp.data);
+      // Clear the file after successful upload
+      setLogoFile(null);
+      // Reload logo from server to show the actual uploaded logo
+      await reloadLogoFromServer(id);
     } catch (err) {
+      console.error("Upload error:", err);
       setLogoError(err?.response?.data?.message || "Failed to upload logo");
     } finally {
       setLogoUploading(false);
@@ -169,15 +213,35 @@ export default function CompanyForm() {
             ? Number(form.currency_id)
             : undefined,
       };
+      let companyId = id;
       if (isEdit) {
         await api.put(`/admin/companies/${id}`, payload);
       } else {
         const res = await api.post("/admin/companies", payload);
-        const newId = res.data?.id;
-        if (newId) {
-          await api.put(`/admin/companies/${newId}`, payload);
+        companyId = res.data?.id;
+        if (companyId) {
+          await api.put(`/admin/companies/${companyId}`, payload);
         }
       }
+      
+      // Upload logo if a file was selected
+      if (logoFile && companyId) {
+        try {
+          console.log("Submitting logo with company:", companyId);
+          const formData = new FormData();
+          formData.append("logo", logoFile);
+          const uploadResp = await api.post(`/admin/companies/${companyId}/logo`, formData, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+          console.log("Logo upload response:", uploadResp.data);
+          setLogoFile(null);
+          // Reload logo from server to show the actual uploaded logo
+          await reloadLogoFromServer(companyId);
+        } catch (uploadErr) {
+          console.error("Logo upload during submit failed:", uploadErr);
+        }
+      }
+      
       navigate("/administration/companies");
     } catch (err) {
       setError(err?.response?.data?.message || "Error saving company");

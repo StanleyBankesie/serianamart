@@ -20,6 +20,7 @@ export default function SupplierQuotationForm() {
     email: "",
     phone: "",
     currency: "USD",
+    exchange_rate: 1,
     payment_terms: "Net30",
     delivery_time: "",
     delivery_terms: "FOB",
@@ -175,6 +176,13 @@ export default function SupplierQuotationForm() {
               item_name: d.item_name || "",
               qty: Number(d.qty) || 0,
               unit_price: Number(d.unit_price) || 0,
+              tax_percent:
+                d.tax_percent !== undefined && d.tax_percent !== null
+                  ? Number(d.tax_percent) || 0
+                  : 0,
+              delivery_date: d.delivery_date
+                ? String(d.delivery_date).split("T")[0]
+                : "",
               line_total: Number(d.line_total) || 0,
             }));
 
@@ -185,6 +193,8 @@ export default function SupplierQuotationForm() {
                 item_name: "",
                 qty: 0,
                 unit_price: 0,
+                tax_percent: 0,
+                delivery_date: "",
                 line_total: 0,
               },
             ];

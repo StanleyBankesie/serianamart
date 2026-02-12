@@ -12,6 +12,7 @@ import ResetPasswordPage from "./pages/ResetPasswordPage.jsx";
 import { Provider } from "react-redux";
 import { store } from "./store/store.js";
 import BranchSelectionPage from "./pages/BranchSelectionPage.jsx";
+import { Notifications } from "react-push-notification";
 
 import AppShell from "./layout/AppShell.jsx";
 
@@ -26,6 +27,7 @@ export default function App() {
         <ThemeProvider>
           <AuthProvider>
             <ToastContainer position="top-right" theme="dark" />
+            <Notifications />
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route

@@ -86,3 +86,46 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 });
+
+self.addEventListener("push", (event) => {
+  try {
+    const data = event?.data ? event.data.json() : {};
+    const title = String(data.title || "Notification");
+    const body = String(data.message || data.body || "");
+    const icon = data.icon || "/OMNISUITE_ICON_CLEAR.png";
+    const badge = data.badge || "/OMNISUITE_ICON_CLEAR.png";
+    const link = data.link || "/notifications";
+    const tag = data.tag || "omnisuite-push";
+    const actions = Array.isArray(data.actions) ? data.actions : [];
+    const options = {
+      body,
+      icon,
+      badge,
+      tag,
+      data: { link },
+      actions,
+    };
+    event.waitUntil(self.registration.showNotification(title, options));
+  } catch (e) {}
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification?.data?.link || "/notifications";
+  event.waitUntil(
+    (async () => {
+      const allClients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      const client =
+        allClients.find((c) => c.url.includes(url)) || allClients[0] || null;
+      if (client) {
+        client.focus();
+        client.postMessage({ type: "navigate", url });
+      } else {
+        await self.clients.openWindow(url);
+      }
+    })(),
+  );
+});

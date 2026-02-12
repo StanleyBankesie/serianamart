@@ -14,6 +14,7 @@ import {
 
 import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
+import UnitConversionModal from "@/components/UnitConversionModal";
 
 function toISODate(v) {
   if (!v) return "";
@@ -52,6 +53,22 @@ export default function GRNImportForm() {
   const [portClearances, setPortClearances] = useState([]);
   const { uoms, loading: uomsLoading } = useUoms();
   const [standardPrices, setStandardPrices] = useState([]);
+  const [unitConversions, setUnitConversions] = useState([]);
+  const [shippingAdvices, setShippingAdvices] = useState([]);
+  const adviceById = useMemo(() => {
+    const m = new Map();
+    for (const sa of Array.isArray(shippingAdvices) ? shippingAdvices : []) {
+      m.set(String(sa.id), sa);
+    }
+    return m;
+  }, [shippingAdvices]);
+  const [convModal, setConvModal] = useState({
+    open: false,
+    itemId: null,
+    defaultUom: "",
+    currentUom: "",
+    lineIdx: null,
+  });
   const allowPoPopulateRef = useRef(isNew);
 
   const [formData, setFormData] = useState({
@@ -75,6 +92,16 @@ export default function GRNImportForm() {
     remarks: "",
     details: [],
   });
+
+  const portClearancesForSelectedPo = useMemo(() => {
+    const poId = String(formData.po_id || "");
+    const list = Array.isArray(portClearances) ? portClearances : [];
+    if (!poId) return list;
+    return list.filter((pc) => {
+      const sa = adviceById.get(String(pc.advice_id || pc.adviceId || ""));
+      return sa && String(sa.po_id || "") === poId;
+    });
+  }, [portClearances, formData.po_id, adviceById]);
 
   const defaultUomCode = useMemo(() => {
     const list = Array.isArray(uoms) ? uoms : [];
@@ -147,58 +174,111 @@ export default function GRNImportForm() {
       api.get("/inventory/warehouses"),
       api.get("/purchase/orders"),
       api.get("/purchase/port-clearances"),
+      api.get("/purchase/shipping-advices"),
       api.get("/sales/prices/standard"),
+      api.get("/inventory/unit-conversions"),
     ])
-      .then(([itemsRes, suppliersRes, whRes, poRes, pcRes, stdRes]) => {
-        if (!mounted) return;
-        setItems(
-          Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : [],
-        );
-        setSuppliers(
-          Array.isArray(suppliersRes.data?.items)
-            ? suppliersRes.data.items
-            : [],
-        );
-        setWarehouses(Array.isArray(whRes.data?.items) ? whRes.data.items : []);
-        const allPOs = Array.isArray(poRes.data?.items) ? poRes.data.items : [];
-        const importPOs = allPOs.filter(
-          (po) => String(po.po_type || "").toUpperCase() === "IMPORT",
-        );
-        const allPCs = Array.isArray(pcRes.data?.items) ? pcRes.data.items : [];
-        setPurchaseOrders(importPOs);
-        setPortClearances(allPCs);
-        setStandardPrices(
-          Array.isArray(stdRes.data?.items) ? stdRes.data.items : [],
-        );
-        if (isNew) {
-          api
-            .get("/inventory/grn", { params: { grn_type: "IMPORT" } })
-            .then((grnRes) => {
-              const grnItems = Array.isArray(grnRes.data?.items)
-                ? grnRes.data.items
-                : [];
-              const usedPoIds = new Set(
-                grnItems
-                  .map((g) => g.po_id || g.poId)
-                  .filter((v) => v != null)
-                  .map((v) => String(v)),
-              );
-              const usedPcIds = new Set(
-                grnItems
-                  .map((g) => g.port_clearance_id || g.port_clearanceId)
-                  .filter((v) => v != null)
-                  .map((v) => String(v)),
-              );
-              setPurchaseOrders((prev) =>
-                prev.filter((po) => !usedPoIds.has(String(po.id))),
-              );
-              setPortClearances((prev) =>
-                prev.filter((pc) => !usedPcIds.has(String(pc.id))),
-              );
-            })
-            .catch(() => {});
-        }
-      })
+      .then(
+        ([
+          itemsRes,
+          suppliersRes,
+          whRes,
+          poRes,
+          pcRes,
+          saRes,
+          stdRes,
+          convRes,
+        ]) => {
+          if (!mounted) return;
+          setItems(
+            Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : [],
+          );
+          setSuppliers(
+            Array.isArray(suppliersRes.data?.items)
+              ? suppliersRes.data.items
+              : [],
+          );
+          setWarehouses(
+            Array.isArray(whRes.data?.items) ? whRes.data.items : [],
+          );
+          const allPOs = Array.isArray(poRes.data?.items)
+            ? poRes.data.items
+            : [];
+          const importPOs = allPOs.filter(
+            (po) => String(po.po_type || "").toUpperCase() === "IMPORT",
+          );
+          const allPCs = Array.isArray(pcRes.data?.items)
+            ? pcRes.data.items
+            : [];
+          const allSAs = Array.isArray(saRes.data?.items)
+            ? saRes.data.items
+            : [];
+          setShippingAdvices(allSAs);
+          const clearedPCs = allPCs.filter(
+            (pc) => String(pc.status || "").toUpperCase() === "CLEARED",
+          );
+          const clearedPoIds = new Set(
+            clearedPCs
+              .map((pc) => {
+                const aid = pc.advice_id || pc.adviceId;
+                const sa =
+                  aid != null
+                    ? allSAs.find((s) => String(s.id) === String(aid))
+                    : null;
+                return sa && sa.po_id != null ? String(sa.po_id) : null;
+              })
+              .filter((v) => v != null),
+          );
+          const eligiblePOs = importPOs.filter((po) =>
+            clearedPoIds.has(String(po.id)),
+          );
+          setPurchaseOrders(eligiblePOs);
+          setPortClearances(clearedPCs);
+          setStandardPrices(
+            Array.isArray(stdRes.data?.items) ? stdRes.data.items : [],
+          );
+          setUnitConversions(
+            Array.isArray(convRes.data?.items) ? convRes.data.items : [],
+          );
+          if (isNew) {
+            api
+              .get("/inventory/grn", { params: { grn_type: "IMPORT" } })
+              .then((grnRes) => {
+                const grnItems = Array.isArray(grnRes.data?.items)
+                  ? grnRes.data.items
+                  : [];
+                const usedPoIds = new Set(
+                  grnItems
+                    .map((g) => g.po_id || g.poId)
+                    .filter((v) => v != null)
+                    .map((v) => String(v)),
+                );
+                const usedPcIds = new Set(
+                  grnItems
+                    .map((g) => g.port_clearance_id || g.port_clearanceId)
+                    .filter((v) => v != null)
+                    .map((v) => String(v)),
+                );
+                setPurchaseOrders((prev) =>
+                  prev
+                    .filter((po) => !usedPoIds.has(String(po.id)))
+                    .filter((po) => {
+                      return clearedPoIds.has(String(po.id));
+                    }),
+                );
+                setPortClearances((prev) =>
+                  prev
+                    .filter((pc) => !usedPcIds.has(String(pc.id)))
+                    .filter(
+                      (pc) =>
+                        String(pc.status || "").toUpperCase() === "CLEARED",
+                    ),
+                );
+              })
+              .catch(() => {});
+          }
+        },
+      )
       .catch((e) => {
         if (!mounted) return;
         setError(e?.response?.data?.message || "Failed to load lookups");
@@ -280,6 +360,37 @@ export default function GRNImportForm() {
       .catch(console.error);
   }, [formData.port_clearance_id]);
 
+  // --- Auto-populate Port Clearance when PO is selected (via SA linkage) ---
+  useEffect(() => {
+    const poId = String(formData.po_id || "");
+    if (!poId) return;
+    const list = Array.isArray(portClearances) ? portClearances : [];
+    const candidates = list.filter((pc) => {
+      const sa = adviceById.get(String(pc.advice_id || pc.adviceId || ""));
+      return (
+        String(pc.status || "").toUpperCase() === "CLEARED" &&
+        sa &&
+        String(sa.po_id || "") === poId
+      );
+    });
+    if (candidates.length > 0) {
+      const chosen = [...candidates].sort((a, b) => {
+        const ad = a.clearance_date ? new Date(a.clearance_date).getTime() : 0;
+        const bd = b.clearance_date ? new Date(b.clearance_date).getTime() : 0;
+        return bd - ad;
+      })[0];
+      setFormData((prev) => ({
+        ...prev,
+        port_clearance_id: String(chosen.id),
+      }));
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        port_clearance_id: "",
+      }));
+    }
+  }, [formData.po_id, portClearances, adviceById]);
+
   useEffect(() => {
     if (isNew) return;
 
@@ -320,6 +431,8 @@ export default function GRNImportForm() {
           details: details.map((d) => ({
             item_id: d.item_id ? String(d.item_id) : "",
             qty_ordered: d.qty_ordered ?? "",
+            input_qty: d.input_qty ?? d.qty_received ?? "",
+            input_uom: d.input_uom || d.uom || "",
             qty_received: d.qty_received ?? "",
             qty_accepted: d.qty_accepted ?? "",
             qty_rejected: d.qty_rejected ?? "",
@@ -382,6 +495,16 @@ export default function GRNImportForm() {
     for (const it of items) m.set(String(it.id), it);
     return m;
   }, [items]);
+  const conversionByKey = useMemo(() => {
+    const m = new Map();
+    for (const c of Array.isArray(unitConversions) ? unitConversions : []) {
+      if (!Number(c.is_active)) continue;
+      const key = `${c.item_id}|${c.from_uom}|${c.to_uom}`;
+      const factor = Number(c.conversion_factor || 0);
+      if (Number.isFinite(factor) && factor > 0) m.set(key, factor);
+    }
+    return m;
+  }, [unitConversions]);
   const standardPriceByProduct = useMemo(() => {
     const m = new Map();
     for (const p of Array.isArray(standardPrices) ? standardPrices : []) {
@@ -399,6 +522,10 @@ export default function GRNImportForm() {
         {
           item_id: items[0]?.id ? String(items[0].id) : "",
           qty_ordered: "",
+          input_qty: "",
+          input_uom:
+            (items[0]?.uom && String(items[0].uom)) ||
+            (defaultUomCode ? String(defaultUomCode) : ""),
           qty_received: "",
           uom:
             (items[0]?.uom && String(items[0].uom)) ||
@@ -422,6 +549,19 @@ export default function GRNImportForm() {
         i === idx ? { ...d, ...patch } : d,
       );
       let row = details[idx];
+      if (
+        Object.prototype.hasOwnProperty.call(patch, "qty_ordered") &&
+        (row.qty_received === "" || row.qty_received == null)
+      ) {
+        row = { ...row, qty_received: patch.qty_ordered };
+        details[idx] = row;
+      }
+      const directReceived =
+        Object.prototype.hasOwnProperty.call(patch, "qty_received_direct") &&
+        patch.qty_received_direct != null &&
+        Number.isFinite(Number(patch.qty_received_direct))
+          ? Number(patch.qty_received_direct)
+          : null;
       if (Object.prototype.hasOwnProperty.call(patch, "item_id")) {
         const it = itemById.get(String(patch.item_id));
         const nextUom =
@@ -429,22 +569,59 @@ export default function GRNImportForm() {
           (row.uom && String(row.uom)) ||
           (defaultUomCode ? String(defaultUomCode) : "");
         const nextUnitPrice = String(it?.cost_price ?? "");
-        row = { ...row, uom: nextUom, unit_price: nextUnitPrice };
+        row = {
+          ...row,
+          uom: nextUom,
+          input_uom: nextUom,
+          input_qty: "",
+          qty_received: "",
+          qty_accepted: "",
+          unit_price: nextUnitPrice,
+        };
         details[idx] = row;
       }
-      if (Object.prototype.hasOwnProperty.call(patch, "uom")) {
-        details[idx] = { ...row, uom: patch.uom };
-        row = details[idx];
+      const defaultUom =
+        (row.uom && String(row.uom)) ||
+        (defaultUomCode ? String(defaultUomCode) : "");
+      const inputUom =
+        row.input_uom && String(row.input_uom)
+          ? String(row.input_uom)
+          : defaultUom;
+      const hasInputQty = !(row.input_qty === "" || row.input_qty == null);
+      const inputQty = hasInputQty ? Number(row.input_qty) : null;
+      const fallbackQty =
+        !hasInputQty && Number.isFinite(Number(row.qty_received))
+          ? Number(row.qty_received)
+          : null;
+      let baseQty =
+        inputQty != null && Number.isFinite(inputQty) ? inputQty : fallbackQty;
+      if (directReceived != null) {
+        baseQty = directReceived;
       }
+      if (
+        directReceived == null &&
+        baseQty != null &&
+        inputUom &&
+        defaultUom &&
+        inputUom !== defaultUom
+      ) {
+        const key = `${row.item_id}|${inputUom}|${defaultUom}`;
+        const factor = conversionByKey.get(key);
+        if (Number.isFinite(factor) && factor > 0) {
+          baseQty = baseQty * factor;
+        }
+      }
+      const nextReceived =
+        baseQty != null && Number.isFinite(baseQty) ? baseQty : "";
       const unitPrice = row.unit_price === "" ? 0 : Number(row.unit_price || 0);
       const qtyAccepted =
         row.qty_accepted === "" || row.qty_accepted == null
           ? null
           : Number(row.qty_accepted || 0);
       const qtyReceived =
-        row.qty_received === "" || row.qty_received == null
+        nextReceived === "" || nextReceived == null
           ? null
-          : Number(row.qty_received || 0);
+          : Number(nextReceived || 0);
       const qtyOrdered =
         row.qty_ordered === "" || row.qty_ordered == null
           ? null
@@ -455,6 +632,13 @@ export default function GRNImportForm() {
         (qtyOrdered != null ? qtyOrdered : 0);
       details[idx] = {
         ...row,
+        uom: defaultUom,
+        input_uom: inputUom,
+        qty_received: nextReceived,
+        qty_accepted:
+          row.qty_accepted === "" || row.qty_accepted == null
+            ? nextReceived
+            : row.qty_accepted,
         amount: String(Number(effectiveQty || 0) * unitPrice),
       };
       return { ...prev, details };
@@ -481,13 +665,18 @@ export default function GRNImportForm() {
             : prev.supplier_id,
           details: details.map((d) => {
             const it = items.find((i) => String(i.id) === String(d.item_id));
+            const fallbackUom =
+              (it?.uom && String(it.uom)) ||
+              (defaultUomCode ? String(defaultUomCode) : "");
             return {
               item_id: d.item_id ? String(d.item_id) : "",
               qty_ordered: d.qty ?? "",
-              qty_received: "",
+              input_qty: "",
+              input_uom: fallbackUom,
+              qty_received: d.qty ?? "",
               qty_accepted: "",
               qty_rejected: "",
-              uom: it?.uom || "",
+              uom: fallbackUom,
               unit_price: String(it?.cost_price ?? ""),
               amount: "",
               batch_serial: "",
@@ -546,6 +735,8 @@ export default function GRNImportForm() {
           qty_ordered: d.qty_ordered === "" ? null : Number(d.qty_ordered),
           qty_received: d.qty_received === "" ? null : Number(d.qty_received),
           qty_accepted: d.qty_accepted === "" ? null : Number(d.qty_accepted),
+          input_qty: d.input_qty === "" ? null : Number(d.input_qty),
+          input_uom: d.input_uom || null,
           uom: d.uom || null,
           unit_price: d.unit_price === "" ? null : Number(d.unit_price),
           line_amount: d.amount === "" ? null : Number(d.amount),
@@ -855,7 +1046,7 @@ export default function GRNImportForm() {
                     }
                   >
                     <option value="">Select port clearance...</option>
-                    {portClearances.map((pc) => (
+                    {portClearancesForSelectedPo.map((pc) => (
                       <option key={pc.id} value={String(pc.id)}>
                         {pc.clearance_no}
                       </option>
@@ -1090,9 +1281,10 @@ export default function GRNImportForm() {
                         <tr>
                           <th>Item</th>
                           <th>Ordered Qty</th>
+                          <th>Input UOM</th>
                           <th>Received Qty</th>
+                          <th></th>
                           <th>Accepted Qty</th>
-                          <th>UOM</th>
                           <th>Unit Price</th>
                           <th>Amount</th>
                           <th>Batch/Serial</th>
@@ -1107,7 +1299,7 @@ export default function GRNImportForm() {
                         {!formData.details.length ? (
                           <tr>
                             <td
-                              colSpan="13"
+                              colSpan="14"
                               className="text-center py-6 text-slate-500 dark:text-slate-400"
                             >
                               No items. Click "Add Item" to begin.
@@ -1157,6 +1349,66 @@ export default function GRNImportForm() {
                                   }
                                 />
                               </td>
+
+                              <td className="pr-6 pl-2">
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    className="input w-auto min-w-[160px] flex-none"
+                                    value={d.input_uom || defaultUomCode || ""}
+                                    onChange={(e) =>
+                                      updateLine(idx, {
+                                        input_uom: e.target.value,
+                                      })
+                                    }
+                                  >
+                                    <option value="">Select UOM</option>
+                                    {uomsLoading ? (
+                                      <option>Loading...</option>
+                                    ) : (
+                                      Array.isArray(uoms) &&
+                                      uoms.map(
+                                        (u) =>
+                                          u && (
+                                            <option
+                                              key={u.id}
+                                              value={u.uom_code}
+                                            >
+                                              {u.uom_code}
+                                            </option>
+                                          ),
+                                      )
+                                    )}
+                                  </select>
+                                  {/* verify button moved to Input Qty cell */}
+                                </div>
+                                <div className="text-[11px] text-slate-500 mt-1">
+                                  {(() => {
+                                    const from = String(d.input_uom || "");
+                                    const to = String(
+                                      d.uom || defaultUomCode || "",
+                                    );
+                                    const key = `${d.item_id}|${from}|${to}`;
+                                    const factor = conversionByKey.get(key);
+                                    if (Number(factor) > 0) {
+                                      return `Conversion: 1 ${from} = ${Number(factor).toFixed(6)} ${to}`;
+                                    }
+                                    if (from && to && from === to) {
+                                      return "";
+                                    }
+                                    return (
+                                      <>
+                                        No conversion defined for {from} → {to}.{" "}
+                                        <Link
+                                          to="/inventory/unit-conversions"
+                                          className="text-brand font-medium underline"
+                                        >
+                                          Define conversion
+                                        </Link>
+                                      </>
+                                    );
+                                  })()}
+                                </div>
+                              </td>
                               <td>
                                 <input
                                   type="number"
@@ -1165,10 +1417,56 @@ export default function GRNImportForm() {
                                   value={d.qty_received}
                                   onChange={(e) =>
                                     updateLine(idx, {
-                                      qty_received: e.target.value,
+                                      qty_received_direct: e.target.value,
                                     })
                                   }
                                 />
+                              </td>
+                              <td>
+                                {(() => {
+                                  const defaultUom = String(
+                                    d.uom || defaultUomCode || "",
+                                  );
+                                  const nonDefaults = (
+                                    Array.isArray(unitConversions)
+                                      ? unitConversions
+                                      : []
+                                  )
+                                    .filter(
+                                      (c) =>
+                                        Number(c.is_active) &&
+                                        Number(c.item_id) ===
+                                          Number(d.item_id) &&
+                                        String(c.to_uom) === defaultUom,
+                                    )
+                                    .map((c) => String(c.from_uom));
+                                  const currentUom = String(d.input_uom || "");
+                                  const preferredUom =
+                                    currentUom && currentUom !== defaultUom
+                                      ? currentUom
+                                      : nonDefaults[0] || "";
+                                  const hasConv =
+                                    nonDefaults.length > 0 &&
+                                    preferredUom &&
+                                    preferredUom !== defaultUom;
+                                  return hasConv ? (
+                                    <button
+                                      type="button"
+                                      className="px-2 py-1 text-xs border border-brand text-brand rounded hover:bg-brand hover:text-white transition-colors flex-none"
+                                      onClick={() =>
+                                        setConvModal({
+                                          open: true,
+                                          itemId: d.item_id,
+                                          defaultUom: defaultUom,
+                                          currentUom: preferredUom,
+                                          lineIdx: idx,
+                                        })
+                                      }
+                                    >
+                                      {`number of ${preferredUom}`}
+                                    </button>
+                                  ) : null;
+                                })()}
                               </td>
                               <td>
                                 <input
@@ -1182,30 +1480,6 @@ export default function GRNImportForm() {
                                     })
                                   }
                                 />
-                              </td>
-                              <td>
-                                <select
-                                  className="input min-w-[160px]"
-                                  value={d.uom || ""}
-                                  onChange={(e) =>
-                                    updateLine(idx, { uom: e.target.value })
-                                  }
-                                >
-                                  <option value="">Select UOM</option>
-                                  {uomsLoading ? (
-                                    <option>Loading...</option>
-                                  ) : (
-                                    Array.isArray(uoms) &&
-                                    uoms.map(
-                                      (u) =>
-                                        u && (
-                                          <option key={u.id} value={u.uom_code}>
-                                            {u.uom_code}
-                                          </option>
-                                        ),
-                                    )
-                                  )}
-                                </select>
                               </td>
                               <td>
                                 <input
@@ -1468,6 +1742,28 @@ export default function GRNImportForm() {
           </div>
         </div>
       ) : null}
+      <UnitConversionModal
+        open={convModal.open}
+        onClose={() =>
+          setConvModal({
+            open: false,
+            itemId: null,
+            defaultUom: "",
+            currentUom: "",
+            lineIdx: null,
+          })
+        }
+        itemId={convModal.itemId ? Number(convModal.itemId) : null}
+        defaultUom={String(convModal.defaultUom || "")}
+        currentUom={String(convModal.currentUom || "")}
+        conversions={unitConversions}
+        onApply={({ converted_qty }) => {
+          const idx = convModal.lineIdx;
+          if (idx != null) {
+            updateLine(idx, { qty_received_direct: converted_qty });
+          }
+        }}
+      />
     </div>
   );
 }

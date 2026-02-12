@@ -4,9 +4,10 @@ import { api } from "api/client";
 
 export default function UserPermissionAssignment() {
   const location = useLocation();
+  const [allPages, setAllPages] = useState([]);
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(
-    location.state?.selectedUser || ""
+    location.state?.selectedUser || "",
   );
   const [role, setRole] = useState(null);
   const [pages, setPages] = useState([]);
@@ -17,6 +18,7 @@ export default function UserPermissionAssignment() {
 
   useEffect(() => {
     fetchUsers();
+    fetchAllPages();
   }, []);
 
   useEffect(() => {
@@ -48,6 +50,19 @@ export default function UserPermissionAssignment() {
           details: { path: "/admin/users" },
         });
       } catch {}
+    }
+  }
+
+  async function fetchAllPages() {
+    try {
+      const res = await api.get("/admin/pages");
+      const items =
+        (res.data && res.data.data && res.data.data.items) ||
+        res.data?.items ||
+        [];
+      setAllPages(items);
+    } catch (err) {
+      // silent
     }
   }
 
@@ -156,6 +171,44 @@ export default function UserPermissionAssignment() {
     acc[page.module].push(page);
     return acc;
   }, {});
+  const allPagesByModule = allPages.reduce((acc, page) => {
+    if (!acc[page.module]) acc[page.module] = [];
+    acc[page.module].push(page);
+    return acc;
+  }, {});
+  const rolePageIds = new Set(pages.map((p) => p.id));
+  const additionalPages = allPages.filter((p) => !rolePageIds.has(p.id));
+  const moduleDefaults = Object.fromEntries(
+    Object.entries(allPagesByModule).map(([moduleName, modulePages]) => {
+      const list = modulePages.filter((p) => p.path);
+      const candidates = list.filter(
+        (p) =>
+          !/\/(new|create)\b/.test(String(p.path || "")) &&
+          !/:id\b/.test(String(p.path || "")),
+      );
+      const pick = candidates[0] || list[0] || null;
+      return [moduleName, pick];
+    }),
+  );
+  const dashboardsByModule = Object.fromEntries(
+    Object.entries(allPagesByModule).map(([moduleName, modulePages]) => {
+      const dashboards = modulePages.filter((p) => {
+        const path = String(p.path || "");
+        if (!path) return false;
+        if (/\/(new|create)\b/.test(path)) return false;
+        if (/:id\b/.test(path)) return false;
+        return true;
+      });
+      return [moduleName, dashboards];
+    }),
+  );
+  const featuredPaths = [
+    "/sales/sales-orders",
+    "/sales/invoices",
+    "/service-management/service-confirmation",
+    "/service-management/service-bills",
+  ];
+  const featuredPages = pages.filter((p) => featuredPaths.includes(p.path));
 
   const toggleRow = (pageId, value) => {
     setPermissions((prev) => ({
@@ -262,8 +315,8 @@ export default function UserPermissionAssignment() {
         <div className="card bg-base-200">
           <div className="card-body text-center text-slate-500">
             {role
-              ? "This role has no pages assigned."
-              : "Assign a role to this user first to configure permissions."}
+              ? "This role has no pages assigned. You can grant access from Additional Pages below."
+              : "Assign a role to this user first to configure permissions, or grant access from Additional Pages below."}
           </div>
         </div>
       )}
@@ -275,6 +328,248 @@ export default function UserPermissionAssignment() {
           </div>
           <div className="card-body">
             <div className="space-y-8">
+              {Object.keys(moduleDefaults).length > 0 && (
+                <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+                  <div className="bg-slate-50 dark:bg-slate-800 px-4 py-2 border-b border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-slate-100">
+                    Dashboard Access
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="table w-full">
+                      <thead>
+                        <tr className="bg-slate-50/50 dark:bg-slate-800/50 text-left">
+                          <th className="p-3 w-1/3">Module</th>
+                          <th className="p-3 text-center w-24">Can View</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(moduleDefaults)
+                          .sort(([a], [b]) => a.localeCompare(b))
+                          .map(([moduleName, page]) => {
+                            if (!page) return null;
+                            const p = permissions[page.id] || {
+                              canView: false,
+                              canCreate: false,
+                              canEdit: false,
+                              canDelete: false,
+                            };
+                            return (
+                              <tr
+                                key={`module-${moduleName}`}
+                                className="border-t border-slate-100 dark:border-slate-800"
+                              >
+                                <td className="p-3">
+                                  <div className="font-medium">
+                                    {moduleName}
+                                  </div>
+                                  <div className="text-xs text-slate-500">
+                                    {page.name} • {page.path}
+                                  </div>
+                                </td>
+                                <td className="p-3 text-center">
+                                  <input
+                                    type="checkbox"
+                                    className="checkbox checkbox-sm"
+                                    checked={p.canView}
+                                    onChange={() =>
+                                      handleToggle(page.id, "canView")
+                                    }
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {Object.keys(dashboardsByModule).length > 0 && (
+                <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+                  <div className="bg-slate-50 dark:bg-slate-800 px-4 py-2 border-b border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-slate-100">
+                    Module Dashboards (Home Cards)
+                  </div>
+                  <div className="space-y-6 p-4">
+                    {Object.entries(dashboardsByModule)
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([moduleName, modulePages]) => {
+                        const allViewed = modulePages.every(
+                          (pg) => (permissions[pg.id] || {}).canView,
+                        );
+                        return (
+                          <div
+                            key={`dash-${moduleName}`}
+                            className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden"
+                          >
+                            <div className="bg-slate-50 dark:bg-slate-800 px-4 py-2 border-b border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-slate-100 flex items-center justify-between">
+                              <div>{moduleName}</div>
+                              <label className="flex items-center gap-2 text-xs">
+                                <span>View all</span>
+                                <input
+                                  type="checkbox"
+                                  className="checkbox checkbox-sm"
+                                  checked={allViewed}
+                                  onChange={(e) => {
+                                    const val = e.target.checked;
+                                    setPermissions((prev) => {
+                                      const next = { ...prev };
+                                      for (const pg of modulePages) {
+                                        const curr = next[pg.id] || {
+                                          canView: false,
+                                          canCreate: false,
+                                          canEdit: false,
+                                          canDelete: false,
+                                        };
+                                        next[pg.id] = { ...curr, canView: val };
+                                      }
+                                      return next;
+                                    });
+                                  }}
+                                />
+                              </label>
+                            </div>
+                            <div className="p-4">
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {modulePages.map((page) => {
+                                  const p = permissions[page.id] || {
+                                    canView: false,
+                                    canCreate: false,
+                                    canEdit: false,
+                                    canDelete: false,
+                                  };
+                                  return (
+                                    <div
+                                      key={`dash-page-${page.id}`}
+                                      className="p-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex items-center justify-between"
+                                    >
+                                      <div>
+                                        <div className="font-medium">
+                                          {page.name}
+                                        </div>
+                                        <div className="text-xs text-slate-500">
+                                          {page.path}
+                                        </div>
+                                      </div>
+                                      <label className="flex items-center gap-2">
+                                        <span className="text-xs">View</span>
+                                        <input
+                                          type="checkbox"
+                                          className="checkbox checkbox-sm"
+                                          checked={p.canView}
+                                          onChange={() =>
+                                            handleToggle(page.id, "canView")
+                                          }
+                                        />
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+              {featuredPages.length > 0 && (
+                <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+                  <div className="bg-slate-50 dark:bg-slate-800 px-4 py-2 border-b border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-slate-100">
+                    Homepage Featured
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="table w-full">
+                      <thead>
+                        <tr className="bg-slate-50/50 dark:bg-slate-800/50 text-left">
+                          <th className="p-3 w-1/3">Page</th>
+                          <th className="p-3 text-center w-24">View</th>
+                          <th className="p-3 text-center w-24">Create</th>
+                          <th className="p-3 text-center w-24">Edit</th>
+                          <th className="p-3 text-center w-24">Delete</th>
+                          <th className="p-3 text-center w-24">All</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {featuredPages.map((page) => {
+                          const p = permissions[page.id] || {
+                            canView: false,
+                            canCreate: false,
+                            canEdit: false,
+                            canDelete: false,
+                          };
+                          const allSelected =
+                            p.canView &&
+                            p.canCreate &&
+                            p.canEdit &&
+                            p.canDelete;
+                          return (
+                            <tr
+                              key={page.id}
+                              className="border-t border-slate-100 dark:border-slate-800"
+                            >
+                              <td className="p-3">
+                                <div className="font-medium">{page.name}</div>
+                                <div className="text-xs text-slate-500">
+                                  {page.code}
+                                </div>
+                              </td>
+                              <td className="p-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  className="checkbox checkbox-sm"
+                                  checked={p.canView}
+                                  onChange={() =>
+                                    handleToggle(page.id, "canView")
+                                  }
+                                />
+                              </td>
+                              <td className="p-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  className="checkbox checkbox-sm"
+                                  checked={p.canCreate}
+                                  onChange={() =>
+                                    handleToggle(page.id, "canCreate")
+                                  }
+                                />
+                              </td>
+                              <td className="p-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  className="checkbox checkbox-sm"
+                                  checked={p.canEdit}
+                                  onChange={() =>
+                                    handleToggle(page.id, "canEdit")
+                                  }
+                                />
+                              </td>
+                              <td className="p-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  className="checkbox checkbox-sm"
+                                  checked={p.canDelete}
+                                  onChange={() =>
+                                    handleToggle(page.id, "canDelete")
+                                  }
+                                />
+                              </td>
+                              <td className="p-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  className="checkbox checkbox-sm"
+                                  checked={allSelected}
+                                  onChange={(e) =>
+                                    toggleRow(page.id, e.target.checked)
+                                  }
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
               {Object.entries(pagesByModule).map(
                 ([moduleName, modulePages]) => (
                   <div
@@ -378,7 +673,113 @@ export default function UserPermissionAssignment() {
                       </table>
                     </div>
                   </div>
-                )
+                ),
+              )}
+              {additionalPages.length > 0 && (
+                <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+                  <div className="bg-slate-50 dark:bg-slate-800 px-4 py-2 border-b border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-slate-100">
+                    Additional Pages (Grant access beyond role)
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="table w-full">
+                      <thead>
+                        <tr className="bg-slate-50/50 dark:bg-slate-800/50 text-left">
+                          <th className="p-3 w-1/3">Page</th>
+                          <th className="p-3 text-center w-24">View</th>
+                          <th className="p-3 text-center w-24">Create</th>
+                          <th className="p-3 text-center w-24">Edit</th>
+                          <th className="p-3 text-center w-24">Delete</th>
+                          <th className="p-3 text-center w-24">All</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(allPagesByModule).map(
+                          ([moduleName, modulePages]) =>
+                            modulePages
+                              .filter((p) => !rolePageIds.has(p.id))
+                              .map((page) => {
+                                const p = permissions[page.id] || {
+                                  canView: false,
+                                  canCreate: false,
+                                  canEdit: false,
+                                  canDelete: false,
+                                };
+                                const allSelected =
+                                  p.canView &&
+                                  p.canCreate &&
+                                  p.canEdit &&
+                                  p.canDelete;
+                                return (
+                                  <tr
+                                    key={`extra-${page.id}`}
+                                    className="border-t border-slate-100 dark:border-slate-800"
+                                  >
+                                    <td className="p-3">
+                                      <div className="font-medium">
+                                        {page.name}
+                                      </div>
+                                      <div className="text-xs text-slate-500">
+                                        {moduleName} • {page.code}
+                                      </div>
+                                    </td>
+                                    <td className="p-3 text-center">
+                                      <input
+                                        type="checkbox"
+                                        className="checkbox checkbox-sm"
+                                        checked={p.canView}
+                                        onChange={() =>
+                                          handleToggle(page.id, "canView")
+                                        }
+                                      />
+                                    </td>
+                                    <td className="p-3 text-center">
+                                      <input
+                                        type="checkbox"
+                                        className="checkbox checkbox-sm"
+                                        checked={p.canCreate}
+                                        onChange={() =>
+                                          handleToggle(page.id, "canCreate")
+                                        }
+                                      />
+                                    </td>
+                                    <td className="p-3 text-center">
+                                      <input
+                                        type="checkbox"
+                                        className="checkbox checkbox-sm"
+                                        checked={p.canEdit}
+                                        onChange={() =>
+                                          handleToggle(page.id, "canEdit")
+                                        }
+                                      />
+                                    </td>
+                                    <td className="p-3 text-center">
+                                      <input
+                                        type="checkbox"
+                                        className="checkbox checkbox-sm"
+                                        checked={p.canDelete}
+                                        onChange={() =>
+                                          handleToggle(page.id, "canDelete")
+                                        }
+                                      />
+                                    </td>
+                                    <td className="p-3 text-center">
+                                      <input
+                                        type="checkbox"
+                                        className="checkbox checkbox-sm"
+                                        checked={allSelected}
+                                        onChange={(e) =>
+                                          toggleRow(page.id, e.target.checked)
+                                        }
+                                      />
+                                    </td>
+                                  </tr>
+                                );
+                              }),
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               )}
             </div>
           </div>

@@ -226,6 +226,9 @@ export default function UnitConversionForm() {
               </p>
             </div>
             <div className="flex gap-2">
+              <Link to="/inventory" className="btn btn-secondary">
+                Back to Menu
+              </Link>
               <button className="btn-success" onClick={refreshData}>
                 Refresh
               </button>

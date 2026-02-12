@@ -20,9 +20,11 @@ import BranchList from "./branches/BranchList.jsx";
 import BranchForm from "./branches/BranchForm.jsx";
 import ReportsPage from "./reports/ReportsPage.jsx";
 import SystemLogBookPage from "./reports/SystemLogBookPage.jsx";
+import UserLoginActivityReportPage from "./reports/UserLoginActivityReportPage.jsx";
 import UserPermissionList from "./permissions/UserPermissionList.jsx";
 import UserPermissionAssignment from "./permissions/UserPermissionAssignment.jsx";
 import SettingsPage from "./SettingsPage.jsx";
+import DocumentTemplatesPage from "./templates/DocumentTemplatesPage.jsx";
 
 function AdministrationLanding() {
   const [stats, setStats] = React.useState([
@@ -52,14 +54,26 @@ function AdministrationLanding() {
     },
   ]);
 
+  const quickActions = [
+    {
+      label: "Settings",
+      path: "/administration/settings",
+      icon: "⚙️",
+    },
+  ];
+
   React.useEffect(() => {
     let mounted = true;
     async function load() {
       try {
         const resp = await api.get("/bi/dashboards");
         const users = Number(resp?.data?.summary?.administration?.users || 0);
-        const sessions = Number(resp?.data?.summary?.administration?.active_sessions || 0);
-        const pending = Number(resp?.data?.summary?.administration?.pending_workflows || 0);
+        const sessions = Number(
+          resp?.data?.summary?.administration?.active_sessions || 0,
+        );
+        const pending = Number(
+          resp?.data?.summary?.administration?.pending_workflows || 0,
+        );
         if (mounted) {
           setStats((prev) => {
             const next = [...prev];
@@ -115,11 +129,10 @@ function AdministrationLanding() {
           ],
         },
         {
-          title: "Document Templates",
-          description:
-            "Design receipt, invoice, payslip, delivery note, and sales order templates",
+          title: "Settings",
+          description: "Push notifications and document templates",
           path: "/administration/settings",
-          icon: "🧾",
+          icon: "⚙️",
           actions: [
             {
               label: "Open",
@@ -241,6 +254,11 @@ function AdministrationLanding() {
               path: "/administration/reports/system-log-book",
               type: "outline",
             },
+            {
+              label: "User Login Activity",
+              path: "/administration/reports/user-login-activity",
+              type: "outline",
+            },
           ],
         },
       ],
@@ -252,6 +270,7 @@ function AdministrationLanding() {
       title="Administration"
       description="System configuration and user management"
       stats={stats}
+      quickActions={quickActions}
       sections={sections}
     />
   );
@@ -296,9 +315,14 @@ export default function AdministrationHome() {
       <Route path="/branches/:id" element={<BranchForm />} />
       <Route path="/reports" element={<ReportsPage />} />
       <Route path="/reports/system-log-book" element={<SystemLogBookPage />} />
+      <Route
+        path="/reports/user-login-activity"
+        element={<UserLoginActivityReportPage />}
+      />
       <Route path="/permissions" element={<UserPermissionList />} />
       <Route path="/user-permissions" element={<UserPermissionAssignment />} />
       <Route path="/settings" element={<SettingsPage />} />
+      <Route path="/settings/templates" element={<DocumentTemplatesPage />} />
     </Routes>
   );
 }

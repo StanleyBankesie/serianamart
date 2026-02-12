@@ -21,6 +21,7 @@ export default function DeliveryForm() {
     delivery_date: new Date().toISOString().split("T")[0],
     customer_id: "",
     sales_order_id: "",
+    invoice_id: "",
     status: "DRAFT",
     remarks: "",
     items: [],
@@ -64,8 +65,33 @@ export default function DeliveryForm() {
 
   async function loadInvoices() {
     try {
-      const res = await api.get("/sales/invoices");
-      setInvoices(res.data.items || []);
+      const [invRes, delRes] = await Promise.all([
+        api.get("/sales/invoices"),
+        api.get("/sales/deliveries"),
+      ]);
+      const invs = Array.isArray(invRes.data?.items) ? invRes.data.items : [];
+      const dels = Array.isArray(delRes.data?.items) ? delRes.data.items : [];
+      const usedInvoiceIds = new Set(
+        dels
+          .map((d) => d?.invoice_id)
+          .filter((v) => v !== undefined && v !== null)
+          .map((v) => String(v)),
+      );
+      const usedOrderIds = new Set(
+        dels
+          .map((d) => d?.sales_order_id)
+          .filter((v) => v !== undefined && v !== null)
+          .map((v) => String(v)),
+      );
+      let filtered = invs;
+      if (usedInvoiceIds.size > 0) {
+        filtered = filtered.filter((i) => !usedInvoiceIds.has(String(i.id)));
+      } else {
+        filtered = filtered.filter(
+          (i) => !usedOrderIds.has(String(i.sales_order_id)),
+        );
+      }
+      setInvoices(filtered);
     } catch (err) {
       console.error("Failed to load invoices", err);
     }
@@ -123,6 +149,7 @@ export default function DeliveryForm() {
             : prev.delivery_date) || prev.delivery_date,
         customer_id: header.customer_id || "",
         sales_order_id: header.sales_order_id || "",
+        invoice_id: header.invoice_id || "",
         status: header.status || prev.status,
         remarks: header.remarks || "",
         items: details.map((d) => ({
@@ -174,6 +201,7 @@ export default function DeliveryForm() {
           ...prev,
           customer_id: match.customer_id,
           sales_order_id: match.sales_order_id || "",
+          invoice_id: match.id || "",
           items: itemsToLoad.map((d) => ({
             item_id: d.item_id,
             item_name:
@@ -218,6 +246,7 @@ export default function DeliveryForm() {
         ...formData,
         company_id: scope?.companyId,
         branch_id: scope?.branchId,
+        invoice_id: formData.invoice_id || undefined,
         items: formData.items.map((item) => {
           const tax = taxes.find((t) => t.value == item.tax_type);
           return {

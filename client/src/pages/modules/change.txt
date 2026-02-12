@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>POS Finance Posting</title>
+    <title>Service Execution Management | Professional Services</title>
     <style>
         * {
             margin: 0;
@@ -11,485 +11,1712 @@
             box-sizing: border-box;
         }
 
+        :root {
+            --primary-color: #0E3646;
+            --primary-light: #1a5570;
+            --primary-dark: #08252f;
+            --accent-color: #e67e22;
+            --success-color: #27ae60;
+            --error-color: #e74c3c;
+            --warning-color: #f39c12;
+            --info-color: #3498db;
+            --text-dark: #2c3e50;
+            --text-light: #7f8c8d;
+            --bg-light: #f8f9fa;
+            --border-color: #dee2e6;
+            --white: #ffffff;
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f5f5f5;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
             padding: 20px;
+            line-height: 1.6;
+            color: var(--text-dark);
         }
 
         .container {
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            background: var(--white);
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(14, 54, 70, 0.15);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%);
+            color: var(--white);
+            padding: 40px 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.95;
+        }
+
+        .main-content {
             padding: 30px;
         }
 
-        .header-section {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 15px;
-            margin-bottom: 25px;
+        .progress-tracker {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 40px;
+            position: relative;
+            padding: 0 50px;
         }
 
-        .form-group {
+        .progress-line {
+            position: absolute;
+            top: 30px;
+            left: 50px;
+            right: 50px;
+            height: 3px;
+            background: var(--border-color);
+            z-index: 1;
+        }
+
+        .progress-fill {
+            position: absolute;
+            top: 30px;
+            left: 50px;
+            height: 3px;
+            background: var(--primary-color);
+            z-index: 2;
+            transition: width 0.5s ease;
+            width: 0%;
+        }
+
+        .progress-step {
+            flex: 1;
+            text-align: center;
+            position: relative;
+            z-index: 3;
+        }
+
+        .step-circle {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: var(--white);
+            border: 3px solid var(--border-color);
+            margin: 0 auto 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5em;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .progress-step.completed .step-circle {
+            background: var(--success-color);
+            border-color: var(--success-color);
+            color: var(--white);
+        }
+
+        .progress-step.active .step-circle {
+            background: var(--primary-color);
+            border-color: var(--primary-color);
+            color: var(--white);
+            transform: scale(1.1);
+        }
+
+        .step-label {
+            font-weight: 600;
+            color: var(--text-light);
+            font-size: 0.9em;
+        }
+
+        .progress-step.completed .step-label,
+        .progress-step.active .step-label {
+            color: var(--primary-color);
+            font-weight: 700;
+        }
+
+        .execution-grid {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 30px;
+        }
+
+        .form-section {
+            background: var(--white);
+        }
+
+        .section-card {
+            background: var(--bg-light);
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 25px;
+            border-left: 4px solid var(--primary-color);
+        }
+
+        .section-card h3 {
+            color: var(--primary-color);
+            font-size: 1.4em;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-card p {
+            color: var(--text-light);
+            margin-bottom: 20px;
+        }
+
+        .order-reference {
+            background: var(--white);
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid var(--primary-color);
+            margin-bottom: 20px;
+        }
+
+        .order-search {
+            position: relative;
+        }
+
+        .order-suggestions {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: var(--white);
+            border: 2px solid var(--primary-color);
+            border-top: none;
+            border-radius: 0 0 6px 6px;
+            max-height: 300px;
+            overflow-y: auto;
+            z-index: 10;
+            display: none;
+            box-shadow: 0 4px 12px rgba(14, 54, 70, 0.15);
+        }
+
+        .order-suggestions.show {
+            display: block;
+        }
+
+        .order-suggestion-item {
+            padding: 15px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border-color);
+            transition: background 0.2s ease;
+        }
+
+        .order-suggestion-item:hover {
+            background: var(--bg-light);
+        }
+
+        .order-suggestion-item:last-child {
+            border-bottom: none;
+        }
+
+        .suggestion-header {
+            font-weight: 600;
+            color: var(--primary-color);
+            margin-bottom: 5px;
+        }
+
+        .suggestion-details {
+            font-size: 0.9em;
+            color: var(--text-light);
+        }
+
+        .order-details {
+            display: none;
+            background: #e8f4fd;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .order-details.show {
+            display: block;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+
+        .detail-item {
             display: flex;
             flex-direction: column;
         }
 
-        .form-group label {
-            font-size: 12px;
-            color: #666;
-            margin-bottom: 5px;
-            font-weight: 500;
-        }
-
-        .form-group input,
-        .form-group select {
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-            background: white;
-        }
-
-        .form-group input[type="date"] {
-            cursor: pointer;
-        }
-
-        .btn-primary {
-            background: #0E3646;
-            color: white;
-            border: none;
-            padding: 12px 30px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
+        .detail-label {
             font-weight: 600;
-            transition: background 0.3s;
+            color: var(--text-dark);
+            font-size: 0.85em;
+            margin-bottom: 5px;
+        }
+
+        .detail-value {
+            color: var(--text-light);
+            font-size: 0.95em;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
             margin-bottom: 20px;
         }
 
-        .btn-primary:hover {
-            background: #0a2833;
+        .form-group {
+            margin-bottom: 20px;
         }
 
-        .content-wrapper {
-            display: grid;
-            grid-template-columns: 1fr 350px;
-            gap: 20px;
+        .form-group.full-width {
+            grid-column: 1 / -1;
         }
 
-        .table-section {
-            overflow-x: auto;
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: var(--primary-color);
+            font-size: 0.95em;
         }
 
-        .controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
-            align-items: center;
+        label .required {
+            color: var(--error-color);
+            margin-left: 3px;
         }
 
-        .search-box {
-            position: relative;
-            flex: 1;
+        label .optional {
+            color: var(--text-light);
+            font-weight: 400;
+            font-style: italic;
+            font-size: 0.9em;
         }
 
-        .search-box input {
+        input[type="text"],
+        input[type="number"],
+        input[type="date"],
+        input[type="time"],
+        select,
+        textarea {
             width: 100%;
-            padding: 8px 35px 8px 12px;
-            border: 1px solid #ddd;
+            padding: 12px 15px;
+            border: 2px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            background: var(--white);
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(14, 54, 70, 0.1);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .material-requisition {
+            background: var(--white);
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        .material-item-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr 100px 120px 40px;
+            gap: 15px;
+            align-items: end;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: var(--bg-light);
+            border-radius: 6px;
+            border: 2px solid var(--border-color);
+            transition: all 0.3s ease;
+        }
+
+        .material-item-row:hover {
+            border-color: var(--primary-color);
+            box-shadow: 0 2px 8px rgba(14, 54, 70, 0.1);
+        }
+
+        .material-item-row label {
+            margin-bottom: 5px;
+            font-size: 0.85em;
+        }
+
+        .material-item-row input,
+        .material-item-row select {
+            margin-bottom: 0;
+        }
+
+        .availability-status {
+            padding: 5px 10px;
             border-radius: 4px;
-            font-size: 14px;
+            font-size: 0.85em;
+            font-weight: 600;
+            text-align: center;
         }
 
-        .search-icon {
-            position: absolute;
-            right: 10px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #999;
+        .status-available {
+            background: #d4edda;
+            color: #155724;
         }
 
-        .select-wrapper {
-            display: flex;
+        .status-low {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-unavailable {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .add-material-btn {
+            background: var(--success-color);
+            color: var(--white);
+            border: none;
+            padding: 12px 25px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+            display: inline-flex;
             align-items: center;
             gap: 8px;
         }
 
-        .select-wrapper label {
-            font-size: 13px;
-            color: #666;
+        .add-material-btn:hover {
+            background: #229954;
+            transform: translateY(-2px);
         }
 
-        .select-wrapper select {
-            padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-        }
-
-        .btn-go {
-            background: #0E3646;
-            color: white;
+        .remove-item-btn {
+            background: var(--error-color);
+            color: var(--white);
             border: none;
-            padding: 8px 20px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-
-        .btn-actions {
-            background: white;
-            color: #333;
-            border: 1px solid #ddd;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
-        }
-
-        thead {
-            background: #0E3646;
-            color: white;
-        }
-
-        th {
             padding: 12px;
-            text-align: left;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1.2em;
+            transition: all 0.3s ease;
+            height: 46px;
+        }
+
+        .remove-item-btn:hover {
+            background: #c0392b;
+            transform: scale(1.05);
+        }
+
+        .technician-assignment {
+            background: var(--white);
+            padding: 20px;
+            border-radius: 8px;
+        }
+
+        .technician-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: var(--bg-light);
+            border-radius: 6px;
+            margin-bottom: 10px;
+            border: 2px solid var(--border-color);
+        }
+
+        .technician-info {
+            flex: 1;
+        }
+
+        .technician-name {
             font-weight: 600;
-            font-size: 13px;
+            color: var(--primary-color);
+            margin-bottom: 3px;
         }
 
-        th:first-child {
-            text-align: center;
+        .technician-role {
+            font-size: 0.9em;
+            color: var(--text-light);
         }
 
-        td {
+        .checkbox-group {
+            display: flex;
+            align-items: center;
             padding: 12px;
-            border-bottom: 1px solid #eee;
+            border: 2px solid var(--border-color);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 10px;
         }
 
-        td:first-child {
-            text-align: center;
+        .checkbox-group:hover {
+            border-color: var(--primary-color);
+            background: var(--bg-light);
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            cursor: pointer;
+            accent-color: var(--primary-color);
+        }
+
+        .checkbox-group label {
+            margin: 0;
+            cursor: pointer;
             font-weight: 500;
         }
 
-        tbody tr:hover {
-            background: #f8f9fa;
-        }
-
-        .text-right {
-            text-align: right !important;
-        }
-
-        .total-row {
-            background: #f8f9fa;
-            font-weight: 600;
-        }
-
-        .denomination-panel {
-            background: #4A9DC6;
-            color: white;
-            padding: 20px;
-            border-radius: 8px;
-            height: fit-content;
-        }
-
-        .denomination-panel h3 {
-            font-size: 18px;
-            margin-bottom: 20px;
+        .file-upload-area {
+            border: 2px dashed var(--border-color);
+            border-radius: 6px;
+            padding: 30px;
             text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: var(--bg-light);
         }
 
-        .denom-grid {
-            display: grid;
-            gap: 12px;
+        .file-upload-area:hover {
+            border-color: var(--primary-color);
+            background: rgba(14, 54, 70, 0.05);
         }
 
-        .denom-row {
-            display: grid;
-            grid-template-columns: 1fr 80px 100px;
-            gap: 10px;
-            align-items: center;
+        .file-upload-area.drag-over {
+            border-color: var(--accent-color);
+            background: rgba(230, 126, 34, 0.1);
         }
 
-        .denom-label {
-            font-size: 14px;
+        .file-upload-area input[type="file"] {
+            display: none;
         }
 
-        .denom-input {
-            padding: 8px;
-            border: none;
-            border-radius: 4px;
-            text-align: center;
-            font-size: 14px;
+        .file-icon {
+            font-size: 3em;
+            margin-bottom: 10px;
         }
 
-        .denom-total {
-            padding: 8px;
-            background: rgba(255,255,255,0.2);
-            border-radius: 4px;
-            text-align: right;
-            font-size: 14px;
+        .uploaded-files {
+            margin-top: 15px;
         }
 
-        .grand-total {
-            margin-top: 20px;
-            padding: 15px;
-            background: rgba(255,255,255,0.15);
-            border-radius: 4px;
+        .file-item {
             display: flex;
+            align-items: center;
             justify-content: space-between;
-            font-size: 16px;
-            font-weight: 600;
+            padding: 12px;
+            background: var(--white);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            margin-bottom: 8px;
         }
 
-        .post-button {
-            margin-top: 20px;
-            width: 100%;
-            background: #0E3646;
-            color: white;
+        .file-item-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .remove-file {
+            background: var(--error-color);
+            color: var(--white);
             border: none;
-            padding: 14px;
+            padding: 6px 14px;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 16px;
-            font-weight: 600;
-            transition: background 0.3s;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
         }
 
-        .post-button:hover {
-            background: #0a2833;
+        .remove-file:hover {
+            background: #c0392b;
         }
 
-        .pagination {
+        .execution-summary {
+            background: var(--bg-light);
+            padding: 25px;
+            border-radius: 8px;
+            height: fit-content;
+            position: sticky;
+            top: 20px;
+        }
+
+        .execution-summary h2 {
+            color: var(--primary-color);
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 10px;
+        }
+
+        .summary-section {
+            margin-bottom: 20px;
+        }
+
+        .summary-section h4 {
+            color: var(--primary-color);
+            font-size: 1.1em;
+            margin-bottom: 10px;
+        }
+
+        .summary-item {
             display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            gap: 5px;
-            margin-top: 15px;
-            font-size: 13px;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border-color);
         }
 
-        .pagination span {
-            color: #666;
+        .summary-item:last-child {
+            border-bottom: none;
+        }
+
+        .summary-item .label {
+            color: var(--text-light);
+            font-weight: 500;
+        }
+
+        .summary-item .value {
+            color: var(--text-dark);
+            font-weight: 600;
+        }
+
+        .status-badge {
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-in-progress {
+            background: #cce5ff;
+            color: #004085;
+        }
+
+        .status-completed {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 15px 40px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: var(--white);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-light);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(14, 54, 70, 0.3);
+        }
+
+        .btn-secondary {
+            background: var(--white);
+            color: var(--primary-color);
+            border: 2px solid var(--primary-color);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-light);
+        }
+
+        .btn-success {
+            background: var(--success-color);
+            color: var(--white);
+        }
+
+        .btn-success:hover {
+            background: #229954;
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .info-box {
+            background: #e8f4fd;
+            border-left: 4px solid var(--info-color);
+            padding: 15px 20px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .info-box p {
+            color: var(--text-dark);
+            margin: 0;
+            line-height: 1.6;
+        }
+
+        .warning-box {
+            background: #fff3cd;
+            border-left: 4px solid var(--warning-color);
+            padding: 15px 20px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .warning-box p {
+            color: var(--text-dark);
+            margin: 0;
+            line-height: 1.6;
+        }
+
+        .success-modal,
+        .confirmation-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .success-modal.show,
+        .confirmation-modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: var(--white);
+            padding: 40px;
+            border-radius: 12px;
+            max-width: 700px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+        }
+
+        .success-icon {
+            color: var(--success-color);
+        }
+
+        .modal-content h2 {
+            color: var(--primary-color);
+            margin-bottom: 15px;
+        }
+
+        .modal-content p {
+            color: var(--text-light);
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .execution-number {
+            background: var(--bg-light);
+            padding: 15px;
+            border-radius: 6px;
+            font-weight: 600;
+            color: var(--primary-color);
+            margin: 20px 0;
+            font-size: 1.2em;
+        }
+
+        .error-message {
+            color: var(--error-color);
+            font-size: 0.9em;
+            margin-top: 5px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        .input-error {
+            border-color: var(--error-color) !important;
+        }
+
+        .loading-spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top-color: var(--white);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-left: 10px;
+            display: inline-block;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .btn-primary.loading .loading-spinner {
+            display: inline-block;
+        }
+
+        @media (max-width: 1200px) {
+            .execution-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .execution-summary {
+                position: static;
+                order: -1;
+            }
+
+            .material-item-row {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2em;
+            }
+
+            .progress-tracker {
+                padding: 0 20px;
+            }
+
+            .step-circle {
+                width: 50px;
+                height: 50px;
+                font-size: 1.2em;
+            }
+
+            .step-label {
+                font-size: 0.75em;
+            }
+
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .detail-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .button-group {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header-section">
-            <div class="form-group">
-                <label>Voucher no.</label>
-                <input type="text" id="voucherNo" placeholder="Auto-generated">
-            </div>
-            <div class="form-group">
-                <label>Voucher Date</label>
-                <input type="date" id="voucherDate">
-            </div>
-            <div class="form-group">
-                <label>Till</label>
-                <select id="till">
-                    <option>TILL 1</option>
-                    <option>TILL 2</option>
-                    <option>TILL 3</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Warehouse</label>
-                <select id="warehouse">
-                    <option>Shop 1</option>
-                    <option>Shop 2</option>
-                    <option>Shop 3</option>
-                </select>
-            </div>
+        <div class="header">
+            <h1>Service Execution Management</h1>
+            <p>Track and manage service execution from assignment to completion</p>
         </div>
 
-        <button class="btn-primary" onclick="populateTransactions()">POPULATE DATA</button>
-
-        <div class="content-wrapper">
-            <div class="table-section">
-                <div class="controls">
-                    <div class="search-box">
-                        <input type="text" id="searchInput" placeholder="Search..." onkeyup="searchTable()">
-                        <span class="search-icon">🔍</span>
-                    </div>
-                    <button class="btn-go">Go</button>
-                    <div class="select-wrapper">
-                        <label>Rows</label>
-                        <select id="rowsSelect" onchange="changeRows()">
-                            <option>10</option>
-                            <option>25</option>
-                            <option selected>50</option>
-                            <option>100</option>
-                        </select>
-                    </div>
-                    <button class="btn-actions">Actions ▼</button>
+        <!-- Progress Tracker -->
+        <div class="main-content">
+            <div class="progress-tracker">
+                <div class="progress-line"></div>
+                <div class="progress-fill" id="progressFill"></div>
+                
+                <div class="progress-step active" data-step="1">
+                    <div class="step-circle">1</div>
+                    <div class="step-label">Order Reference</div>
                 </div>
-
-                <table id="transactionTable">
-                    <thead>
-                        <tr>
-                            <th>Sr No</th>
-                            <th>Account Name</th>
-                            <th>Credit</th>
-                            <th>Debit</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tableBody">
-                        <tr>
-                            <td colspan="4" style="text-align: center; padding: 40px; color: #999;">
-                                Click "POPULATE DATA" to load transactions
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-
-                <div class="pagination">
-                    <span>1 - 5</span>
+                <div class="progress-step" data-step="2">
+                    <div class="step-circle">2</div>
+                    <div class="step-label">Material Requisition</div>
+                </div>
+                <div class="progress-step" data-step="3">
+                    <div class="step-circle">3</div>
+                    <div class="step-label">Execution</div>
+                </div>
+                <div class="progress-step" data-step="4">
+                    <div class="step-circle">4</div>
+                    <div class="step-label">Quality Check</div>
+                </div>
+                <div class="progress-step" data-step="5">
+                    <div class="step-circle">5</div>
+                    <div class="step-label">Closing</div>
                 </div>
             </div>
 
-            <div class="denomination-panel">
-                <h3>Denomination Cash Count</h3>
-                <div class="denom-grid" id="denomGrid">
-                    <!-- Denominations will be populated here -->
+            <div class="execution-grid">
+                <div class="form-section">
+                    <form id="executionForm">
+                        <!-- STEP 1: Order Reference -->
+                        <div class="execution-step" id="step1">
+                            <div class="section-card">
+                                <h3>📋 Service Order Reference</h3>
+                                <p>Search and select the service order to execute</p>
+
+                                <div class="order-reference">
+                                    <div class="form-group order-search">
+                                        <label for="orderSearch">Search Service Order <span class="required">*</span></label>
+                                        <input type="text" id="orderSearch" placeholder="Search by order number, customer name, or service type..." required>
+                                        <div class="order-suggestions" id="orderSuggestions"></div>
+                                    </div>
+
+                                    <input type="hidden" id="selectedOrderId">
+
+                                    <div class="order-details" id="orderDetails"></div>
+                                </div>
+
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label for="executionDate">Execution Date <span class="required">*</span></label>
+                                        <input type="date" id="executionDate" required>
+                                        <div class="error-message" id="executionDateError">Execution date is required</div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="scheduledTime">Scheduled Time <span class="required">*</span></label>
+                                        <input type="time" id="scheduledTime" required>
+                                        <div class="error-message" id="scheduledTimeError">Scheduled time is required</div>
+                                    </div>
+                                </div>
+
+                                <div class="form-group full-width">
+                                    <label for="assignedSupervisor">Assigned Supervisor <span class="required">*</span></label>
+                                    <select id="assignedSupervisor" required>
+                                        <option value="">-- Select Supervisor --</option>
+                                        <option value="SUP-001">John Smith - Senior Supervisor</option>
+                                        <option value="SUP-002">Sarah Johnson - Field Supervisor</option>
+                                        <option value="SUP-003">Michael Chen - Technical Supervisor</option>
+                                        <option value="SUP-004">Emily Brown - Quality Supervisor</option>
+                                    </select>
+                                    <div class="error-message" id="assignedSupervisorError">Supervisor is required</div>
+                                </div>
+
+                                <div class="button-group">
+                                    <button type="button" class="btn btn-primary" onclick="nextStep(2)">Next: Material Requisition →</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- STEP 2: Material Requisition -->
+                        <div class="execution-step" id="step2" style="display: none;">
+                            <div class="section-card">
+                                <h3>📦 Material Requisition from Stores</h3>
+                                <p>Request materials needed for service execution</p>
+
+                                <div class="info-box">
+                                    <p><strong>💡 Note:</strong> Materials will be checked against store inventory. Unavailable items will be flagged for procurement.</p>
+                                </div>
+
+                                <div class="material-requisition">
+                                    <h4 style="color: var(--primary-color); margin-bottom: 15px;">Material Items</h4>
+                                    <div id="materialItemsList"></div>
+                                    <button type="button" class="add-material-btn" onclick="addMaterialItem()">
+                                        <span style="font-size: 1.2em;">+</span> Add Material Item
+                                    </button>
+                                </div>
+
+                                <div class="form-group full-width" style="margin-top: 20px;">
+                                    <label for="requisitionNotes">Requisition Notes <span class="optional">(Optional)</span></label>
+                                    <textarea id="requisitionNotes" placeholder="Any special requirements or notes about the materials..."></textarea>
+                                </div>
+
+                                <div class="button-group">
+                                    <button type="button" class="btn btn-secondary" onclick="previousStep(1)">← Back</button>
+                                    <button type="button" class="btn btn-primary" onclick="nextStep(3)">Next: Execution Details →</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- STEP 3: Execution -->
+                        <div class="execution-step" id="step3" style="display: none;">
+                            <div class="section-card">
+                                <h3>🔧 Service Execution Details</h3>
+                                <p>Record execution information and assign technicians</p>
+
+                                <div class="technician-assignment">
+                                    <h4 style="color: var(--primary-color); margin-bottom: 15px;">Assign Technicians</h4>
+                                    
+                                    <div class="technician-item">
+                                        <div class="technician-info">
+                                            <div class="technician-name">David Rodriguez</div>
+                                            <div class="technician-role">Senior Technician - Electrical</div>
+                                        </div>
+                                        <input type="checkbox" class="technician-checkbox" value="TECH-001">
+                                    </div>
+
+                                    <div class="technician-item">
+                                        <div class="technician-info">
+                                            <div class="technician-name">Lisa Anderson</div>
+                                            <div class="technician-role">Technician - HVAC</div>
+                                        </div>
+                                        <input type="checkbox" class="technician-checkbox" value="TECH-002">
+                                    </div>
+
+                                    <div class="technician-item">
+                                        <div class="technician-info">
+                                            <div class="technician-name">Robert Kim</div>
+                                            <div class="technician-role">Junior Technician - Plumbing</div>
+                                        </div>
+                                        <input type="checkbox" class="technician-checkbox" value="TECH-003">
+                                    </div>
+
+                                    <div class="technician-item">
+                                        <div class="technician-info">
+                                            <div class="technician-name">Amanda White</div>
+                                            <div class="technician-role">Specialist - Installation</div>
+                                        </div>
+                                        <input type="checkbox" class="technician-checkbox" value="TECH-004">
+                                    </div>
+                                </div>
+
+                                <div class="form-grid" style="margin-top: 25px;">
+                                    <div class="form-group">
+                                        <label for="actualStartTime">Actual Start Time <span class="required">*</span></label>
+                                        <input type="time" id="actualStartTime" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="estimatedDuration">Estimated Duration (hours) <span class="required">*</span></label>
+                                        <input type="number" id="estimatedDuration" placeholder="0.0" step="0.5" min="0" required>
+                                    </div>
+                                </div>
+
+                                <div class="form-group full-width">
+                                    <label for="workPerformed">Work Performed Description <span class="required">*</span></label>
+                                    <textarea id="workPerformed" placeholder="Detailed description of work being performed, methods used, any challenges encountered..." required style="min-height: 120px;"></textarea>
+                                </div>
+
+                                <div class="form-group full-width">
+                                    <label>Service Execution Photos <span class="optional">(Optional)</span></label>
+                                    <div class="file-upload-area" id="executionFileUploadArea">
+                                        <div class="file-icon">📸</div>
+                                        <p><strong>Click to upload</strong> or drag and drop</p>
+                                        <p style="font-size: 0.9em; color: var(--text-light);">Photos of work in progress, before/after images (JPG, PNG - Max 5MB each)</p>
+                                        <input type="file" id="executionFileInput" multiple accept=".jpg,.jpeg,.png">
+                                    </div>
+                                    <div class="uploaded-files" id="executionUploadedFiles"></div>
+                                </div>
+
+                                <div class="button-group">
+                                    <button type="button" class="btn btn-secondary" onclick="previousStep(2)">← Back</button>
+                                    <button type="button" class="btn btn-primary" onclick="nextStep(4)">Next: Quality Check →</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- STEP 4: Quality Check -->
+                        <div class="execution-step" id="step4" style="display: none;">
+                            <div class="section-card">
+                                <h3>✅ Quality Check & Verification</h3>
+                                <p>Perform quality checks and verify service completion</p>
+
+                                <div class="warning-box">
+                                    <p><strong>⚠️ Important:</strong> All quality check items must be verified before proceeding to service closing.</p>
+                                </div>
+
+                                <div style="margin-top: 20px;">
+                                    <h4 style="color: var(--primary-color); margin-bottom: 15px;">Quality Check Items</h4>
+
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="qc1" class="quality-check">
+                                        <label for="qc1">All work completed as per service order specifications</label>
+                                    </div>
+
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="qc2" class="quality-check">
+                                        <label for="qc2">All materials used are documented and accounted for</label>
+                                    </div>
+
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="qc3" class="quality-check">
+                                        <label for="qc3">Work area cleaned and restored to original condition</label>
+                                    </div>
+
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="qc4" class="quality-check">
+                                        <label for="qc4">All safety protocols followed during execution</label>
+                                    </div>
+
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="qc5" class="quality-check">
+                                        <label for="qc5">Equipment/systems tested and functioning properly</label>
+                                    </div>
+
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="qc6" class="quality-check">
+                                        <label for="qc6">No additional issues or defects identified</label>
+                                    </div>
+                                </div>
+
+                                <div class="form-grid" style="margin-top: 25px;">
+                                    <div class="form-group">
+                                        <label for="actualEndTime">Actual End Time <span class="required">*</span></label>
+                                        <input type="time" id="actualEndTime" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="totalDuration">Total Duration (hours) <span class="optional">(Auto-calculated)</span></label>
+                                        <input type="number" id="totalDuration" readonly style="background: var(--bg-light);">
+                                    </div>
+                                </div>
+
+                                <div class="form-group full-width">
+                                    <label for="qualityNotes">Quality Check Notes <span class="optional">(Optional)</span></label>
+                                    <textarea id="qualityNotes" placeholder="Any observations, recommendations, or issues found during quality check..."></textarea>
+                                </div>
+
+                                <div class="button-group">
+                                    <button type="button" class="btn btn-secondary" onclick="previousStep(3)">← Back</button>
+                                    <button type="button" class="btn btn-primary" onclick="nextStep(5)">Next: Service Closing →</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- STEP 5: Service Closing -->
+                        <div class="execution-step" id="step5" style="display: none;">
+                            <div class="section-card">
+                                <h3>🏁 Service Closing</h3>
+                                <p>Finalize service execution and obtain customer approval</p>
+
+                                <div class="info-box">
+                                    <p><strong>📝 Final Step:</strong> Review all details, get customer sign-off, and close the service execution.</p>
+                                </div>
+
+                                <div class="form-grid" style="margin-top: 25px;">
+                                    <div class="form-group">
+                                        <label for="customerName">Customer Name <span class="required">*</span></label>
+                                        <input type="text" id="customerName" placeholder="Name of person receiving service" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="customerContact">Customer Contact <span class="required">*</span></label>
+                                        <input type="text" id="customerContact" placeholder="Phone or email" required>
+                                    </div>
+                                </div>
+
+                                <div class="form-group full-width">
+                                    <label for="customerFeedback">Customer Feedback <span class="optional">(Optional)</span></label>
+                                    <textarea id="customerFeedback" placeholder="Customer comments, satisfaction level, any concerns raised..."></textarea>
+                                </div>
+
+                                <div class="form-group full-width">
+                                    <label>Customer Satisfaction Rating <span class="required">*</span></label>
+                                    <div style="display: flex; gap: 20px; margin-top: 10px;">
+                                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                            <input type="radio" name="satisfaction" value="5" required> ⭐⭐⭐⭐⭐ Excellent
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                            <input type="radio" name="satisfaction" value="4"> ⭐⭐⭐⭐ Good
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                            <input type="radio" name="satisfaction" value="3"> ⭐⭐⭐ Average
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                            <input type="radio" name="satisfaction" value="2"> ⭐⭐ Poor
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                            <input type="radio" name="satisfaction" value="1"> ⭐ Very Poor
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="form-group full-width">
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="followUpRequired">
+                                        <label for="followUpRequired">Follow-up service required</label>
+                                    </div>
+                                </div>
+
+                                <div class="form-group full-width" id="followUpDetails" style="display: none;">
+                                    <label for="followUpNotes">Follow-up Details</label>
+                                    <textarea id="followUpNotes" placeholder="Describe what follow-up is needed and when..."></textarea>
+                                </div>
+
+                                <div class="form-group full-width">
+                                    <label for="closingRemarks">Closing Remarks <span class="required">*</span></label>
+                                    <textarea id="closingRemarks" placeholder="Final summary, recommendations, warranty information, maintenance tips..." required></textarea>
+                                </div>
+
+                                <div class="form-group full-width">
+                                    <label>Completion Certificate/Photos <span class="optional">(Optional)</span></label>
+                                    <div class="file-upload-area" id="closingFileUploadArea">
+                                        <div class="file-icon">📄</div>
+                                        <p><strong>Click to upload</strong> or drag and drop</p>
+                                        <p style="font-size: 0.9em; color: var(--text-light);">Completion photos, certificates, or signed documents (PDF, JPG, PNG - Max 5MB each)</p>
+                                        <input type="file" id="closingFileInput" multiple accept=".pdf,.jpg,.jpeg,.png">
+                                    </div>
+                                    <div class="uploaded-files" id="closingUploadedFiles"></div>
+                                </div>
+
+                                <div class="form-group full-width">
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="confirmClosure" required>
+                                        <label for="confirmClosure">I confirm that all work has been completed satisfactorily and customer has approved the service</label>
+                                    </div>
+                                    <div class="error-message" id="confirmClosureError">You must confirm service completion</div>
+                                </div>
+
+                                <div class="button-group">
+                                    <button type="button" class="btn btn-secondary" onclick="previousStep(4)">← Back</button>
+                                    <button type="submit" class="btn btn-success" id="submitBtn">
+                                        Complete Service Execution
+                                        <span class="loading-spinner"></span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
                 </div>
-                <div class="grand-total">
-                    <span>TOTAL:</span>
-                    <span id="cashTotal">0.00</span>
+
+                <!-- Execution Summary Sidebar -->
+                <div class="execution-summary">
+                    <h2>Execution Summary</h2>
+                    <div id="summaryContent">
+                        <p style="text-align: center; color: var(--text-light); padding: 20px;">Select a service order to begin</p>
+                    </div>
                 </div>
-                <button class="post-button" onclick="postToFinance()">POST TO FINANCE</button>
             </div>
         </div>
     </div>
 
+    <!-- Success Modal -->
+    <div class="success-modal" id="successModal">
+        <div class="modal-content">
+            <div class="modal-icon success-icon">✓</div>
+            <h2>Service Execution Completed!</h2>
+            <p>The service has been successfully executed and closed. All documentation has been recorded.</p>
+            <div class="execution-number">
+                Execution Number: <span id="executionNumber"></span>
+            </div>
+            <p style="font-size: 0.95em;">A completion report has been generated and sent to all stakeholders.</p>
+            <button class="btn btn-primary" onclick="closeSuccessModal()">Done</button>
+        </div>
+    </div>
+
     <script>
-        const denominations = [200, 100, 50, 20, 10, 5, 2, 1, 0.50, 0.20, 0.10, 0.05];
-        
-        // Initialize page
-        document.getElementById('voucherDate').valueAsDate = new Date();
-        
-        // Create denomination inputs
-        function createDenominations() {
-            const grid = document.getElementById('denomGrid');
-            denominations.forEach((denom, idx) => {
-                const row = document.createElement('div');
-                row.className = 'denom-row';
-                row.innerHTML = `
-                    <div class="denom-label">GHS ${denom.toFixed(2)}</div>
-                    <input type="number" class="denom-input" id="denom${idx}" value="0" min="0" onchange="calculateDenominations()">
-                    <div class="denom-total" id="total${idx}">0.00</div>
-                `;
-                grid.appendChild(row);
-            });
-        }
+        // Mock service orders database
+        const serviceOrders = [
+            {
+                id: 'ORD-20240001',
+                orderNumber: 'ORD-20240001',
+                customer: 'John Smith',
+                serviceType: 'HVAC Maintenance',
+                location: '123 Main St, Downtown',
+                scheduledDate: '2024-02-15',
+                status: 'Pending Execution',
+                priority: 'Medium',
+                estimatedCost: 450.00
+            },
+            {
+                id: 'ORD-20240002',
+                orderNumber: 'ORD-20240002',
+                customer: 'ABC Corporation',
+                serviceType: 'Electrical Installation',
+                location: '456 Business Park, Suite 200',
+                scheduledDate: '2024-02-16',
+                status: 'Pending Execution',
+                priority: 'High',
+                estimatedCost: 1250.00
+            },
+            {
+                id: 'ORD-20240003',
+                orderNumber: 'ORD-20240003',
+                customer: 'Sarah Johnson',
+                serviceType: 'Plumbing Repair',
+                location: '789 Residential Ave, Apt 5B',
+                scheduledDate: '2024-02-14',
+                status: 'Pending Execution',
+                priority: 'Urgent',
+                estimatedCost: 325.00
+            },
+            {
+                id: 'ORD-20240004',
+                orderNumber: 'ORD-20240004',
+                customer: 'Tech Solutions Inc',
+                serviceType: 'Network Installation',
+                location: '321 Tech Plaza, Floor 3',
+                scheduledDate: '2024-02-17',
+                status: 'Pending Execution',
+                priority: 'High',
+                estimatedCost: 2100.00
+            }
+        ];
 
-        createDenominations();
+        // Mock materials database with inventory
+        const materialsDatabase = [
+            { code: 'MAT-001', name: 'HVAC Filter (Standard)', stock: 45, unit: 'pcs' },
+            { code: 'MAT-002', name: 'Copper Pipe (2 inch)', stock: 120, unit: 'ft' },
+            { code: 'MAT-003', name: 'Electrical Cable (14 AWG)', stock: 8, unit: 'roll' },
+            { code: 'MAT-004', name: 'PVC Pipe (1 inch)', stock: 89, unit: 'ft' },
+            { code: 'MAT-005', name: 'Circuit Breaker (20A)', stock: 2, unit: 'pcs' },
+            { code: 'MAT-006', name: 'Air Filter (Premium)', stock: 15, unit: 'pcs' },
+            { code: 'MAT-007', name: 'Wire Connectors', stock: 250, unit: 'pcs' },
+            { code: 'MAT-008', name: 'Plumbing Sealant', stock: 28, unit: 'tube' },
+            { code: 'MAT-009', name: 'Thermostat (Digital)', stock: 0, unit: 'pcs' },
+            { code: 'MAT-010', name: 'Duct Tape (Industrial)', stock: 35, unit: 'roll' }
+        ];
 
-        // Calculate denomination totals
-        function calculateDenominations() {
-            let grandTotal = 0;
-            denominations.forEach((denom, idx) => {
-                const count = parseFloat(document.getElementById(`denom${idx}`).value) || 0;
-                const total = denom * count;
-                document.getElementById(`total${idx}`).textContent = total.toFixed(2);
-                grandTotal += total;
-            });
-            document.getElementById('cashTotal').textContent = grandTotal.toFixed(2);
-        }
+        // Order search functionality
+        const orderSearchInput = document.getElementById('orderSearch');
+        const orderSuggestions = document.getElementById('orderSuggestions');
+        const orderDetails = document.getElementById('orderDetails');
+        const selectedOrderId = document.getElementById('selectedOrderId');
 
-        // Sample transaction data
-        function populateTransactions() {
-            const transactions = [
-                { account: 'Covid 1% On Sales', credit: 3.85, debit: 0 },
-                { account: 'Sales Account', credit: 384.62, debit: 0 },
-                { account: 'Vat On Sales 3%', credit: 11.54, debit: 0 },
-                { account: 'Cash Account Ghs', credit: 0, debit: 400.00 },
-                { account: 'ROUND OFF', credit: 0, debit: 0.01 }
-            ];
+        orderSearchInput.addEventListener('input', function() {
+            const query = this.value.toLowerCase().trim();
 
-            const tbody = document.getElementById('tableBody');
-            tbody.innerHTML = '';
-            
-            let totalCredit = 0;
-            let totalDebit = 0;
+            if (query.length < 2) {
+                orderSuggestions.classList.remove('show');
+                return;
+            }
 
-            transactions.forEach((trans, idx) => {
-                totalCredit += trans.credit;
-                totalDebit += trans.debit;
-                
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td>${idx + 1}</td>
-                    <td>${trans.account}</td>
-                    <td class="text-right">${trans.credit > 0 ? trans.credit.toFixed(2) : ''}</td>
-                    <td class="text-right">${trans.debit > 0 ? trans.debit.toFixed(2) : ''}</td>
-                `;
-                tbody.appendChild(row);
-            });
+            const matches = serviceOrders.filter(order =>
+                order.orderNumber.toLowerCase().includes(query) ||
+                order.customer.toLowerCase().includes(query) ||
+                order.serviceType.toLowerCase().includes(query)
+            );
 
-            // Add total row
-            const totalRow = document.createElement('tr');
-            totalRow.className = 'total-row';
-            totalRow.innerHTML = `
-                <td></td>
-                <td></td>
-                <td class="text-right">${totalCredit.toFixed(2)}</td>
-                <td class="text-right">${totalDebit.toFixed(2)}</td>
+            if (matches.length > 0) {
+                orderSuggestions.innerHTML = matches.map(order => `
+                    <div class="order-suggestion-item" onclick="selectOrder('${order.id}')">
+                        <div class="suggestion-header">${order.orderNumber} - ${order.customer}</div>
+                        <div class="suggestion-details">${order.serviceType} • ${order.location} • Priority: ${order.priority}</div>
+                    </div>
+                `).join('');
+                orderSuggestions.classList.add('show');
+            } else {
+                orderSuggestions.classList.remove('show');
+            }
+        });
+
+        function selectOrder(orderId) {
+            const order = serviceOrders.find(o => o.id === orderId);
+            if (!order) return;
+
+            selectedOrderId.value = orderId;
+            orderSearchInput.value = `${order.orderNumber} - ${order.customer}`;
+
+            // Display order details
+            orderDetails.innerHTML = `
+                <h4 style="color: var(--primary-color); margin-bottom: 15px;">✓ Selected Order Details</h4>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <span class="detail-label">Order Number:</span>
+                        <span class="detail-value">${order.orderNumber}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Customer:</span>
+                        <span class="detail-value">${order.customer}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Service Type:</span>
+                        <span class="detail-value">${order.serviceType}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Priority:</span>
+                        <span class="detail-value">${order.priority}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Location:</span>
+                        <span class="detail-value">${order.location}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Scheduled Date:</span>
+                        <span class="detail-value">${order.scheduledDate}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Status:</span>
+                        <span class="detail-value">${order.status}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Estimated Cost:</span>
+                        <span class="detail-value">$${order.estimatedCost.toFixed(2)}</span>
+                    </div>
+                </div>
             `;
-            tbody.appendChild(totalRow);
+            orderDetails.classList.add('show');
+            orderSuggestions.classList.remove('show');
+
+            updateSummary();
         }
 
-        // Search functionality
-        function searchTable() {
-            const input = document.getElementById('searchInput').value.toLowerCase();
-            const rows = document.querySelectorAll('#tableBody tr:not(.total-row)');
-            
-            rows.forEach(row => {
-                const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(input) ? '' : 'none';
-            });
+        // Close suggestions when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!orderSearchInput.contains(e.target) && !orderSuggestions.contains(e.target)) {
+                orderSuggestions.classList.remove('show');
+            }
+        });
+
+        // Material requisition functionality
+        let materialCounter = 0;
+        const materialItemsList = document.getElementById('materialItemsList');
+
+        function addMaterialItem() {
+            materialCounter++;
+            const itemRow = document.createElement('div');
+            itemRow.className = 'material-item-row';
+            itemRow.setAttribute('data-item-id', materialCounter);
+            itemRow.innerHTML = `
+                <div>
+                    <label>Material Name</label>
+                    <select class="material-select" onchange="checkMaterialAvailability(${materialCounter})">
+                        <option value="">-- Select Material --</option>
+                        ${materialsDatabase.map(mat => `<option value="${mat.code}">${mat.name} (${mat.code})</option>`).join('')}
+                    </select>
+                </div>
+                <div>
+                    <label>Quantity Required</label>
+                    <input type="number" class="material-qty" value="1" min="1" onchange="checkMaterialAvailability(${materialCounter})">
+                </div>
+                <div>
+                    <label>Unit</label>
+                    <input type="text" class="material-unit" readonly style="background: var(--bg-light);">
+                </div>
+                <div>
+                    <label>Availability</label>
+                    <div class="availability-status" id="availability-${materialCounter}">-</div>
+                </div>
+                <button type="button" class="remove-item-btn" onclick="removeMaterialItem(${materialCounter})">×</button>
+            `;
+            materialItemsList.appendChild(itemRow);
         }
 
-        // Change rows display
-        function changeRows() {
-            const value = document.getElementById('rowsSelect').value;
-            console.log(`Displaying ${value} rows`);
-        }
-
-        // Post to finance
-        function postToFinance() {
-            const cashTotal = document.getElementById('cashTotal').textContent;
-            const voucherNo = document.getElementById('voucherNo').value || 'Auto-generated';
-            const voucherDate = document.getElementById('voucherDate').value;
-            const till = document.getElementById('till').value;
-            const warehouse = document.getElementById('warehouse').value;
-
-            if (confirm(`Post transaction to finance?\n\nVoucher: ${voucherNo}\nDate: ${voucherDate}\nTill: ${till}\nWarehouse: ${warehouse}\nCash Total: GHS ${cashTotal}`)) {
-                alert('Transaction posted to finance successfully!');
-                
-                // Reset form
-                document.getElementById('voucherNo').value = '';
-                document.getElementById('tableBody').innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px; color: #999;">Click "POPULATE DATA" to load transactions</td></tr>';
-                
-                // Reset denominations
-                denominations.forEach((_, idx) => {
-                    document.getElementById(`denom${idx}`).value = '0';
-                    document.getElementById(`total${idx}`).textContent = '0.00';
-                });
-                document.getElementById('cashTotal').textContent = '0.00';
+        function removeMaterialItem(id) {
+            const item = document.querySelector(`[data-item-id="${id}"]`);
+            if (item) {
+                item.remove();
             }
         }
+
+        function checkMaterialAvailability(itemId) {
+            const row = document.querySelector(`[data-item-id="${itemId}"]`);
+            const selectElement = row.querySelector('.material-select');
+            const qtyElement = row.querySelector('.material-qty');
+            const unitElement = row.querySelector('.material-unit');
+            const availabilityElement = document.getElementById(`availability-${itemId}`);
+
+            const materialCode = selectElement.value;
+            const qtyRequired = parseInt(qtyElement.value) || 0;
+
+            if (!materialCode || qtyRequired === 0) {
+                availabilityElement.textContent = '-';
+                availabilityElement.className = 'availability-status';
+                unitElement.value = '';
+                return;
+            }
+
+            const material = materialsDatabase.find(m => m.code === materialCode);
+            if (material) {
+                unitElement.value = material.unit;
+
+                if (material.stock === 0) {
+                    availabilityElement.textContent = 'Unavailable';
+                    availabilityElement.className = 'availability-status status-unavailable';
+                } else if (material.stock < qtyRequired) {
+                    availabilityElement.textContent = `Low (${material.stock} available)`;
+                    availabilityElement.className = 'availability-status status-low';
+                } else {
+                    availabilityElement.textContent = 'Available';
+                    availabilityElement.className = 'availability-status status-available';
+                }
+            }
+        }
+
+        // File upload functionality
+        function setupFileUpload(areaId, inputId, containerId) {
+            const uploadArea = document.getElementById(areaId);
+            const fileInput = document.getElementById(inputId);
+            const filesContainer = document.getElementById(containerId);
+            let files = [];
+
+            uploadArea.addEventListener('click', () => fileInput.click());
+
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('drag-over');
+            });
+
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('drag-over');
+            });
+
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('drag-over');
+                handleFiles(e.dataTransfer.files);
+            });
+
+            fileInput.addEventListener('change', (e) => {
+                handleFiles(e.target.files);
+            });
+
+            function handleFiles(fileList) {
+                Array.from(fileList).forEach(file => {
+                    if (file.size > 5 * 1024 * 1024) {
+                        alert(`File ${file.name} is too large. Maximum size is 5MB.`);
+                        return;
+                    }
+                    files.push(file);
+                    displayFile(file);
+                });
+            }
+
+            function displayFile(file) {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.innerHTML = `
+                    <div class="file-item-info">
+                        <span>📄</span>
+                        <span>${file.name} (${formatFileSize(file.size)})</span>
+                    </div>
+                    <button type="button" class="remove-file" onclick="removeFile('${file.name}', '${containerId}')">Remove</button>
+                `;
+                filesContainer.appendChild(fileItem);
+            }
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        function removeFile(fileName, containerId) {
+            const container = document.getElementById(containerId);
+            const fileItems = container.querySelectorAll('.file-item');
+            fileItems.forEach(item => {
+                if (item.textContent.includes(fileName)) {
+                    item.remove();
+                }
+            });
+        }
+
+        // Initialize file uploads
+        setupFileUpload('executionFileUploadArea', 'executionFileInput', 'executionUploadedFiles');
+        setupFileUpload('closingFileUploadArea', 'closingFileInput', 'closingUploadedFiles');
+
+        // Progress tracking
+        let currentStep = 1;
+
+        function nextStep(step) {
+            // Hide current step
+            document.querySelectorAll('.execution-step').forEach(s => s.style.display = 'none');
+            
+            // Show new step
+            document.getElementById(`step${step}`).style.display = 'block';
+            
+            // Update progress tracker
+            document.querySelectorAll('.progress-step').forEach(s => {
+                s.classList.remove('active');
+                const stepNum = parseInt(s.getAttribute('data-step'));
+                if (stepNum < step) {
+                    s.classList.add('completed');
+                } else if (stepNum === step) {
+                    s.classList.add('active');
+                } else {
+                    s.classList.remove('completed');
+                }
+            });
+
+            // Update progress fill
+            const progressFill = document.getElementById('progressFill');
+            const percentage = ((step - 1) / 4) * 100;
+            progressFill.style.width = `${percentage}%`;
+
+            currentStep = step;
+            updateSummary();
+            
+            // Scroll to top
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function previousStep(step) {
+            nextStep(step);
+        }
+
+        // Follow-up toggle
+        document.getElementById('followUpRequired').addEventListener('change', function() {
+            document.getElementById('followUpDetails').style.display = this.checked ? 'block' : 'none';
+        });
+
+        // Calculate total duration
+        document.getElementById('actualStartTime').addEventListener('change', calculateDuration);
+        document.getElementById('actualEndTime').addEventListener('change', calculateDuration);
+
+        function calculateDuration() {
+            const startTime = document.getElementById('actualStartTime').value;
+            const endTime = document.getElementById('actualEndTime').value;
+
+            if (startTime && endTime) {
+                const start = new Date(`2000-01-01 ${startTime}`);
+                const end = new Date(`2000-01-01 ${endTime}`);
+                const diff = (end - start) / (1000 * 60 * 60); // Convert to hours
+
+                if (diff > 0) {
+                    document.getElementById('totalDuration').value = diff.toFixed(2);
+                }
+            }
+        }
+
+        // Update summary
+        function updateSummary() {
+            const summaryContent = document.getElementById('summaryContent');
+            const orderId = selectedOrderId.value;
+
+            if (!orderId) {
+                summaryContent.innerHTML = '<p style="text-align: center; color: var(--text-light); padding: 20px;">Select a service order to begin</p>';
+                return;
+            }
+
+            const order = serviceOrders.find(o => o.id === orderId);
+            let html = '';
+
+            html += '<div class="summary-section">';
+            html += '<h4>Service Order</h4>';
+            html += `<div class="summary-item"><span class="label">Order:</span><span class="value">${order.orderNumber}</span></div>`;
+            html += `<div class="summary-item"><span class="label">Customer:</span><span class="value">${order.customer}</span></div>`;
+            html += `<div class="summary-item"><span class="label">Service:</span><span class="value">${order.serviceType}</span></div>`;
+            html += '</div>';
+
+            html += '<div class="summary-section">';
+            html += '<h4>Current Step</h4>';
+            const stepNames = ['Order Reference', 'Material Requisition', 'Execution', 'Quality Check', 'Service Closing'];
+            html += `<div class="status-badge status-in-progress">${stepNames[currentStep - 1]}</div>`;
+            html += '</div>';
+
+            // Material summary
+            const materialRows = document.querySelectorAll('#materialItemsList .material-item-row');
+            if (materialRows.length > 0) {
+                html += '<div class="summary-section">';
+                html += '<h4>Materials</h4>';
+                let materialCount = 0;
+                materialRows.forEach(row => {
+                    const select = row.querySelector('.material-select');
+                    if (select.value) materialCount++;
+                });
+                html += `<div class="summary-item"><span class="label">Items:</span><span class="value">${materialCount}</span></div>`;
+                html += '</div>';
+            }
+
+            // Technician summary
+            const selectedTechs = document.querySelectorAll('.technician-checkbox:checked');
+            if (selectedTechs.length > 0) {
+                html += '<div class="summary-section">';
+                html += '<h4>Assigned</h4>';
+                html += `<div class="summary-item"><span class="label">Technicians:</span><span class="value">${selectedTechs.length}</span></div>`;
+                html += '</div>';
+            }
+
+            summaryContent.innerHTML = html;
+        }
+
+        // Form submission
+        document.getElementById('executionForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            // Validate quality checks
+            const qualityChecks = document.querySelectorAll('.quality-check');
+            const allChecked = Array.from(qualityChecks).every(cb => cb.checked);
+
+            if (!allChecked) {
+                alert('Please complete all quality check items before closing the service.');
+                return;
+            }
+
+            // Validate confirmation
+            if (!document.getElementById('confirmClosure').checked) {
+                document.getElementById('confirmClosureError').classList.add('show');
+                return;
+            }
+
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.classList.add('loading');
+            submitBtn.disabled = true;
+
+            // Simulate submission
+            setTimeout(() => {
+                submitBtn.classList.remove('loading');
+                submitBtn.disabled = false;
+
+                const executionNum = 'EXE-' + Date.now().toString().slice(-8);
+                document.getElementById('executionNumber').textContent = executionNum;
+                document.getElementById('successModal').classList.add('show');
+            }, 2000);
+        });
+
+        function closeSuccessModal() {
+            document.getElementById('successModal').classList.remove('show');
+            location.reload();
+        }
+
+        // Set minimum date to today
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('executionDate').setAttribute('min', today);
+
+        // Initialize - add one material item by default
+        addMaterialItem();
     </script>
 </body>
 </html>

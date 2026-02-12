@@ -77,7 +77,23 @@ export function AuthProvider({ children }) {
     }
   }, [token, user]);
 
-  function logout() {
+  async function logout() {
+    try {
+      if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        const existing = await reg.pushManager.getSubscription();
+        if (existing && existing.endpoint) {
+          try {
+            await api.delete("/push/unsubscribe", {
+              data: { subscription: existing.toJSON() },
+            });
+          } catch {}
+          try {
+            await existing.unsubscribe();
+          } catch {}
+        }
+      }
+    } catch {}
     // clear auth state and persisted storage
     setToken(null);
     setUser(null);

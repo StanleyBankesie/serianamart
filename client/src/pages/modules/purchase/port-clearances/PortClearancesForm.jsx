@@ -36,14 +36,35 @@ export default function PortClearancesForm() {
   // Charges Array
   const [charges, setCharges] = useState([]);
 
-  // --- Fetch Shipping Advice ---
+  // --- Fetch Shipping Advice eligible for clearance ---
   useEffect(() => {
     let mounted = true;
-    api
-      .get("/purchase/shipping-advices?status=IN_TRANSIT")
-      .then((res) => {
+    Promise.all([
+      api.get("/purchase/shipping-advices"),
+      api.get("/purchase/port-clearances"),
+    ])
+      .then(([saRes, pcRes]) => {
         if (!mounted) return;
-        setShippingAdvice(Array.isArray(res.data?.items) ? res.data.items : []);
+        const advices = Array.isArray(saRes.data?.items)
+          ? saRes.data.items
+          : [];
+        const clearances = Array.isArray(pcRes.data?.items)
+          ? pcRes.data.items
+          : [];
+        const usedAdviceIds = new Set(
+          clearances
+            .map((c) => c.advice_id || c.adviceId)
+            .filter((v) => v != null)
+            .map((v) => String(v)),
+        );
+        const eligible = advices.filter((sa) => {
+          const status = String(sa.status || "").toUpperCase();
+          const isPendingClearance =
+            status === "IN_TRANSIT" || status === "ARRIVED";
+          const notUsed = !usedAdviceIds.has(String(sa.id));
+          return isPendingClearance && notUsed;
+        });
+        setShippingAdvice(eligible);
       })
       .catch((e) => {
         if (!mounted) return;
@@ -139,7 +160,7 @@ export default function PortClearancesForm() {
               charge_type: c.charge_type,
               amount: c.amount,
               vendor_authority: c.vendor_authority || "",
-            }))
+            })),
           );
         } else {
           // Fallback: if no charges table data, try to construct from legacy fields if they exist

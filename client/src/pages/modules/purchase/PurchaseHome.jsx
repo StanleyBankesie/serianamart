@@ -20,13 +20,12 @@ import PurchaseBillsList from "./purchase-bills/PurchaseBillsList.jsx";
 import PurchaseBillsForm from "./purchase-bills/PurchaseBillsForm.jsx";
 import SuppliersList from "./suppliers/SuppliersList.jsx";
 import SupplierForm from "./suppliers/SupplierForm.jsx";
-import ServiceConfirmationsList from "./service-confirmations/ServiceConfirmationsList.jsx";
-import ServiceConfirmationForm from "./service-confirmations/ServiceConfirmationForm.jsx";
-import ServiceRequestForm from "./service-requests/ServiceRequestForm.jsx";
-import ServiceBillForm from "./service-bills/ServiceBillForm.jsx";
 import ImportOrderTrackingReportPage from "./reports/ImportOrderTrackingReportPage.jsx";
 import LocalOrderTrackingReportPage from "./reports/LocalOrderTrackingReportPage.jsx";
 import PurchaseTrackingReportPage from "./reports/PurchaseTrackingReportPage.jsx";
+import ServiceBillForm from "../service-management/service-bills/ServiceBillForm.jsx";
+import ServiceConfirmationsList from "../service-management/service-confirmations/ServiceConfirmationsList.jsx";
+import ServiceConfirmationForm from "../service-management/service-confirmations/ServiceConfirmationForm.jsx";
 
 const purchaseMenuItems = [
   {
@@ -209,50 +208,6 @@ const purchaseMenuItems = [
       { label: "View Reports", path: "/purchase/reports", type: "primary" },
     ],
   },
-  {
-    title: "Service Requests",
-    description: "Submit and track service requests",
-    path: "/purchase/service-requests",
-    icon: "🔧",
-    actions: [
-      {
-        label: "New Request",
-        path: "/purchase/service-requests/new",
-        type: "primary",
-      },
-    ],
-  },
-  {
-    title: "Service Bills",
-    description: "Prepare and issue bills for services",
-    path: "/purchase/service-bills",
-    icon: "🧾",
-    actions: [
-      {
-        label: "New Bill",
-        path: "/purchase/service-bills/new",
-        type: "primary",
-      },
-    ],
-  },
-  {
-    title: "Service Confirmation",
-    description: "Confirm receipt of supplier services",
-    path: "/purchase/service-confirmation",
-    icon: "🧾",
-    actions: [
-      {
-        label: "View List",
-        path: "/purchase/service-confirmation",
-        type: "outline",
-      },
-      {
-        label: "New Confirmation",
-        path: "/purchase/service-confirmation/new",
-        type: "primary",
-      },
-    ],
-  },
 ];
 
 function PurchaseFeaturePage({ title, description }) {
@@ -416,22 +371,16 @@ function PurchaseHomeIndex() {
       title: "Service Procurement",
       items: [
         {
-          title: "Service Requests",
-          description: "Submit and track service requests",
-          path: "/purchase/service-requests",
-          icon: "🔧",
-        },
-        {
-          title: "Service Bills",
-          description: "Prepare and issue bills for services",
+          title: "Service Bill",
+          description: "Prepare and issue service bills",
           path: "/purchase/service-bills",
           icon: "🧾",
         },
         {
           title: "Service Confirmation",
-          description: "Confirm receipt of supplier services",
+          description: "Confirm received services",
           path: "/purchase/service-confirmation",
-          icon: "🧾",
+          icon: "✅",
         },
       ],
     },
@@ -557,17 +506,23 @@ export default function PurchaseHome() {
       <Route path="purchase-bills-import" element={<PurchaseBillsList />} />
       <Route path="purchase-bills-import/new" element={<PurchaseBillsForm />} />
       <Route path="purchase-bills-import/:id" element={<PurchaseBillsForm />} />
-      <Route path="suppliers" element={<SuppliersList />} />
-      <Route path="suppliers/new" element={<SupplierForm />} />
-      <Route path="suppliers/:id" element={<SupplierForm />} />
+      <Route path="service-bills" element={<ServiceBillForm />} />
+      <Route path="service-bills/new" element={<ServiceBillForm />} />
       <Route
         path="service-confirmation"
         element={<ServiceConfirmationsList />}
       />
       <Route
+        path="service-confirmation/new"
+        element={<ServiceConfirmationForm />}
+      />
+      <Route
         path="service-confirmation/:id"
         element={<ServiceConfirmationForm />}
       />
+      <Route path="suppliers" element={<SuppliersList />} />
+      <Route path="suppliers/new" element={<SupplierForm />} />
+      <Route path="suppliers/:id" element={<SupplierForm />} />
       <Route
         path="reports"
         element={
@@ -577,11 +532,18 @@ export default function PurchaseHome() {
           />
         }
       />
-      <Route path="reports/import-order-tracking" element={<ImportOrderTrackingReportPage />} />
-      <Route path="reports/local-order-tracking" element={<LocalOrderTrackingReportPage />} />
-      <Route path="reports/purchase-tracking" element={<PurchaseTrackingReportPage />} />
-      <Route path="service-requests/new" element={<ServiceRequestForm />} />
-      <Route path="service-bills/new" element={<ServiceBillForm />} />
+      <Route
+        path="reports/import-order-tracking"
+        element={<ImportOrderTrackingReportPage />}
+      />
+      <Route
+        path="reports/local-order-tracking"
+        element={<LocalOrderTrackingReportPage />}
+      />
+      <Route
+        path="reports/purchase-tracking"
+        element={<PurchaseTrackingReportPage />}
+      />
       <Route path="*" element={<Navigate to="/purchase" replace />} />
     </Routes>
   );

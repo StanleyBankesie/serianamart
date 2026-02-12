@@ -17,75 +17,7 @@ function escapeHtml(v) {
     .replace(/'/g, "&#39;");
 }
 
-function resolvePath(obj, rawPath) {
-  const path = String(rawPath || "")
-    .trim()
-    .replace(/^\./, "");
-  if (!path) return undefined;
-  const parts = path.split(".").filter(Boolean);
-  let cur = obj;
-  for (const p of parts) {
-    if (cur == null) return undefined;
-    cur = cur[p];
-  }
-  return cur;
-}
-
-function renderTemplateString(templateHtml, data, root = data) {
-  let out = String(templateHtml ?? "");
-
-  out = out.replace(
-    /{{#each\s+([^}]+)}}([\s\S]*?){{\/each}}/g,
-    (_m, expr, inner) => {
-      const key = String(expr || "").trim();
-      const val = key.startsWith("@root.")
-        ? resolvePath(root, key.slice(6))
-        : (resolvePath(data, key) ?? resolvePath(root, key));
-      const arr = Array.isArray(val) ? val : [];
-      return arr
-        .map((item) => renderTemplateString(inner, item ?? {}, root))
-        .join("");
-    },
-  );
-
-  out = out.replace(/{{{\s*([^}]+?)\s*}}}/g, (_m, expr) => {
-    const key = String(expr || "").trim();
-    let val;
-    if (key === "this" || key === ".") val = data;
-    else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-    else val = resolvePath(data, key) ?? resolvePath(root, key);
-    return String(val ?? "");
-  });
-
-  out = out.replace(/{{\s*([^}]+?)\s*}}/g, (_m, expr) => {
-    const key = String(expr || "").trim();
-    let val;
-    if (key === "this" || key === ".") val = data;
-    else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-    else val = resolvePath(data, key) ?? resolvePath(root, key);
-    return escapeHtml(val);
-  });
-
-  return out;
-}
-
-function wrapDoc(bodyHtml) {
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Document</title>
-    <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 16px; color: #0f172a; }
-      table { border-collapse: collapse; width: 100%; }
-      th, td { border: 1px solid #e2e8f0; padding: 6px 8px; vertical-align: top; }
-      th { background: #f8fafc; text-align: left; }
-    </style>
-  </head>
-  <body>${bodyHtml || ""}</body>
-</html>`;
-}
+// Removed legacy template parsing and wrapper utilities
 
 function toAbsoluteUrl(url) {
   const v = String(url || "").trim();
@@ -148,7 +80,6 @@ export default function PosInvoiceList() {
   });
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [receiptHtml, setReceiptHtml] = useState("");
-  const [receiptTemplateHtml, setReceiptTemplateHtml] = useState(null);
   const [receiptSettings, setReceiptSettings] = useState({});
 
   useEffect(() => {
@@ -373,18 +304,7 @@ export default function PosInvoiceList() {
     window.print();
   }
 
-  const fetchReceiptTemplateHtml = async () => {
-    if (receiptTemplateHtml !== null) return receiptTemplateHtml;
-    try {
-      const res = await api.get("/admin/document-templates/RECEIPT");
-      const tpl = String(res.data?.item?.template_html || "").trim();
-      setReceiptTemplateHtml(tpl);
-      return tpl;
-    } catch {
-      setReceiptTemplateHtml("");
-      return "";
-    }
-  };
+  // Removed legacy receipt template fetching
 
   function buildReceiptTemplateData(sale, details) {
     const settings = receiptSettings || {};
@@ -469,83 +389,9 @@ export default function PosInvoiceList() {
     };
   }
 
-  const buildReceiptHtmlWithTemplate = async (sale, details) => {
-    const tpl = await fetchReceiptTemplateHtml();
-    if (!tpl) return null;
-    const data = buildReceiptTemplateData(sale, details);
-    return wrapDoc(renderTemplateString(tpl, data));
-  };
+  // Removed legacy template printing helpers
 
-  const printUsingReceiptTemplate = async (sale, details) => {
-    const html = await buildReceiptHtmlWithTemplate(sale, details);
-    if (!html) return false;
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    document.body.appendChild(iframe);
-    const doc =
-      iframe.contentWindow?.document || iframe.contentDocument || null;
-    if (!doc) {
-      document.body.removeChild(iframe);
-      return true;
-    }
-    doc.open();
-    doc.write(html);
-    doc.close();
-    const win = iframe.contentWindow || window;
-    const handlePrint = () => {
-      win.focus();
-      try {
-        win.print();
-      } catch {}
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 100);
-    };
-    setTimeout(handlePrint, 200);
-    return true;
-  };
-
-  const downloadPdfUsingReceiptTemplate = async (sale, details, row) => {
-    const tpl = await fetchReceiptTemplateHtml();
-    if (!tpl) return false;
-    const data = buildReceiptTemplateData(sale, details);
-    const html = renderTemplateString(tpl, data);
-    const container = document.createElement("div");
-    container.style.position = "fixed";
-    container.style.left = "-10000px";
-    container.style.top = "0";
-    container.style.width = "794px";
-    container.style.background = "white";
-    container.style.padding = "32px";
-    container.innerHTML = html;
-    document.body.appendChild(container);
-    try {
-      await waitForImages(container);
-      const canvas = await html2canvas(container, { scale: 2, useCORS: true });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let rendered = 0;
-      while (rendered < imgHeight) {
-        pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
-        rendered += pageHeight;
-        if (rendered < imgHeight) pdf.addPage();
-      }
-      const fname = `POS_Invoice_${sale?.sale_no || row?.id || ""}.pdf`;
-      pdf.save(fname);
-    } finally {
-      document.body.removeChild(container);
-    }
-    return true;
-  };
+  // Removed legacy template PDF download helper
 
   function buildReceiptHtml(sale, details) {
     const settings = receiptSettings || {};
@@ -709,9 +555,7 @@ export default function PosInvoiceList() {
         alert("Invoice not found");
         return;
       }
-      const html =
-        (await buildReceiptHtmlWithTemplate(sale, details)) ||
-        buildReceiptHtml(sale, details);
+      const html = buildReceiptHtml(sale, details);
       setReceiptHtml(html);
       setShowReceiptModal(true);
     } catch {
@@ -732,8 +576,6 @@ export default function PosInvoiceList() {
         alert("Invoice not found");
         return;
       }
-      const used = await printUsingReceiptTemplate(sale, details);
-      if (used) return;
       const html = buildReceiptHtml(sale, details);
       const iframe = document.createElement("iframe");
       iframe.style.position = "fixed";
@@ -780,8 +622,6 @@ export default function PosInvoiceList() {
         alert("Invoice not found");
         return;
       }
-      const used = await downloadPdfUsingReceiptTemplate(sale, details, row);
-      if (used) return;
       const settings = receiptSettings || {};
       const companyName = String(
         companyInfo.name || settings.companyName || "Company Name",

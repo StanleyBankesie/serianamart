@@ -195,52 +195,6 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
   }
-  function resolvePath(obj, rawPath) {
-    const path = String(rawPath || "")
-      .trim()
-      .replace(/^\./, "");
-    if (!path) return undefined;
-    const parts = path.split(".").filter(Boolean);
-    let cur = obj;
-    for (const p of parts) {
-      if (cur == null) return undefined;
-      cur = cur[p];
-    }
-    return cur;
-  }
-  function renderTemplateString(templateHtml, data, root = data) {
-    let out = String(templateHtml ?? "");
-    out = out.replace(
-      /{{#each\s+([^}]+)}}([\s\S]*?){{\/each}}/g,
-      (_m, expr, inner) => {
-        const key = String(expr || "").trim();
-        const val = key.startsWith("@root.")
-          ? resolvePath(root, key.slice(6))
-          : (resolvePath(data, key) ?? resolvePath(root, key));
-        const arr = Array.isArray(val) ? val : [];
-        return arr
-          .map((item) => renderTemplateString(inner, item ?? {}, root))
-          .join("");
-      },
-    );
-    out = out.replace(/{{{\s*([^}]+?)\s*}}}/g, (_m, expr) => {
-      const key = String(expr || "").trim();
-      let val;
-      if (key === "this" || key === ".") val = data;
-      else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-      else val = resolvePath(data, key) ?? resolvePath(root, key);
-      return String(val ?? "");
-    });
-    out = out.replace(/{{\s*([^}]+?)\s*}}/g, (_m, expr) => {
-      const key = String(expr || "").trim();
-      let val;
-      if (key === "this" || key === ".") val = data;
-      else if (key.startsWith("@root.")) val = resolvePath(root, key.slice(6));
-      else val = resolvePath(data, key) ?? resolvePath(root, key);
-      return escapeHtml(val);
-    });
-    return out;
-  }
   function wrapDoc(bodyHtml) {
     return `<!doctype html>
 <html>
@@ -249,10 +203,27 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Voucher</title>
     <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 16px; color: #0f172a; }
-      table { border-collapse: collapse; width: 100%; }
-      th, td { border: 1px solid #e2e8f0; padding: 6px 8px; vertical-align: top; }
-      th { background: #f8fafc; text-align: left; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 24px; color: #0f172a; background: #fff; }
+      .vh { font-size: 12px; }
+      .vh table { border-collapse: collapse; width: 100%; }
+      .vh th, .vh td { border: 1px solid #e2e8f0; padding: 6px 8px; vertical-align: top; }
+      .vh th { background: #f8fafc; text-align: left; }
+      .vh .right { text-align: right; }
+      .vh .center { text-align: center; }
+      .vh-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
+      .vh-logo { min-width: 120px; max-width: 200px; }
+      .vh-company { text-align: right; font-size: 11px; line-height: 1.35; }
+      .vh-company .name { font-weight: 800; font-size: 14px; }
+      .vh-titlebar { display: flex; align-items: center; gap: 10px; color: #0f172a; margin: 4px 0 10px; }
+      .vh-titlebar .line { flex: 1; height: 1px; background: #0f172a; }
+      .vh-titlebar .title { font-weight: 700; }
+      .vh-details { width: 100%; margin-bottom: 10px; border: 1px solid #cbd5e1; }
+      .vh-details td { border-color: #cbd5e1; }
+      .vh-details .label { width: 32%; color: #475569; }
+      .vh-details .label-wide { width: 40%; color: #475569; }
+      .vh-items thead th { font-weight: 600; }
+      .vh-footer a { color: inherit; text-decoration: underline; }
+      @media print { button { display: none; } }
     </style>
   </head>
   <body>${bodyHtml || ""}</body>
@@ -273,30 +244,162 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
       ),
     );
   }
-  const fetchReceiptTemplateHtml = async () => {
-    if (receiptTemplateHtml !== null) return receiptTemplateHtml;
-    try {
-      const res = await api.get("/admin/document-templates/RECEIPT_VOUCHER");
-      const tpl = String(res.data?.item?.template_html || "").trim();
-      setReceiptTemplateHtml(tpl);
-      return tpl;
-    } catch {
-      setReceiptTemplateHtml("");
-      return "";
-    }
-  };
-  const fetchPaymentTemplateHtml = async () => {
-    if (paymentTemplateHtml !== null) return paymentTemplateHtml;
-    try {
-      const res = await api.get("/admin/document-templates/PAYMENT_VOUCHER");
-      const tpl = String(res.data?.item?.template_html || "").trim();
-      setPaymentTemplateHtml(tpl);
-      return tpl;
-    } catch {
-      setPaymentTemplateHtml("");
-      return "";
-    }
-  };
+  function renderReceiptVoucherHtml(data) {
+    const c = data.company || {};
+    const r = data.receipt || {};
+    const items = Array.isArray(data.items) ? data.items : [];
+    const t = data.totals || {};
+    return `
+    <div class="vh">
+      <div class="vh-header">
+        <div class="vh-logo">${c.logoHtml || ""}</div>
+        <div class="vh-company">
+          <div class="name">${escapeHtml(c.name || "")}</div>
+          <div>${escapeHtml(c.addressLine1 || "")}</div>
+          <div>${escapeHtml(c.addressLine2 || "")}</div>
+          <div>Telephone: ${escapeHtml(c.phone || "")}</div>
+          <div>${escapeHtml(c.website || "")}</div>
+          <div>TIN: ${escapeHtml(c.taxId || "")} &nbsp; Reg: ${escapeHtml(c.registrationNo || "")}</div>
+        </div>
+      </div>
+      <div class="vh-titlebar">
+        <div class="line"></div>
+        <div class="title">* Receipt Voucher *</div>
+        <div class="line"></div>
+      </div>
+      <table class="vh-details">
+        <tr>
+          <td style="width:50%;vertical-align:top;border-right:1px solid #cbd5e1;">
+            <table style="width:100%;">
+              <tr><td class="label-wide">Receipt No</td><td>:</td><td>${escapeHtml(r.receiptNo || "")}</td></tr>
+              <tr><td class="label-wide">Date/Time</td><td>:</td><td>${escapeHtml(r.dateTime || "")}</td></tr>
+              <tr><td class="label-wide">Method</td><td>:</td><td>${escapeHtml(r.paymentMethod || "")}</td></tr>
+            </table>
+          </td>
+          <td style="width:50%;vertical-align:top;">
+            <div style="padding:8px;">
+              <div class="label">Narration</div>
+              <div>${escapeHtml(r.headerText || "")}</div>
+            </div>
+          </td>
+        </tr>
+      </table>
+      <table class="vh-items">
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th class="right" style="width:22%;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items
+            .map(
+              (it) => `
+            <tr>
+              <td>${escapeHtml(it.name || "")}</td>
+              <td class="right">${escapeHtml(it.lineTotal || it.price || "0.00")}</td>
+            </tr>
+          `,
+            )
+            .join("")}
+          <tr>
+            <td class="right"><strong>Subtotal</strong></td>
+            <td class="right"><strong>${escapeHtml(Number(t.subtotal || 0).toFixed(2))}</strong></td>
+          </tr>
+          <tr>
+            <td class="right">Tax</td>
+            <td class="right">${escapeHtml(Number(t.tax || 0).toFixed(2))}</td>
+          </tr>
+          <tr>
+            <td class="right"><strong>Total</strong></td>
+            <td class="right"><strong>${escapeHtml(Number(t.total || t.grand || 0).toFixed(2))}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="vh-footer" style="margin-top:10px;text-align:center;">
+        <div>${escapeHtml(r.footerText || "")}</div>
+      </div>
+    </div>
+    `;
+  }
+  function renderPaymentVoucherHtml(data) {
+    const c = data.company || {};
+    const p = data.payment || {};
+    const items = Array.isArray(data.items) ? data.items : [];
+    const t = data.totals || {};
+    return `
+    <div class="vh">
+      <div class="vh-header">
+        <div class="vh-logo">${c.logoHtml || ""}</div>
+        <div class="vh-company">
+          <div class="name">${escapeHtml(c.name || "")}</div>
+          <div>${escapeHtml(c.addressLine1 || "")}</div>
+          <div>${escapeHtml(c.addressLine2 || "")}</div>
+          <div>Telephone: ${escapeHtml(c.phone || "")}</div>
+          <div>${escapeHtml(c.website || "")}</div>
+          <div>TIN: ${escapeHtml(c.taxId || "")} &nbsp; Reg: ${escapeHtml(c.registrationNo || "")}</div>
+        </div>
+      </div>
+      <div class="vh-titlebar">
+        <div class="line"></div>
+        <div class="title">* Payment Voucher *</div>
+        <div class="line"></div>
+      </div>
+      <table class="vh-details">
+        <tr>
+          <td style="width:50%;vertical-align:top;border-right:1px solid #cbd5e1;">
+            <table style="width:100%;">
+              <tr><td class="label-wide">Payment No</td><td>:</td><td>${escapeHtml(p.paymentNo || "")}</td></tr>
+              <tr><td class="label-wide">Date/Time</td><td>:</td><td>${escapeHtml(p.dateTime || "")}</td></tr>
+              <tr><td class="label-wide">Method</td><td>:</td><td>${escapeHtml(p.paymentMethod || "")}</td></tr>
+            </table>
+          </td>
+          <td style="width:50%;vertical-align:top;">
+            <div style="padding:8px;">
+              <div class="label">Narration</div>
+              <div>${escapeHtml(p.headerText || "")}</div>
+            </div>
+          </td>
+        </tr>
+      </table>
+      <table class="vh-items">
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th class="right" style="width:22%;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items
+            .map(
+              (it) => `
+            <tr>
+              <td>${escapeHtml(it.name || "")}</td>
+              <td class="right">${escapeHtml(it.lineTotal || it.price || "0.00")}</td>
+            </tr>
+          `,
+            )
+            .join("")}
+          <tr>
+            <td class="right"><strong>Subtotal</strong></td>
+            <td class="right"><strong>${escapeHtml(Number(t.subtotal || 0).toFixed(2))}</strong></td>
+          </tr>
+          <tr>
+            <td class="right">Tax</td>
+            <td class="right">${escapeHtml(Number(t.tax || 0).toFixed(2))}</td>
+          </tr>
+          <tr>
+            <td class="right"><strong>Total</strong></td>
+            <td class="right"><strong>${escapeHtml(Number(t.total || t.grand || 0).toFixed(2))}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="vh-footer" style="margin-top:10px;text-align:center;">
+        <div>${escapeHtml(p.footerText || "")}</div>
+      </div>
+    </div>
+    `;
+  }
   function buildReceiptVoucherTemplateDataFromApi(voucher, lines) {
     const logoUrl = String(companyInfo.logoUrl || "").trim();
     const logoHtml = logoUrl
@@ -416,86 +519,45 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
       const res = await api.get(`/finance/vouchers/${id}`);
       const v = res.data?.voucher || {};
       const lines = Array.isArray(res.data?.lines) ? res.data.lines : [];
-      if (isRV) {
-        const tpl = await fetchReceiptTemplateHtml();
-        if (tpl) {
-          const body = renderTemplateString(
-            tpl,
-            buildReceiptVoucherTemplateDataFromApi(v, lines),
-          );
-          const html = wrapDoc(body);
-          const iframe = document.createElement("iframe");
-          iframe.style.position = "fixed";
-          iframe.style.right = "0";
-          iframe.style.bottom = "0";
-          iframe.style.width = "0";
-          iframe.style.height = "0";
-          iframe.style.border = "0";
-          document.body.appendChild(iframe);
-          const doc =
-            iframe.contentWindow?.document || iframe.contentDocument || null;
-          if (!doc) {
-            document.body.removeChild(iframe);
-            window.print();
-            return;
-          }
-          doc.open();
-          doc.write(html);
-          doc.close();
-          const win = iframe.contentWindow || window;
-          const doPrint = () => {
-            win.focus();
-            try {
-              win.print();
-            } catch {}
-            setTimeout(() => {
-              document.body.removeChild(iframe);
-            }, 100);
-          };
-          setTimeout(doPrint, 200);
-          return;
-        }
-      } else if (isPV) {
-        const tpl = await fetchPaymentTemplateHtml();
-        if (tpl) {
-          const body = renderTemplateString(
-            tpl,
-            buildPaymentVoucherTemplateDataFromApi(v, lines),
-          );
-          const html = wrapDoc(body);
-          const iframe = document.createElement("iframe");
-          iframe.style.position = "fixed";
-          iframe.style.right = "0";
-          iframe.style.bottom = "0";
-          iframe.style.width = "0";
-          iframe.style.height = "0";
-          iframe.style.border = "0";
-          document.body.appendChild(iframe);
-          const doc =
-            iframe.contentWindow?.document || iframe.contentDocument || null;
-          if (!doc) {
-            document.body.removeChild(iframe);
-            window.print();
-            return;
-          }
-          doc.open();
-          doc.write(html);
-          doc.close();
-          const win = iframe.contentWindow || window;
-          const doPrint = () => {
-            win.focus();
-            try {
-              win.print();
-            } catch {}
-            setTimeout(() => {
-              document.body.removeChild(iframe);
-            }, 100);
-          };
-          setTimeout(doPrint, 200);
-          return;
-        }
+      const body =
+        isRV
+          ? renderReceiptVoucherHtml(
+              buildReceiptVoucherTemplateDataFromApi(v, lines),
+            )
+          : isPV
+            ? renderPaymentVoucherHtml(
+                buildPaymentVoucherTemplateDataFromApi(v, lines),
+              )
+            : "";
+      const html = wrapDoc(body);
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "fixed";
+      iframe.style.right = "0";
+      iframe.style.bottom = "0";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "0";
+      document.body.appendChild(iframe);
+      const doc = iframe.contentWindow?.document || iframe.contentDocument || null;
+      if (!doc) {
+        document.body.removeChild(iframe);
+        window.print();
+        return;
       }
-      window.print();
+      doc.open();
+      doc.write(html);
+      doc.close();
+      const win = iframe.contentWindow || window;
+      const doPrint = () => {
+        win.focus();
+        try {
+          win.print();
+        } catch {}
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+        }, 100);
+      };
+      setTimeout(doPrint, 200);
     } catch {}
   }
   async function downloadVoucherPdf(id) {
@@ -503,27 +565,17 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
       const res = await api.get(`/finance/vouchers/${id}`);
       const v = res.data?.voucher || {};
       const lines = Array.isArray(res.data?.lines) ? res.data.lines : [];
-      let html = "";
-      if (isRV) {
-        const tpl = await fetchReceiptTemplateHtml();
-        const body = tpl
-          ? renderTemplateString(
-              tpl,
+      const body =
+        isRV
+          ? renderReceiptVoucherHtml(
               buildReceiptVoucherTemplateDataFromApi(v, lines),
             )
-          : "";
-        html = body || "";
-      } else if (isPV) {
-        const tpl = await fetchPaymentTemplateHtml();
-        const body = tpl
-          ? renderTemplateString(
-              tpl,
-              buildPaymentVoucherTemplateDataFromApi(v, lines),
-            )
-          : "";
-        html = body || "";
-      }
-      if (!html) return;
+          : isPV
+            ? renderPaymentVoucherHtml(
+                buildPaymentVoucherTemplateDataFromApi(v, lines),
+              )
+            : "";
+      if (!body) return;
       const container = document.createElement("div");
       container.style.position = "fixed";
       container.style.left = "-10000px";
@@ -531,7 +583,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
       container.style.width = "794px";
       container.style.background = "white";
       container.style.padding = "32px";
-      container.innerHTML = html;
+      container.innerHTML = body;
       document.body.appendChild(container);
       try {
         await waitForImages(container);
