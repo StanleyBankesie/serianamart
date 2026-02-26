@@ -52,6 +52,13 @@ if (isProd && fs.existsSync(prodPath)) {
 
 const app = express();
 
+/* ---------------- UTILS ---------------- */
+const boolEnv = (v) => {
+  if (v == null) return false;
+  const s = String(v).toLowerCase().trim();
+  return s === "1" || s === "true" || s === "yes" || s === "on";
+};
+
 /* ---------------- CORS ---------------- */
 const allowedOrigins = (() => {
   const raw = String(process.env.CORS_ALLOWED_ORIGINS || "").trim();
@@ -97,6 +104,14 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 /* ---------------- DB ---------------- */
 
 /* ---------------- ROUTES ---------------- */
+if (boolEnv(process.env.DISABLE_KEEP_ALIVE)) {
+  app.use((req, res, next) => {
+    try {
+      res.setHeader("Connection", "close");
+    } catch {}
+    next();
+  });
+}
 app.use(
   "/uploads",
   express.static(
@@ -198,10 +213,35 @@ const PORT = Number(process.env.PORT || 4002);
 // Create HTTP server for Socket.io
 const server = http.createServer(app);
 
+// Timeouts to avoid long-hanging connections in managed hosting
+try {
+  const keepAliveMs = Number(process.env.KEEP_ALIVE_TIMEOUT_MS || 60000);
+  const headersMs = Number(process.env.HEADERS_TIMEOUT_MS || 65000);
+  const requestMs = process.env.REQUEST_TIMEOUT_MS
+    ? Number(process.env.REQUEST_TIMEOUT_MS)
+    : undefined;
+  server.keepAliveTimeout = keepAliveMs;
+  server.headersTimeout = headersMs;
+  if (requestMs !== undefined && Number.isFinite(requestMs)) {
+    server.requestTimeout = requestMs;
+  }
+} catch {}
+
 // Initialize Socket.io
 let ioInstance = null;
-if (process.env.NODE_ENV !== "test") {
+const socketsDisabled =
+  boolEnv(process.env.DISABLE_SOCKETS) ||
+  boolEnv(process.env.DISABLE_LONG_CONNECTIONS);
+if (process.env.NODE_ENV !== "test" && !socketsDisabled) {
   ioInstance = initializeSocket(server);
+} else {
+  try {
+    console.log(
+      socketsDisabled
+        ? "Socket.io disabled by environment"
+        : "Skipping Socket.io in test environment",
+    );
+  } catch {}
 }
 
 // Export io for use in other modules
