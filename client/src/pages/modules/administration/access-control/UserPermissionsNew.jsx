@@ -8,7 +8,12 @@ export default function UserPermissions() {
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
-  const { refreshPermissions, setGlobalOverrides } = usePermission();
+  const {
+    refreshPermissions,
+    setGlobalOverrides,
+    setActionSessionOverride,
+    clearSessionOverrides,
+  } = usePermission();
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [roleId, setRoleId] = useState(null);
@@ -228,6 +233,17 @@ export default function UserPermissions() {
       }
       return next;
     });
+    try {
+      setActionSessionOverride(fk, action, value);
+      if (action === "can_view" && value === false) {
+        setActionSessionOverride(fk, "can_create", false);
+        setActionSessionOverride(fk, "can_edit", false);
+        setActionSessionOverride(fk, "can_delete", false);
+      }
+      if (action !== "can_view" && value === true) {
+        setActionSessionOverride(fk, "can_view", true);
+      }
+    } catch {}
   }
 
   async function save() {
@@ -323,6 +339,9 @@ export default function UserPermissions() {
       } catch {}
 
       const msg = "Permissions saved successfully";
+      try {
+        clearSessionOverrides();
+      } catch {}
       resetSelection();
       navigate("/administration/access/user-permissions", {
         state: { success: msg },
@@ -405,6 +424,21 @@ export default function UserPermissions() {
       }
       return next;
     });
+    try {
+      for (const fkRaw of keys) {
+        const fk = String(fkRaw || "").trim();
+        if (!fk) continue;
+        setActionSessionOverride(fk, action, checked);
+        if (action !== "can_view" && checked === true) {
+          setActionSessionOverride(fk, "can_view", true);
+        }
+        if (action === "can_view" && checked === false) {
+          setActionSessionOverride(fk, "can_create", false);
+          setActionSessionOverride(fk, "can_edit", false);
+          setActionSessionOverride(fk, "can_delete", false);
+        }
+      }
+    } catch {}
   }
 
   return (

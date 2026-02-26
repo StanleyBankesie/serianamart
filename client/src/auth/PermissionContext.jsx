@@ -36,40 +36,52 @@ export const PermissionProvider = ({ children }) => {
   const [roleFeatures, setRoleFeatures] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [sessionOverrides, setSessionOverrides] = useState(() => new Map());
+  const [pagePermsByPath, setPagePermsByPath] = useState(() => new Map());
+  const [pagePermsPending, setPagePermsPending] = useState(() => new Set());
   const [globalOverrides, setGlobalOverrides] = useState(() => {
     if (typeof localStorage === "undefined") {
-      return { view: false, create: false, edit: false, delete: false };
+      return {
+        view: undefined,
+        create: undefined,
+        edit: undefined,
+        delete: undefined,
+      };
     }
     try {
+      const getVal = (k) => {
+        const raw = localStorage.getItem(k);
+        if (raw === "1") return true;
+        if (raw === "0") return undefined;
+        return undefined;
+      };
       return {
-        view: localStorage.getItem("rbac_allow_all_view") === "1",
-        create: localStorage.getItem("rbac_allow_all_create") === "1",
-        edit: localStorage.getItem("rbac_allow_all_edit") === "1",
-        delete: localStorage.getItem("rbac_allow_all_delete") === "1",
+        view: getVal("rbac_allow_all_view"),
+        create: getVal("rbac_allow_all_create"),
+        edit: getVal("rbac_allow_all_edit"),
+        delete: getVal("rbac_allow_all_delete"),
       };
     } catch {
-      return { view: false, create: false, edit: false, delete: false };
+      return {
+        view: undefined,
+        create: undefined,
+        edit: undefined,
+        delete: undefined,
+      };
     }
   });
   useEffect(() => {
     try {
       if (typeof localStorage !== "undefined") {
-        localStorage.setItem(
-          "rbac_allow_all_view",
-          globalOverrides.view ? "1" : "0",
-        );
-        localStorage.setItem(
-          "rbac_allow_all_create",
-          globalOverrides.create ? "1" : "0",
-        );
-        localStorage.setItem(
-          "rbac_allow_all_edit",
-          globalOverrides.edit ? "1" : "0",
-        );
-        localStorage.setItem(
-          "rbac_allow_all_delete",
-          globalOverrides.delete ? "1" : "0",
-        );
+        const setOrRemove = (key, val) => {
+          if (val === true) localStorage.setItem(key, "1");
+          else if (val === false) localStorage.setItem(key, "0");
+          else localStorage.removeItem(key);
+        };
+        setOrRemove("rbac_allow_all_view", globalOverrides.view);
+        setOrRemove("rbac_allow_all_create", globalOverrides.create);
+        setOrRemove("rbac_allow_all_edit", globalOverrides.edit);
+        setOrRemove("rbac_allow_all_delete", globalOverrides.delete);
       }
     } catch {}
   }, [globalOverrides]);
@@ -175,6 +187,82 @@ export const PermissionProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const basePathFrom = (p) => {
+    const raw = String(p || "").trim() || "/";
+    const parts = raw.split("/").filter(Boolean);
+    if (parts.length >= 2) {
+      const last = parts[parts.length - 1];
+      if (last === "new" || last === "create") {
+        return `/${parts.slice(0, parts.length - 1).join("/")}`;
+      }
+      if (/^[0-9]+$/.test(last) || /^[0-9a-fA-F-]{8,}$/.test(last)) {
+        return `/${parts.slice(0, parts.length - 1).join("/")}`;
+      }
+      return `/${parts.slice(0, 2).join("/")}`;
+    }
+    if (parts.length === 1) return `/${parts[0]}`;
+    return "/";
+  };
+
+  const ensurePagePerms = async (path) => {
+    const base = basePathFrom(path);
+    if (!base) return null;
+    if (pagePermsByPath.has(base)) return pagePermsByPath.get(base);
+    if (pagePermsPending.has(base)) return null;
+    setPagePermsPending((prev) => new Set(prev).add(base));
+    try {
+      const res = await api.get(
+        `/admin/page-permissions?path=${encodeURIComponent(base)}`,
+      );
+      const row = res?.data || {};
+      const perms = {
+        can_view: !!row.can_view,
+        can_create: !!row.can_create,
+        can_edit: !!row.can_edit,
+        can_delete: !!row.can_delete,
+      };
+      setPagePermsByPath((prev) => {
+        const next = new Map(prev);
+        next.set(base, perms);
+        return next;
+      });
+      try {
+        window.dispatchEvent(new Event("rbac:updated"));
+      } catch {}
+      return perms;
+    } catch {
+      return null;
+    } finally {
+      setPagePermsPending((prev) => {
+        const next = new Set(prev);
+        next.delete(base);
+        return next;
+      });
+    }
+  };
+
+  const getPagePerms = (path) => {
+    const base = basePathFrom(path);
+    if (!base) return null;
+    return pagePermsByPath.get(base) || null;
+  };
+
+  const canPerformPageAction = (path, action = "view") => {
+    const perms = getPagePerms(path);
+    if (!perms) return null;
+    const key =
+      action === "view"
+        ? "can_view"
+        : action === "create"
+          ? "can_create"
+          : action === "edit"
+            ? "can_edit"
+            : action === "delete"
+              ? "can_delete"
+              : `can_${action}`;
+    return perms[key] === true;
   };
 
   /**
@@ -317,6 +405,62 @@ export const PermissionProvider = ({ children }) => {
     const fk = String(featureKey || "").trim();
     if (!fk) return false;
     if (isSuper) return true;
+    try {
+      const path =
+        (typeof window !== "undefined" &&
+          window.location &&
+          window.location.pathname) ||
+        "/";
+      const base = basePathFrom ? basePathFrom(path) : path;
+      if (base && pagePermsByPath && pagePermsByPath.has(base)) {
+        const perms = pagePermsByPath.get(base);
+        const k =
+          action === "view"
+            ? "can_view"
+            : action === "create"
+              ? "can_create"
+              : action === "edit"
+                ? "can_edit"
+                : action === "delete"
+                  ? "can_delete"
+                  : `can_${action}`;
+        if (typeof perms?.[k] === "boolean") {
+          return perms[k] === true;
+        }
+      } else if (ensurePagePerms && base) {
+        // Fire-and-forget fetch to populate, re-render will occur on update
+        ensurePagePerms(base);
+      }
+    } catch {}
+    const sess = sessionOverrides.get(fk);
+    if (sess) {
+      const k =
+        action === "view"
+          ? "can_view"
+          : action === "create"
+            ? "can_create"
+            : action === "edit"
+              ? "can_edit"
+              : action === "delete"
+                ? "can_delete"
+                : `can_${action}`;
+      if (typeof sess[k] === "boolean") return !!sess[k];
+    }
+    const act =
+      action === "delete"
+        ? "delete"
+        : action === "create"
+          ? "create"
+          : action === "edit"
+            ? "edit"
+            : "view";
+    if (
+      globalOverrides &&
+      Object.prototype.hasOwnProperty.call(globalOverrides, act) &&
+      typeof globalOverrides[act] === "boolean"
+    ) {
+      return globalOverrides[act] === true;
+    }
 
     const perm = permByFeatureKey.get(fk);
     if (!perm) return false;
@@ -433,6 +577,42 @@ export const PermissionProvider = ({ children }) => {
     MODULES_REGISTRY,
     globalOverrides,
     setGlobalOverrides,
+    sessionOverrides,
+    setSessionOverrides,
+    pagePermsByPath,
+    ensurePagePerms,
+    getPagePerms,
+    canPerformPageAction,
+    basePathFrom,
+    setActionSessionOverride: (fk, action, value) => {
+      const key =
+        action === "can_view"
+          ? "can_view"
+          : action === "can_create"
+            ? "can_create"
+            : action === "can_edit"
+              ? "can_edit"
+              : action === "can_delete"
+                ? "can_delete"
+                : action;
+      const featureKey = String(fk || "").trim();
+      if (!featureKey || !key) return;
+      setSessionOverrides((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(featureKey) || {};
+        next.set(featureKey, { ...existing, [key]: !!value });
+        return next;
+      });
+      try {
+        window.dispatchEvent(new Event("rbac:updated"));
+      } catch {}
+    },
+    clearSessionOverrides: () => {
+      setSessionOverrides(new Map());
+      try {
+        window.dispatchEvent(new Event("rbac:updated"));
+      } catch {}
+    },
   };
 
   return (

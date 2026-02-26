@@ -4,8 +4,6 @@ import { useAuth } from "../../auth/AuthContext";
 import { usePermission } from "../../auth/PermissionContext.jsx";
 import client from "../../api/client";
 import CompanyFeed from "../../components/CompanyFeed/CompanyFeed";
-import FloatingChatButton from "../../components/FloatingChatButton.jsx";
-import ChatWidget from "../../components/ChatWidget.jsx";
 
 export default function HomePage() {
   const { user, token } = useAuth();
@@ -24,7 +22,7 @@ export default function HomePage() {
   const [modalLoading, setModalLoading] = useState(false);
   const [modalProcessing, setModalProcessing] = useState(false);
   const [modalNextUser, setModalNextUser] = useState(null);
-  const [showChatWidget, setShowChatWidget] = useState(false);
+  // legacy chat widget removed
 
   useEffect(() => {
     let cancelled = false;
@@ -857,8 +855,7 @@ export default function HomePage() {
           </div>
         </div>
       )}
-      <FloatingChatButton onOpen={() => setShowChatWidget(true)} />
-      {showChatWidget && <ChatWidget onClose={() => setShowChatWidget(false)} />}
+      {/* chat v2 floating widget is mounted globally in AppShell */}
     </div>
   );
 }

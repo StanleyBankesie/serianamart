@@ -40,7 +40,7 @@ import useOfflineQueue from "../offline/useOfflineQueue.js";
 import FloatingInstallButton from "../components/FloatingInstallButton.jsx";
 import { toast } from "react-toastify";
 import { Bell } from "lucide-react";
-import ChatPage from "../pages/chat/ChatPage.jsx";
+import FloatingChatV2 from "../components/chatv2/FloatingChatV2.jsx";
 
 const modules = [
   {
@@ -89,7 +89,14 @@ const modules = [
 
 export default function AppShell() {
   const { token, user, scope, setScope, logout } = useAuth();
-  const { isModuleEnabled, canPerformAction, globalOverrides } = usePermission();
+  const {
+    isModuleEnabled,
+    canPerformAction,
+    globalOverrides,
+    canPerformPageAction,
+    ensurePagePerms,
+    basePathFrom,
+  } = usePermission();
   const { theme } = useTheme();
   const { pending, failed, completed, items, lastEvent } = useOfflineQueue();
   const navigate = useNavigate();
@@ -148,6 +155,9 @@ export default function AppShell() {
   useEffect(() => {
     async function logPageView() {
       try {
+        if (import.meta && import.meta.env && import.meta.env.DEV) {
+          return;
+        }
         const path = location.pathname || "/";
         const seg = path.split("/").filter(Boolean)[0] || "dashboard";
         const moduleName = seg
@@ -249,6 +259,9 @@ export default function AppShell() {
     let cancelled = false;
     async function subscribePush() {
       try {
+        if (import.meta && import.meta.env && import.meta.env.DEV) {
+          return;
+        }
         const raw =
           typeof localStorage !== "undefined"
             ? localStorage.getItem("push_enabled")
@@ -567,6 +580,16 @@ export default function AppShell() {
   }, []);
 
   useEffect(() => {
+    // Proactively prefetch page-level permissions on route change
+    try {
+      if (ensurePagePerms && typeof location?.pathname === "string") {
+        const path = location.pathname || "/";
+        ensurePagePerms(path);
+      }
+    } catch {}
+  }, [location.pathname, ensurePagePerms]);
+
+  useEffect(() => {
     let raf = 0;
     const labels = {
       create: ["+", "new", "create", "generate", "add"],
@@ -598,36 +621,141 @@ export default function AppShell() {
       if (parts.length >= 2) return `${parts[0]}:${parts[1]}`;
       return null;
     };
+    const resolveBasePath = () => {
+      const path = (window.location && window.location.pathname) || "/";
+      try {
+        return basePathFrom(path);
+      } catch {
+        const parts = path.split("/").filter(Boolean);
+        if (parts.length >= 2) return `/${parts[0]}/${parts[1]}`;
+        if (parts.length === 1) return `/${parts[0]}`;
+        return "/";
+      }
+    };
     const apply = () => {
       const fk = resolveFeatureKey();
-      const go =
-        globalOverrides ||
-        {
-          view: false,
-          create: false,
-          edit: false,
-          delete: false,
-        };
+      const go = globalOverrides || {
+        view: false,
+        create: false,
+        edit: false,
+        delete: false,
+      };
+      const base = resolveBasePath();
+      const pageAllow = {
+        view: canPerformPageAction ? canPerformPageAction(base, "view") : null,
+        create: canPerformPageAction
+          ? canPerformPageAction(base, "create")
+          : null,
+        edit: canPerformPageAction ? canPerformPageAction(base, "edit") : null,
+        delete: canPerformPageAction
+          ? canPerformPageAction(base, "delete")
+          : null,
+      };
+      if (
+        (pageAllow.view === null ||
+          pageAllow.create === null ||
+          pageAllow.edit === null ||
+          pageAllow.delete === null) &&
+        ensurePagePerms
+      ) {
+        try {
+          ensurePagePerms(base);
+        } catch {}
+      }
+      const hasOverride = (v) => typeof v === "boolean";
+      // Build allow map per-action, preferring page-level perms when available
       const allow = {
-        view: go.view || (fk ? canPerformAction(fk, "view") : true),
-        create: go.create || (fk ? canPerformAction(fk, "create") : true),
-        edit: go.edit || (fk ? canPerformAction(fk, "edit") : true),
-        delete: go.delete || (fk ? canPerformAction(fk, "delete") : false),
+        view:
+          typeof pageAllow.view === "boolean"
+            ? pageAllow.view
+            : hasOverride(go.view)
+              ? go.view
+              : fk
+                ? canPerformAction(fk, "view")
+                : true,
+        create:
+          typeof pageAllow.create === "boolean"
+            ? pageAllow.create
+            : hasOverride(go.create)
+              ? go.create
+              : fk
+                ? canPerformAction(fk, "create")
+                : true,
+        edit:
+          typeof pageAllow.edit === "boolean"
+            ? pageAllow.edit
+            : hasOverride(go.edit)
+              ? go.edit
+              : fk
+                ? canPerformAction(fk, "edit")
+                : true,
+        delete:
+          typeof pageAllow.delete === "boolean"
+            ? pageAllow.delete
+            : hasOverride(go.delete)
+              ? go.delete
+              : fk
+                ? canPerformAction(fk, "delete")
+                : false,
       };
       const nodes = Array.from(
         document.querySelectorAll(
           'button, a, [role="button"], input[type="button"], input[type="submit"]',
         ),
       );
+      const attrNames = [
+        "aria-label",
+        "title",
+        "data-label",
+        "data-title",
+        "data-tooltip",
+        "name",
+        "alt",
+        "value",
+      ];
+      const extractTitle = (el) => {
+        for (const n of attrNames) {
+          const v = el.getAttribute && el.getAttribute(n);
+          if (v && String(v).trim()) return String(v);
+        }
+        // Try dataset fallbacks
+        try {
+          const ds = el.dataset || {};
+          for (const k of Object.keys(ds || {})) {
+            const v = ds[k];
+            if (v && String(v).trim()) return String(v);
+          }
+        } catch {}
+        // Fall back to text content
+        return el.textContent || "";
+      };
       for (const el of nodes) {
-        const title =
-          el.getAttribute("aria-label") ||
-          el.getAttribute("title") ||
-          (el.value ? String(el.value) : "") ||
-          el.textContent ||
-          "";
-        const t = norm(title);
+        try {
+          if (
+            (el.getAttribute && el.getAttribute("data-rbac-exempt") === "") ||
+            (el.getAttribute && el.getAttribute("data-rbac-exempt") === "true")
+          ) {
+            continue;
+          }
+        } catch {}
+        const titleRaw = extractTitle(el);
+        const t = norm(titleRaw);
         let action = null;
+        // Prefer explicit data-action or similar hints
+        try {
+          const ds = el.dataset || {};
+          const da = String(ds.action || ds.permission || ds.permAction || "")
+            .toLowerCase()
+            .trim();
+          if (
+            da === "view" ||
+            da === "create" ||
+            da === "edit" ||
+            da === "delete"
+          ) {
+            action = da;
+          }
+        } catch {}
         if (matches(t, labels.create)) {
           action = "create";
         } else if (matches(t, labels.delete)) {
@@ -1085,7 +1213,7 @@ export default function AppShell() {
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/social-feed" element={<SocialFeedPage />} />
               <Route path="/social-feed/:id" element={<SocialFeedPage />} />
-              <Route path="/chat" element={<ChatPage />} />
+              {/* chat v2 renders via floating modal; legacy /chat route removed */}
 
               {/* Admin Routes */}
               <Route path="/admin/roles" element={<RoleSetup />} />
@@ -1098,6 +1226,7 @@ export default function AppShell() {
         </main>
       </div>
       <FloatingInstallButton />
+      <FloatingChatV2 />
     </div>
   );
 }

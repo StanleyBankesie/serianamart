@@ -216,10 +216,7 @@ export const createUser = async (req, res, next) => {
         profile_picture:
           typeof profile_picture === "string"
             ? Buffer.from(
-                String(profile_picture).replace(
-                  /^data:[^;]+;base64,/,
-                  "",
-                ),
+                String(profile_picture).replace(/^data:[^;]+;base64,/, ""),
                 "base64",
               )
             : profile_picture || null,
@@ -549,7 +546,11 @@ export const saveUserFeaturePermissions = async (req, res, next) => {
       );
     }
 
-    res.json({ success: true, message: "Feature permissions saved", data: null });
+    res.json({
+      success: true,
+      message: "Feature permissions saved",
+      data: null,
+    });
   } catch (err) {
     next(err);
   }
@@ -577,7 +578,10 @@ export const getUserFeaturePermissionsContext = async (req, res, next) => {
       return res.json({
         success: true,
         message: "No role assigned to user",
-        data: { user: { id: user.id, username: user.username, email: user.email }, items: [] },
+        data: {
+          user: { id: user.id, username: user.username, email: user.email },
+          items: [],
+        },
       });
     }
 
@@ -611,7 +615,9 @@ export const getUserFeaturePermissionsContext = async (req, res, next) => {
     }
 
     const allFeatures = getAllFeatures();
-    const featureMetaByKey = new Map(allFeatures.map((f) => [String(f.feature_key), f]));
+    const featureMetaByKey = new Map(
+      allFeatures.map((f) => [String(f.feature_key), f]),
+    );
 
     const items = [];
     for (const fk of roleFeatureKeys) {
@@ -623,7 +629,10 @@ export const getUserFeaturePermissionsContext = async (req, res, next) => {
 
       let featurePages = pagesByFeatureKey.get(fk) || [];
       if (!featurePages.length) {
-        const parts = fk.split(":").map((s) => String(s || "").trim()).filter(Boolean);
+        const parts = fk
+          .split(":")
+          .map((s) => String(s || "").trim())
+          .filter(Boolean);
         if (parts.length >= 2) {
           const basePath = `/${parts[0]}/${parts[1]}`;
           featurePages = pages

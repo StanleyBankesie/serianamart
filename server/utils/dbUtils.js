@@ -1139,6 +1139,67 @@ export async function ensureUserPermissionsTable() {
   `);
 }
 
+export async function ensureUserPermissionCacheAndTriggers() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS adm_page_permission_effective (
+      user_id BIGINT UNSIGNED NOT NULL,
+      page_id BIGINT UNSIGNED NOT NULL,
+      can_view TINYINT(1) NOT NULL DEFAULT 0,
+      can_create TINYINT(1) NOT NULL DEFAULT 0,
+      can_edit TINYINT(1) NOT NULL DEFAULT 0,
+      can_delete TINYINT(1) NOT NULL DEFAULT 0,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, page_id),
+      KEY idx_page (page_id),
+      CONSTRAINT fk_e_user FOREIGN KEY (user_id) REFERENCES adm_users(id) ON DELETE CASCADE,
+      CONSTRAINT fk_e_page FOREIGN KEY (page_id) REFERENCES adm_pages(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  // Recreate triggers idempotently
+  await query(`DROP TRIGGER IF EXISTS trg_adm_user_permissions_ai`);
+  await query(`DROP TRIGGER IF EXISTS trg_adm_user_permissions_au`);
+  await query(`DROP TRIGGER IF EXISTS trg_adm_user_permissions_ad`);
+  await query(`
+    CREATE TRIGGER trg_adm_user_permissions_ai
+    AFTER INSERT ON adm_user_permissions
+    FOR EACH ROW
+    BEGIN
+      INSERT INTO adm_page_permission_effective (user_id, page_id, can_view, can_create, can_edit, can_delete, updated_at)
+      VALUES (NEW.user_id, NEW.page_id, NEW.can_view, NEW.can_create, NEW.can_edit, NEW.can_delete, NOW())
+      ON DUPLICATE KEY UPDATE
+        can_view = VALUES(can_view),
+        can_create = VALUES(can_create),
+        can_edit = VALUES(can_edit),
+        can_delete = VALUES(can_delete),
+        updated_at = NOW();
+    END
+  `);
+  await query(`
+    CREATE TRIGGER trg_adm_user_permissions_au
+    AFTER UPDATE ON adm_user_permissions
+    FOR EACH ROW
+    BEGIN
+      INSERT INTO adm_page_permission_effective (user_id, page_id, can_view, can_create, can_edit, can_delete, updated_at)
+      VALUES (NEW.user_id, NEW.page_id, NEW.can_view, NEW.can_create, NEW.can_edit, NEW.can_delete, NOW())
+      ON DUPLICATE KEY UPDATE
+        can_view = VALUES(can_view),
+        can_create = VALUES(can_create),
+        can_edit = VALUES(can_edit),
+        can_delete = VALUES(can_delete),
+        updated_at = NOW();
+    END
+  `);
+  await query(`
+    CREATE TRIGGER trg_adm_user_permissions_ad
+    AFTER DELETE ON adm_user_permissions
+    FOR EACH ROW
+    BEGIN
+      DELETE FROM adm_page_permission_effective
+      WHERE user_id = OLD.user_id AND page_id = OLD.page_id;
+    END
+  `);
+}
+
 export async function ensureErrorLogsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_error_logs (

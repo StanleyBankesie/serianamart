@@ -25,6 +25,7 @@ import {
   ensureRolePermissionsTable,
   ensureRoleFeaturesTable,
 } from "../utils/dbUtils.js";
+import { ensureUserPermissionCacheAndTriggers } from "../utils/dbUtils.js";
 import {
   createBranch,
   getBranchById,
@@ -1273,6 +1274,23 @@ function deriveActionAndBase(page) {
   return { base, action };
 }
 
+function basePathFromRequestPath(p) {
+  const raw = String(p || "").trim() || "/";
+  const parts = raw.split("/").filter(Boolean);
+  if (parts.length >= 2) {
+    const last = parts[parts.length - 1];
+    if (last === "new" || last === "create") {
+      return `/${parts.slice(0, parts.length - 1).join("/")}`;
+    }
+    if (/^[0-9]+$/.test(last) || /^[0-9a-fA-F-]{8,}$/.test(last)) {
+      return `/${parts.slice(0, parts.length - 1).join("/")}`;
+    }
+    return `/${parts.slice(0, 2).join("/")}`;
+  }
+  if (parts.length === 1) return `/${parts[0]}`;
+  return "/";
+}
+
 function requirePageAccess(path, action = "view") {
   return async function pageAccessMiddleware(req, res, next) {
     try {
@@ -1611,6 +1629,77 @@ router.get(
   requireAuth,
   getUserFeaturePermissionsList,
 );
+
+// Page-level permissions snapshot for current user on a given path
+router.get("/page-permissions", requireAuth, async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.sub || req.user?.id);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return next(httpError(401, "UNAUTHORIZED", "Invalid user"));
+    }
+    await ensurePagesTable();
+    await ensureUserPermissionsTable();
+    try {
+      await ensureUserPermissionCacheAndTriggers();
+    } catch {}
+    const reqPath = String(req.query?.path || "").trim() || "/";
+    const base = basePathFromRequestPath(reqPath);
+    const pages = await query(
+      `SELECT id, path FROM adm_pages WHERE path = :path AND is_active = 1 LIMIT 1`,
+      { path: base },
+    );
+    if (!pages.length) {
+      return res.json({
+        path: base,
+        can_view: 0,
+        can_create: 0,
+        can_edit: 0,
+        can_delete: 0,
+      });
+    }
+    const page = pages[0];
+    // Prefer the effective cache table for performance
+    let row = null;
+    try {
+      const eff = await query(
+        `SELECT can_view, can_create, can_edit, can_delete
+         FROM adm_page_permission_effective
+         WHERE user_id = :uid AND page_id = :pid
+         LIMIT 1`,
+        { uid: userId, pid: page.id },
+      );
+      if (eff.length) row = eff[0];
+    } catch {}
+    if (!row) {
+      const ups = await query(
+        `SELECT can_view, can_create, can_edit, can_delete
+         FROM adm_user_permissions
+         WHERE user_id = :uid AND page_id = :pid
+         LIMIT 1`,
+        { uid: userId, pid: page.id },
+      );
+      row = ups[0] || null;
+    }
+    if (!row) {
+      return res.json({
+        path: base,
+        can_view: 0,
+        can_create: 0,
+        can_edit: 0,
+        can_delete: 0,
+      });
+    }
+    res.json({
+      path: base,
+      can_view: Number(row.can_view) ? 1 : 0,
+      can_create: Number(row.can_create) ? 1 : 0,
+      can_edit: Number(row.can_edit) ? 1 : 0,
+      can_delete: Number(row.can_delete) ? 1 : 0,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // legacy page-based user permissions removed
 

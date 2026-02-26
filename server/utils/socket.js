@@ -1,4 +1,5 @@
 import { Server } from "socket.io";
+import { query } from "../db/pool.js";
 
 let ioInstance = null;
 const onlineUsers = new Set();
@@ -48,6 +49,22 @@ export const initializeSocket = (server) => {
     if (userId) {
       onlineUsers.add(String(userId));
       ioInstance.to(`user_${userId}`).emit("presence:update", { online: true });
+      // Update presence table and broadcast
+      (async () => {
+        try {
+          await query(
+            `INSERT INTO chat_presence (user_id, is_online, last_seen)
+             VALUES (:uid, 1, NOW())
+             ON DUPLICATE KEY UPDATE is_online = 1, last_seen = NOW()`,
+            { uid: Number(userId) },
+          );
+          ioInstance.emit("chat2:presence", {
+            user_id: Number(userId),
+            is_online: true,
+            last_seen: new Date().toISOString(),
+          });
+        } catch {}
+      })();
     }
 
     // Join personal room
@@ -79,7 +96,49 @@ export const initializeSocket = (server) => {
         ioInstance.to(`user_${userId}`).emit("presence:update", {
           online: false,
         });
+        (async () => {
+          try {
+            await query(
+              `INSERT INTO chat_presence (user_id, is_online, last_seen)
+               VALUES (:uid, 0, NOW())
+               ON DUPLICATE KEY UPDATE is_online = 0, last_seen = NOW()`,
+              { uid: Number(userId) },
+            );
+            ioInstance.emit("chat2:presence", {
+              user_id: Number(userId),
+              is_online: false,
+              last_seen: new Date().toISOString(),
+            });
+          } catch {}
+        })();
       }
+    });
+
+    // ---------------- Chat v2 (new) ----------------
+    socket.on("chat2:join", (conversationId) => {
+      try {
+        const cid = Number(conversationId);
+        if (!Number.isFinite(cid)) return;
+        socket.join(`chat2_${cid}`);
+      } catch {}
+    });
+    socket.on("chat2:leave", (conversationId) => {
+      try {
+        const cid = Number(conversationId);
+        if (!Number.isFinite(cid)) return;
+        socket.leave(`chat2_${cid}`);
+      } catch {}
+    });
+    socket.on("chat2:typing", ({ conversation_id, typing }) => {
+      try {
+        const cid = Number(conversation_id);
+        if (!Number.isFinite(cid)) return;
+        ioInstance.to(`chat2_${cid}`).emit("chat2:typing", {
+          conversation_id: cid,
+          user_id: userId,
+          typing: typing === true,
+        });
+      } catch {}
     });
 
     // Error handling
