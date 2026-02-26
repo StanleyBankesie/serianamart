@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function DashboardList() {
+  const { canPerformAction } = usePermission();
   const items = [
     { id: 1, name: 'Executive Overview', description: 'Enterprise KPIs across all modules', active: true, icon: '📊', color: 'from-emerald-600 to-emerald-800' },
     { id: 2, name: 'Sales KPIs', description: 'Revenue, average order, customer growth, profitability', active: true, icon: '🧾', color: 'from-blue-600 to-blue-800' },
@@ -46,18 +48,22 @@ export default function DashboardList() {
               <div className="mt-3 font-bold text-lg">{d.name}</div>
               <div className="mt-1 text-sm opacity-90">{d.description}</div>
               <div className="mt-4 flex gap-2">
-                <Link
-                  to={`/business-intelligence/dashboards/${d.id}?mode=view`}
-                  className="btn btn-sm btn-secondary"
-                >
-                  View
-                </Link>
-                <Link
-                  to={`/business-intelligence/dashboards/${d.id}?mode=edit`}
-                  className="btn btn-sm btn-secondary"
-                >
-                  Edit
-                </Link>
+                {canPerformAction("business-intelligence:dashboards", "view") && (
+                  <Link
+                    to={`/business-intelligence/dashboards/${d.id}?mode=view`}
+                    className="btn btn-sm btn-secondary"
+                  >
+                    View
+                  </Link>
+                )}
+                {canPerformAction("business-intelligence:dashboards", "edit") && (
+                  <Link
+                    to={`/business-intelligence/dashboards/${d.id}?mode=edit`}
+                    className="btn btn-sm btn-secondary"
+                  >
+                    Edit
+                  </Link>
+                )}
               </div>
             </div>
           </div>
@@ -66,7 +72,6 @@ export default function DashboardList() {
     </div>
   );
 }
-
 
 
 

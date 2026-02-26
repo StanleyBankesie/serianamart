@@ -63,6 +63,8 @@ export default function PosSalesEntry() {
   const [taxCodeLabel, setTaxCodeLabel] = useState("");
   const [taxActive, setTaxActive] = useState(true);
   const [dayOpen, setDayOpen] = useState(false);
+  const [dayExists, setDayExists] = useState(false);
+  const [dayStatus, setDayStatus] = useState("");
   const [dayLoading, setDayLoading] = useState(true);
   const [terminalCode, setTerminalCode] = useState("");
   const [amountPaid, setAmountPaid] = useState("");
@@ -146,10 +148,15 @@ export default function PosSalesEntry() {
         const params = code ? { params: { terminal: code } } : undefined;
         const res = await api.get("/pos/day/status", params);
         const item = res?.data?.item || null;
-        const isOpen = String(item?.status || "").toUpperCase() === "OPEN";
-        setDayOpen(isOpen);
+        const status = String(item?.status || "").toUpperCase();
+        const exists = !!item;
+        setDayExists(exists);
+        setDayStatus(status);
+        setDayOpen(status === "OPEN");
       } catch {
         if (cancelled) return;
+        setDayExists(false);
+        setDayStatus("");
         setDayOpen(false);
       } finally {
         if (cancelled) return;
@@ -753,7 +760,7 @@ export default function PosSalesEntry() {
     );
   }, [cart]);
   useEffect(() => {
-    if (dayOpen && barcodeInputRef.current) {
+    if (barcodeInputRef.current) {
       try {
         barcodeInputRef.current.focus();
       } catch {}
@@ -762,24 +769,13 @@ export default function PosSalesEntry() {
 
   async function checkout() {
     if (!cart.length || saving) return;
-    if (!dayOpen) {
-      try {
-        const params = terminalCode
-          ? { params: { terminal: terminalCode } }
-          : undefined;
-        const res = await api.get("/pos/day/status", params);
-        const latest = res?.data?.item || null;
-        const isOpenLatest =
-          String(latest?.status || "").toUpperCase() === "OPEN";
-        if (!isOpenLatest) {
-          alert("Day is not open. Please open the POS day before sales entry.");
-          return;
-        }
-        setDayOpen(true);
-      } catch {
-        alert("Day is not open. Please open the POS day before sales entry.");
-        return;
-      }
+    // Enforce open-day on next calendar day: require a Day record to exist for today.
+    // If no day exists for today, block checkout and ask user to open day via Day Management.
+    if (!dayExists) {
+      alert(
+        "Please open POS Day for today before making sales. Go to POS → Start/End Business Day to open the day.",
+      );
+      return;
     }
     try {
       setSaving(true);
@@ -1102,7 +1098,7 @@ export default function PosSalesEntry() {
                     : "bg-red-100 text-red-700"
                 }`}
               >
-                {dayOpen ? "Open" : "Closed"}
+                {dayOpen ? "Open" : dayExists ? "Closed" : "Not Opened"}
               </span>
             </span>
           </div>
@@ -1111,16 +1107,22 @@ export default function PosSalesEntry() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
-          {!dayLoading && !dayOpen && (
-            <div className="alert-danger rounded-lg p-4">
-              Day is not open. Open day before sales entry.
-              <div className="mt-2">
-                <Link to="/pos/day-management" className="btn-secondary">
-                  Open Day Management
+          {!dayExists && !dayLoading ? (
+            <div className="alert alert-warning">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-semibold">POS Day not opened</div>
+                  <div className="text-sm">
+                    Open today’s POS Day before making sales.
+                  </div>
+                </div>
+                <Link to="/pos/day-management" className="btn btn-primary">
+                  Open Day
                 </Link>
               </div>
             </div>
-          )}
+          ) : null}
+          {null}
           <div className="card">
             <div className="card-body space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
@@ -1133,7 +1135,7 @@ export default function PosSalesEntry() {
                     onChange={(e) => setEntryBarcode(e.target.value)}
                     ref={barcodeInputRef}
                     autoFocus
-                    disabled={!dayOpen}
+                    disabled={false}
                   />
                 </div>
                 <div className="md:col-span-2">
@@ -1155,7 +1157,7 @@ export default function PosSalesEntry() {
                           }
                         }
                       }}
-                      disabled={!dayOpen || itemsLoading || !products.length}
+                      disabled={itemsLoading || !products.length}
                     />
                     {entryItemQuery && itemSearchResults.length ? (
                       <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto">
@@ -1188,7 +1190,7 @@ export default function PosSalesEntry() {
                         updateCartField(id, "quantity", v);
                       }
                     }}
-                    disabled={!dayOpen}
+                    disabled={false}
                   />
                 </div>
                 <div>
@@ -1205,9 +1207,7 @@ export default function PosSalesEntry() {
                         ? "Loading price types..."
                         : "Select Price Type"
                     }
-                    disabled={
-                      !dayOpen || priceTypesLoading || !priceTypes.length
-                    }
+                    disabled={priceTypesLoading || !priceTypes.length}
                     filterPlaceholder="Filter price types..."
                   />
                 </div>
@@ -1401,7 +1401,7 @@ export default function PosSalesEntry() {
                     value={amountPaid}
                     onChange={(e) => setAmountPaid(e.target.value)}
                     placeholder="0.00"
-                    disabled={!dayOpen}
+                    disabled={false}
                   />
                 </div>
                 <div className="flex justify-between">
@@ -1440,7 +1440,7 @@ export default function PosSalesEntry() {
                           : "btn-secondary"
                       }`}
                       onClick={() => setSelectedPaymentModeId(String(m.id))}
-                      disabled={!dayOpen}
+                      disabled={false}
                     >
                       {m.name}
                     </button>
@@ -1452,7 +1452,7 @@ export default function PosSalesEntry() {
                   type="button"
                   className="btn-success w-full"
                   onClick={clearCart}
-                  disabled={!dayOpen}
+                  disabled={false}
                 >
                   Clear Cart
                 </button>
@@ -1461,7 +1461,6 @@ export default function PosSalesEntry() {
                   className="btn-success w-full"
                   onClick={checkout}
                   disabled={
-                    !dayOpen ||
                     !cart.length ||
                     saving ||
                     paymentModesLoading ||

@@ -1,8 +1,8 @@
 import React from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Link } from "react-router-dom";
+import { usePermission } from "../../../auth/PermissionContext";
 import ModuleDashboard from "../../../components/ModuleDashboard";
 import { api } from "../../../api/client.js";
-import { useAuth } from "../../../auth/AuthContext.jsx";
 
 // Import list pages
 import QuotationList from "./quotations/QuotationList.jsx";
@@ -28,6 +28,23 @@ import DeliveryRegisterReportPage from "./reports/DeliveryRegisterReportPage.jsx
 import DebtorsBalanceReportPage from "./reports/DebtorsBalanceReportPage.jsx";
 import SalesProfitabilityReportPage from "./reports/SalesProfitabilityReportPage.jsx";
 import SalesTrackingReportPage from "./reports/SalesTrackingReportPage.jsx";
+
+const ActionButton = ({ label, path, type, featureKey, action }) => {
+  const { canPerformAction } = usePermission();
+  const hasPermission = canPerformAction(featureKey, action);
+  
+  if (!hasPermission) return null;
+  
+  const baseClasses = type === "primary" 
+    ? "btn btn-primary btn-sm" 
+    : "btn btn-outline btn-sm";
+    
+  return (
+    <Link to={path} className={baseClasses}>
+      {label}
+    </Link>
+  );
+};
 
 const SalesModuleHome = () => {
   const [stats, setStats] = React.useState([
@@ -99,8 +116,8 @@ const SalesModuleHome = () => {
           description: "Create and manage customer quotations",
           icon: "📋",
           actions: [
-            { label: "View", path: "/sales/quotations", type: "outline" },
-            { label: "New", path: "/sales/quotations/new", type: "primary" },
+            <ActionButton key="view" label="View" path="/sales/quotations" type="outline" featureKey="sales:quotations" action="view" />,
+            <ActionButton key="new" label="New" path="/sales/quotations/new" type="primary" featureKey="sales:quotations" action="create" />,
           ],
         },
         {
@@ -109,8 +126,8 @@ const SalesModuleHome = () => {
           description: "Process customer orders and track fulfillment",
           icon: "🛒",
           actions: [
-            { label: "View", path: "/sales/sales-orders", type: "outline" },
-            { label: "New", path: "/sales/sales-orders/new", type: "primary" },
+            <ActionButton key="view" label="View" path="/sales/sales-orders" type="outline" featureKey="sales:sales-orders" action="view" />,
+            <ActionButton key="new" label="New" path="/sales/sales-orders/new" type="primary" featureKey="sales:sales-orders" action="create" />,
           ],
         },
         {
@@ -119,8 +136,8 @@ const SalesModuleHome = () => {
           description: "Generate and manage sales invoices",
           icon: "🧾",
           actions: [
-            { label: "View", path: "/sales/invoices", type: "outline" },
-            { label: "New", path: "/sales/invoices/new", type: "primary" },
+            <ActionButton key="view" label="View" path="/sales/invoices" type="outline" featureKey="sales:invoices" action="view" />,
+            <ActionButton key="new" label="New" path="/sales/invoices/new" type="primary" featureKey="sales:invoices" action="create" />,
           ],
         },
         {
@@ -129,8 +146,8 @@ const SalesModuleHome = () => {
           description: "Track product deliveries to customers",
           icon: "🚚",
           actions: [
-            { label: "View", path: "/sales/delivery", type: "outline" },
-            { label: "New", path: "/sales/delivery/new", type: "primary" },
+            <ActionButton key="view" label="View" path="/sales/delivery" type="outline" featureKey="sales:delivery" action="view" />,
+            <ActionButton key="new" label="New" path="/sales/delivery/new" type="primary" featureKey="sales:delivery" action="create" />,
           ],
         },
       ],
@@ -167,37 +184,24 @@ const SalesModuleHome = () => {
       title: "Customer Management",
       items: [
         {
-          title: "Customer Setup",
+          title: "Customers",
           path: "/sales/customers",
-          description: "Manage customer information",
+          description: "Manage customer information and credit limits",
           icon: "👥",
           actions: [
-            { label: "View", path: "/sales/customers", type: "outline" },
-            { label: "Add", path: "/sales/customers/new", type: "primary" },
+            <ActionButton key="view" label="View" path="/sales/customers" type="outline" featureKey="sales:customers" action="view" />,
+            <ActionButton key="add" label="Add" path="/sales/customers/new" type="primary" featureKey="sales:customers" action="create" />,
           ],
         },
-        // {
-        //   title: "Credit Limits",
-        //   path: "/sales/customer-credit",
-        //   description: "Configure customer credit limits",
-        //   icon: "💳",
-        //   actions: [
-        //     {
-        //       label: "Manage",
-        //       path: "/sales/customer-credit",
-        //       type: "primary",
-        //     },
-        //   ],
-        // },
-        // {
-        //   title: "Bulk Upload",
-        //   path: "/sales/bulk-upload",
-        //   description: "Import customers in bulk",
-        //   icon: "📤",
-        //   actions: [
-        //     { label: "Upload", path: "/sales/bulk-upload", type: "primary" },
-        //   ],
-        // },
+        {
+          title: "Bulk Upload",
+          path: "/sales/bulk-upload",
+          description: "Import customers in bulk",
+          icon: "📤",
+          actions: [
+            { label: "Upload", path: "/sales/bulk-upload", type: "primary" },
+          ],
+        },
       ],
     },
     {
@@ -252,161 +256,157 @@ const SalesModuleHome = () => {
     },
   ];
 
-  const { hasModuleAccess } = useAuth();
-
-  if (!hasModuleAccess("Sales")) {
-    return (
-      <div className="p-6">
-        <div className="card">
-          <div className="card-body">
-            <div className="text-center text-slate-600">
-              You do not have access to the Sales module.
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <ModuleDashboard
       title="Sales Module"
       description="Customer orders, quotations, invoicing, and sales analytics"
       stats={stats}
       sections={sections}
+      features={salesFeatures}
     />
   );
 };
 
 export default function SalesHome() {
-  const { hasAccess } = useAuth();
-  const NoAccess = () => (
-    <div className="p-6">
-      <div className="card">
-        <div className="card-body">
-          <div className="text-center text-slate-600">
-            You do not have permission to view this page.
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
   return (
     <Routes>
       <Route path="/" element={<SalesModuleHome />} />
-      <Route
-        path="/quotations"
-        element={hasAccess("/sales/quotations", "view") ? <QuotationList /> : <NoAccess />}
-      />
-      <Route
-        path="/quotations/new"
-        element={hasAccess("/sales/quotations/new", "create") ? <QuotationForm /> : <NoAccess />}
-      />
-      <Route
-        path="/quotations/:id"
-        element={hasAccess("/sales/quotations/:id", "edit") ? <QuotationForm /> : <NoAccess />}
-      />
-      <Route
-        path="/sales-orders"
-        element={hasAccess("/sales/sales-orders", "view") ? <SalesOrderList /> : <NoAccess />}
-      />
-      <Route
-        path="/sales-orders/new"
-        element={hasAccess("/sales/sales-orders/new", "create") ? <SalesOrderForm /> : <NoAccess />}
-      />
-      <Route
-        path="/sales-orders/:id"
-        element={hasAccess("/sales/sales-orders/:id", "edit") ? <SalesOrderForm /> : <NoAccess />}
-      />
-      <Route
-        path="/invoices"
-        element={hasAccess("/sales/invoices", "view") ? <InvoiceList /> : <NoAccess />}
-      />
-      <Route
-        path="/invoices/new"
-        element={hasAccess("/sales/invoices/new", "create") ? <InvoiceForm /> : <NoAccess />}
-      />
-      <Route
-        path="/invoices/:id"
-        element={hasAccess("/sales/invoices/:id", "edit") ? <InvoiceForm /> : <NoAccess />}
-      />
-      <Route
-        path="delivery"
-        element={hasAccess("/sales/delivery", "view") ? <DeliveryList /> : <NoAccess />}
-      />
-      <Route
-        path="delivery/new"
-        element={hasAccess("/sales/delivery/new", "create") ? <DeliveryForm /> : <NoAccess />}
-      />
-      <Route
-        path="delivery/:id"
-        element={hasAccess("/sales/delivery/:id", "edit") ? <DeliveryForm /> : <NoAccess />}
-      />
-      <Route
-        path="/price-setup"
-        element={hasAccess("/sales/price-setup", "view") ? <PriceSetup /> : <NoAccess />}
-      />
-      <Route
-        path="/discount-schemes"
-        element={hasAccess("/sales/discount-schemes", "view") ? <DiscountSchemeList /> : <NoAccess />}
-      />
-      <Route
-        path="/customer-credit"
-        element={hasAccess("/sales/customer-credit", "view") ? <CustomerCreditList /> : <NoAccess />}
-      />
-      <Route
-        path="/customer-credit/:id"
-        element={hasAccess("/sales/customer-credit/:id", "edit") ? <CustomerCreditForm /> : <NoAccess />}
-      />
-      <Route
-        path="/customers"
-        element={hasAccess("/sales/customers", "view") ? <CustomerList /> : <NoAccess />}
-      />
-      <Route
-        path="/customers/new"
-        element={hasAccess("/sales/customers/new", "create") ? <CustomerForm /> : <NoAccess />}
-      />
-      <Route
-        path="/customers/:id"
-        element={hasAccess("/sales/customers/:id", "edit") ? <CustomerForm /> : <NoAccess />}
-      />
-      <Route
-        path="/bulk-upload"
-        element={hasAccess("/sales/bulk-upload", "view") ? <BulkCustomerUpload /> : <NoAccess />}
-      />
-      <Route
-        path="/reports"
-        element={hasAccess("/sales/reports", "view") ? <SalesReports /> : <NoAccess />}
-      />
-      <Route
-        path="/reports/sales-return"
-        element={hasAccess("/sales/reports/sales-return", "view") ? <SalesReturnReportPage /> : <NoAccess />}
-      />
-      <Route
-        path="/reports/sales-register"
-        element={hasAccess("/sales/reports/sales-register", "view") ? <SalesRegisterReportPage /> : <NoAccess />}
-      />
+      <Route path="/quotations" element={<QuotationList />} />
+      <Route path="/quotations/new" element={<QuotationForm />} />
+      <Route path="/quotations/:id" element={<QuotationForm />} />
+      <Route path="/sales-orders" element={<SalesOrderList />} />
+      <Route path="/sales-orders/new" element={<SalesOrderForm />} />
+      <Route path="/sales-orders/:id" element={<SalesOrderForm />} />
+      <Route path="/invoices" element={<InvoiceList />} />
+      <Route path="/invoices/new" element={<InvoiceForm />} />
+      <Route path="/invoices/:id" element={<InvoiceForm />} />
+      <Route path="delivery" element={<DeliveryList />} />
+      <Route path="delivery/new" element={<DeliveryForm />} />
+      <Route path="delivery/:id" element={<DeliveryForm />} />
+      <Route path="/price-setup" element={<PriceSetup />} />
+      <Route path="/discount-schemes" element={<DiscountSchemeList />} />
+      <Route path="/customer-credit" element={<CustomerCreditList />} />
+      <Route path="/customer-credit/:id" element={<CustomerCreditForm />} />
+      <Route path="/customers" element={<CustomerList />} />
+      <Route path="/customers/new" element={<CustomerForm />} />
+      <Route path="/customers/:id" element={<CustomerForm />} />
+      <Route path="/bulk-upload" element={<BulkCustomerUpload />} />
+      <Route path="/reports" element={<SalesReports />} />
+      <Route path="/reports/sales-return" element={<SalesReturnReportPage />} />
+      <Route path="/reports/sales-register" element={<SalesRegisterReportPage />} />
       <Route
         path="/reports/delivery-register"
-        element={hasAccess("/sales/reports/delivery-register", "view") ? <DeliveryRegisterReportPage /> : <NoAccess />}
+        element={<DeliveryRegisterReportPage />}
       />
       <Route
         path="/reports/debtors-balance"
-        element={hasAccess("/sales/reports/debtors-balance", "view") ? <DebtorsBalanceReportPage /> : <NoAccess />}
+        element={<DebtorsBalanceReportPage />}
       />
       <Route
         path="/reports/sales-profitability"
-        element={hasAccess("/sales/reports/sales-profitability", "view") ? <SalesProfitabilityReportPage /> : <NoAccess />}
+        element={<SalesProfitabilityReportPage />}
       />
-      <Route
-        path="/reports/sales-tracking"
-        element={hasAccess("/sales/reports/sales-tracking", "view") ? <SalesTrackingReportPage /> : <NoAccess />}
-      />
-      <Route
-        path="/returns"
-        element={hasAccess("/sales/returns", "view") ? <SalesReturnList /> : <NoAccess />}
-      />
+      <Route path="/reports/sales-tracking" element={<SalesTrackingReportPage />} />
+      <Route path="/returns" element={<SalesReturnList />} />
     </Routes>
   );
 }
+
+export const salesFeatures = [
+  {
+    module_key: "sales",
+    label: "Quotations",
+    path: "/sales/quotations",
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Sales Orders",
+    path: "/sales/sales-orders",
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Invoices",
+    path: "/sales/invoices",
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Delivery Notes",
+    path: "/sales/delivery",
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Price Setup",
+    path: "/sales/price-setup",
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Discount Schemes",
+    path: "/sales/discount-schemes",
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Customer Setup",
+    path: "/sales/customers",
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Bulk Upload",
+    path: "/sales/bulk-upload",
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Sales Reports",
+    path: "/sales/reports",
+    type: "dashboard",
+  },
+  {
+    module_key: "sales",
+    label: "Sales Register",
+    path: "/sales/reports/sales-register",
+    type: "dashboard",
+  },
+  {
+    module_key: "sales",
+    label: "Delivery Register",
+    path: "/sales/reports/delivery-register",
+    type: "dashboard",
+  },
+  {
+    module_key: "sales",
+    label: "Sales Return Report",
+    path: "/sales/reports/sales-return",
+    type: "dashboard",
+  },
+  {
+    module_key: "sales",
+    label: "Debtors Balance",
+    path: "/sales/reports/debtors-balance",
+    type: "dashboard",
+  },
+  {
+    module_key: "sales",
+    label: "Sales Profitability",
+    path: "/sales/reports/sales-profitability",
+    type: "dashboard",
+  },
+  {
+    module_key: "sales",
+    label: "Sales Tracking",
+    path: "/sales/reports/sales-tracking",
+    type: "dashboard",
+  },
+  {
+    module_key: "sales",
+    label: "Sales Returns",
+    path: "/sales/returns",
+    type: "feature",
+  },
+];

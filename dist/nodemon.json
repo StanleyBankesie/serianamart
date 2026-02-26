@@ -1,0 +1,14 @@
+{
+  "watch": [
+    "."
+  ],
+  "ext": "js,mjs,cjs,json",
+  "ignore": [
+    "../client/dist/**",
+    "../client/.vite/**",
+    "../client/node_modules/**",
+    "**/dist/**",
+    "**/*.map"
+  ],
+  "delay": "200ms"
+}

@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
+import { usePermission } from "../../../auth/PermissionContext.jsx";
 
-/**
- * Journal Voucher List Page
- * Displays all journal vouchers with search, filter, and action capabilities
- */
 export default function JournalVoucherList() {
+  const { canPerformAction } = usePermission();
   const [vouchers, setVouchers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -150,18 +148,22 @@ export default function JournalVoucherList() {
                     </td>
                     <td>
                       <div className="flex gap-2">
-                        <Link
-                          to={`/finance/journal-voucher/${voucher.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 dark:text-brand-300 dark:hover:text-brand-100"
-                        >
-                          View
-                        </Link>
-                        <Link
-                          to={`/finance/journal-voucher/${voucher.id}?mode=edit`}
-                          className="text-blue-600 hover:text-blue-800 dark:text-blue-400"
-                        >
-                          Edit
-                        </Link>
+                        {canPerformAction("finance:journal-voucher", "view") && (
+                          <Link
+                            to={`/finance/journal-voucher/${voucher.id}?mode=view`}
+                            className="text-brand hover:text-brand-700 dark:text-brand-300 dark:hover:text-brand-100"
+                          >
+                            View
+                          </Link>
+                        )}
+                        {canPerformAction("finance:journal-voucher", "edit") && (
+                          <Link
+                            to={`/finance/journal-voucher/${voucher.id}?mode=edit`}
+                            className="text-blue-600 hover:text-blue-800 dark:text-blue-400"
+                          >
+                            Edit
+                          </Link>
+                        )}
                         {voucher.status === "DRAFT" && (
                           <button className="text-red-600 hover:text-red-800 dark:text-red-400">
                             Delete

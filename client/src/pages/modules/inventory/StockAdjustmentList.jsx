@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { usePermission } from "../../../auth/PermissionContext.jsx";
 import { api } from "api/client";
 
 export default function StockAdjustmentList() {
+  const { canPerformAction } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [adjustments, setAdjustments] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -18,6 +20,7 @@ export default function StockAdjustmentList() {
   const [submittingForward, setSubmittingForward] = useState(false);
   const [workflowsCache, setWorkflowsCache] = useState(null);
   const [targetApproverId, setTargetApproverId] = useState(null);
+  const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -32,7 +35,7 @@ export default function StockAdjustmentList() {
       .catch((e) => {
         if (!mounted) return;
         setError(
-          e?.response?.data?.message || "Failed to load stock adjustments"
+          e?.response?.data?.message || "Failed to load stock adjustments",
         );
       })
       .finally(() => {
@@ -62,7 +65,7 @@ export default function StockAdjustmentList() {
     return adjustments.filter((adj) =>
       String(adj.adjustment_no || "")
         .toLowerCase()
-        .includes(searchTerm.toLowerCase())
+        .includes(searchTerm.toLowerCase()),
     );
   }, [adjustments, searchTerm]);
 
@@ -104,6 +107,7 @@ export default function StockAdjustmentList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+      setHasInactiveWorkflow(false);
       return;
     }
     const route = "/inventory/stock-adjustments";
@@ -112,17 +116,24 @@ export default function StockAdjustmentList() {
         .trim()
         .toUpperCase()
         .replace(/\s+/g, "_");
+    const matching = workflowsCache.filter(
+      (w) =>
+        String(w.document_route) === route ||
+        normalize(w.document_type) === "STOCK_ADJUSTMENT",
+    );
+    const hasInactive = matching.some((w) => Number(w.is_active) === 0);
     const chosen =
       workflowsCache.find(
-        (w) => Number(w.is_active) === 1 && String(w.document_route) === route
+        (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
       ) ||
       workflowsCache.find(
         (w) =>
           Number(w.is_active) === 1 &&
-          normalize(w.document_type) === "STOCK_ADJUSTMENT"
+          normalize(w.document_type) === "STOCK_ADJUSTMENT",
       ) ||
       null;
     setCandidateWorkflow(chosen || null);
+    setHasInactiveWorkflow(!chosen && hasInactive);
     setFirstApprover(null);
     if (!chosen) return;
     try {
@@ -141,7 +152,7 @@ export default function StockAdjustmentList() {
               stepOrder: first.step_order,
               approvalLimit: first.approval_limit,
             }
-          : null
+          : null,
       );
       if (first) {
         const defaultTarget =
@@ -154,7 +165,7 @@ export default function StockAdjustmentList() {
       }
     } catch (e) {
       setWfError(
-        e?.response?.data?.message || "Failed to load workflow details"
+        e?.response?.data?.message || "Failed to load workflow details",
       );
     } finally {
       setWfLoading(false);
@@ -166,6 +177,7 @@ export default function StockAdjustmentList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+      setHasInactiveWorkflow(false);
       return;
     }
     const route = "/inventory/stock-adjustments";
@@ -174,17 +186,24 @@ export default function StockAdjustmentList() {
         .trim()
         .toUpperCase()
         .replace(/\s+/g, "_");
+    const matching = items.filter(
+      (w) =>
+        String(w.document_route) === route ||
+        normalize(w.document_type) === "STOCK_ADJUSTMENT",
+    );
+    const hasInactive = matching.some((w) => Number(w.is_active) === 0);
     const chosen =
       items.find(
-        (w) => Number(w.is_active) === 1 && String(w.document_route) === route
+        (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
       ) ||
       items.find(
         (w) =>
           Number(w.is_active) === 1 &&
-          normalize(w.document_type) === "STOCK_ADJUSTMENT"
+          normalize(w.document_type) === "STOCK_ADJUSTMENT",
       ) ||
       null;
     setCandidateWorkflow(chosen || null);
+    setHasInactiveWorkflow(!chosen && hasInactive);
     setFirstApprover(null);
     if (!chosen) return;
     try {
@@ -203,11 +222,11 @@ export default function StockAdjustmentList() {
               stepOrder: first.step_order,
               approvalLimit: first.approval_limit,
             }
-          : null
+          : null,
       );
     } catch (e) {
       setWfError(
-        e?.response?.data?.message || "Failed to load workflow details"
+        e?.response?.data?.message || "Failed to load workflow details",
       );
     } finally {
       setWfLoading(false);
@@ -225,19 +244,19 @@ export default function StockAdjustmentList() {
           amount: null,
           workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
           target_user_id: targetApproverId || null,
-        }
+        },
       );
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
       setAdjustments((prev) =>
         prev.map((r) =>
-          r.id === selectedDoc.id ? { ...r, status: newStatus } : r
-        )
+          r.id === selectedDoc.id ? { ...r, status: newStatus } : r,
+        ),
       );
       setShowForwardModal(false);
       setSelectedDoc(null);
     } catch (e) {
       setWfError(
-        e?.response?.data?.message || "Failed to forward for approval"
+        e?.response?.data?.message || "Failed to forward for approval",
       );
     } finally {
       setSubmittingForward(false);
@@ -335,27 +354,33 @@ export default function StockAdjustmentList() {
                     </td>
                     <td>
                       <div className="flex gap-2 items-center">
-                        <Link
-                          to={`/inventory/stock-adjustments/${adj.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                        <Link
-                          to={`/inventory/stock-adjustments/${adj.id}?mode=edit`}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                        >
-                          Edit
-                        </Link>
+                        {canPerformAction("inventory:stock-adjustment", "view") && (
+                          <Link
+                            to={`/inventory/stock-adjustments/${adj.id}?mode=view`}
+                            className="text-brand hover:text-brand-700 text-sm font-medium"
+                          >
+                            View
+                          </Link>
+                        )}
+                        {canPerformAction("inventory:stock-adjustment", "edit") && (
+                          <Link
+                            to={`/inventory/stock-adjustments/${adj.id}?mode=edit`}
+                            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                          >
+                            Edit
+                          </Link>
+                        )}
                         {adj.status === "APPROVED" ? (
                           <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
                             Approved
                           </span>
-                        ) : (adj.status === "DRAFT" || adj.status === "RETURNED") ? (
+                        ) : adj.status === "DRAFT" ||
+                          adj.status === "RETURNED" ? (
                           <button
                             type="button"
                             onClick={() => openForwardModal(adj)}
                             className="text-sm font-medium px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                            disabled={hasInactiveWorkflow}
                           >
                             Forward
                           </button>
@@ -423,15 +448,15 @@ export default function StockAdjustmentList() {
                           name: u.username,
                         }))
                       : first.approver_user_id
-                      ? [
-                          {
-                            id: first.approver_user_id,
-                            name:
-                              first.approver_name ||
-                              String(first.approver_user_id),
-                          },
-                        ]
-                      : []
+                        ? [
+                            {
+                              id: first.approver_user_id,
+                              name:
+                                first.approver_name ||
+                                String(first.approver_user_id),
+                            },
+                          ]
+                        : []
                     : [];
                   return opts.length > 0 ? (
                     <div className="mt-1">
@@ -440,7 +465,7 @@ export default function StockAdjustmentList() {
                         value={targetApproverId || ""}
                         onChange={(e) =>
                           setTargetApproverId(
-                            e.target.value ? Number(e.target.value) : null
+                            e.target.value ? Number(e.target.value) : null,
                           )
                         }
                       >
@@ -458,7 +483,7 @@ export default function StockAdjustmentList() {
                             }${
                               firstApprover.approvalLimit != null
                                 ? ` • Limit: ${Number(
-                                    firstApprover.approvalLimit
+                                    firstApprover.approvalLimit,
                                   ).toLocaleString()}`
                                 : ""
                             }`

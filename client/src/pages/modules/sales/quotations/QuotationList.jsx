@@ -3,9 +3,11 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function QuotationList() {
   const navigate = useNavigate();
+  const { canPerformAction } = usePermission();
   const [quotations, setQuotations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -522,22 +524,30 @@ export default function QuotationList() {
                       <td>{getStatusBadge(quot.status)}</td>
                       <td>
                         <div className="flex gap-2">
-                          <button
-                            onClick={() =>
-                              navigate(`/sales/quotations/${quot.id}?mode=view`)
-                            }
-                            className="text-brand hover:text-brand-600 font-medium text-sm"
-                          >
-                            View
-                          </button>
-                          <button
-                            onClick={() =>
-                              navigate(`/sales/quotations/${quot.id}?mode=edit`)
-                            }
-                            className="text-blue-600 hover:text-blue-700 font-medium text-sm"
-                          >
-                            Edit
-                          </button>
+                          {canPerformAction("sales:quotation", "view") && (
+                            <button
+                              onClick={() =>
+                                navigate(
+                                  `/sales/quotations/${quot.id}?mode=view`,
+                                )
+                              }
+                              className="text-brand hover:text-brand-600 font-medium text-sm"
+                            >
+                              View
+                            </button>
+                          )}
+                          {canPerformAction("sales:quotation", "edit") && (
+                            <button
+                              onClick={() =>
+                                navigate(
+                                  `/sales/quotations/${quot.id}?mode=edit`,
+                                )
+                              }
+                              className="text-blue-600 hover:text-blue-700 font-medium text-sm"
+                            >
+                              Edit
+                            </button>
+                          )}
                           <button
                             onClick={() => printQuotation(quot.id)}
                             className="inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"

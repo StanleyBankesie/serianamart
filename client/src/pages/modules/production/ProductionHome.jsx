@@ -70,6 +70,7 @@ function ProductionLanding() {
       description="Manufacturing and production planning"
       stats={stats}
       sections={sections}
+      features={productionFeatures}
     />
   );
 }
@@ -92,7 +93,13 @@ export default function ProductionHome() {
   );
 }
 
-
+export const productionFeatures = [
+  { module_key: "production", label: "Bills of Materials", path: "/production/bom", type: "feature" },
+  { module_key: "production", label: "New BOM", path: "/production/bom/new", type: "feature" },
+  { module_key: "production", label: "Work Orders", path: "/production/work-orders", type: "feature" },
+  { module_key: "production", label: "New Work Order", path: "/production/work-orders/new", type: "feature" },
+  { module_key: "production", label: "Production Reports", path: "/production/reports", type: "dashboard" },
+];
 
 
 

@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api } from "api/client";
+import { api } from "../../../../api/client";
 import { toast } from "react-toastify";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function InvoiceList() {
   const navigate = useNavigate();
+  const { canPerformAction } = usePermission();
   const [invoices, setInvoices] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -527,24 +529,27 @@ export default function InvoiceList() {
                       </td>
                       <td>
                         <div className="flex gap-2">
-                          <button
-                            onClick={() =>
-                              navigate(`/sales/invoices/${inv.id}?mode=view`)
-                            }
-                            className="text-brand hover:text-brand-600 font-medium text-sm"
-                          >
-                            View
-                          </button>
-                          {inv.status !== "POSTED" && (
+                          {canPerformAction("sales:invoices", "view") && (
                             <button
                               onClick={() =>
-                                navigate(`/sales/invoices/${inv.id}`)
+                                navigate(`/sales/invoices/${inv.id}?mode=view`)
                               }
-                              className="text-blue-600 hover:text-blue-700 font-medium text-sm"
+                              className="text-brand hover:text-brand-600 font-medium text-sm"
                             >
-                              Edit
+                              View
                             </button>
                           )}
+                          {inv.status !== "POSTED" &&
+                            canPerformAction("sales:invoices", "edit") && (
+                              <button
+                                onClick={() =>
+                                  navigate(`/sales/invoices/${inv.id}`)
+                                }
+                                className="text-blue-600 hover:text-blue-700 font-medium text-sm"
+                              >
+                                Edit
+                              </button>
+                            )}
                           <button
                             onClick={() => printInvoice(inv.id)}
                             className="inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"

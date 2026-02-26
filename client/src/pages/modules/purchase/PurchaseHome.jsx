@@ -1,7 +1,8 @@
-import React from "react";
-import { Link, Navigate, Route, Routes } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
 import ModuleDashboard from "../../../components/ModuleDashboard";
-import { api } from "../../../api/client.js";
+import api from "../../../api/client.js";
+import { useAuth } from "../../../auth/AuthContext.jsx";
 
 import RequestForQuotationList from "./rfq/RequestForQuotationList.jsx";
 import RequestForQuotationForm from "./rfq/RequestForQuotationForm.jsx";
@@ -23,192 +24,12 @@ import SupplierForm from "./suppliers/SupplierForm.jsx";
 import ImportOrderTrackingReportPage from "./reports/ImportOrderTrackingReportPage.jsx";
 import LocalOrderTrackingReportPage from "./reports/LocalOrderTrackingReportPage.jsx";
 import PurchaseTrackingReportPage from "./reports/PurchaseTrackingReportPage.jsx";
+import ServiceBillsList from "../service-management/service-bills/ServiceBillsList.jsx";
 import ServiceBillForm from "../service-management/service-bills/ServiceBillForm.jsx";
 import ServiceConfirmationsList from "../service-management/service-confirmations/ServiceConfirmationsList.jsx";
 import ServiceConfirmationForm from "../service-management/service-confirmations/ServiceConfirmationForm.jsx";
-
-const purchaseMenuItems = [
-  {
-    title: "Request for Quotation",
-    description: "Create and send RFQs to suppliers",
-    path: "/purchase/rfqs",
-    icon: "📨",
-    actions: [
-      {
-        label: "View RFQs",
-        path: "/purchase/rfqs",
-        type: "outline",
-      },
-      {
-        label: "New RFQ",
-        path: "/purchase/rfqs/new",
-        type: "primary",
-      },
-    ],
-  },
-  {
-    title: "Supplier Quotations",
-    description: "Receive and manage supplier quotations",
-    path: "/purchase/supplier-quotations",
-    icon: "📋",
-    actions: [
-      {
-        label: "View List",
-        path: "/purchase/supplier-quotations",
-        type: "outline",
-      },
-      {
-        label: "New Quote",
-        path: "/purchase/supplier-quotations/new",
-        type: "primary",
-      },
-    ],
-  },
-  {
-    title: "Quotation Analysis",
-    description: "Compare quotations from multiple suppliers",
-    path: "/purchase/quotation-analysis",
-    icon: "📊",
-    actions: [
-      {
-        label: "Analyze",
-        path: "/purchase/quotation-analysis",
-        type: "primary",
-      },
-    ],
-  },
-  {
-    title: "Purchase Order - Local",
-    description: "Create and manage local purchase orders",
-    path: "/purchase/purchase-orders-local",
-    icon: "📝",
-    actions: [
-      {
-        label: "View Orders",
-        path: "/purchase/purchase-orders-local",
-        type: "outline",
-      },
-      {
-        label: "Create PO",
-        path: "/purchase/purchase-orders-local/new",
-        type: "primary",
-      },
-    ],
-  },
-  {
-    title: "Purchase Order - Import",
-    description: "Create and manage import purchase orders",
-    path: "/purchase/purchase-orders-import",
-    icon: "🌍",
-    actions: [
-      {
-        label: "View Orders",
-        path: "/purchase/purchase-orders-import",
-        type: "outline",
-      },
-      {
-        label: "Create PO",
-        path: "/purchase/purchase-orders-import/new",
-        type: "primary",
-      },
-    ],
-  },
-  {
-    title: "Shipping Advice",
-    description: "Track shipments and vessel information",
-    path: "/purchase/shipping-advice",
-    icon: "🚢",
-    actions: [
-      {
-        label: "View List",
-        path: "/purchase/shipping-advice",
-        type: "outline",
-      },
-      {
-        label: "New Advice",
-        path: "/purchase/shipping-advice/new",
-        type: "primary",
-      },
-    ],
-  },
-  {
-    title: "Clearing at Port",
-    description: "Manage customs and port clearances",
-    path: "/purchase/port-clearances",
-    icon: "🏢",
-    actions: [
-      {
-        label: "View List",
-        path: "/purchase/port-clearances",
-        type: "outline",
-      },
-      {
-        label: "New Clearance",
-        path: "/purchase/port-clearances/new",
-        type: "primary",
-      },
-    ],
-  },
-  {
-    title: "Purchase Bill - Local",
-    description: "Record and manage local supplier bills",
-    path: "/purchase/purchase-bills-local",
-    icon: "🧾",
-    actions: [
-      {
-        label: "View Bills",
-        path: "/purchase/purchase-bills-local",
-        type: "outline",
-      },
-      {
-        label: "Record Bill",
-        path: "/purchase/purchase-bills-local/new",
-        type: "primary",
-      },
-    ],
-  },
-  {
-    title: "Purchase Bill - Import",
-    description: "Record and manage import supplier bills",
-    path: "/purchase/purchase-bills-import",
-    icon: "📄",
-    actions: [
-      {
-        label: "View Bills",
-        path: "/purchase/purchase-bills-import",
-        type: "outline",
-      },
-      {
-        label: "Record Bill",
-        path: "/purchase/purchase-bills-import/new",
-        type: "primary",
-      },
-    ],
-  },
-  {
-    title: "Supplier Details Setup",
-    description: "Add and manage supplier information",
-    path: "/purchase/suppliers",
-    icon: "👥",
-    actions: [
-      { label: "View Suppliers", path: "/purchase/suppliers", type: "outline" },
-      {
-        label: "Add Supplier",
-        path: "/purchase/suppliers/new",
-        type: "primary",
-      },
-    ],
-  },
-  {
-    title: "Purchase Reports",
-    description: "View purchase analytics and reports",
-    path: "/purchase/reports",
-    icon: "📈",
-    actions: [
-      { label: "View Reports", path: "/purchase/reports", type: "primary" },
-    ],
-  },
-];
+import DirectPurchase from "./direct-purchase/DirectPurchase.jsx";
+import DirectPurchaseList from "./direct-purchase/DirectPurchaseList.jsx";
 
 function PurchaseFeaturePage({ title, description }) {
   return (
@@ -225,92 +46,104 @@ function PurchaseFeaturePage({ title, description }) {
 }
 
 function PurchaseHomeIndex() {
-  const [stats, setStats] = React.useState([
+  const { token } = useAuth();
+  const [overview, setOverview] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api
+      .get("/purchase/analytics/overview")
+      .then((res) => {
+        if (cancelled) return;
+        setOverview(res.data || null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setOverview(null);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const fmt = (n) =>
+    `GH₵${Number(n || 0).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+
+  const stats = [
     {
-      icon: "💰",
-      value: "GHS 2.5M",
-      label: "Total Purchases (YTD)",
-      change: "↑ 15.3% from last year",
-      changeType: "positive",
+      icon: "🧾",
+      value: loading ? "..." : fmt(overview?.totalPurchases || 0),
+      label: "Total Purchases",
+      change: loading
+        ? ""
+        : `${Number(overview?.totalPurchaseOrders || 0)} orders`,
       path: "/purchase/reports",
     },
     {
-      icon: "📝",
-      value: "156",
+      icon: "📦",
+      value: loading ? "..." : String(overview?.activePurchaseOrders ?? 0),
       label: "Active Purchase Orders",
-      change: "↑ 12 this month",
-      changeType: "positive",
       path: "/purchase/purchase-orders-local",
     },
     {
-      icon: "👥",
-      value: "48",
+      icon: "🏭",
+      value: loading ? "..." : String(overview?.activeSuppliers ?? 0),
       label: "Active Suppliers",
-      change: "↑ 3 new this month",
-      changeType: "positive",
       path: "/purchase/suppliers",
     },
     {
       icon: "⏳",
-      value: "23",
+      value: loading ? "..." : String(overview?.pendingApprovals ?? 0),
       label: "Pending Approvals",
-      change: "Requires attention",
-      changeType: "neutral",
-      path: "/purchase/purchase-orders-local",
+      path: "/administration/workflows/approvals",
     },
     {
-      icon: "💵",
-      value: "GHS 450K",
+      icon: "💳",
+      value: loading ? "..." : fmt(overview?.outstandingPayables || 0),
       label: "Outstanding Payables",
-      change: "25 pending invoices",
-      changeType: "neutral",
       path: "/purchase/purchase-bills-local",
     },
-  ]);
+  ];
 
-  React.useEffect(() => {
-    let mounted = true;
-    async function load() {
-      try {
-        const resp = await api.get("/bi/dashboards");
-        const total = Number(resp?.data?.summary?.purchase?.total || 0);
-        if (mounted) {
-          setStats((prev) => {
-            const next = [...prev];
-            next[0] = {
-              ...next[0],
-              value: `GHS ${Number(total).toLocaleString()}`,
-              label: "Total Purchases (Last 30 Days)",
-            };
-            return next;
-          });
-        }
-      } catch {}
-    }
-    load();
-    return () => {
-      mounted = false;
-    };
-  }, []);
   const sections = [
     {
-      title: "RFQ & Quotations",
+      title: "Quick Purchase",
+      items: [
+        {
+          title: "Direct Purchase",
+          description: "Create quick single-step purchases",
+          path: "/purchase/direct-purchase",
+          icon: "⚡",
+        },
+      ],
+    },
+    {
+      title: "Procurement",
       items: [
         {
           title: "Request for Quotation",
-          description: "Create and send RFQs to suppliers",
+          description: "Create and manage RFQs",
           path: "/purchase/rfqs",
-          icon: "📨",
+          icon: "📝",
         },
         {
           title: "Supplier Quotations",
-          description: "Receive and manage supplier quotations",
+          description: "Capture and compare supplier quotations",
           path: "/purchase/supplier-quotations",
-          icon: "📋",
+          icon: "📨",
         },
         {
           title: "Quotation Analysis",
-          description: "Compare quotations from multiple suppliers",
+          description: "Analyze quotation options and decisions",
           path: "/purchase/quotation-analysis",
           icon: "📊",
         },
@@ -320,33 +153,33 @@ function PurchaseHomeIndex() {
       title: "Purchase Orders",
       items: [
         {
-          title: "Purchase Order - Local",
-          description: "Create and manage local purchase orders",
+          title: "Local Purchase Orders",
+          description: "Manage local POs",
           path: "/purchase/purchase-orders-local",
-          icon: "📝",
+          icon: "📦",
         },
         {
-          title: "Purchase Order - Import",
-          description: "Create and manage import purchase orders",
+          title: "Import Purchase Orders",
+          description: "Manage import POs",
           path: "/purchase/purchase-orders-import",
-          icon: "🌍",
+          icon: "🚢",
         },
       ],
     },
     {
-      title: "Shipping & Clearing",
+      title: "Logistics",
       items: [
         {
           title: "Shipping Advice",
-          description: "Track shipments and vessel information",
+          description: "Manage shipping advice documents",
           path: "/purchase/shipping-advice",
-          icon: "🚢",
+          icon: "🚚",
         },
         {
-          title: "Clearing at Port",
-          description: "Manage customs and port clearances",
+          title: "Port Clearances",
+          description: "Track port clearance records",
           path: "/purchase/port-clearances",
-          icon: "🏢",
+          icon: "🛃",
         },
       ],
     },
@@ -354,44 +187,27 @@ function PurchaseHomeIndex() {
       title: "Billing",
       items: [
         {
-          title: "Purchase Bill - Local",
-          description: "Record and manage local supplier bills",
+          title: "Local Purchase Bills",
+          description: "Create and manage local purchase bills",
           path: "/purchase/purchase-bills-local",
           icon: "🧾",
         },
         {
-          title: "Purchase Bill - Import",
-          description: "Record and manage import supplier bills",
+          title: "Import Purchase Bills",
+          description: "Create and manage import purchase bills",
           path: "/purchase/purchase-bills-import",
-          icon: "📄",
-        },
-      ],
-    },
-    {
-      title: "Service Procurement",
-      items: [
-        {
-          title: "Service Bill",
-          description: "Prepare and issue service bills",
-          path: "/purchase/service-bills",
           icon: "🧾",
         },
-        {
-          title: "Service Confirmation",
-          description: "Confirm received services",
-          path: "/purchase/service-confirmation",
-          icon: "✅",
-        },
       ],
     },
     {
-      title: "Suppliers",
+      title: "Master Data",
       items: [
         {
-          title: "Supplier Details Setup",
-          description: "Add and manage supplier information",
+          title: "Suppliers",
+          description: "Manage suppliers and contacts",
           path: "/purchase/suppliers",
-          icon: "👥",
+          icon: "🏭",
         },
       ],
     },
@@ -403,24 +219,29 @@ function PurchaseHomeIndex() {
           description: "View purchase analytics and reports",
           path: "/purchase/reports",
           icon: "📈",
+          module_key: "purchase",
+          feature_key: "reports",
+        },
+      ],
+    },
+    {
+      title: "Dashboards",
+      items: [
+        {
+          title: "Procurement Overview",
+          description: "Key procurement KPIs and summaries",
+          path: "/purchase/procurement-overview",
+          icon: "📊",
+          module_key: "purchase",
+          feature_key: "procurement-overview",
         },
         {
-          title: "Import Order Tracking",
-          description: "Track import PO status and shipments",
-          path: "/purchase/reports/import-order-tracking",
-          icon: "🌍",
-        },
-        {
-          title: "Local Order Tracking",
-          description: "Track local PO status and deliveries",
-          path: "/purchase/reports/local-order-tracking",
-          icon: "📝",
-        },
-        {
-          title: "Purchase Tracking",
-          description: "Track end-to-end procurement stages",
-          path: "/purchase/reports/purchase-tracking",
-          icon: "🔎",
+          title: "Supplier Analytics",
+          description: "Supplier performance and trend analysis",
+          path: "/purchase/supplier-analytics",
+          icon: "📈",
+          module_key: "purchase",
+          feature_key: "supplier-analytics",
         },
       ],
     },
@@ -428,10 +249,11 @@ function PurchaseHomeIndex() {
 
   return (
     <ModuleDashboard
-      title="🛒 Purchase Management Module"
-      description="Comprehensive procurement solution for local and import purchases, supplier management, and service procurement"
+      title="🛒 Purchase"
+      description="Purchase management and procurement workflows"
       stats={stats}
       sections={sections}
+      features={purchaseFeatures}
     />
   );
 }
@@ -506,8 +328,18 @@ export default function PurchaseHome() {
       <Route path="purchase-bills-import" element={<PurchaseBillsList />} />
       <Route path="purchase-bills-import/new" element={<PurchaseBillsForm />} />
       <Route path="purchase-bills-import/:id" element={<PurchaseBillsForm />} />
-      <Route path="service-bills" element={<ServiceBillForm />} />
+      <Route path="direct-purchase" element={<DirectPurchaseList />} />
+      <Route path="direct-purchase/new" element={<DirectPurchase />} />
+      <Route path="direct-purchase/:id" element={<DirectPurchase />} />
+      <Route path="direct-purchase/:id/edit" element={<DirectPurchase />} />
+      <Route
+        path="direct-purchases"
+        element={<Navigate to="/purchase/direct-purchase" replace />}
+      />
+      <Route path="service-bills" element={<ServiceBillsList />} />
       <Route path="service-bills/new" element={<ServiceBillForm />} />
+      <Route path="service-bills/:id" element={<ServiceBillForm />} />
+      <Route path="service-bills/:id/edit" element={<ServiceBillForm />} />
       <Route
         path="service-confirmation"
         element={<ServiceConfirmationsList />}
@@ -523,6 +355,15 @@ export default function PurchaseHome() {
       <Route path="suppliers" element={<SuppliersList />} />
       <Route path="suppliers/new" element={<SupplierForm />} />
       <Route path="suppliers/:id" element={<SupplierForm />} />
+      <Route
+        path="suppliers/mass-upload"
+        element={
+          <PurchaseFeaturePage
+            title="Mass Suppliers Upload"
+            description="Import suppliers in bulk from file"
+          />
+        }
+      />
       <Route
         path="reports"
         element={
@@ -544,7 +385,126 @@ export default function PurchaseHome() {
         path="reports/purchase-tracking"
         element={<PurchaseTrackingReportPage />}
       />
+      <Route
+        path="procurement-overview"
+        element={
+          <PurchaseFeaturePage
+            title="Procurement Overview"
+            description="Procurement overview dashboard"
+          />
+        }
+      />
+      <Route
+        path="supplier-analytics"
+        element={
+          <PurchaseFeaturePage
+            title="Supplier Analytics"
+            description="Supplier analytics dashboard"
+          />
+        }
+      />
       <Route path="*" element={<Navigate to="/purchase" replace />} />
     </Routes>
   );
 }
+
+export const purchaseFeatures = [
+  {
+    module_key: "purchase",
+    label: "Direct Purchase",
+    path: "/purchase/direct-purchase",
+    type: "feature",
+    icon: "⚡",
+  },
+  {
+    module_key: "purchase",
+    label: "Request for Quotation",
+    path: "/purchase/rfqs",
+    type: "feature",
+    icon: "📝",
+  },
+  {
+    module_key: "purchase",
+    label: "Supplier Quotations",
+    path: "/purchase/supplier-quotations",
+    type: "feature",
+    icon: "📨",
+  },
+  {
+    module_key: "purchase",
+    label: "Quotation Analysis",
+    path: "/purchase/quotation-analysis",
+    type: "feature",
+    icon: "📊",
+  },
+  {
+    module_key: "purchase",
+    label: "Local Purchase Orders",
+    path: "/purchase/purchase-orders-local",
+    type: "feature",
+    icon: "📦",
+  },
+  {
+    module_key: "purchase",
+    label: "Import Purchase Orders",
+    path: "/purchase/purchase-orders-import",
+    type: "feature",
+    icon: "🚢",
+  },
+  {
+    module_key: "purchase",
+    label: "Shipping Advice",
+    path: "/purchase/shipping-advice",
+    type: "feature",
+    icon: "🚚",
+  },
+  {
+    module_key: "purchase",
+    label: "Port Clearances",
+    path: "/purchase/port-clearances",
+    type: "feature",
+    icon: "🛃",
+  },
+  {
+    module_key: "purchase",
+    label: "Local Purchase Bills",
+    path: "/purchase/purchase-bills-local",
+    type: "feature",
+    icon: "🧾",
+  },
+  {
+    module_key: "purchase",
+    label: "Import Purchase Bills",
+    path: "/purchase/purchase-bills-import",
+    type: "feature",
+    icon: "🧾",
+  },
+  {
+    module_key: "purchase",
+    label: "Suppliers",
+    path: "/purchase/suppliers",
+    type: "feature",
+    icon: "🏭",
+  },
+  {
+    module_key: "purchase",
+    label: "Purchase Reports",
+    path: "/purchase/reports",
+    type: "feature",
+    icon: "📈",
+  },
+  {
+    module_key: "purchase",
+    label: "Procurement Overview",
+    path: "/purchase/procurement-overview",
+    type: "dashboard",
+    icon: "📊",
+  },
+  {
+    module_key: "purchase",
+    label: "Supplier Analytics",
+    path: "/purchase/supplier-analytics",
+    type: "dashboard",
+    icon: "📈",
+  },
+];

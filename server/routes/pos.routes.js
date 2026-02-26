@@ -5,6 +5,7 @@ import {
   requireCompanyScope,
   requireBranchScope,
 } from "../middleware/auth.js";
+import { checkModuleAccess, checkFeatureAction } from "../middleware/access.js";
 import { requirePermission } from "../middleware/requirePermission.js";
 import { pool, query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
@@ -728,6 +729,537 @@ router.get(
 );
 
 router.get(
+  "/analytics/day-user-sales",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensurePosTables();
+      const items = await query(
+        `
+        SELECT 
+          COALESCE(
+            NULLIF(a.username, ''),
+            NULLIF(a.email, ''),
+            CONCAT('User ', a.id)
+          ) AS user_label,
+          COUNT(*) AS count,
+          COALESCE(SUM(p.net_amount), 0) AS total
+        FROM pos_sales p
+        LEFT JOIN adm_users a
+          ON a.id = p.created_by AND a.company_id = p.company_id AND a.branch_id = p.branch_id
+        WHERE p.company_id = :companyId
+          AND p.branch_id = :branchId
+          AND DATE(p.sale_datetime) = CURDATE()
+          AND p.status = 'COMPLETED'
+        GROUP BY user_label
+        ORDER BY total DESC
+        `,
+        { companyId, branchId },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/analytics/day-terminal-methods",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensurePosTables();
+      const items = await query(
+        `
+        SELECT 
+          COALESCE(t.code, 'UNKNOWN') AS terminal,
+          SUM(CASE WHEN p.payment_method='CASH' THEN p.net_amount ELSE 0 END) AS cash_total,
+          SUM(CASE WHEN p.payment_method='CARD' THEN p.net_amount ELSE 0 END) AS card_total,
+          SUM(CASE WHEN p.payment_method='MOBILE' THEN p.net_amount ELSE 0 END) AS mobile_total
+        FROM pos_sales p
+        LEFT JOIN pos_terminals t
+          ON t.id = p.terminal_id AND t.company_id = p.company_id AND t.branch_id = p.branch_id
+        WHERE p.company_id = :companyId
+          AND p.branch_id = :branchId
+          AND DATE(p.sale_datetime) = CURDATE()
+          AND p.status = 'COMPLETED'
+        GROUP BY COALESCE(t.code, 'UNKNOWN')
+        ORDER BY terminal ASC
+        `,
+        { companyId, branchId },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.get(
+  "/analytics/sales-30-days",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensurePosTables();
+      const items = await query(
+        `
+        SELECT 
+          DATE(p.sale_datetime) AS date,
+          COUNT(*) AS count,
+          COALESCE(SUM(p.net_amount), 0) AS total
+        FROM pos_sales p
+        WHERE p.company_id = :companyId
+          AND p.branch_id = :branchId
+          AND DATE(p.sale_datetime) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+          AND p.status = 'COMPLETED'
+        GROUP BY DATE(p.sale_datetime)
+        ORDER BY date ASC
+        `,
+        { companyId, branchId },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/analytics/sales-monthly",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensurePosTables();
+      const items = await query(
+        `
+        SELECT 
+          DATE_FORMAT(p.sale_datetime, '%Y-%m') AS ym,
+          COALESCE(SUM(p.net_amount), 0) AS total
+        FROM pos_sales p
+        WHERE p.company_id = :companyId
+          AND p.branch_id = :branchId
+          AND p.status = 'COMPLETED'
+          AND p.sale_datetime >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+        GROUP BY DATE_FORMAT(p.sale_datetime, '%Y-%m')
+        ORDER BY ym ASC
+        `,
+        { companyId, branchId },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/analytics/weekday-current-week",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensurePosTables();
+      const items = await query(
+        `
+        SELECT 
+          DAYOFWEEK(p.sale_datetime) AS dow, 
+          COALESCE(SUM(p.net_amount), 0) AS total
+        FROM pos_sales p
+        WHERE p.company_id = :companyId
+          AND p.branch_id = :branchId
+          AND YEARWEEK(p.sale_datetime, 1) = YEARWEEK(CURDATE(), 1)
+          AND p.status = 'COMPLETED'
+        GROUP BY DAYOFWEEK(p.sale_datetime)
+        ORDER BY dow ASC
+        `,
+        { companyId, branchId },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/analytics/hourly-today",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensurePosTables();
+      const items = await query(
+        `
+        SELECT 
+          HOUR(p.sale_datetime) AS hr,
+          COALESCE(SUM(p.net_amount), 0) AS total
+        FROM pos_sales p
+        WHERE p.company_id = :companyId
+          AND p.branch_id = :branchId
+          AND DATE(p.sale_datetime) = CURDATE()
+          AND p.status = 'COMPLETED'
+          AND HOUR(p.sale_datetime) BETWEEN 7 AND 22
+        GROUP BY HOUR(p.sale_datetime)
+        ORDER BY hr ASC
+        `,
+        { companyId, branchId },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/analytics/category-share",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const items = await query(
+        `
+        SELECT 
+          COALESCE(it.item_type, 'Uncategorized') AS category,
+          COALESCE(SUM(d.net_amount), 0) AS total
+        FROM sal_invoices i
+        JOIN sal_invoice_details d 
+          ON d.invoice_id = i.id
+        LEFT JOIN inv_items it 
+          ON it.id = d.item_id AND it.company_id = i.company_id
+        WHERE i.company_id = :companyId
+          AND i.branch_id = :branchId
+          AND DATE(i.invoice_date) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        GROUP BY COALESCE(it.item_type, 'Uncategorized')
+        ORDER BY total DESC
+        `,
+        { companyId, branchId },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.get(
+  "/reports/daily-sales",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      await ensurePosTables();
+      const where = [
+        "p.company_id = :companyId",
+        "p.branch_id = :branchId",
+        "p.status = 'COMPLETED'",
+      ];
+      const params = { companyId, branchId };
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        where.push(
+          "DATE(p.sale_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
+        );
+      } else {
+        where.push(
+          "DATE(p.sale_datetime) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)",
+        );
+      }
+      const items = await query(
+        `
+        SELECT 
+          DATE(p.sale_datetime) AS date,
+          COUNT(*) AS count,
+          COALESCE(SUM(p.gross_amount), 0) AS gross,
+          COALESCE(SUM(p.discount_amount), 0) AS discount,
+          COALESCE(SUM(p.tax_amount), 0) AS tax,
+          COALESCE(SUM(p.net_amount), 0) AS net
+        FROM pos_sales p
+        WHERE ${where.join(" AND ")}
+        GROUP BY DATE(p.sale_datetime)
+        ORDER BY date ASC
+        `,
+        params,
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/payment-breakdown",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      await ensurePosTables();
+      const where = [
+        "p.company_id = :companyId",
+        "p.branch_id = :branchId",
+        "p.status = 'COMPLETED'",
+      ];
+      const params = { companyId, branchId };
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        where.push(
+          "DATE(p.sale_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
+        );
+      } else {
+        params.today = new Date();
+        where.push("DATE(p.sale_datetime) = CURDATE()");
+      }
+      const items = await query(
+        `
+        SELECT 
+          COALESCE(p.payment_method, 'UNKNOWN') AS method,
+          COUNT(*) AS count,
+          COALESCE(SUM(p.net_amount), 0) AS total
+        FROM pos_sales p
+        WHERE ${where.join(" AND ")}
+        GROUP BY COALESCE(p.payment_method, 'UNKNOWN')
+        ORDER BY total DESC
+        `,
+        params,
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/top-items",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  checkModuleAccess("pos"),
+  checkFeatureAction("pos", "view"),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      const rawLimit = Number(req.query.limit || 10);
+      const limit =
+        Number.isFinite(rawLimit) && rawLimit > 0
+          ? Math.min(100, Math.floor(rawLimit))
+          : 10;
+      await ensurePosTables();
+      const where = [
+        "p.company_id = :companyId",
+        "p.branch_id = :branchId",
+        "p.status = 'COMPLETED'",
+      ];
+      const params = { companyId, branchId, limit };
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        where.push(
+          "DATE(p.sale_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
+        );
+      } else {
+        where.push("DATE(p.sale_datetime) = CURDATE()");
+      }
+      const items = await query(
+        `
+        SELECT 
+          COALESCE(l.item_name, 'Unknown') AS item,
+          COALESCE(SUM(l.qty), 0) AS qty,
+          COALESCE(SUM(l.line_total), 0) AS amount
+        FROM pos_sale_lines l
+        JOIN pos_sales p ON p.id = l.sale_id
+        WHERE ${where.join(" AND ")}
+        GROUP BY COALESCE(l.item_name, 'Unknown')
+        ORDER BY amount DESC
+        LIMIT ${limit}
+        `,
+        params,
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Backward-compatible singular aliases (execute same logic instead of rewriting URL)
+router.get(
+  "/report/daily-sales",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      await ensurePosTables();
+      const where = [
+        "p.company_id = :companyId",
+        "p.branch_id = :branchId",
+        "p.status = 'COMPLETED'",
+      ];
+      const params = { companyId, branchId };
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        where.push(
+          "DATE(p.sale_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
+        );
+      } else {
+        where.push(
+          "DATE(p.sale_datetime) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)",
+        );
+      }
+      const items = await query(
+        `
+        SELECT 
+          DATE(p.sale_datetime) AS date,
+          COUNT(*) AS count,
+          COALESCE(SUM(p.gross_amount), 0) AS gross,
+          COALESCE(SUM(p.discount_amount), 0) AS discount,
+          COALESCE(SUM(p.tax_amount), 0) AS tax,
+          COALESCE(SUM(p.net_amount), 0) AS net
+        FROM pos_sales p
+        WHERE ${where.join(" AND ")}
+        GROUP BY DATE(p.sale_datetime)
+        ORDER BY date ASC
+        `,
+        params,
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.get(
+  "/report/payment-breakdown",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      await ensurePosTables();
+      const where = [
+        "p.company_id = :companyId",
+        "p.branch_id = :branchId",
+        "p.status = 'COMPLETED'",
+      ];
+      const params = { companyId, branchId };
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        where.push(
+          "DATE(p.sale_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
+        );
+      } else {
+        where.push("DATE(p.sale_datetime) = CURDATE()");
+      }
+      const items = await query(
+        `
+        SELECT 
+          COALESCE(p.payment_method, 'UNKNOWN') AS method,
+          COUNT(*) AS count,
+          COALESCE(SUM(p.net_amount), 0) AS total
+        FROM pos_sales p
+        WHERE ${where.join(" AND ")}
+        GROUP BY COALESCE(p.payment_method, 'UNKNOWN')
+        ORDER BY total DESC
+        `,
+        params,
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.get(
+  "/report/top-items",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      const rawLimit = Number(req.query.limit || 10);
+      const limit =
+        Number.isFinite(rawLimit) && rawLimit > 0
+          ? Math.min(100, Math.floor(rawLimit))
+          : 10;
+      await ensurePosTables();
+      const where = [
+        "p.company_id = :companyId",
+        "p.branch_id = :branchId",
+        "p.status = 'COMPLETED'",
+      ];
+      const params = { companyId, branchId, limit };
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        where.push(
+          "DATE(p.sale_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
+        );
+      } else {
+        where.push("DATE(p.sale_datetime) = CURDATE()");
+      }
+      const items = await query(
+        `
+        SELECT 
+          COALESCE(l.item_name, 'Unknown') AS item,
+          COALESCE(SUM(l.qty), 0) AS qty,
+          COALESCE(SUM(l.line_total), 0) AS amount
+        FROM pos_sale_lines l
+        JOIN pos_sales p ON p.id = l.sale_id
+        WHERE ${where.join(" AND ")}
+        GROUP BY COALESCE(l.item_name, 'Unknown')
+        ORDER BY amount DESC
+        LIMIT ${limit}
+        `,
+        params,
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.get(
   "/sales",
   requireAuth,
   requireCompanyScope,
@@ -891,28 +1423,33 @@ router.post(
       } = req.body || {};
       await ensurePosTables();
       await ensureStockBalancesWarehouseInfrastructure();
-      const [openRows] = await conn.execute(
-        `
-        SELECT id
-        FROM pos_day_status
-        WHERE company_id = :companyId
-          AND branch_id = :branchId
-          AND business_date = CURDATE()
-          ${terminal ? "AND terminal_code = :terminal" : ""}
-          AND status = 'OPEN'
-        ORDER BY open_datetime DESC
-        LIMIT 1
-        `,
-        terminal
-          ? { companyId, branchId, terminal: String(terminal || "") }
-          : { companyId, branchId },
-      );
-      if (!openRows || !openRows.length) {
-        throw httpError(
-          400,
-          "VALIDATION_ERROR",
-          "Day is not open. Please open the POS day before sales entry.",
+      // Enforce daily POS day requirement:
+      // - A day must be opened for today's business date before sales are allowed
+      // - Sales remain allowed even if the day has been closed, as long as it's the same date
+      {
+        const [dayRows] = await conn.execute(
+          `
+          SELECT id, status
+          FROM pos_day_status
+          WHERE company_id = :companyId
+            AND branch_id = :branchId
+            AND business_date = CURDATE()
+            ${terminal ? "AND terminal_code = :terminal" : ""}
+          ORDER BY open_datetime DESC
+          LIMIT 1
+          `,
+          terminal
+            ? { companyId, branchId, terminal: String(terminal || "") }
+            : { companyId, branchId },
         );
+        if (!dayRows || dayRows.length === 0) {
+          throw httpError(
+            400,
+            "VALIDATION_ERROR",
+            "Open POS day required for today. Please open day in POS Setup.",
+          );
+        }
+        // If found and status is OPEN or CLOSED, proceed (CLOSED still allowed same day)
       }
       await conn.beginTransaction();
 
@@ -1097,8 +1634,10 @@ router.post(
           });
         }
         let salesAccId =
-          (await resolveFinAccountId(conn, { companyId, accountRef: "4000" })) ||
-          (await resolveDefaultSalesAccountId(conn, { companyId }));
+          (await resolveFinAccountId(conn, {
+            companyId,
+            accountRef: "4000",
+          })) || (await resolveDefaultSalesAccountId(conn, { companyId }));
         const vatOutputAccId = await resolveFinAccountId(conn, {
           companyId,
           accountRef: "1310",
@@ -1115,7 +1654,8 @@ router.post(
           companyId,
           voucherTypeId,
         });
-        const voucherDate = toYmd(sale_datetime) || new Date().toISOString().slice(0, 10);
+        const voucherDate =
+          toYmd(sale_datetime) || new Date().toISOString().slice(0, 10);
         const [vIns] = await conn.execute(
           `INSERT INTO fin_vouchers
             (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)

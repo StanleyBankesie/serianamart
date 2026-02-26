@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { api } from "api/client";
+import { api } from "../../../../api/client";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function SuppliersList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const { canPerformAction } = usePermission();
 
   useEffect(() => {
     let mounted = true;
@@ -145,18 +147,22 @@ export default function SuppliersList() {
                       </span>
                     </td>
                     <td>
-                      <Link
-                        to={`/purchase/suppliers/${s.id}?mode=view`}
-                        className="text-brand hover:text-brand-700 text-sm font-medium"
-                      >
-                        View
-                      </Link>
-                      <Link
-                        to={`/purchase/suppliers/${s.id}?mode=edit`}
-                        className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                      >
-                        Edit
-                      </Link>
+                      {canPerformAction("purchase:suppliers", "view") && (
+                        <Link
+                          to={`/purchase/suppliers/${s.id}?mode=view`}
+                          className="text-brand hover:text-brand-700 text-sm font-medium"
+                        >
+                          View
+                        </Link>
+                      )}
+                      {canPerformAction("purchase:suppliers", "edit") && (
+                        <Link
+                          to={`/purchase/suppliers/${s.id}?mode=edit`}
+                          className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                        >
+                          Edit
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -168,7 +174,6 @@ export default function SuppliersList() {
     </div>
   );
 }
-
 
 
 

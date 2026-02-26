@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function WorkOrderList() {
+  const { canPerformAction } = usePermission();
   const items = [
     { id: 1, woNo: 'WO-0001', product: 'Finished Good A', qty: 10, status: 'PLANNED' },
     { id: 2, woNo: 'WO-0002', product: 'Finished Good B', qty: 5, status: 'RELEASED' },
@@ -31,18 +33,22 @@ export default function WorkOrderList() {
                 <td className="text-right">{Number(w.qty).toFixed(2)}</td>
                 <td>{w.status}</td>
                 <td>
-                  <Link
-                    to={`/production/work-orders/${w.id}?mode=view`}
-                    className="text-brand hover:text-brand-600 text-sm font-medium"
-                  >
-                    View
-                  </Link>
-                  <Link
-                    to={`/production/work-orders/${w.id}?mode=edit`}
-                    className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                  >
-                    Edit
-                  </Link>
+                  {canPerformAction('production:work-orders','view') && (
+                    <Link
+                      to={`/production/work-orders/${w.id}?mode=view`}
+                      className="text-brand hover:text-brand-600 text-sm font-medium"
+                    >
+                      View
+                    </Link>
+                  )}
+                  {canPerformAction('production:work-orders','edit') && (
+                    <Link
+                      to={`/production/work-orders/${w.id}?mode=edit`}
+                      className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                    >
+                      Edit
+                    </Link>
+                  )}
                 </td>
               </tr>
             ))}

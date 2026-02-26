@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "api/client";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function EmployeeList() {
   const navigate = useNavigate();
+  const { canPerformAction } = usePermission();
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -21,7 +23,7 @@ export default function EmployeeList() {
       setError("");
       const response = await api.get("/hr/employees");
       setEmployees(
-        Array.isArray(response.data?.items) ? response.data.items : []
+        Array.isArray(response.data?.items) ? response.data.items : [],
       );
     } catch (error) {
       setError(error?.response?.data?.message || "Error fetching employees");
@@ -82,7 +84,8 @@ export default function EmployeeList() {
     <div className="space-y-4">
       <div className="card">
         <div className="card-header bg-brand text-white rounded-t-lg">
-          <div className="flex justify-between items-center text-white"><div>
+          <div className="flex justify-between items-center text-white">
+            <div>
               <h1 className="text-2xl font-bold dark:text-brand-300">
                 Employee Setup
               </h1>
@@ -149,9 +152,7 @@ export default function EmployeeList() {
           {loading ? (
             <div className="text-center py-12">
               <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-brand"></div>
-              <p className="mt-2">
-                Loading employees...
-              </p>
+              <p className="mt-2">Loading employees...</p>
             </div>
           ) : filteredEmployees.length === 0 ? (
             <div className="text-center py-12">
@@ -191,22 +192,32 @@ export default function EmployeeList() {
                       <td>{getStatusBadge(emp.is_active)}</td>
                       <td>
                         <div className="flex gap-2">
-                          <button
-                            onClick={() =>
-                              navigate(`/human-resources/employees/${emp.id}`)
-                            }
-                            className="text-brand hover:text-brand-600 font-medium text-sm"
-                          >
-                            View
-                          </button>
-                          <button
-                            onClick={() =>
-                              navigate(`/human-resources/employees/${emp.id}`)
-                            }
-                            className="text-blue-600 hover:text-blue-700 font-medium text-sm"
-                          >
-                            Edit
-                          </button>
+                          {canPerformAction(
+                            "human-resources:employees",
+                            "view",
+                          ) && (
+                            <button
+                              onClick={() =>
+                                navigate(`/human-resources/employees/${emp.id}`)
+                              }
+                              className="text-brand hover:text-brand-600 font-medium text-sm"
+                            >
+                              View
+                            </button>
+                          )}
+                          {canPerformAction(
+                            "human-resources:employees",
+                            "edit",
+                          ) && (
+                            <button
+                              onClick={() =>
+                                navigate(`/human-resources/employees/${emp.id}`)
+                              }
+                              className="text-blue-600 hover:text-blue-700 font-medium text-sm"
+                            >
+                              Edit
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -220,10 +231,3 @@ export default function EmployeeList() {
     </div>
   );
 }
-
-
-
-
-
-
-

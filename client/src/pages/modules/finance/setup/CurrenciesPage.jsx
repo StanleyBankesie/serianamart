@@ -89,7 +89,7 @@ export default function CurrenciesPage() {
 
   function setRowDraft(id, field, value) {
     setItems((p) =>
-      p.map((it) => (it.id === id ? { ...it, [field]: value } : it))
+      p.map((it) => (it.id === id ? { ...it, [field]: value } : it)),
     );
   }
 
@@ -305,7 +305,7 @@ function RatesSection({ items }) {
       setRates(res.data?.items || []);
     } catch (e) {
       toast.error(
-        e?.response?.data?.message || "Failed to load currency rates"
+        e?.response?.data?.message || "Failed to load currency rates",
       );
     } finally {
       setLoading(false);
@@ -396,7 +396,7 @@ function RatesSection({ items }) {
             loadRates();
           } catch (e2) {
             toast.error(
-              e2?.response?.data?.message || "Failed to add currency rate"
+              e2?.response?.data?.message || "Failed to add currency rate",
             );
           }
         }}
@@ -533,26 +533,12 @@ function RatesSection({ items }) {
                     {!isEdit ? (
                       <div className="flex justify-end gap-2">
                         <button
-                          className="btn btn-secondary"
-                          onClick={() =>
-                            setRateEditing((p) => ({
-                              ...p,
-                              [r.id]: {
-                                rate: r.rate,
-                                rate_date: String(r.rate_date).slice(0, 10),
-                              },
-                            }))
-                          }
-                        >
-                          Edit
-                        </button>
-                        <button
                           className="btn"
                           onClick={async () => {
                             if (!window.confirm("Delete this rate?")) return;
                             try {
                               await api.delete(
-                                `/finance/currency-rates/${r.id}`
+                                `/finance/currency-rates/${r.id}`,
                               );
                               toast.success("Rate deleted");
                               setRateEditing((p) => {
@@ -564,7 +550,7 @@ function RatesSection({ items }) {
                             } catch (e) {
                               toast.error(
                                 e?.response?.data?.message ||
-                                  "Failed to delete rate"
+                                  "Failed to delete rate",
                               );
                             }
                           }}
@@ -595,7 +581,7 @@ function RatesSection({ items }) {
                             } catch (e) {
                               toast.error(
                                 e?.response?.data?.message ||
-                                  "Failed to update rate"
+                                  "Failed to update rate",
                               );
                             }
                           }}

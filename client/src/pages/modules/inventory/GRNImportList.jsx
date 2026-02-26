@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
+import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 import { api } from "api/client";
 
 export default function GRNImportList() {
+  const { canPerformAction } = usePermission();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [grns, setGrns] = useState([]);
@@ -26,6 +28,7 @@ export default function GRNImportList() {
   const [viewDoc, setViewDoc] = useState(null);
   const [viewDetails, setViewDetails] = useState([]);
   const [viewPoNo, setViewPoNo] = useState("");
+  const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -114,6 +117,7 @@ export default function GRNImportList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+      setHasInactiveWorkflow(false);
       return;
     }
     const route = "/inventory/grn-import";
@@ -122,6 +126,14 @@ export default function GRNImportList() {
         .trim()
         .toUpperCase()
         .replace(/\s+/g, "_");
+    const matching = workflowsCache.filter(
+      (w) =>
+        String(w.document_route) === route ||
+        ["GOODS_RECEIPT", "GRN", "GOODS_RECEIPT_NOTE"].includes(
+          normalize(w.document_type),
+        ),
+    );
+    const hasInactive = matching.some((w) => Number(w.is_active) === 0);
     const chosen =
       workflowsCache.find(
         (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
@@ -135,6 +147,7 @@ export default function GRNImportList() {
       ) ||
       null;
     setCandidateWorkflow(chosen || null);
+    setHasInactiveWorkflow(!chosen && hasInactive);
     setFirstApprover(null);
     if (!chosen) return;
     try {
@@ -177,6 +190,7 @@ export default function GRNImportList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+      setHasInactiveWorkflow(false);
       return;
     }
     const route = "/inventory/grn-import";
@@ -185,6 +199,14 @@ export default function GRNImportList() {
         .trim()
         .toUpperCase()
         .replace(/\s+/g, "_");
+    const matching = items.filter(
+      (w) =>
+        String(w.document_route) === route ||
+        ["GOODS_RECEIPT", "GRN", "GOODS_RECEIPT_NOTE"].includes(
+          normalize(w.document_type),
+        ),
+    );
+    const hasInactive = matching.some((w) => Number(w.is_active) === 0);
     const chosen =
       items.find(
         (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
@@ -198,6 +220,7 @@ export default function GRNImportList() {
       ) ||
       null;
     setCandidateWorkflow(chosen || null);
+    setHasInactiveWorkflow(!chosen && hasInactive);
     setFirstApprover(null);
     if (!chosen) return;
     try {
@@ -395,15 +418,15 @@ export default function GRNImportList() {
                         >
                           Details
                         </button>
-                        {String(g.status || "").toUpperCase() !==
-                          "APPROVED" && (
-                          <Link
-                            to={`/inventory/grn-import/${g.id}?mode=edit`}
-                            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                          >
-                            Edit
-                          </Link>
-                        )}
+                        {String(g.status || "").toUpperCase() !== "APPROVED" &&
+                          canPerformAction("inventory:stock-updation", "edit") && (
+                            <Link
+                              to={`/inventory/grn-import/${g.id}?mode=edit`}
+                              className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                            >
+                              Edit
+                            </Link>
+                          )}
                         {String(g.status || "").toUpperCase() === "APPROVED" ? (
                           <span className="ml-2 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
                             Approved
@@ -414,7 +437,9 @@ export default function GRNImportList() {
                             className="btn-success ml-2"
                             onClick={() => openForwardModal(g)}
                             disabled={
-                              submittingId === g.id || !canForward(g.status)
+                              submittingId === g.id ||
+                              !canForward(g.status) ||
+                              hasInactiveWorkflow
                             }
                           >
                             {submittingId === g.id

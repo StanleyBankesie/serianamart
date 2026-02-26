@@ -145,6 +145,12 @@ export default function FinanceHome() {
           icon: "🏦",
         },
         {
+          name: "Cost Centers",
+          path: "/finance/cost-centers",
+          description: "Define and manage cost centers",
+          icon: "🏷️",
+        },
+        {
           name: "Tax Codes & Deductions",
           path: "/finance/tax-codes",
           description: "Configure tax and deduction codes",
@@ -278,6 +284,41 @@ export default function FinanceHome() {
       description="Comprehensive accounting, budgeting, and financial reporting system"
       stats={stats}
       sections={sections}
+      features={financeFeatures}
     />
   );
 }
+
+export const financeFeatures = [
+  { module_key: "finance", label: "Journal Entry", path: "/finance/journal-voucher", type: "feature" },
+  { module_key: "finance", label: "Make Payment", path: "/finance/payment-voucher", type: "feature" },
+  { module_key: "finance", label: "Receive Payment", path: "/finance/receipt-voucher", type: "feature" },
+  { module_key: "finance", label: "Credit Note", path: "/finance/credit-note", type: "feature" },
+  { module_key: "finance", label: "Debit Note", path: "/finance/debit-note", type: "feature" },
+  { module_key: "finance", label: "Sales Voucher", path: "/finance/sales-voucher", type: "feature" },
+  { module_key: "finance", label: "Purchase Voucher", path: "/finance/purchase-voucher", type: "feature" },
+  { module_key: "finance", label: "Account Transfer", path: "/finance/contra-voucher", type: "feature" },
+  { module_key: "finance", label: "Voucher Register Report", path: "/finance/reports", type: "dashboard" },
+  { module_key: "finance", label: "Chart of Account Groups", path: "/finance/account-groups", type: "feature" },
+  { module_key: "finance", label: "Accounts Creation", path: "/finance/accounts", type: "feature" },
+  { module_key: "finance", label: "Cost Centers", path: "/finance/cost-centers", type: "feature" },
+  { module_key: "finance", label: "Tax Codes & Deductions", path: "/finance/tax-codes", type: "feature" },
+  { module_key: "finance", label: "Currencies", path: "/finance/currencies", type: "feature" },
+  { module_key: "finance", label: "Fiscal Years", path: "/finance/fiscal-years", type: "feature" },
+  { module_key: "finance", label: "Voucher Register", path: "/finance/reports/voucher-register", type: "dashboard" },
+  { module_key: "finance", label: "Payment Due", path: "/finance/reports/payment-due", type: "dashboard" },
+  { module_key: "finance", label: "Customer Outstanding", path: "/finance/reports/customer-outstanding", type: "dashboard" },
+  { module_key: "finance", label: "Trial Balance", path: "/finance/reports/trial-balance", type: "dashboard" },
+  { module_key: "finance", label: "Audit Trail", path: "/finance/reports/audit-trail", type: "dashboard" },
+  { module_key: "finance", label: "Journal Report", path: "/finance/reports/journals", type: "dashboard" },
+  { module_key: "finance", label: "General Ledger", path: "/finance/reports/general-ledger", type: "dashboard" },
+  { module_key: "finance", label: "Debtors Ledger", path: "/finance/reports/debtors-ledger", type: "dashboard" },
+  { module_key: "finance", label: "Creditors Ledger", path: "/finance/reports/creditors-ledger", type: "dashboard" },
+  { module_key: "finance", label: "Supplier Outstanding", path: "/finance/reports/supplier-outstanding", type: "dashboard" },
+  { module_key: "finance", label: "Profit & Loss", path: "/finance/reports/profit-and-loss", type: "dashboard" },
+  { module_key: "finance", label: "Balance Sheet", path: "/finance/reports/balance-sheet", type: "dashboard" },
+  { module_key: "finance", label: "Cash Flow", path: "/finance/reports/cash-flow", type: "dashboard" },
+  { module_key: "finance", label: "Ratio Analysis", path: "/finance/reports/ratio-analysis", type: "dashboard" },
+  { module_key: "finance", label: "Bank Reconciliation", path: "/finance/bank-reconciliation", type: "feature" },
+  { module_key: "finance", label: "Post-Dated Cheques (PDC)", path: "/finance/pdc-postings", type: "feature" },
+];

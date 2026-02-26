@@ -47,7 +47,7 @@ export default function DiscountSchemeList() {
         api.get("/inventory/items"),
       ]);
       setSchemes(
-        Array.isArray(schemesRes.data?.items) ? schemesRes.data.items : []
+        Array.isArray(schemesRes.data?.items) ? schemesRes.data.items : [],
       );
       setItems(itemsRes.data.items || []);
     } catch (err) {
@@ -197,7 +197,7 @@ export default function DiscountSchemeList() {
     return items.filter(
       (i) =>
         i.item_code.toLowerCase().includes(lower) ||
-        i.item_name.toLowerCase().includes(lower)
+        i.item_name.toLowerCase().includes(lower),
     );
   }, [items, itemSearch]);
 
@@ -344,17 +344,10 @@ export default function DiscountSchemeList() {
                       <div className="ds-action-buttons">
                         <button
                           className="ds-icon-btn"
-                          onClick={() => openModal(scheme.id)}
-                          title="Edit"
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          className="ds-icon-btn"
                           onClick={() => handleDelete(scheme.id)}
                           title="Delete"
                         >
-                          🗑️
+                          Delete
                         </button>
                       </div>
                     </td>

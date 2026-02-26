@@ -1,13 +1,21 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { usePermission } from "../../auth/PermissionContext.jsx";
 import client from "../../api/client";
+import CompanyFeed from "../../components/CompanyFeed/CompanyFeed";
+import FloatingChatButton from "../../components/FloatingChatButton.jsx";
+import ChatWidget from "../../components/ChatWidget.jsx";
 
 export default function HomePage() {
-  const { user, token, hasAccess } = useAuth();
+  const { user, token } = useAuth();
+  const { canAccessPath, hasRoleFeature } = usePermission();
   const navigate = useNavigate();
   const [pendingItems, setPendingItems] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [showPostAlerts, setShowPostAlerts] = useState(false);
+  const [postAlerts, setPostAlerts] = useState([]);
+  const [postAlertsLoading, setPostAlertsLoading] = useState(false);
   const [overview, setOverview] = useState(null);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
   const [modalInstanceId, setModalInstanceId] = useState(null);
@@ -16,6 +24,7 @@ export default function HomePage() {
   const [modalLoading, setModalLoading] = useState(false);
   const [modalProcessing, setModalProcessing] = useState(false);
   const [modalNextUser, setModalNextUser] = useState(null);
+  const [showChatWidget, setShowChatWidget] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -163,33 +172,6 @@ export default function HomePage() {
     return `${t} ${ref}`;
   };
 
-  const featuredCards = [
-    {
-      title: "Sales Orders",
-      description: "Manage customer orders and track fulfillment",
-      path: "/sales/sales-orders",
-      icon: "🛒",
-    },
-    {
-      title: "Invoices",
-      description: "Generate and manage sales invoices",
-      path: "/sales/invoices",
-      icon: "🧾",
-    },
-    {
-      title: "Service Confirmation",
-      description: "Confirm delivered services from suppliers",
-      path: "/service-management/service-confirmation",
-      icon: "✅",
-    },
-    {
-      title: "Service Bills",
-      description: "Prepare and issue service bills",
-      path: "/service-management/service-bills",
-      icon: "💵",
-    },
-  ].filter((it) => hasAccess(it.path, "view"));
-
   const openApprovalModal = async (id) => {
     setShowApprovalModal(true);
     setModalInstanceId(id);
@@ -288,13 +270,14 @@ export default function HomePage() {
       label: "Today Sales",
       value: fmtCurrency(overview?.todaySales || 0),
       // icon: "💵",
-      path: "/sales",
+      path: "/sales/reports",
       color: "from-ticker-green to-ticker-green",
     },
     {
       label: "Total Customers",
       value: String(overview?.totalCustomers ?? 0),
       // icon: "👥",
+      home_key: "total-customers",
       path: "/sales/customers",
       color: "from-ticker-blue to-ticker-blue",
     },
@@ -314,44 +297,15 @@ export default function HomePage() {
     },
   ];
 
-  const quickActions = [
-    {
-      label: "New Sale",
-      icon: "➕",
-      path: "/pos/sales/new",
-      color: "text-green-600 bg-green-50",
-    },
-    {
-      label: "Inventory",
-      icon: "📦",
-      path: "/inventory",
-      color: "text-blue-600 bg-blue-50",
-    },
-    {
-      label: "Customers",
-      icon: "👥",
-      path: "/sales/customers",
-      color: "text-purple-600 bg-purple-50",
-    },
-    {
-      label: "Reports",
-      icon: "📊",
-      path: "/reports",
-      color: "text-orange-600 bg-orange-50",
-    },
-    {
-      label: "Settings",
-      icon: "⚙",
-      path: "/administration/settings",
-      color: "text-slate-600 bg-slate-50",
-    },
-    {
-      label: "Help",
-      icon: "❓",
-      path: "/help",
-      color: "text-red-600 bg-red-50",
-    },
-  ];
+  const visibleMetrics = metrics.filter((m) => {
+    if (m?.home_key)
+      return (
+        hasRoleFeature(`home:${m.home_key}`) || canAccessPath(m.path, "view")
+      );
+    return canAccessPath(m.path, "view");
+  });
+
+  // Quick Actions section removed per request
 
   const approvedNotifications = useMemo(() => {
     const uid = Number(user?.sub || user?.id);
@@ -372,10 +326,69 @@ export default function HomePage() {
     });
     return filtered;
   }, [notifications, user?.sub, user?.id]);
+  const postNotificationsUnread = useMemo(
+    () =>
+      notifications.filter(
+        (n) =>
+          Number(n.is_read) !== 1 &&
+          String(n.link || "").startsWith("/social-feed"),
+      ),
+    [notifications],
+  );
+  const otherNotificationsUnread = useMemo(
+    () =>
+      notifications.filter(
+        (n) =>
+          Number(n.is_read) !== 1 &&
+          !String(n.link || "").startsWith("/social-feed"),
+      ),
+    [notifications],
+  );
+  const extractPostIdFromLink = (link) => {
+    const s = String(link || "");
+    const m = s.match(/social-feed\/(\d+)/);
+    return m ? Number(m[1]) : null;
+  };
+  const loadPostAlerts = async () => {
+    const ids = Array.from(
+      new Set(
+        postNotificationsUnread
+          .map((n) => extractPostIdFromLink(n.link))
+          .filter((id) => Number.isFinite(id) && id > 0),
+      ),
+    );
+    if (ids.length === 0) {
+      setPostAlerts([]);
+      return;
+    }
+    try {
+      setPostAlertsLoading(true);
+      const uid = Number(user?.sub || user?.id) || "";
+      const res = await fetch(`/api/social-feed?offset=0&limit=200`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+          "x-user-id": String(uid),
+        },
+      });
+      if (!res.ok) throw new Error("Failed to load posts");
+      const data = await res.json();
+      const items = Array.isArray(data.data) ? data.data : [];
+      const byId = new Map(items.map((p) => [Number(p.id), p]));
+      const matched = ids
+        .map((id) => byId.get(id))
+        .filter((p) => p && typeof p.content === "string");
+      setPostAlerts(matched);
+    } catch {
+      setPostAlerts([]);
+    } finally {
+      setPostAlertsLoading(false);
+    }
+  };
+
 
   return (
-    <div className="min-h-screen bg-slate-50/50 p-6 md:p-8 font-sans text-slate-900">
-      <div className="max-w-7xl mx-auto space-y-8 fullbleed-sm">
+    <div className="min-h-screen bg-slate-50/50 p-2 md:p-3 font-sans text-slate-900">
+      <div className="max-w-7xl mx-auto space-y-4 fullbleed-sm">
         {/* Header Section */}
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-brand-900 to-brand-800 p-8 shadow-erp text-white">
           <div className="relative z-10">
@@ -388,11 +401,25 @@ export default function HomePage() {
             </p>
           </div>
           <div className="absolute right-0 top-0 h-full w-1/3 bg-white/5 skew-x-12 transform translate-x-20" />
+          <button
+            type="button"
+            onClick={() => navigate("/notifications")}
+            className="absolute top-4 right-4 z-20 bg-white/10 hover:bg-white/20 text-white rounded-full px-3 py-2 flex items-center gap-2"
+          >
+            <span>🔔</span>
+            <span className="relative inline-flex items-center">
+              <span className="sr-only">Unread</span>
+              <span className="ml-1 text-sm">Notifications</span>
+              <span className="absolute -top-2 -right-3 bg-red-600 text-white text-xs font-bold rounded-full px-2 py-0.5">
+                {notifications.filter((n) => Number(n.is_read) !== 1).length}
+              </span>
+            </span>
+          </button>
         </div>
 
         {/* Tickers / Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {metrics.map((metric, index) => (
+          {visibleMetrics.map((metric, index) => (
             <div
               key={index}
               onClick={() => navigate(metric.path)}
@@ -419,67 +446,130 @@ export default function HomePage() {
         </div>
 
         {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Quick Actions */}
-          <div className="lg:col-span-1 space-y-6">
-            <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100 h-full">
-              <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <span className="text-amber-500">⚡</span> Quick Actions
-              </h2>
-              <div className="space-y-3">
-                {quickActions.map((action, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => navigate(action.path)}
-                    className="w-full flex items-center gap-4 p-3 rounded-lg hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-200 text-left group"
-                  >
-                    <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${action.color}`}
-                    >
-                      {action.icon}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="space-y-6">
+            <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100 relative">
+              <button
+                type="button"
+                onClick={() => navigate("/social-feed")}
+                className="absolute top-4 left-4 bg-brand text-white rounded-full px-3 py-2 text-xs hover:bg-brand-700"
+              >
+                Post History
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const next = !showPostAlerts;
+                  setShowPostAlerts(next);
+                  if (next) await loadPostAlerts();
+                }}
+                className="absolute top-4 right-4 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-full px-3 py-2 flex items-center gap-2"
+              >
+                <span>🔔</span>
+                <span className="relative inline-flex items-center">
+                  <span className="sr-only">Post alerts</span>
+                  <span className="ml-1 text-sm">Posts</span>
+                  <span className="absolute -top-2 -right-3 bg-red-600 text-white text-xs font-bold rounded-full px-2 py-0.5">
+                    {postNotificationsUnread.length}
+                  </span>
+                </span>
+              </button>
+              {showPostAlerts && (
+                <div className="absolute top-14 right-4 z-30 w-96 max-w-[calc(100%-2rem)] rounded-lg border border-slate-200 bg-white shadow-erp-lg">
+                  <div className="p-3 border-b border-slate-200 flex items-center justify-between">
+                    <div className="text-sm font-semibold text-slate-800">
+                      Post Notifications
                     </div>
-                    <span className="font-medium text-slate-700 group-hover:text-brand-700">
-                      {action.label}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-            {featuredCards.length > 0 && (
-              <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100">
-                <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                  <span className="text-blue-500">⭐</span> Featured
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {featuredCards.map((item, idx) => (
-                    <div
-                      key={idx}
-                      onClick={() => navigate(item.path)}
-                      className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm hover:shadow-md hover:border-brand-300 dark:hover:border-brand-700 border border-slate-100 dark:border-slate-700 transition-all duration-200 cursor-pointer group"
+                    <button
+                      type="button"
+                      onClick={() => setShowPostAlerts(false)}
+                      className="text-slate-600 hover:text-slate-900 text-xs"
                     >
-                      <div className="flex items-start gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-brand-50 dark:bg-slate-700 flex items-center justify-center text-lg group-hover:bg-brand-100 dark:group-hover:bg-slate-600 transition-colors">
-                          {item.icon}
-                        </div>
-                        <div className="flex-1">
-                          <div className="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-brand-700 dark:group-hover:text-brand-400 transition-colors">
-                            {item.title}
-                          </div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400">
-                            {item.description}
-                          </div>
-                        </div>
+                      Close
+                    </button>
+                  </div>
+                  <div className="max-h-80 overflow-auto">
+                    {postAlertsLoading ? (
+                      <div className="p-4 text-sm text-slate-600">Loading…</div>
+                    ) : postAlerts.length === 0 ? (
+                      <div className="p-4 text-sm text-slate-600">
+                        No post alerts found.
                       </div>
-                    </div>
-                  ))}
+                    ) : (
+                      postAlerts.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={async () => {
+                            setShowPostAlerts(false);
+                            try {
+                              const related = notifications.filter(
+                                (n) =>
+                                  Number(n.is_read) !== 1 &&
+                                  String(n.link || "").startsWith(
+                                    `/social-feed/${p.id}`,
+                                  ),
+                              );
+                              for (const n of related) {
+                                try {
+                                  await client.put(
+                                    `/workflows/notifications/${n.id}/read`,
+                                  );
+                                } catch {}
+                              }
+                              setNotifications((prev) =>
+                                prev.map((n) =>
+                                  String(n.link || "").startsWith(
+                                    `/social-feed/${p.id}`,
+                                  )
+                                    ? { ...n, is_read: 1 }
+                                    : n,
+                                ),
+                              );
+                            } catch {}
+                            navigate(`/social-feed/${p.id}`);
+                          }}
+                          className="w-full text-left px-4 py-3 mb-2 last:mb-0 rounded-lg bg-gradient-to-r from-brand-800 to-brand-700 text-white shadow-erp-sm hover:shadow-erp-md transition-all"
+                        >
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={
+                                p.profile_picture_url || "/default-avatar.png"
+                              }
+                              alt={String(p.full_name || "User")}
+                              className="w-8 h-8 rounded-full border border-white/40"
+                            />
+                            <div className="flex-1">
+                              <div className="text-sm font-semibold">
+                                {String(p.full_name || p.username || "User")}
+                              </div>
+                              <div className="text-xs text-white/90">
+                                {String(p.content || "")
+                                  .replace(/\s+/g, " ")
+                                  .trim()
+                                  .slice(0, 100)}
+                                {String(p.content || "").length > 100
+                                  ? "…"
+                                  : ""}
+                              </div>
+                              <div className="text-[11px] text-white/70 mt-1">
+                                {p.created_at
+                                  ? new Date(p.created_at).toLocaleString()
+                                  : ""}
+                              </div>
+                            </div>
+                            <div className="text-white/80 text-sm">View →</div>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+              <CompanyFeed compact />
+            </div>
           </div>
-
-          {/* Workflow & Notifications Section (Replaces Modules) */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Workflow / Pending Approvals */}
+          <div className="space-y-6">
             <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
@@ -489,7 +579,6 @@ export default function HomePage() {
                   {filteredPending.length} Pending
                 </span>
               </div>
-
               {uniquePending.length > 0 ? (
                 <div className="space-y-4">
                   {orderedGroups.map((key) => (
@@ -560,96 +649,93 @@ export default function HomePage() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100">
-                <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                  <span className="text-brand-500">🔔</span> Notifications
-                </h2>
-                <div className="space-y-4">
-                  <div className="rounded-lg border border-slate-200 p-4 flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-bold text-slate-800">
-                        Approved Documents
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {approvedNotifications.length} Approved
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() =>
-                        navigate("/administration/workflows/approved")
-                      }
-                    >
-                      View Details
-                    </button>
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 p-4 flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-bold text-slate-800">
-                        Pending Documents
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {filteredPending.length} Pending
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() =>
-                        navigate("/administration/workflows/approvals")
-                      }
-                    >
-                      View Details
-                    </button>
-                  </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100">
+            <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+              <span className="text-purple-500">📊</span> System Status
+            </h2>
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-slate-600">Server Uptime</span>
+                  <span className="text-green-600 font-medium">99.9%</span>
+                </div>
+                <div className="w-full bg-slate-100 rounded-full h-2">
+                  <div
+                    className="bg-green-500 h-2 rounded-full"
+                    style={{ width: "99.9%" }}
+                  ></div>
                 </div>
               </div>
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-slate-600">Database Load</span>
+                  <span className="text-brand-600 font-medium">34%</span>
+                </div>
+                <div className="w-full bg-slate-100 rounded-full h-2">
+                  <div
+                    className="bg-brand-500 h-2 rounded-full"
+                    style={{ width: "34%" }}
+                  ></div>
+                </div>
+              </div>
+              <div className="pt-4 border-t border-slate-100">
+                <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-2">
+                  Recent Login
+                </p>
+                <div className="flex items-center gap-2 text-sm text-slate-700">
+                  <span>🖥️</span>
+                  <span>Windows PC • Chrome</span>
+                  <span className="text-slate-400 ml-auto">10:42 AM</span>
+                </div>
+              </div>
+            </div>
+          </div>
 
-              {/* Recent Activity / System Status (Industry Standard Filler) */}
-              <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100">
-                <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                  <span className="text-purple-500">📊</span> System Status
-                </h2>
-                <div className="space-y-4">
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-slate-600">Server Uptime</span>
-                      <span className="text-green-600 font-medium">99.9%</span>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2">
-                      <div
-                        className="bg-green-500 h-2 rounded-full"
-                        style={{ width: "99.9%" }}
-                      ></div>
-                    </div>
+          <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100">
+            <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+              <span className="text-brand-500">🔔</span> Notifications
+            </h2>
+            <div className="space-y-4">
+              <div className="rounded-lg border border-slate-200 p-4 flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-bold text-slate-800">
+                    Approved Documents
                   </div>
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-slate-600">Database Load</span>
-                      <span className="text-brand-600 font-medium">34%</span>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2">
-                      <div
-                        className="bg-brand-500 h-2 rounded-full"
-                        style={{ width: "34%" }}
-                      ></div>
-                    </div>
-                  </div>
-                  <div className="pt-4 border-t border-slate-100">
-                    <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-2">
-                      Recent Login
-                    </p>
-                    <div className="flex items-center gap-2 text-sm text-slate-700">
-                      <span>🖥️</span>
-                      <span>Windows PC • Chrome</span>
-                      <span className="text-slate-400 ml-auto">10:42 AM</span>
-                    </div>
+                  <div className="text-xs text-slate-500">
+                    {approvedNotifications.length} Approved
                   </div>
                 </div>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => navigate("/administration/workflows/approved")}
+                >
+                  View Details
+                </button>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 p-4 flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-bold text-slate-800">
+                    Pending Documents
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {filteredPending.length} Pending
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() =>
+                    navigate("/administration/workflows/approvals")
+                  }
+                >
+                  View Details
+                </button>
               </div>
             </div>
           </div>
@@ -771,6 +857,8 @@ export default function HomePage() {
           </div>
         </div>
       )}
+      <FloatingChatButton onOpen={() => setShowChatWidget(true)} />
+      {showChatWidget && <ChatWidget onClose={() => setShowChatWidget(false)} />}
     </div>
   );
 }

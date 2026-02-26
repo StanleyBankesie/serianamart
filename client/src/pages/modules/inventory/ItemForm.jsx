@@ -46,6 +46,7 @@ export default function ItemForm() {
     vat_on_sales_id: "",
     purchase_account_id: "",
     sales_account_id: "",
+    service_item: false,
     is_stockable: true,
     is_sellable: true,
     is_purchasable: true,
@@ -121,9 +122,12 @@ export default function ItemForm() {
           vat_on_sales_id: it.vat_on_sales_id || "",
           purchase_account_id: it.purchase_account_id || "",
           sales_account_id: it.sales_account_id || "",
-          is_stockable: it.is_stockable ?? true,
-          is_sellable: it.is_sellable ?? true,
-          is_purchasable: it.is_purchasable ?? true,
+          service_item: String(it.service_item || "").toUpperCase() === "Y",
+          is_stockable:
+            String(it.is_stockable ?? "Y").toUpperCase() === "Y",
+          is_sellable: String(it.is_sellable ?? "Y").toUpperCase() === "Y",
+          is_purchasable:
+            String(it.is_purchasable ?? "Y").toUpperCase() === "Y",
         });
       })
       .catch((e) => {
@@ -187,9 +191,10 @@ export default function ItemForm() {
         vat_on_sales_id: formData.vat_on_sales_id || null,
         purchase_account_id: formData.purchase_account_id || null,
         sales_account_id: formData.sales_account_id || null,
-        is_stockable: Boolean(formData.is_stockable),
-        is_sellable: Boolean(formData.is_sellable),
-        is_purchasable: Boolean(formData.is_purchasable),
+        service_item: formData.service_item ? "Y" : "N",
+        is_stockable: formData.is_stockable ? "Y" : "N",
+        is_sellable: formData.is_sellable ? "Y" : "N",
+        is_purchasable: formData.is_purchasable ? "Y" : "N",
       };
 
       if (isNew) {
@@ -668,6 +673,16 @@ export default function ItemForm() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="flex items-center gap-2 p-2 border rounded">
+                <input
+                  type="checkbox"
+                  checked={formData.service_item}
+                  onChange={(e) =>
+                    setFormData({ ...formData, service_item: e.target.checked })
+                  }
+                />
+                <span>Service Item</span>
+              </div>
               <div className="flex items-center gap-2 p-2 border rounded">
                 <input
                   type="checkbox"

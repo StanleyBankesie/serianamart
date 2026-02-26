@@ -3,8 +3,10 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function PayslipList() {
+  const { canPerformAction } = usePermission();
   const [items] = useState([
     { id: 1, period: "2025-01", employee: "John Doe", netPay: 2500, status: "GENERATED" },
   ]);
@@ -201,8 +203,22 @@ export default function PayslipList() {
                 <td className="text-right">{Number(r.netPay).toFixed(2)}</td>
                 <td>{r.status}</td>
                 <td>
-                  <Link to={`/human-resources/payslips/${r.id}?mode=view`} className="text-brand hover:text-brand-600 text-sm font-medium">View</Link>
-                  <Link to={`/human-resources/payslips/${r.id}?mode=edit`} className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2">Edit</Link>
+                  {canPerformAction("human-resources:payslips", "view") && (
+                    <Link
+                      to={`/human-resources/payslips/${r.id}?mode=view`}
+                      className="text-brand hover:text-brand-600 text-sm font-medium"
+                    >
+                      View
+                    </Link>
+                  )}
+                  {canPerformAction("human-resources:payslips", "edit") && (
+                    <Link
+                      to={`/human-resources/payslips/${r.id}?mode=edit`}
+                      className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                    >
+                      Edit
+                    </Link>
+                  )}
                   <button
                     type="button"
                     className="ml-2 inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
@@ -226,7 +242,6 @@ export default function PayslipList() {
     </div>
   );
 }
-
 
 
 

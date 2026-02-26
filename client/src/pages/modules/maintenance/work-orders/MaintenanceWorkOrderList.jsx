@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function MaintenanceWorkOrderList() {
+  const { canPerformAction } = usePermission();
   const items = [
     { id: 1, woNo: 'MWO-0001', asset: 'AST-001 Generator', priority: 'HIGH', status: 'OPEN' },
     { id: 2, woNo: 'MWO-0002', asset: 'AST-002 Forklift', priority: 'MEDIUM', status: 'IN_PROGRESS' },
@@ -29,8 +31,12 @@ export default function MaintenanceWorkOrderList() {
                 <td>{w.priority}</td>
                 <td>{w.status}</td>
                 <td>
-                  <Link to={`/maintenance/work-orders/${w.id}?mode=view`} className="text-brand hover:text-brand-600 text-sm font-medium">View</Link>
-                  <Link to={`/maintenance/work-orders/${w.id}?mode=edit`} className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2">Edit</Link>
+                  {canPerformAction('maintenance:work-orders','view') && (
+                    <Link to={`/maintenance/work-orders/${w.id}?mode=view`} className="text-brand hover:text-brand-600 text-sm font-medium">View</Link>
+                  )}
+                  {canPerformAction('maintenance:work-orders','edit') && (
+                    <Link to={`/maintenance/work-orders/${w.id}?mode=edit`} className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2">Edit</Link>
+                  )}
                 </td>
               </tr>
             ))}

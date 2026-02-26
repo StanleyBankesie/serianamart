@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
+import { toast } from "react-toastify";
 
 export default function SupplierForm() {
   const { id } = useParams();
@@ -26,6 +27,7 @@ export default function SupplierForm() {
     is_active: true,
     // Extra fields for UI (not all persisted yet)
     supplier_type: "LOCAL",
+    service_contractor: false,
     tax_id: "",
     business_reg_no: "",
     industry: "",
@@ -63,6 +65,7 @@ export default function SupplierForm() {
           payment_terms: s.payment_terms || "",
           is_active: Boolean(s.is_active),
           supplier_type: s.supplier_type || prev.supplier_type || "LOCAL",
+          service_contractor: String(s.service_contractor || "").toUpperCase() === "Y",
         }));
       })
       .catch((e) => {
@@ -187,6 +190,7 @@ export default function SupplierForm() {
           formData.currency_id === undefined || formData.currency_id === null
             ? null
             : String(formData.currency_id || ""),
+        service_contractor: formData.service_contractor ? "Y" : "N",
       };
 
       if (isNew) {
@@ -194,12 +198,9 @@ export default function SupplierForm() {
       } else {
         await api.put(`/purchase/suppliers/${id}`, payload);
       }
-
       setSuccess("Supplier saved successfully!");
-      if (isNew) {
-        // Optional: redirect or reset
-        navigate("/purchase/suppliers");
-      }
+      toast.success("Supplier saved successfully");
+      navigate("/purchase/suppliers");
     } catch (e2) {
       setError(e2?.response?.data?.message || "Failed to save supplier");
     } finally {
@@ -483,6 +484,18 @@ export default function SupplierForm() {
                     <option value="IMPORT">Import Supplier</option>
                     <option value="BOTH">Both</option>
                   </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="svc_contractor"
+                    type="checkbox"
+                    name="service_contractor"
+                    checked={formData.service_contractor}
+                    onChange={handleChange}
+                  />
+                  <label htmlFor="svc_contractor" className="text-sm font-semibold text-slate-800">
+                    Service Contractor
+                  </label>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-800 mb-1">

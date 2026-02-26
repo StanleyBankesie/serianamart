@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Link } from "react-router-dom";
+import { usePermission } from "../../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
-import { api } from "api/client";
+import { api } from "../../../api/client";
 
 export default function ItemsList() {
+  const { canPerformAction } = usePermission();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -739,18 +741,22 @@ export default function ItemsList() {
                       </span>
                     </td>
                     <td>
-                      <Link
-                        to={`/inventory/items/${it.id}?mode=view`}
-                        className="text-brand hover:text-brand-700 text-sm font-medium"
-                      >
-                        View
-                      </Link>
-                      <Link
-                        to={`/inventory/items/${it.id}?mode=edit`}
-                        className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                      >
-                        Edit
-                      </Link>
+                      {canPerformAction("inventory:items", "view") && (
+                        <Link
+                          to={`/inventory/items/${it.id}?mode=view`}
+                          className="text-brand hover:text-brand-700 text-sm font-medium"
+                        >
+                          View
+                        </Link>
+                      )}
+                      {canPerformAction("inventory:items", "edit") && (
+                        <Link
+                          to={`/inventory/items/${it.id}?mode=edit`}
+                          className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                        >
+                          Edit
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 ))}

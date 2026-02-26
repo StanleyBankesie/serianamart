@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../../../api/client.js";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 function FilterableSelect({
   value,
@@ -33,6 +34,7 @@ function FilterableSelect({
 
 export default function PosRegister() {
   const { user } = useAuth();
+  const { canPerformAction } = usePermission();
   const [now, setNow] = useState(new Date());
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -442,15 +444,17 @@ export default function PosRegister() {
                       </td>
                       <td>
                         <div className="flex gap-2">
-                          <button
-                            className="btn btn-secondary"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openDetails(t);
-                            }}
-                          >
-                            View
-                          </button>
+                          {canPerformAction("pos:register", "view") && (
+                            <button
+                              className="btn btn-secondary"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openDetails(t);
+                              }}
+                            >
+                              View
+                            </button>
+                          )}
                           <button
                             className="btn btn-secondary"
                             onClick={(e) => {

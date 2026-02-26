@@ -73,6 +73,22 @@ async function nextVoucherNo({ companyId, voucherTypeId }) {
   }
 }
 
+async function ensureCostCentersTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS fin_cost_centers (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      code VARCHAR(50) NOT NULL,
+      name VARCHAR(150) NOT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_fin_cost_center_scope_code (company_id, code),
+      KEY idx_fin_cost_center_scope (company_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
 async function resolveFinAccountId(conn, { companyId, accountRef }) {
   const raw = String(accountRef || "").trim();
   if (!raw) return 0;
@@ -738,6 +754,78 @@ router.post(
   (req, res, next) => upsertOpeningBalance(req, res, next),
 );
 router.get(
+  "/cost-centers",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("FIN.COA.VIEW"),
+  async (req, res, next) => {
+    try {
+      await ensureCostCentersTable();
+      const { companyId } = req.scope;
+      const items = await query(
+        `SELECT id, code, name, is_active 
+         FROM fin_cost_centers 
+         WHERE company_id = :companyId 
+         ORDER BY code ASC`,
+        { companyId },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/cost-centers",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("FIN.COA.MANAGE"),
+  async (req, res, next) => {
+    try {
+      await ensureCostCentersTable();
+      const { companyId } = req.scope;
+      const code = String(req.body?.code || "").trim();
+      const name = String(req.body?.name || "").trim();
+      const isActive =
+        req.body?.is_active === undefined
+          ? 1
+          : Number(Boolean(req.body?.is_active));
+      if (!code || !name) {
+        throw httpError(400, "VALIDATION_ERROR", "Code and name are required");
+      }
+      const existing = await query(
+        `SELECT id FROM fin_cost_centers 
+         WHERE company_id = :companyId AND UPPER(code) = :codeUpper 
+         LIMIT 1`,
+        { companyId, codeUpper: code.toUpperCase() },
+      );
+      if (existing.length) {
+        const id = Number(existing[0].id);
+        await query(
+          `UPDATE fin_cost_centers 
+             SET name = :name, is_active = :isActive 
+           WHERE id = :id AND company_id = :companyId`,
+          { id, companyId, name, isActive },
+        );
+        res.json({ id, updated: true });
+        return;
+      }
+      const ins = await query(
+        `INSERT INTO fin_cost_centers (company_id, code, name, is_active) 
+         VALUES (:companyId, :code, :name, :isActive)`,
+        { companyId, code, name, isActive },
+      );
+      const id = Number(ins.insertId || 0) || 0;
+      res.status(201).json({ id, created: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.get(
   "/account-groups/tree",
   requireAuth,
   requireCompanyScope,
@@ -974,11 +1062,12 @@ router.get(
   async (req, res, next) => {
     try {
       const companyId = req.scope.companyId;
-      const items = await query(
-        "SELECT id, code, name, rate_percent, type, is_active, created_at, updated_at FROM fin_tax_codes WHERE company_id = :companyId ORDER BY code ASC",
-        { companyId },
-      );
-      res.json({ items });
+      const items =
+        (await query(
+          "SELECT id, code, name, rate_percent, type, is_active, created_at, updated_at FROM fin_tax_codes WHERE company_id = :companyId ORDER BY code ASC",
+          { companyId },
+        ).catch(() => [])) || [];
+      res.json({ items: Array.isArray(items) ? items : [] });
     } catch (e) {
       next(e);
     }
@@ -1400,6 +1489,7 @@ router.post(
         exchangeRate,
         lines,
         apply_to_purchase_bills,
+        apply_to_service_bills,
       } = req.body || {};
       if (!voucherTypeId && !voucherTypeCode) {
         throw httpError(
@@ -1577,6 +1667,17 @@ router.post(
           billApplyMap.set(key, prev + amount);
         }
       }
+      const serviceBillApplyMap = new Map();
+      if (isPV && Array.isArray(apply_to_service_bills)) {
+        for (const entry of apply_to_service_bills) {
+          const billId = Number(entry.bill_id || 0);
+          const amount = Number(entry.amount || 0);
+          if (!billId || !(amount > 0)) continue;
+          const key = String(billId);
+          const prev = serviceBillApplyMap.get(key) || 0;
+          serviceBillApplyMap.set(key, prev + amount);
+        }
+      }
 
       await conn.beginTransaction();
       const [result] = await conn.execute(
@@ -1700,6 +1801,62 @@ router.post(
               companyId,
               branchId,
               amountPaid: newPaid,
+              status: newStatus,
+            },
+          );
+        }
+      }
+      if (isPV && serviceBillApplyMap.size) {
+        try {
+          if (!(await hasColumn(conn, "pur_service_bills", "amount_paid"))) {
+            await conn.execute(
+              "ALTER TABLE pur_service_bills ADD COLUMN amount_paid DECIMAL(18,2) DEFAULT 0",
+            );
+          }
+        } catch {}
+        for (const [billIdStr, amount] of serviceBillApplyMap.entries()) {
+          const billId = Number(billIdStr);
+          const [curRows] = await conn.execute(
+            "SELECT total_amount, COALESCE(amount_paid,0) AS amount_paid, payment, status FROM pur_service_bills WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1",
+            { id: billId, companyId, branchId },
+          );
+          if (!curRows?.length) {
+            throw httpError(
+              404,
+              "NOT_FOUND",
+              `Service bill ${billId} not found`,
+            );
+          }
+          const total = Number(curRows[0].total_amount || 0);
+          const alreadyPaid = Number(curRows[0].amount_paid || 0);
+          const newPaid = alreadyPaid + amount;
+          if (newPaid - total > 1e-6) {
+            throw httpError(
+              400,
+              "VALIDATION_ERROR",
+              "Payment amount exceeds service bill total",
+            );
+          }
+          let newPayment = "UNPAID";
+          if (newPaid <= 0) newPayment = "UNPAID";
+          else if (Math.abs(newPaid - total) <= 1e-6) newPayment = "PAID";
+          else newPayment = "PARTIALLY_PAID";
+          const newStatus =
+            newPayment === "PAID"
+              ? "COMPLETED"
+              : curRows[0].status || "PENDING";
+          await conn.execute(
+            `UPDATE pur_service_bills
+               SET amount_paid = :amountPaid,
+                   payment = :payment,
+                   status = :status
+             WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+            {
+              id: billId,
+              companyId,
+              branchId,
+              amountPaid: newPaid,
+              payment: newPayment,
               status: newStatus,
             },
           );

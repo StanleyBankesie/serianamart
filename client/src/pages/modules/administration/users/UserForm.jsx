@@ -19,7 +19,7 @@ export default function UserForm() {
     fullName: "",
     password: "",
     isActive: true,
-    profilePictureUrl: "",
+    profilePicture: "",
     isEmployee: false,
     userType: "Internal",
     validFrom: "",
@@ -81,7 +81,7 @@ export default function UserForm() {
           fullName: u.full_name || "",
           isActive: Boolean(u.is_active),
           password: "", // Don't populate password
-          profilePictureUrl: u.profile_picture_url || "",
+          profilePicture: u.profile_picture_url || "",
           isEmployee: Boolean(u.is_employee),
           userType: u.user_type || "Internal",
           validFrom: u.valid_from ? u.valid_from.split("T")[0] : "",
@@ -116,20 +116,24 @@ export default function UserForm() {
     const file = e.target.files[0];
     if (!file) return;
 
-    const formData = new FormData();
-    formData.append("file", file);
-
     try {
       setUploading(true);
-      const res = await api.post("/upload", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      update("profilePictureUrl", res.data.url);
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result;
+        update("profilePicture", base64);
+        setUploading(false);
+      };
+      reader.onerror = () => {
+        setUploading(false);
+        setError("Failed to read image");
+      };
+      reader.readAsDataURL(file);
     } catch (err) {
       console.error("Upload failed", err);
-      setError("Failed to upload profile picture");
+      setError("Failed to read profile picture");
     } finally {
-      setUploading(false);
+      // handled in reader callbacks
     }
   }
 
@@ -175,7 +179,7 @@ export default function UserForm() {
         email: form.email,
         full_name: form.fullName,
         is_active: form.isActive,
-        profile_picture_url: form.profilePictureUrl,
+        profile_picture: form.profilePicture || null,
         is_employee: form.isEmployee,
         user_type: form.userType,
         valid_from: form.validFrom || null,
@@ -345,10 +349,10 @@ export default function UserForm() {
               <div>
                 <label className="label">Profile Picture</label>
                 <div className="flex items-center gap-4">
-                  {form.profilePictureUrl && (
+                  {form.profilePicture && (
                     <div className="w-16 h-16 rounded-full overflow-hidden border border-slate-200">
                       <img
-                        src={form.profilePictureUrl}
+                        src={form.profilePicture}
                         alt="Profile"
                         className="w-full h-full object-cover"
                       />
@@ -369,7 +373,7 @@ export default function UserForm() {
                     )}
                   </div>
                 </div>
-                <input type="hidden" value={form.profilePictureUrl} />
+                <input type="hidden" value={form.profilePicture} />
               </div>
 
               <div>

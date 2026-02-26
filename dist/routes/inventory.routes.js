@@ -1595,6 +1595,20 @@ router.get(
   inventoryController.listItems,
 );
 
+router.post(
+  "/stock-balances/bulk-upload",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("INV.STOCK.ADJUSTMENT.MANAGE"),
+  async (req, res, next) => {
+    try {
+      await ensureStockBalancesWarehouseInfrastructure();
+    } catch {}
+    return inventoryController.bulkUpdateStockBalances(req, res, next);
+  },
+);
+
 router.get(
   "/items/next-code",
   requireAuth,

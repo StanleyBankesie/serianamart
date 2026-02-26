@@ -95,6 +95,7 @@ export default function InvoiceForm() {
     rowId: null,
   });
   const [unitConversions, setUnitConversions] = useState([]);
+  const [autoDelivery, setAutoDelivery] = useState(false);
 
   useEffect(() => {
     api
@@ -338,6 +339,16 @@ export default function InvoiceForm() {
     }
   };
 
+  useEffect(() => {
+    const uniqueTaxIds = Array.from(
+      new Set(lines.map((i) => String(i.tax_type)).filter(Boolean)),
+    );
+    const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
+    if (missing.length) {
+      ensureTaxComponentsLoaded();
+    }
+  }, [lines, taxComponentsByCode]);
+
   const fetchTaxCodes = async () => {
     try {
       const response = await api.get("/finance/tax-codes");
@@ -420,13 +431,15 @@ export default function InvoiceForm() {
     const discountTotal = lines.reduce((s, i) => s + (i.discAmt || 0), 0);
     const netSub = lines.reduce((s, i) => s + (i.net || 0), 0);
     const tc = calcTaxComponentsTotals();
-    const grand = netSub + tc.taxTotal;
+    const lineTax = lines.reduce((s, i) => s + Number(i.taxAmt || 0), 0);
+    const taxTotal = tc.taxTotal > 0 ? tc.taxTotal : lineTax;
+    const grand = netSub + taxTotal;
     return {
       grossSub,
       discountTotal,
       netSub,
       components: tc.components,
-      taxTotal: tc.taxTotal,
+      taxTotal,
       grand,
     };
   };
@@ -1122,6 +1135,43 @@ export default function InvoiceForm() {
         const subResp = await api.post(`/sales/invoices/${savedId}/submit`);
         const pstatus = subResp?.data?.payment_status || "UNPAID";
         toast.success(`Invoice ${invoiceNo} saved and submitted (${pstatus})`);
+        if (autoDelivery) {
+          try {
+            const nextNoResp = await api.get("/sales/deliveries/next-no");
+            const nextNo = nextNoResp?.data?.nextNo || "";
+            const dPayload = {
+              delivery_no: nextNo || `DN${String(Date.now()).slice(-6)}`,
+              delivery_date: toYmd(form.invoice_date),
+              customer_id: Number(form.customer_id),
+              sales_order_id: form.sales_order_id
+                ? Number(form.sales_order_id)
+                : null,
+              invoice_id: savedId || null,
+              remarks: `Auto delivery for invoice ${invoiceNo}`,
+              status: "DELIVERED",
+              items: workingLines.map((l) => ({
+                item_id: Number(l.item_id),
+                quantity: Math.round(Number(l.qty || 0) * 100) / 100,
+                unit_price: Math.round(Number(l.unit_price || 0) * 100) / 100,
+                uom: String(l.uom || defaultUomCode),
+              })),
+            };
+            const dResp = await api.post("/sales/deliveries", dPayload);
+            const createdNo = nextNo || dPayload.delivery_no;
+            if (dResp?.data?.item?.delivery_no) {
+              toast.success(
+                `Delivery ${dResp.data.item.delivery_no} created automatically`,
+              );
+            } else {
+              toast.success(`Delivery ${createdNo} created automatically`);
+            }
+          } catch (delErr) {
+            const dmsg =
+              delErr?.response?.data?.message ||
+              "Failed to create delivery note";
+            toast.error(dmsg);
+          }
+        }
         navigate("/sales/invoices");
       } catch (subErr) {
         const smsg =
@@ -1693,6 +1743,22 @@ export default function InvoiceForm() {
               </div>
               <div className="overflow-x-auto rounded-lg border border-gray-200">
                 <table className="w-full text-sm">
+                  <colgroup>
+                    <col style={{ width: "24rem" }} />
+                    <col style={{ width: "10rem" }} />
+                    <col style={{ width: "9rem" }} />
+                    <col style={{ width: "8rem" }} />
+                    <col style={{ width: "10rem" }} />
+                    <col style={{ width: "8rem" }} />
+                    <col style={{ width: "10rem" }} />
+                    <col style={{ width: "8rem" }} />
+                    <col style={{ width: "12rem" }} />
+                    <col style={{ width: "8rem" }} />
+                    <col style={{ width: "8rem" }} />
+                    <col style={{ width: "9rem" }} />
+                    <col style={{ width: "16rem" }} />
+                    <col style={{ width: "8rem" }} />
+                  </colgroup>
                   <thead className="bg-gray-100">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
@@ -1755,7 +1821,7 @@ export default function InvoiceForm() {
                           <td className="px-4 py-3 text-gray-900">
                             {canEdit ? (
                               <select
-                                className="input w-full"
+                                className="input w-full min-w-[20rem]"
                                 value={i.item_id}
                                 onChange={(e) =>
                                   updateLine(idx, {
@@ -1780,7 +1846,7 @@ export default function InvoiceForm() {
                           <td className="px-4 py-3 text-gray-900">
                             {canEdit ? (
                               <select
-                                className="input w-full"
+                                className="input w-full min-w-[7rem]"
                                 value={i.uom || defaultUomCode}
                                 onChange={(e) =>
                                   updateLine(idx, { uom: e.target.value })
@@ -1801,10 +1867,10 @@ export default function InvoiceForm() {
                           <td className="px-4 py-3 text-gray-900">
                             {canEdit ? (
                               <input
-                                className="input w-full"
+                                className="input w-full min-w-[7rem]"
                                 type="number"
                                 min="0"
-                                step="1"
+                                step="0.01"
                                 value={i.qty === "" ? "" : i.qty}
                                 onChange={(e) =>
                                   updateLine(idx, {
@@ -1872,9 +1938,9 @@ export default function InvoiceForm() {
                           <td className="px-4 py-3 text-gray-900">
                             {canEdit ? (
                               <input
-                                className="input w-full"
+                                className="input w-full min-w-[8rem]"
                                 type="number"
-                                step="1"
+                                step="0.01"
                                 value={i.unit_price === "" ? "" : i.unit_price}
                                 onChange={(e) =>
                                   updateLine(idx, {
@@ -1892,7 +1958,7 @@ export default function InvoiceForm() {
                           <td className="px-4 py-3 text-gray-900">
                             {canEdit ? (
                               <input
-                                className="input w-full"
+                                className="input w-full min-w-[7rem]"
                                 type="number"
                                 min="0"
                                 max="100"
@@ -1918,7 +1984,7 @@ export default function InvoiceForm() {
                           <td className="px-4 py-3 text-gray-900">
                             {canEdit ? (
                               <select
-                                className="input w-full"
+                                className="input w-full min-w-[9rem]"
                                 value={i.tax_type}
                                 onChange={(e) =>
                                   updateLine(idx, { tax_type: e.target.value })
@@ -1948,7 +2014,7 @@ export default function InvoiceForm() {
                           <td className="px-4 py-3 text-gray-900">
                             {canEdit ? (
                               <input
-                                className="input w-full"
+                                className="input w-full min-w-[12rem]"
                                 type="text"
                                 value={i.remarks || ""}
                                 onChange={(e) =>
@@ -2008,6 +2074,18 @@ export default function InvoiceForm() {
                     <span>Total Discount:</span>
                     <span>{calcAggregates().discountTotal.toFixed(2)}</span>
                   </div>
+                  {calcAggregates().components.length > 0 &&
+                    calcAggregates().components.map((c) => (
+                      <div
+                        key={c.name}
+                        className="flex justify-between text-sm text-gray-700"
+                      >
+                        <span>
+                          {c.name} [{c.rate}%]
+                        </span>
+                        <span>{c.amount.toFixed(2)}</span>
+                      </div>
+                    ))}
                   <div className="flex justify-between font-medium">
                     <span>Total Tax:</span>
                     <span>{calcAggregates().taxTotal.toFixed(2)}</span>
@@ -2036,6 +2114,15 @@ export default function InvoiceForm() {
               <Link to="/sales/invoices" className="btn-success">
                 Cancel
               </Link>
+              <label className="flex items-center gap-2 mr-4">
+                <input
+                  type="checkbox"
+                  checked={autoDelivery}
+                  onChange={(e) => setAutoDelivery(e.target.checked)}
+                  disabled={readOnly || loading}
+                />
+                <span className="text-sm">Auto Delivery</span>
+              </label>
               {!readOnly && (
                 <button
                   className="btn-success"

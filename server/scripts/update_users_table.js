@@ -1,4 +1,3 @@
-
 import { query } from "../db/pool.js";
 
 async function migrate() {
@@ -9,7 +8,7 @@ async function migrate() {
     // Or just try/catch each add.
 
     const columns = [
-      "ADD COLUMN profile_picture_url VARCHAR(255) NULL",
+      "ADD COLUMN profile_picture LONGBLOB NULL",
       "ADD COLUMN is_employee TINYINT(1) DEFAULT 0",
       "ADD COLUMN user_type VARCHAR(50) DEFAULT 'Employee'",
       "ADD COLUMN valid_from DATETIME NULL",
@@ -22,7 +21,7 @@ async function migrate() {
         await query(`ALTER TABLE adm_users ${col}`);
         console.log(`Executed: ${col}`);
       } catch (err) {
-        if (err.code === 'ER_DUP_FIELDNAME') {
+        if (err.code === "ER_DUP_FIELDNAME") {
           console.log(`Skipping ${col} (already exists)`);
         } else {
           console.error(`Error executing ${col}:`, err.message);
@@ -32,14 +31,16 @@ async function migrate() {
 
     // Add Foreign Key separately
     try {
-        await query("ALTER TABLE adm_users ADD CONSTRAINT fk_user_role FOREIGN KEY (role_id) REFERENCES adm_roles(id)");
-        console.log("Added Foreign Key fk_user_role");
+      await query(
+        "ALTER TABLE adm_users ADD CONSTRAINT fk_user_role FOREIGN KEY (role_id) REFERENCES adm_roles(id)",
+      );
+      console.log("Added Foreign Key fk_user_role");
     } catch (err) {
-        if (err.code === 'ER_DUP_KEY' || err.message.includes('duplicate')) {
-             console.log("Skipping FK (already exists)");
-        } else {
-            console.error("Error adding FK:", err.message);
-        }
+      if (err.code === "ER_DUP_KEY" || err.message.includes("duplicate")) {
+        console.log("Skipping FK (already exists)");
+      } else {
+        console.error("Error adding FK:", err.message);
+      }
     }
 
     console.log("Migration complete.");

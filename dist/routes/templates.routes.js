@@ -45,7 +45,7 @@ router.get(
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [item] = await query(
         `SELECT id, name, document_type, html_content, is_default, created_at, updated_at,
-                header_logo_url, header_name, header_address, header_phone, header_email, header_website
+                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
          FROM document_templates 
          WHERE id = :id AND company_id = :companyId 
          LIMIT 1`,
@@ -76,6 +76,7 @@ router.post(
         header_logo_url,
         header_name,
         header_address,
+        header_address2,
         header_phone,
         header_email,
         header_website,
@@ -153,10 +154,10 @@ router.post(
       const result = await query(
         `INSERT INTO document_templates 
            (company_id, name, document_type, html_content, is_default, created_by,
-            header_logo_url, header_name, header_address, header_phone, header_email, header_website) 
+            header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website) 
          VALUES 
            (:companyId, :n, :dt, :sanitized, :is_default, :userId,
-            :header_logo_url, :header_name, :header_address, :header_phone, :header_email, :header_website)`,
+            :header_logo_url, :header_name, :header_address, :header_address2, :header_phone, :header_email, :header_website)`,
         {
           companyId,
           n,
@@ -167,6 +168,7 @@ router.post(
           header_logo_url: header_logo_url ? String(header_logo_url) : null,
           header_name: header_name ? String(header_name) : null,
           header_address: header_address ? String(header_address) : null,
+          header_address2: header_address2 ? String(header_address2) : null,
           header_phone: header_phone ? String(header_phone) : null,
           header_email: header_email ? String(header_email) : null,
           header_website: header_website ? String(header_website) : null,
@@ -205,6 +207,7 @@ router.put(
         header_logo_url,
         header_name,
         header_address,
+        header_address2,
         header_phone,
         header_email,
         header_website,
@@ -213,7 +216,7 @@ router.put(
       const rawHtml = typeof html_content === "string" ? html_content : null;
       const [existing] = await query(
         `SELECT name, html_content, document_type,
-                header_logo_url, header_name, header_address, header_phone, header_email, header_website
+                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
            FROM document_templates 
           WHERE id = :id AND company_id = :companyId 
           LIMIT 1`,
@@ -235,6 +238,7 @@ router.put(
                header_logo_url = :header_logo_url,
                header_name = :header_name,
                header_address = :header_address,
+               header_address2 = :header_address2,
                header_phone = :header_phone,
                header_email = :header_email,
                header_website = :header_website
@@ -257,6 +261,10 @@ router.put(
             header_address !== undefined
               ? String(header_address || "")
               : existing.header_address || null,
+          header_address2:
+            header_address2 !== undefined
+              ? String(header_address2 || "")
+              : existing.header_address2 || null,
           header_phone:
             header_phone !== undefined
               ? String(header_phone || "")

@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function ServiceConfirmationsList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const { canPerformAction } = usePermission();
 
   useEffect(() => {
     let mounted = true;
@@ -142,18 +144,22 @@ export default function ServiceConfirmationsList() {
                     </td>
                     <td>
                       <div className="flex gap-2">
-                        <Link
-                          to={`/service-management/service-confirmation/${c.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                        <Link
-                          to={`/service-management/service-confirmation/${c.id}?mode=edit`}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                        >
-                          Edit
-                        </Link>
+                        {canPerformAction("service-management:service-confirmations", "view") && (
+                          <Link
+                            to={`/service-management/service-confirmation/${c.id}?mode=view`}
+                            className="text-brand hover:text-brand-700 text-sm font-medium"
+                          >
+                            View
+                          </Link>
+                        )}
+                        {canPerformAction("service-management:service-confirmations", "edit") && (
+                          <Link
+                            to={`/service-management/service-confirmation/${c.id}?mode=edit`}
+                            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                          >
+                            Edit
+                          </Link>
+                        )}
                       </div>
                     </td>
                   </tr>

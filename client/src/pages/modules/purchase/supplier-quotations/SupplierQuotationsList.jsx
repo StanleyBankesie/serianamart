@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function SupplierQuotationsList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -8,6 +9,7 @@ export default function SupplierQuotationsList() {
   const [quotations, setQuotations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const { canPerformAction } = usePermission();
 
   useEffect(() => {
     let mounted = true;
@@ -79,9 +81,11 @@ export default function SupplierQuotationsList() {
           <Link to="/purchase" className="btn btn-secondary">
             Return to Menu
           </Link>
-          <Link to="/purchase/supplier-quotations/new" className="btn-success">
-            + New Quotation
-          </Link>
+          {canPerformAction("purchase:supplier-quotations", "create") && (
+            <Link to="/purchase/supplier-quotations/new" className="btn-success">
+              + New Quotation
+            </Link>
+          )}
         </div>
       </div>
 
@@ -182,18 +186,22 @@ export default function SupplierQuotationsList() {
                     </td>
                     <td>
                       <div className="flex gap-2">
-                        <Link
-                          to={`/purchase/supplier-quotations/${quotation.id}`}
-                          className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                        <Link
-                          to={`/purchase/supplier-quotations/${quotation.id}/edit`}
-                          className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
-                        >
-                          Edit
-                        </Link>
+                        {canPerformAction("purchase:supplier-quotations", "view") && (
+                          <Link
+                            to={`/purchase/supplier-quotations/${quotation.id}`}
+                            className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
+                          >
+                            View
+                          </Link>
+                        )}
+                        {canPerformAction("purchase:supplier-quotations", "edit") && (
+                          <Link
+                            to={`/purchase/supplier-quotations/${quotation.id}/edit`}
+                            className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
+                          >
+                            Edit
+                          </Link>
+                        )}
                       </div>
                     </td>
                   </tr>

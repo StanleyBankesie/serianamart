@@ -3,13 +3,18 @@ import { Route, Routes } from "react-router-dom";
 import ModuleDashboard from "../../../components/ModuleDashboard";
 import { api } from "../../../api/client.js";
 
+import ServiceRequestsList from "./service-requests/ServiceRequestsList.jsx";
 import ServiceRequestForm from "./service-requests/ServiceRequestForm.jsx";
 import ServiceOrderForm from "./service-orders/ServiceOrderForm.jsx";
+import ServiceOrdersList from "./service-orders/ServiceOrdersList.jsx";
 import ServiceExecutionForm from "./service-execution/ServiceExecutionForm.jsx";
+import ServiceExecutionsList from "./service-execution/ServiceExecutionsList.jsx";
+import ServiceExecutionView from "./service-execution/ServiceExecutionView.jsx";
 import ServiceBillForm from "./service-bills/ServiceBillForm.jsx";
+import ServiceBillsList from "./service-bills/ServiceBillsList.jsx";
 import ServiceConfirmationsList from "./service-confirmations/ServiceConfirmationsList.jsx";
 import ServiceConfirmationForm from "./service-confirmations/ServiceConfirmationForm.jsx";
-import { useAuth } from "../../../auth/AuthContext.jsx";
+import ServiceParametersPage from "./setup/ServiceParametersPage.jsx";
 
 function ServiceManagementLanding() {
   const [stats, setStats] = React.useState([
@@ -93,7 +98,7 @@ function ServiceManagementLanding() {
           actions: [
             {
               label: "New Order",
-              path: "/service-management/service-orders",
+              path: "/service-management/service-orders/new",
               type: "primary",
             },
           ],
@@ -101,7 +106,7 @@ function ServiceManagementLanding() {
         {
           title: "Service Execution",
           description: "Execute, verify and close service orders",
-          path: "/service-management/service-execution",
+          path: "/service-management/service-executions",
           icon: "⚙️",
           actions: [
             {
@@ -137,6 +142,13 @@ function ServiceManagementLanding() {
             },
           ],
         },
+        {
+          title: "Service Setup",
+          description: "Configure work locations, service types, categories",
+          path: "/service-management/setup",
+          icon: "⚙️",
+          actions: [],
+        },
       ],
     },
   ];
@@ -147,111 +159,73 @@ function ServiceManagementLanding() {
       description="End-to-end service request, confirmation, and billing"
       stats={stats}
       sections={sections}
+      features={serviceManagementFeatures}
     />
   );
 }
 
 export default function ServiceManagementHome() {
-  const { hasModuleAccess, hasAccess } = useAuth();
-  const NoAccess = () => (
-    <div className="p-6">
-      <div className="card">
-        <div className="card-body">
-          <div className="text-center text-slate-600">
-            You do not have permission to view this page.
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  if (!hasModuleAccess("Service Management")) {
-    return (
-      <div className="p-6">
-        <div className="card">
-          <div className="card-body">
-            <div className="text-center text-slate-600">
-              You do not have access to the Service Management module.
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <Routes>
       <Route path="/" element={<ServiceManagementLanding />} />
+      <Route path="service-requests" element={<ServiceRequestsList />} />
+      <Route path="service-requests/new" element={<ServiceRequestForm />} />
+      <Route path="service-orders" element={<ServiceOrdersList />} />
+      <Route path="service-orders/new" element={<ServiceOrderForm />} />
+      <Route path="service-orders/:id" element={<ServiceOrderForm />} />
+      <Route path="service-executions" element={<ServiceExecutionsList />} />
       <Route
-        path="service-requests"
-        element={
-          hasAccess("/service-management/service-requests", "view") ? (
-            <ServiceRequestForm />
-          ) : (
-            <NoAccess />
-          )
-        }
+        path="service-executions/:id"
+        element={<ServiceExecutionView />}
       />
-      <Route
-        path="service-requests/new"
-        element={
-          hasAccess("/service-management/service-requests/new", "create") ? (
-            <ServiceRequestForm />
-          ) : (
-            <NoAccess />
-          )
-        }
-      />
-      <Route
-        path="service-orders"
-        element={
-          hasAccess("/service-management/service-orders", "view") ? (
-            <ServiceOrderForm />
-          ) : (
-            <NoAccess />
-          )
-        }
-      />
-      <Route
-        path="service-execution"
-        element={
-          hasAccess("/service-management/service-execution", "view") ? (
-            <ServiceExecutionForm />
-          ) : (
-            <NoAccess />
-          )
-        }
-      />
-      <Route
-        path="service-confirmation"
-        element={
-          hasAccess("/service-management/service-confirmation", "view") ? (
-            <ServiceConfirmationsList />
-          ) : (
-            <NoAccess />
-          )
-        }
-      />
+      <Route path="service-execution" element={<ServiceExecutionForm />} />
+      <Route path="service-confirmation" element={<ServiceConfirmationsList />} />
       <Route
         path="service-confirmation/:id"
-        element={
-          hasAccess("/service-management/service-confirmation/:id", "edit") ? (
-            <ServiceConfirmationForm />
-          ) : (
-            <NoAccess />
-          )
-        }
+        element={<ServiceConfirmationForm />}
       />
-      <Route
-        path="service-bills"
-        element={
-          hasAccess("/service-management/service-bills", "view") ? (
-            <ServiceBillForm />
-          ) : (
-            <NoAccess />
-          )
-        }
+      <Route path="service-bills" element={<ServiceBillsList />} />
+      <Route path="setup" element={<ServiceParametersPage />}
       />
     </Routes>
   );
 }
+
+export const serviceManagementFeatures = [
+  {
+    module_key: "service-management",
+    label: "Service Requests",
+    path: "/service-management/service-requests",
+    type: "feature",
+  },
+  {
+    module_key: "service-management",
+    label: "Service Orders",
+    path: "/service-management/service-orders",
+    type: "feature",
+  },
+  {
+    module_key: "service-management",
+    label: "Service Execution",
+    path: "/service-management/service-executions",
+    type: "feature",
+  },
+  {
+    module_key: "service-management",
+    label: "Service Confirmation",
+    path: "/service-management/service-confirmation",
+    type: "feature",
+  },
+  {
+    module_key: "service-management",
+    label: "Service Bills",
+    path: "/service-management/service-bills",
+    type: "feature",
+  },
+  {
+    module_key: "service-management",
+    label: "Service Setup",
+    path: "/service-management/setup",
+    type: "feature",
+  },
+];

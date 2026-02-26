@@ -109,6 +109,7 @@ function HRDashboard() {
       description="Employee management and payroll processing"
       stats={stats}
       sections={sections}
+      features={humanResourcesFeatures}
     />
   );
 }
@@ -156,7 +157,20 @@ export default function HumanResourcesHome() {
   );
 }
 
-
+export const humanResourcesFeatures = [
+  { module_key: "human-resources", label: "Employee Setup", path: "/human-resources/employees", type: "feature" },
+  { module_key: "human-resources", label: "Promotions", path: "/human-resources/promotions", type: "feature" },
+  { module_key: "human-resources", label: "Leave Setup", path: "/human-resources/leave-setup", type: "feature" },
+  { module_key: "human-resources", label: "Shift Management", path: "/human-resources/shifts", type: "feature" },
+  { module_key: "human-resources", label: "Attendance", path: "/human-resources/attendance", type: "feature" },
+  { module_key: "human-resources", label: "Salary Configuration", path: "/human-resources/salary-config", type: "feature" },
+  { module_key: "human-resources", label: "Tax & Deductions", path: "/human-resources/tax-config", type: "feature" },
+  { module_key: "human-resources", label: "Employee Allowances", path: "/human-resources/allowances", type: "feature" },
+  { module_key: "human-resources", label: "Employee Loans", path: "/human-resources/loans", type: "feature" },
+  { module_key: "human-resources", label: "Payslips", path: "/human-resources/payslips", type: "feature" },
+  { module_key: "human-resources", label: "Medical Policies", path: "/human-resources/medical-policies", type: "feature" },
+  { module_key: "human-resources", label: "HR Reports", path: "/human-resources/reports", type: "dashboard" },
+];
 
 
 

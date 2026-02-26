@@ -20,10 +20,12 @@ import {
   getServiceRequestById,
   getNextServiceRequestNo,
   createServiceRequest,
+  updateServiceRequest,
   listServiceBills,
   getServiceBillById,
   getNextServiceBillNo,
   createServiceBill,
+  updateServiceBill,
   listShippingAdvices,
   getShippingAdviceById,
   getNextShippingAdviceNo,
@@ -48,6 +50,28 @@ function nextDocNo(prefix) {
     .toISOString()
     .slice(0, 10)
     .replace(/-/g, "")}-${Math.floor(Math.random() * 10000)}`;
+}
+
+async function nextServiceExecutionNo(companyId, branchId) {
+  const rows = await query(
+    `
+    SELECT execution_no
+    FROM pur_service_executions
+    WHERE company_id = :companyId AND branch_id = :branchId
+      AND execution_no REGEXP '^SVEX-[0-9]{6}$'
+    ORDER BY CAST(SUBSTRING(execution_no, 6) AS UNSIGNED) DESC
+    LIMIT 1
+    `,
+    { companyId, branchId },
+  );
+  let nextNum = 1;
+  if (rows.length > 0) {
+    const prev = String(rows[0].execution_no || "");
+    const numPart = prev.slice(5);
+    const n = parseInt(numPart, 10);
+    if (Number.isFinite(n)) nextNum = n + 1;
+  }
+  return `SVEX-${String(nextNum).padStart(6, "0")}`;
 }
 
 async function hasColumn(tableName, columnName) {
@@ -76,6 +100,14 @@ async function ensureSupplierCurrencyColumn() {
   if (!(await hasColumn("pur_suppliers", "currency_id"))) {
     await pool.query(
       "ALTER TABLE pur_suppliers ADD COLUMN currency_id BIGINT UNSIGNED NULL",
+    );
+  }
+}
+
+async function ensureSupplierServiceContractorColumn() {
+  if (!(await hasColumn("pur_suppliers", "service_contractor"))) {
+    await pool.query(
+      "ALTER TABLE pur_suppliers ADD COLUMN service_contractor ENUM('Y','N') NOT NULL DEFAULT 'N'",
     );
   }
 }
@@ -208,6 +240,7 @@ async function ensureServiceBillTables() {
       due_date DATE NULL,
       service_date DATE NULL,
       status ENUM('PENDING','PAID','OVERDUE') NOT NULL DEFAULT 'PENDING',
+      payment VARCHAR(30) NOT NULL DEFAULT 'UNPAID',
       client_name VARCHAR(150) NULL,
       client_company VARCHAR(150) NULL,
       client_address VARCHAR(255) NULL,
@@ -230,6 +263,33 @@ async function ensureServiceBillTables() {
       KEY idx_sb_scope (company_id, branch_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  if (!(await hasColumn("pur_service_bills", "payment"))) {
+    await pool.query(
+      "ALTER TABLE pur_service_bills ADD COLUMN payment VARCHAR(30) NOT NULL DEFAULT 'UNPAID' AFTER status",
+    );
+  }
+  const rows = await query(
+    `SELECT column_type, column_default
+     FROM information_schema.columns
+     WHERE table_schema = DATABASE()
+       AND table_name = 'pur_service_bills'
+       AND column_name = 'status'`,
+  );
+  const colType = String(rows?.[0]?.column_type || "").toUpperCase();
+  const hasPending = colType.includes("'PENDING'");
+  const hasPaid = colType.includes("'PAID'");
+  const hasOverdue = colType.includes("'OVERDUE'");
+  const hasCompleted = colType.includes("'COMPLETED'");
+  const desiredOk = hasPending && hasOverdue && (hasCompleted || hasPaid);
+  if (!hasCompleted) {
+    await pool.query(
+      "ALTER TABLE pur_service_bills MODIFY COLUMN status ENUM('PENDING','COMPLETED','OVERDUE','PAID') NOT NULL DEFAULT 'PENDING'",
+    );
+  } else if (!desiredOk) {
+    await pool.query(
+      "ALTER TABLE pur_service_bills MODIFY COLUMN status ENUM('PENDING','COMPLETED','OVERDUE','PAID') NOT NULL DEFAULT 'PENDING'",
+    );
+  }
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pur_service_bill_details (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -246,6 +306,177 @@ async function ensureServiceBillTables() {
   `);
 }
 
+async function ensureServiceSetupTables() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS svc_work_locations (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      name VARCHAR(200) NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_loc_scope_name (company_id, name),
+      KEY idx_loc_scope (company_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS svc_service_types (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      name VARCHAR(200) NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_type_scope_name (company_id, name),
+      KEY idx_type_scope (company_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS svc_service_categories (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      name VARCHAR(200) NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_cat_scope_name (company_id, name),
+      KEY idx_cat_scope (company_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS svc_supervisors (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      user_id BIGINT UNSIGNED NOT NULL,
+      username VARCHAR(150) NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_sup_scope_user (company_id, user_id),
+      KEY idx_sup_scope (company_id),
+      CONSTRAINT fk_sup_user FOREIGN KEY (user_id) REFERENCES adm_users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+async function ensureServiceOrderTables() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pur_service_orders (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      order_no VARCHAR(50) NOT NULL,
+      order_date DATE NOT NULL,
+      order_type ENUM('INTERNAL','EXTERNAL') NOT NULL DEFAULT 'INTERNAL',
+      customer_name VARCHAR(150) NULL,
+      customer_email VARCHAR(150) NULL,
+      customer_phone VARCHAR(50) NULL,
+      service_category VARCHAR(100) NULL,
+      schedule_address VARCHAR(255) NULL,
+      schedule_date DATE NULL,
+      schedule_time VARCHAR(30) NULL,
+      payment_method VARCHAR(30) NULL,
+      department VARCHAR(100) NULL,
+      cost_center VARCHAR(50) NULL,
+      requestor_name VARCHAR(100) NULL,
+      requestor_title VARCHAR(100) NULL,
+      requestor_email VARCHAR(150) NULL,
+      requestor_phone VARCHAR(50) NULL,
+      contractor_name VARCHAR(150) NULL,
+      contractor_code VARCHAR(50) NULL,
+      contractor_email VARCHAR(150) NULL,
+      contractor_phone VARCHAR(50) NULL,
+      ext_category VARCHAR(100) NULL,
+      scope_of_work TEXT NULL,
+      work_location TEXT NULL,
+      start_date DATE NULL,
+      end_date DATE NULL,
+      estimated_cost DECIMAL(18,2) NULL,
+      currency_code VARCHAR(10) NULL,
+      total_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
+      status ENUM('DRAFT','SUBMITTED','APPROVED','REJECTED','CANCELLED') NOT NULL DEFAULT 'SUBMITTED',
+      assigned_supervisor_user_id BIGINT UNSIGNED NULL,
+      assigned_supervisor_username VARCHAR(150) NULL,
+      created_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_so_scope_no (company_id, branch_id, order_no),
+      KEY idx_so_scope (company_id, branch_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pur_service_order_lines (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      order_id BIGINT UNSIGNED NOT NULL,
+      line_no INT NOT NULL DEFAULT 1,
+      item_id BIGINT UNSIGNED NULL,
+      item_name VARCHAR(200) NULL,
+      description VARCHAR(255) NULL,
+      qty DECIMAL(18,3) NOT NULL DEFAULT 0,
+      unit_price DECIMAL(18,2) NOT NULL DEFAULT 0,
+      line_total DECIMAL(18,2) NOT NULL DEFAULT 0,
+      PRIMARY KEY (id),
+      KEY idx_sol_order (order_id),
+      CONSTRAINT fk_sol_order FOREIGN KEY (order_id) REFERENCES pur_service_orders(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+async function ensureServiceOrderColumns() {
+  // pur_service_orders: assigned supervisor fields
+  if (!(await hasColumn("pur_service_orders", "assigned_supervisor_user_id"))) {
+    try {
+      await pool.query(
+        "ALTER TABLE pur_service_orders ADD COLUMN assigned_supervisor_user_id BIGINT UNSIGNED NULL AFTER status",
+      );
+    } catch {}
+  }
+  if (
+    !(await hasColumn("pur_service_orders", "assigned_supervisor_username"))
+  ) {
+    try {
+      await pool.query(
+        "ALTER TABLE pur_service_orders ADD COLUMN assigned_supervisor_username VARCHAR(150) NULL AFTER assigned_supervisor_user_id",
+      );
+    } catch {}
+  }
+}
+async function ensureServiceExecutionTables() {
+  if (!(await hasTable("pur_service_executions"))) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pur_service_executions (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        company_id BIGINT UNSIGNED NOT NULL,
+        branch_id BIGINT UNSIGNED NOT NULL,
+        order_id BIGINT UNSIGNED NOT NULL,
+        execution_no VARCHAR(50) NOT NULL,
+        execution_date DATE NULL,
+        scheduled_time VARCHAR(10) NULL,
+        assigned_supervisor_user_id BIGINT UNSIGNED NULL,
+        assigned_supervisor_username VARCHAR(150) NULL,
+        requisition_notes TEXT NULL,
+        status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+        created_by BIGINT UNSIGNED NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_exec_no (company_id, branch_id, execution_no),
+        KEY idx_exec_order (order_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  }
+  if (!(await hasTable("pur_service_execution_materials"))) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pur_service_execution_materials (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        execution_id BIGINT UNSIGNED NOT NULL,
+        item_id BIGINT UNSIGNED NULL,
+        name VARCHAR(255) NULL,
+        unit VARCHAR(20) NULL,
+        qty DECIMAL(18,3) NULL,
+        note VARCHAR(255) NULL,
+        PRIMARY KEY (id),
+        KEY idx_exec_mat (execution_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  }
+}
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
@@ -831,6 +1062,19 @@ router.post(
   (req, res, next) => createServiceRequest(req, res, next),
 );
 
+router.put(
+  "/service-requests/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "PURCHASE.SERVICE_REQUEST.MANAGE",
+    "PURCHASE.ORDER.MANAGE",
+    "INV.SERVICE_REQUEST.MANAGE",
+  ]),
+  (req, res, next) => updateServiceRequest(req, res, next),
+);
+
 // ==========================================
 // Service Bills
 // ==========================================
@@ -881,6 +1125,619 @@ router.post(
   ]),
   (req, res, next) => createServiceBill(req, res, next),
 );
+
+router.put(
+  "/service-bills/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "PURCHASE.SERVICE_BILL.MANAGE",
+    "PURCHASE.ORDER.MANAGE",
+    "INV.SERVICE_BILL.MANAGE",
+  ]),
+  (req, res, next) => updateServiceBill(req, res, next),
+);
+router.get(
+  "/service-setup/work-locations",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      await ensureServiceSetupTables();
+      const items = await query(
+        "SELECT id, name FROM svc_work_locations WHERE company_id = :companyId ORDER BY name ASC",
+        { companyId },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/service-setup/supervisors",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      await ensureServiceSetupTables();
+      const items = await query(
+        "SELECT id, user_id, username FROM svc_supervisors WHERE company_id = :companyId ORDER BY username ASC",
+        { companyId },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.get(
+  "/service-setup/users",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const items = await query(
+        `
+        SELECT 
+          u.id, u.username, u.full_name, u.email
+        FROM adm_users u
+        WHERE u.company_id = :companyId
+          AND u.is_active = 1
+        ORDER BY u.username ASC
+        `,
+        { companyId },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.post(
+  "/service-setup/supervisors",
+  requireAuth,
+  requireCompanyScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const userId = Number(req.body?.user_id || 0);
+      if (!userId) throw httpError(400, "VALIDATION_ERROR", "user_id required");
+      await ensureServiceSetupTables();
+      const rows = await query(
+        "SELECT id, username FROM adm_users WHERE id = :id LIMIT 1",
+        { id: userId },
+      );
+      const u = rows?.[0];
+      if (!u) throw httpError(404, "NOT_FOUND", "User not found");
+      const username = String(u.username || "").trim() || String(u.email || "");
+      const [result] = await pool.execute(
+        "INSERT INTO svc_supervisors (company_id, user_id, username) VALUES (:companyId, :userId, :username)",
+        { companyId, userId, username },
+      );
+      const id = Number(result?.insertId || 0);
+      res.json({ item: { id, user_id: userId, username } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.delete(
+  "/service-setup/supervisors/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const id = toNumber(req.params.id, 0);
+      await ensureServiceSetupTables();
+      await pool.execute(
+        "DELETE FROM svc_supervisors WHERE id = :id AND company_id = :companyId",
+        { id, companyId },
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.post(
+  "/service-setup/work-locations",
+  requireAuth,
+  requireCompanyScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const name = String(req.body?.name || "").trim();
+      if (!name) throw httpError(400, "VALIDATION_ERROR", "Name required");
+      await ensureServiceSetupTables();
+      const [result] = await pool.execute(
+        "INSERT INTO svc_work_locations (company_id, name) VALUES (:companyId, :name)",
+        { companyId, name },
+      );
+      const id = Number(result?.insertId || 0);
+      res.json({ item: { id, name } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.delete(
+  "/service-setup/work-locations/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const id = toNumber(req.params.id, 0);
+      await ensureServiceSetupTables();
+      await pool.execute(
+        "DELETE FROM svc_work_locations WHERE id = :id AND company_id = :companyId",
+        { id, companyId },
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/service-setup/service-types",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      await ensureServiceSetupTables();
+      const items = await query(
+        "SELECT id, name FROM svc_service_types WHERE company_id = :companyId ORDER BY name ASC",
+        { companyId },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.post(
+  "/service-setup/service-types",
+  requireAuth,
+  requireCompanyScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const name = String(req.body?.name || "").trim();
+      if (!name) throw httpError(400, "VALIDATION_ERROR", "Name required");
+      await ensureServiceSetupTables();
+      const [result] = await pool.execute(
+        "INSERT INTO svc_service_types (company_id, name) VALUES (:companyId, :name)",
+        { companyId, name },
+      );
+      const id = Number(result?.insertId || 0);
+      res.json({ item: { id, name } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.delete(
+  "/service-setup/service-types/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const id = toNumber(req.params.id, 0);
+      await ensureServiceSetupTables();
+      await pool.execute(
+        "DELETE FROM svc_service_types WHERE id = :id AND company_id = :companyId",
+        { id, companyId },
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/service-setup/categories",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      await ensureServiceSetupTables();
+      const items = await query(
+        "SELECT id, name FROM svc_service_categories WHERE company_id = :companyId ORDER BY name ASC",
+        { companyId },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.post(
+  "/service-setup/categories",
+  requireAuth,
+  requireCompanyScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const name = String(req.body?.name || "").trim();
+      if (!name) throw httpError(400, "VALIDATION_ERROR", "Name required");
+      await ensureServiceSetupTables();
+      const [result] = await pool.execute(
+        "INSERT INTO svc_service_categories (company_id, name) VALUES (:companyId, :name)",
+        { companyId, name },
+      );
+      const id = Number(result?.insertId || 0);
+      res.json({ item: { id, name } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.delete(
+  "/service-setup/categories/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const id = toNumber(req.params.id, 0);
+      await ensureServiceSetupTables();
+      await pool.execute(
+        "DELETE FROM svc_service_categories WHERE id = :id AND company_id = :companyId",
+        { id, companyId },
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/service-orders",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensureServiceOrderTables();
+      await ensureServiceOrderColumns();
+      const type =
+        req.query.type &&
+        ["INTERNAL", "EXTERNAL"].includes(String(req.query.type).toUpperCase())
+          ? String(req.query.type).toUpperCase()
+          : null;
+      const items = await query(
+        `SELECT 
+           id, order_no, order_date, order_type,
+           customer_name, service_category AS service_type,
+           status, work_location, total_amount,
+           assigned_supervisor_user_id, assigned_supervisor_username
+         FROM pur_service_orders 
+         WHERE company_id = :companyId AND branch_id = :branchId
+           ${type ? "AND order_type = :type" : ""}
+         ORDER BY order_date DESC, id DESC
+         LIMIT 200`,
+        { companyId, branchId, type },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/service-orders/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const id = toNumber(req.params.id, 0);
+      await ensureServiceOrderTables();
+      await ensureServiceOrderColumns();
+      const [order] = await query(
+        "SELECT * FROM pur_service_orders WHERE id = :id LIMIT 1",
+        { id },
+      );
+      if (!order) throw httpError(404, "NOT_FOUND", "Service order not found");
+      const lines = await query(
+        "SELECT line_no, item_id, item_name, description, qty, unit_price, line_total FROM pur_service_order_lines WHERE order_id = :id ORDER BY line_no ASC",
+        { id },
+      );
+      res.json({ item: order, lines });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/service-orders",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId, userId } = req.scope;
+      const body = req.body || {};
+      await ensureServiceOrderTables();
+      await ensureServiceOrderColumns();
+      await conn.beginTransaction();
+      const orderNo =
+        String(body.order_no || "").trim() ||
+        (await nextSequentialNo("pur_service_orders", "order_no", "SVO"));
+      const orderDate =
+        String(body.order_date || "").trim() || toYmd(new Date());
+      const orderType = String(body.order_type || "INTERNAL").toUpperCase();
+      const totalAmount = Number(body.total_amount || 0);
+      const [resOrder] = await conn.execute(
+        `INSERT INTO pur_service_orders (
+           company_id, branch_id, order_no, order_date, order_type,
+           customer_name, customer_email, customer_phone, service_category,
+           schedule_address, schedule_date, schedule_time, payment_method,
+           department, cost_center, requestor_name, requestor_title, requestor_email, requestor_phone,
+           contractor_name, contractor_code, contractor_email, contractor_phone,
+           ext_category, scope_of_work, work_location, start_date, end_date, estimated_cost, currency_code,
+           total_amount, status, assigned_supervisor_user_id, assigned_supervisor_username, created_by
+         ) VALUES (
+           :companyId, :branchId, :orderNo, :orderDate, :orderType,
+           :customer_name, :customer_email, :customer_phone, :service_category,
+           :schedule_address, :schedule_date, :schedule_time, :payment_method,
+           :department, :cost_center, :requestor_name, :requestor_title, :requestor_email, :requestor_phone,
+           :contractor_name, :contractor_code, :contractor_email, :contractor_phone,
+           :ext_category, :scope_of_work, :work_location, :start_date, :end_date, :estimated_cost, :currency_code,
+           :total_amount, 'SUBMITTED', :assigned_supervisor_user_id, :assigned_supervisor_username, :created_by
+         )`,
+        {
+          companyId,
+          branchId,
+          orderNo,
+          orderDate,
+          orderType,
+          customer_name: body.customer_name || null,
+          customer_email: body.customer_email || null,
+          customer_phone: body.customer_phone || null,
+          service_category: body.service_category || null,
+          schedule_address: body.schedule_address || null,
+          schedule_date: body.schedule_date || null,
+          schedule_time: body.schedule_time || null,
+          payment_method: body.payment_method || null,
+          department: body.department || null,
+          cost_center: body.cost_center || null,
+          requestor_name: body.requestor_name || null,
+          requestor_title: body.requestor_title || null,
+          requestor_email: body.requestor_email || null,
+          requestor_phone: body.requestor_phone || null,
+          contractor_name: body.contractor_name || null,
+          contractor_code: body.contractor_code || null,
+          contractor_email: body.contractor_email || null,
+          contractor_phone: body.contractor_phone || null,
+          ext_category: body.ext_category || null,
+          scope_of_work: body.scope_of_work || null,
+          work_location: body.work_location || null,
+          start_date: body.start_date || null,
+          end_date: body.end_date || null,
+          estimated_cost: body.estimated_cost || null,
+          currency_code: body.currency_code || null,
+          total_amount: totalAmount || 0,
+          assigned_supervisor_user_id:
+            body.assigned_supervisor_user_id === undefined
+              ? null
+              : Number(body.assigned_supervisor_user_id || 0) || null,
+          assigned_supervisor_username:
+            body.assigned_supervisor_username || null,
+          created_by: userId || null,
+        },
+      );
+      const orderId = Number(resOrder?.insertId || 0);
+      const lines = Array.isArray(body.lines) ? body.lines : [];
+      let lineNo = 0;
+      for (const ln of lines) {
+        lineNo++;
+        const qty = Number(ln.qty || 0);
+        const unitPrice = Number(ln.unit_price || 0);
+        const lineTotal = Number(ln.line_total || qty * unitPrice);
+        await conn.execute(
+          `INSERT INTO pur_service_order_lines (
+             order_id, line_no, item_id, item_name, description, qty, unit_price, line_total
+           ) VALUES (
+             :orderId, :line_no, :item_id, :item_name, :description, :qty, :unit_price, :line_total
+           )`,
+          {
+            orderId,
+            line_no: lineNo,
+            item_id: ln.item_id || null,
+            item_name: ln.item_name || null,
+            description: ln.description || null,
+            qty,
+            unit_price: unitPrice,
+            line_total: lineTotal,
+          },
+        );
+      }
+      await conn.commit();
+      res.json({ id: orderId, order_no: orderNo });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(err);
+    } finally {
+      conn.release();
+    }
+  },
+);
+
+router.put(
+  "/service-orders/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id, 0);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const body = req.body || {};
+      await ensureServiceOrderTables();
+      await ensureServiceOrderColumns();
+      await conn.beginTransaction();
+      const [exists] = await conn.execute(
+        `SELECT id FROM pur_service_orders 
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
+      );
+      if (!Array.isArray(exists) || !exists.length)
+        throw httpError(404, "NOT_FOUND", "Service order not found");
+      await conn.execute(
+        `UPDATE pur_service_orders SET
+           order_date = COALESCE(:orderDate, order_date),
+           order_type = COALESCE(:orderType, order_type),
+           customer_name = COALESCE(:customer_name, customer_name),
+           customer_email = COALESCE(:customer_email, customer_email),
+           customer_phone = COALESCE(:customer_phone, customer_phone),
+           service_category = COALESCE(:service_category, service_category),
+           schedule_address = COALESCE(:schedule_address, schedule_address),
+           schedule_date = COALESCE(:schedule_date, schedule_date),
+           schedule_time = COALESCE(:schedule_time, schedule_time),
+           payment_method = COALESCE(:payment_method, payment_method),
+           department = COALESCE(:department, department),
+           cost_center = COALESCE(:cost_center, cost_center),
+           requestor_name = COALESCE(:requestor_name, requestor_name),
+           requestor_title = COALESCE(:requestor_title, requestor_title),
+           requestor_email = COALESCE(:requestor_email, requestor_email),
+           requestor_phone = COALESCE(:requestor_phone, requestor_phone),
+           contractor_name = COALESCE(:contractor_name, contractor_name),
+           contractor_code = COALESCE(:contractor_code, contractor_code),
+           contractor_email = COALESCE(:contractor_email, contractor_email),
+           contractor_phone = COALESCE(:contractor_phone, contractor_phone),
+           ext_category = COALESCE(:ext_category, ext_category),
+           scope_of_work = COALESCE(:scope_of_work, scope_of_work),
+           work_location = COALESCE(:work_location, work_location),
+           start_date = COALESCE(:start_date, start_date),
+           end_date = COALESCE(:end_date, end_date),
+           estimated_cost = COALESCE(:estimated_cost, estimated_cost),
+           currency_code = COALESCE(:currency_code, currency_code),
+           total_amount = COALESCE(:total_amount, total_amount),
+           assigned_supervisor_user_id = COALESCE(:assigned_supervisor_user_id, assigned_supervisor_user_id),
+           assigned_supervisor_username = COALESCE(:assigned_supervisor_username, assigned_supervisor_username)
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        {
+          id,
+          companyId,
+          branchId,
+          orderDate: body.order_date || null,
+          orderType:
+            body.order_type === undefined
+              ? null
+              : String(body.order_type || "").toUpperCase(),
+          customer_name: body.customer_name || null,
+          customer_email: body.customer_email || null,
+          customer_phone: body.customer_phone || null,
+          service_category: body.service_category || null,
+          schedule_address: body.schedule_address || null,
+          schedule_date: body.schedule_date || null,
+          schedule_time: body.schedule_time || null,
+          payment_method: body.payment_method || null,
+          department: body.department || null,
+          cost_center: body.cost_center || null,
+          requestor_name: body.requestor_name || null,
+          requestor_title: body.requestor_title || null,
+          requestor_email: body.requestor_email || null,
+          requestor_phone: body.requestor_phone || null,
+          contractor_name: body.contractor_name || null,
+          contractor_code: body.contractor_code || null,
+          contractor_email: body.contractor_email || null,
+          contractor_phone: body.contractor_phone || null,
+          ext_category: body.ext_category || null,
+          scope_of_work: body.scope_of_work || null,
+          work_location: body.work_location || null,
+          start_date: body.start_date || null,
+          end_date: body.end_date || null,
+          estimated_cost: body.estimated_cost || null,
+          currency_code: body.currency_code || null,
+          total_amount:
+            body.total_amount === undefined
+              ? null
+              : Number(body.total_amount || 0),
+          assigned_supervisor_user_id:
+            body.assigned_supervisor_user_id === undefined
+              ? null
+              : Number(body.assigned_supervisor_user_id || 0) || null,
+          assigned_supervisor_username:
+            body.assigned_supervisor_username || null,
+        },
+      );
+      await conn.execute(
+        "DELETE FROM pur_service_order_lines WHERE order_id = :orderId",
+        { orderId: id },
+      );
+      const lines = Array.isArray(body.lines) ? body.lines : [];
+      let lineNo = 0;
+      for (const ln of lines) {
+        lineNo++;
+        const qty = Number(ln.qty || 0);
+        const unitPrice = Number(ln.unit_price || 0);
+        const lineTotal = Number(ln.line_total || qty * unitPrice);
+        await conn.execute(
+          `INSERT INTO pur_service_order_lines (
+             order_id, line_no, item_id, item_name, description, qty, unit_price, line_total
+           ) VALUES (
+             :orderId, :line_no, :item_id, :item_name, :description, :qty, :unit_price, :line_total
+           )`,
+          {
+            orderId: id,
+            line_no: lineNo,
+            item_id: ln.item_id || null,
+            item_name: ln.item_name || null,
+            description: ln.description || null,
+            qty,
+            unit_price: unitPrice,
+            line_total: lineTotal,
+          },
+        );
+      }
+      await conn.commit();
+      res.json({ ok: true });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(err);
+    } finally {
+      conn.release();
+    }
+  },
+);
 async function ensureStockBalancesWarehouseInfrastructure() {
   if (!(await hasColumn("inv_stock_balances", "warehouse_id"))) {
     await pool.query(
@@ -902,6 +1759,107 @@ async function ensureStockBalancesWarehouseInfrastructure() {
       );
     } catch {}
   }
+}
+
+async function ensurePurchaseReturnTables() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS pur_returns (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      return_no VARCHAR(50) NOT NULL,
+      return_date DATE NOT NULL,
+      supplier_id BIGINT UNSIGNED NOT NULL,
+      warehouse_id BIGINT UNSIGNED NULL,
+      ref_type VARCHAR(20) NULL,
+      ref_id BIGINT UNSIGNED NULL,
+      status VARCHAR(20) DEFAULT 'DRAFT',
+      remarks TEXT,
+      sub_total DECIMAL(18,2) DEFAULT 0,
+      tax_amount DECIMAL(18,2) DEFAULT 0,
+      total_amount DECIMAL(18,2) DEFAULT 0,
+      created_by BIGINT UNSIGNED,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_pur_return_no (company_id, branch_id, return_no),
+      INDEX idx_pur_return_scope (company_id, branch_id)
+    )
+  `).catch(() => null);
+  await query(`
+    CREATE TABLE IF NOT EXISTS pur_return_details (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      return_id BIGINT UNSIGNED NOT NULL,
+      item_id BIGINT UNSIGNED NOT NULL,
+      qty_returned DECIMAL(18,4) NOT NULL DEFAULT 0,
+      unit_price DECIMAL(18,4) NOT NULL DEFAULT 0,
+      total_amount DECIMAL(18,4) NOT NULL DEFAULT 0,
+      tax_amount DECIMAL(18,4) NOT NULL DEFAULT 0,
+      reason_code VARCHAR(50),
+      remarks TEXT,
+      PRIMARY KEY (id),
+      INDEX idx_pur_return (return_id),
+      CONSTRAINT fk_pur_return_details_header FOREIGN KEY (return_id) REFERENCES pur_returns(id) ON DELETE CASCADE
+    )
+  `).catch(() => null);
+}
+async function nextPurchaseReturnNo(companyId, branchId) {
+  const rows = await query(
+    `SELECT return_no
+     FROM pur_returns
+     WHERE company_id = :companyId AND branch_id = :branchId
+       AND return_no REGEXP '^PR-[0-9]{6}$'
+     ORDER BY CAST(SUBSTRING(return_no, 4) AS UNSIGNED) DESC
+     LIMIT 1`,
+    { companyId, branchId },
+  ).catch(() => []);
+  let nextNum = 1;
+  if (rows.length) {
+    const prev = String(rows[0].return_no || "");
+    const num = parseInt(prev.slice(3), 10);
+    if (Number.isFinite(num)) nextNum = num + 1;
+  }
+  return `PR-${String(nextNum).padStart(6, "0")}`;
+}
+async function ensureDebitNoteVoucherTypeIdTx(conn, { companyId }) {
+  const existingId = await resolveVoucherTypeIdByCode(conn, {
+    companyId,
+    code: "DN",
+  });
+  if (existingId) return existingId;
+  try {
+    await conn.execute(
+      `
+      INSERT INTO fin_voucher_types
+        (company_id, code, name, category, prefix, next_number, requires_approval, is_active)
+      VALUES
+        (:companyId, 'DN', 'Debit Note', 'DEBIT_NOTE', 'DN', 1, 0, 1)
+      `,
+      { companyId },
+    );
+  } catch (e) {
+    if (String(e?.code || "") !== "ER_DUP_ENTRY") throw e;
+  }
+  const id = await resolveVoucherTypeIdByCode(conn, { companyId, code: "DN" });
+  return id || 0;
+}
+async function resolveDefaultInventoryAccountId(conn, { companyId }) {
+  const [rows] = await conn.execute(
+    `
+    SELECT a.id
+    FROM fin_accounts a
+    JOIN fin_account_groups g ON g.id = a.group_id
+    WHERE a.company_id = :companyId
+      AND a.is_active = 1
+      AND a.is_postable = 1
+      AND g.nature = 'ASSET'
+      AND (LOWER(a.name) LIKE '%inventory%' OR a.code IN ('1300','130000'))
+    ORDER BY a.code ASC
+    LIMIT 1
+    `,
+    { companyId },
+  );
+  return Number(rows?.[0]?.id || 0) || 0;
 }
 
 async function ensureShippingAdviceStatusEnum() {
@@ -977,6 +1935,309 @@ async function ensurePortClearanceStatusEnum() {
 // --- SUPPLIERS ---
 
 router.get(
+  "/returns",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE", "PURCHASE.RFQ.VIEW"]),
+  async (req, res, next) => {
+    try {
+      await ensurePurchaseReturnTables();
+      const { companyId, branchId } = req.scope;
+      const items = await query(
+        `
+        SELECT r.id, r.return_no, r.return_date, r.status, r.total_amount,
+               s.supplier_name, r.supplier_id
+        FROM pur_returns r
+        LEFT JOIN pur_suppliers s
+          ON s.id = r.supplier_id
+        WHERE r.company_id = :companyId AND r.branch_id = :branchId
+        ORDER BY r.return_date DESC, r.id DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.get(
+  "/returns/next-no",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE", "PURCHASE.RFQ.VIEW"]),
+  async (req, res, next) => {
+    try {
+      await ensurePurchaseReturnTables();
+      const { companyId, branchId } = req.scope;
+      const nextNo = await nextPurchaseReturnNo(companyId, branchId);
+      res.json({ nextNo });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.post(
+  "/returns",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      await ensurePurchaseReturnTables();
+      await ensureStockBalancesWarehouseInfrastructure();
+      const { companyId, branchId } = req.scope;
+      const body = req.body || {};
+      const return_no =
+        String(body.return_no || "").trim() ||
+        (await nextPurchaseReturnNo(companyId, branchId));
+      const return_date = body.return_date
+        ? String(body.return_date).slice(0, 10)
+        : toYmd(new Date());
+      const supplier_id = Number(body.supplier_id || 0);
+      const warehouse_id =
+        body.warehouse_id == null
+          ? null
+          : Number(body.warehouse_id || 0) || null;
+      const remarks = body.remarks || null;
+      const items = Array.isArray(body.items) ? body.items : [];
+      if (!Number.isFinite(supplier_id) || supplier_id <= 0 || !items.length) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid payload");
+      }
+      let sub_total = 0;
+      let tax_total = 0;
+      const ids = Array.from(
+        new Set(
+          (items || [])
+            .map((x) => Number(x?.item_id || x?.itemId || 0))
+            .filter((n) => Number.isFinite(n) && n > 0),
+        ),
+      );
+      let rateMap = new Map();
+      if (ids.length) {
+        const placeholders = ids.map((_, i) => `:i${i}`).join(", ");
+        const params = { companyId };
+        ids.forEach((v, i) => (params[`i${i}`] = v));
+        const rows = await query(
+          `
+          SELECT it.id AS item_id,
+                 it.vat_on_purchase_id AS tax_id,
+                 COALESCE(tc.rate_percent, 0) AS rate_percent
+          FROM inv_items it
+          LEFT JOIN fin_tax_codes tc
+            ON tc.company_id = it.company_id
+           AND tc.id = it.vat_on_purchase_id
+          WHERE it.company_id = :companyId
+            AND it.id IN (${placeholders})
+          `,
+          params,
+        ).catch(() => []);
+        for (const r of rows || []) {
+          rateMap.set(Number(r.item_id), Number(r.rate_percent || 0));
+        }
+      }
+      const normalized = [];
+      for (const it of items) {
+        const item_id = Number(it?.item_id);
+        const qty = Number(it?.qty_returned || it?.quantity || 0);
+        const unit_price = Number(it?.unit_price || 0);
+        const reason_code = String(it?.reason_code || "").trim() || null;
+        const lineRemarks = it?.remarks || null;
+        if (!Number.isFinite(item_id) || qty <= 0) continue;
+        const line_total = Math.round(qty * unit_price * 100) / 100;
+        const rate = Number(rateMap.get(item_id) || 0);
+        const line_tax =
+          Math.round(((qty * unit_price * rate) / 100) * 100) / 100;
+        sub_total += line_total;
+        tax_total += line_tax;
+        normalized.push({
+          item_id,
+          qty,
+          unit_price,
+          total_amount: line_total,
+          tax_amount: line_tax,
+          reason_code,
+          remarks: lineRemarks,
+        });
+      }
+      const total_amount = Math.round((sub_total + tax_total) * 100) / 100;
+      const created_by = req.user?.sub || null;
+      await conn.beginTransaction();
+      const [hdr] = await conn.execute(
+        `
+        INSERT INTO pur_returns
+          (company_id, branch_id, return_no, return_date, supplier_id, warehouse_id, remarks, sub_total, tax_amount, total_amount, created_by)
+        VALUES
+          (:companyId, :branchId, :return_no, :return_date, :supplier_id, :warehouse_id, :remarks, :sub_total, :tax_amount, :total_amount, :created_by)
+        `,
+        {
+          companyId,
+          branchId,
+          return_no,
+          return_date,
+          supplier_id,
+          warehouse_id,
+          remarks,
+          sub_total,
+          tax_amount: tax_total,
+          total_amount,
+          created_by,
+        },
+      );
+      const return_id = Number(hdr?.insertId || 0) || 0;
+      for (const ln of normalized) {
+        await conn.execute(
+          `
+          INSERT INTO pur_return_details
+            (return_id, item_id, qty_returned, unit_price, total_amount, tax_amount, reason_code, remarks)
+          VALUES
+            (:return_id, :item_id, :qty_returned, :unit_price, :total_amount, :tax_amount, :reason_code, :remarks)
+          `,
+          {
+            return_id,
+            item_id: ln.item_id,
+            qty_returned: ln.qty,
+            unit_price: ln.unit_price,
+            total_amount: ln.total_amount,
+            tax_amount: ln.tax_amount,
+            reason_code: ln.reason_code,
+            remarks: ln.remarks,
+          },
+        );
+        await conn.execute(
+          `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
+           VALUES (:companyId, :branchId, :warehouse_id, :item_id, :qty)
+           ON DUPLICATE KEY UPDATE qty = GREATEST(0, qty - :qty)`,
+          {
+            companyId,
+            branchId,
+            warehouse_id,
+            item_id: ln.item_id,
+            qty: ln.qty,
+          },
+        );
+      }
+      const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
+      const voucherTypeId = await ensureDebitNoteVoucherTypeIdTx(conn, {
+        companyId,
+      });
+      const voucherNo = await nextVoucherNoTx(conn, {
+        companyId,
+        voucherTypeId,
+      });
+      const voucherDate = return_date || toYmd(new Date());
+      const supplierAccId = await ensureSupplierFinAccountIdTx(conn, {
+        companyId,
+        supplierId: supplier_id,
+      });
+      const inventoryAccId =
+        (await resolveFinAccountId(conn, {
+          companyId,
+          accountRef: "130000",
+        })) || (await resolveDefaultInventoryAccountId(conn, { companyId }));
+      const vatInputAccId = await resolveVatInputAccountIdAuto(conn, {
+        companyId,
+      });
+      if (!supplierAccId || !inventoryAccId) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "Required Finance accounts not found for posting",
+        );
+      }
+      const [vIns] = await conn.execute(
+        `INSERT INTO fin_vouchers
+          (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
+         VALUES
+          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
+        {
+          companyId,
+          branchId,
+          fiscalYearId,
+          voucherTypeId,
+          voucherNo,
+          voucherDate,
+          narration: `Purchase Return ${return_no} debit note`,
+          totalDebit: total_amount,
+          totalCredit: total_amount,
+          createdBy: created_by,
+          approvedBy: created_by,
+          postedBy: created_by,
+        },
+      );
+      const voucherId = Number(vIns?.insertId || 0) || 0;
+      let lineNo = 1;
+      await conn.execute(
+        `INSERT INTO fin_voucher_lines
+          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+         VALUES
+          (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
+        {
+          companyId,
+          voucherId,
+          lineNo: lineNo++,
+          accountId: supplierAccId,
+          description: `Debit note supplier`,
+          debit: Math.round(total_amount * 100) / 100,
+          referenceNo: return_no,
+        },
+      );
+      await conn.execute(
+        `INSERT INTO fin_voucher_lines
+          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+         VALUES
+          (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :referenceNo)`,
+        {
+          companyId,
+          voucherId,
+          lineNo: lineNo++,
+          accountId: inventoryAccId,
+          description: `Inventory reduction on ${return_no}`,
+          credit: Math.round(sub_total * 100) / 100,
+          referenceNo: return_no,
+        },
+      );
+      if (tax_total > 0 && vatInputAccId) {
+        await conn.execute(
+          `INSERT INTO fin_voucher_lines
+            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+           VALUES
+            (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :referenceNo)`,
+          {
+            companyId,
+            voucherId,
+            lineNo: lineNo++,
+            accountId: vatInputAccId,
+            description: `VAT input reversal on ${return_no}`,
+            credit: Math.round(tax_total * 100) / 100,
+            referenceNo: return_no,
+          },
+        );
+      }
+      await conn.commit();
+      res.status(201).json({
+        id: return_id,
+        return_no,
+        total_amount,
+        voucher_id: voucherId,
+        voucher_no: voucherNo,
+      });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(err);
+    } finally {
+      conn.release();
+    }
+  },
+);
+
+router.get(
   "/suppliers/next-code",
   requireAuth,
   requireCompanyScope,
@@ -1012,6 +2273,168 @@ router.get(
   },
 );
 
+router.get(
+  "/service-executions",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensureServiceExecutionTables();
+      const type =
+        req.query.type &&
+        ["INTERNAL", "EXTERNAL"].includes(String(req.query.type).toUpperCase())
+          ? String(req.query.type).toUpperCase()
+          : null;
+      const items = await query(
+        `
+        SELECT 
+          e.id, e.execution_no, e.execution_date, e.scheduled_time, e.status,
+          e.assigned_supervisor_user_id, e.assigned_supervisor_username,
+          o.order_no, o.order_type, o.customer_name, o.service_category AS service_type
+        FROM pur_service_executions e
+        JOIN pur_service_orders o ON o.id = e.order_id
+        WHERE e.company_id = :companyId AND e.branch_id = :branchId
+          ${type ? "AND o.order_type = :type" : ""}
+        ORDER BY e.id DESC
+        LIMIT 200
+        `,
+        { companyId, branchId, type },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.post(
+  "/service-executions",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId, userId } = req.scope;
+      const body = req.body || {};
+      await ensureServiceExecutionTables();
+      await conn.beginTransaction();
+      const execNo =
+        String(body.execution_no || "").trim() ||
+        (await nextServiceExecutionNo(companyId, branchId));
+      const [resExec] = await conn.execute(
+        `
+        INSERT INTO pur_service_executions (
+          company_id, branch_id, order_id, execution_no, execution_date, scheduled_time,
+          assigned_supervisor_user_id, assigned_supervisor_username, requisition_notes, status, created_by
+        ) VALUES (
+          :companyId, :branchId, :order_id, :execution_no, :execution_date, :scheduled_time,
+          :assigned_supervisor_user_id, :assigned_supervisor_username, :requisition_notes, :status, :created_by
+        )
+        `,
+        {
+          companyId,
+          branchId,
+          order_id: Number(body.order_id || 0) || null,
+          execution_no: execNo,
+          execution_date: body.execution_date || null,
+          scheduled_time: body.scheduled_time || null,
+          assigned_supervisor_user_id:
+            body.assigned_supervisor_user_id === undefined
+              ? null
+              : Number(body.assigned_supervisor_user_id || 0) || null,
+          assigned_supervisor_username:
+            body.assigned_supervisor_username || null,
+          requisition_notes: body.requisition_notes || null,
+          status: body.status || "PENDING",
+          created_by: userId || null,
+        },
+      );
+      const execId = Number(resExec?.insertId || 0);
+      const materials = Array.isArray(body.materials) ? body.materials : [];
+      for (const m of materials) {
+        await conn.execute(
+          `
+          INSERT INTO pur_service_execution_materials (
+            execution_id, item_id, name, unit, qty, note
+          ) VALUES (
+            :execution_id, :item_id, :name, :unit, :qty, :note
+          )
+          `,
+          {
+            execution_id: execId,
+            item_id: m.code ? Number(m.code) || null : null,
+            name: m.name || null,
+            unit: m.unit || null,
+            qty: Number(m.qty || 0) || null,
+            note: m.note || null,
+          },
+        );
+      }
+      await conn.commit();
+      res.json({ id: execId, execution_no: execNo });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(err);
+    } finally {
+      conn.release();
+    }
+  },
+);
+router.get(
+  "/service-executions/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      await ensureServiceExecutionTables();
+      const rows = await query(
+        `
+        SELECT 
+          e.id, e.execution_no, e.execution_date, e.scheduled_time, e.status,
+          e.assigned_supervisor_user_id, e.assigned_supervisor_username,
+          e.requisition_notes,
+          o.order_no, o.order_type
+        FROM pur_service_executions e
+        JOIN pur_service_orders o ON o.id = e.order_id
+        WHERE e.company_id = :companyId AND e.branch_id = :branchId AND e.id = :id
+        LIMIT 1
+        `,
+        { companyId, branchId, id },
+      );
+      const base = rows?.[0] || null;
+      if (!base)
+        throw httpError(404, "NOT_FOUND", "Service execution not found");
+      const materials = await query(
+        `
+        SELECT 
+          item_id AS code,
+          name,
+          unit,
+          qty,
+          note
+        FROM pur_service_execution_materials
+        WHERE execution_id = :id
+        ORDER BY id ASC
+        `,
+        { id },
+      );
+      res.json({ item: { ...base, materials } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 router.put(
   "/shipping-advices/:id",
   requireAuth,
@@ -1139,10 +2562,11 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId } = req.scope;
-      const { active } = req.query;
+      const { active, contractor } = req.query;
 
       await ensureSupplierTypeColumn();
       await ensureSupplierCurrencyColumn();
+      await ensureSupplierServiceContractorColumn();
 
       let sql = "SELECT * FROM pur_suppliers WHERE company_id = :companyId";
       const params = { companyId };
@@ -1151,6 +2575,11 @@ router.get(
         sql += " AND is_active = 1";
       } else if (active === "false") {
         sql += " AND is_active = 0";
+      }
+      if (contractor === "Y") {
+        sql += " AND service_contractor = 'Y'";
+      } else if (contractor === "N") {
+        sql += " AND service_contractor = 'N'";
       }
 
       sql += " ORDER BY supplier_name ASC";
@@ -1176,6 +2605,7 @@ router.get(
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       await ensureSupplierTypeColumn();
       await ensureSupplierCurrencyColumn();
+      await ensureSupplierServiceContractorColumn();
       const rows = await query(
         "SELECT * FROM pur_suppliers WHERE id = :id AND company_id = :companyId",
         { id, companyId },
@@ -1202,6 +2632,7 @@ router.post(
 
       await ensureSupplierTypeColumn();
       await ensureSupplierCurrencyColumn();
+      await ensureSupplierServiceContractorColumn();
 
       await conn.beginTransaction();
       let supplierCode =
@@ -1249,8 +2680,8 @@ router.post(
       }
 
       const [resHeader] = await conn.execute(
-        `INSERT INTO pur_suppliers (company_id, supplier_code, supplier_name, contact_person, email, phone, address, payment_terms, supplier_type, currency_id, is_active)
-         VALUES (:companyId, :supplierCode, :supplierName, :contactPerson, :email, :phone, :address, :paymentTerms, :supplierType, :currencyId, :isActive)`,
+        `INSERT INTO pur_suppliers (company_id, supplier_code, supplier_name, contact_person, email, phone, address, payment_terms, supplier_type, currency_id, service_contractor, is_active)
+         VALUES (:companyId, :supplierCode, :supplierName, :contactPerson, :email, :phone, :address, :paymentTerms, :supplierType, :currencyId, :serviceContractor, :isActive)`,
         {
           companyId,
           supplierCode,
@@ -1265,6 +2696,10 @@ router.post(
             body.currency_id === undefined || body.currency_id === null
               ? null
               : Number(body.currency_id || 0) || null,
+          serviceContractor:
+            String(body.service_contractor || "").toUpperCase() === "Y"
+              ? "Y"
+              : "N",
           isActive:
             body.is_active !== undefined ? Boolean(body.is_active) : true,
         },
@@ -1339,6 +2774,7 @@ router.put(
 
       await ensureSupplierTypeColumn();
       await ensureSupplierCurrencyColumn();
+      await ensureSupplierServiceContractorColumn();
 
       await conn.execute(
         `UPDATE pur_suppliers SET
@@ -1351,6 +2787,7 @@ router.put(
          payment_terms = :paymentTerms,
          supplier_type = :supplierType,
          currency_id = :currencyId,
+         service_contractor = :serviceContractor,
          is_active = :isActive
          WHERE id = :id AND company_id = :companyId`,
         {
@@ -1368,6 +2805,10 @@ router.put(
             body.currency_id === undefined || body.currency_id === null
               ? null
               : Number(body.currency_id || 0) || null,
+          serviceContractor:
+            String(body.service_contractor || "").toUpperCase() === "Y"
+              ? "Y"
+              : "N",
           isActive:
             body.is_active !== undefined ? Boolean(body.is_active) : true,
         },

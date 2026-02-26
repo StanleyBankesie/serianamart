@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function PortClearancesList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -9,6 +10,7 @@ export default function PortClearancesList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [items, setItems] = useState([]);
+  const { canPerformAction } = usePermission();
 
   useEffect(() => {
     let mounted = true;
@@ -68,9 +70,11 @@ export default function PortClearancesList() {
           <Link to="/purchase" className="btn btn-secondary">
             Return to Menu
           </Link>
-          <Link to="/purchase/port-clearances/new" className="btn-success">
-            + New Clearance
-          </Link>
+          {canPerformAction("purchase:port-clearances", "create") && (
+            <Link to="/purchase/port-clearances/new" className="btn-success">
+              + New Clearance
+            </Link>
+          )}
         </div>
       </div>
 
@@ -147,18 +151,22 @@ export default function PortClearancesList() {
                       </span>
                     </td>
                     <td>
-                      <Link
-                        to={`/purchase/port-clearances/${r.id}?mode=view`}
-                        className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
-                      >
-                        View
-                      </Link>
-                      <Link
-                        to={`/purchase/port-clearances/${r.id}?mode=edit`}
-                        className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium ml-2"
-                      >
-                        Edit
-                      </Link>
+                      {canPerformAction("purchase:port-clearances", "view") && (
+                        <Link
+                          to={`/purchase/port-clearances/${r.id}?mode=view`}
+                          className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
+                        >
+                          View
+                        </Link>
+                      )}
+                      {canPerformAction("purchase:port-clearances", "edit") && (
+                        <Link
+                          to={`/purchase/port-clearances/${r.id}?mode=edit`}
+                          className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium ml-2"
+                        >
+                          Edit
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 ))

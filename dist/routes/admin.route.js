@@ -165,9 +165,9 @@ async function ensureBranchColumns() {
 
 async function ensureUserColumns() {
   const table = "adm_users";
-  if (!(await hasColumn(table, "profile_picture_url"))) {
+  if (!(await hasColumn(table, "profile_picture"))) {
     await query(
-      `ALTER TABLE ${table} ADD COLUMN profile_picture_url VARCHAR(255) NULL`,
+      `ALTER TABLE ${table} ADD COLUMN profile_picture LONGBLOB NULL`,
     );
   }
   if (!(await hasColumn(table, "is_employee"))) {
@@ -1364,7 +1364,6 @@ const logoUpload = multer({
 });
 
 router.get("/me", requireAuth, requireCompanyScope, requireBranchScope, getMe);
-
 
 // ===== COMPANIES =====
 

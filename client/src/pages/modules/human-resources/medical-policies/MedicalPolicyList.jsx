@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function MedicalPolicyList() {
+  const { canPerformAction } = usePermission();
   const items = [{ id: 1, provider: 'Omni Health', policyName: 'Standard Plan', active: true }];
 
   return (
@@ -19,8 +21,12 @@ export default function MedicalPolicyList() {
             <tr key={r.id}><td className="font-medium">{r.provider}</td><td>{r.policyName}</td>
               <td>{r.active ? <span className="badge badge-success">Active</span> : <span className="badge badge-error">Inactive</span>}</td>
               <td>
-                <Link to={`/human-resources/medical-policies/${r.id}?mode=view`} className="text-brand hover:text-brand-600 text-sm font-medium">View</Link>
-                <Link to={`/human-resources/medical-policies/${r.id}?mode=edit`} className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2">Edit</Link>
+                {canPerformAction('human-resources:medical-policies', 'view') && (
+                  <Link to={`/human-resources/medical-policies/${r.id}?mode=view`} className="text-brand hover:text-brand-600 text-sm font-medium">View</Link>
+                )}
+                {canPerformAction('human-resources:medical-policies', 'edit') && (
+                  <Link to={`/human-resources/medical-policies/${r.id}?mode=edit`} className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2">Edit</Link>
+                )}
               </td></tr>
           ))}</tbody>
         </table>
@@ -28,7 +34,6 @@ export default function MedicalPolicyList() {
     </div>
   );
 }
-
 
 
 

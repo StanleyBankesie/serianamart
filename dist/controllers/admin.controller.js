@@ -134,11 +134,74 @@ export const deleteExceptionalPermissionController = async (req, res, next) => {
 };
 
 export const getMe = async (req, res) => {
-  return res.json({
-    success: true,
-    message: "Context",
-    data: { user: req.user, scope: req.scope },
-  });
+  try {
+    const id =
+      Number(req.user?.id) ||
+      Number(req.user?.sub) ||
+      Number(req.headers["x-user-id"]) ||
+      null;
+    let profile_picture_url = null;
+    if (Number.isFinite(id) && id > 0) {
+      try {
+        const rows = await query(
+          `SELECT u.profile_picture FROM adm_users u WHERE u.id = :id LIMIT 1`,
+          { id },
+        );
+        if (rows.length) {
+          const blob = rows[0].profile_picture || null;
+          if (blob) {
+            const b = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
+            let mime = "image/jpeg";
+            if (
+              b.length >= 3 &&
+              b[0] === 0xff &&
+              b[1] === 0xd8 &&
+              b[2] === 0xff
+            ) {
+              mime = "image/jpeg";
+            } else if (
+              b.length >= 8 &&
+              b[0] === 0x89 &&
+              b[1] === 0x50 &&
+              b[2] === 0x4e &&
+              b[3] === 0x47 &&
+              b[4] === 0x0d &&
+              b[5] === 0x0a &&
+              b[6] === 0x1a &&
+              b[7] === 0x0a
+            ) {
+              mime = "image/png";
+            } else if (
+              b.length >= 12 &&
+              b[0] === 0x52 &&
+              b[1] === 0x49 &&
+              b[2] === 0x46 &&
+              b[3] === 0x46 &&
+              b[8] === 0x57 &&
+              b[9] === 0x45 &&
+              b[10] === 0x42 &&
+              b[11] === 0x50
+            ) {
+              mime = "image/webp";
+            }
+            profile_picture_url = `data:${mime};base64,${b.toString("base64")}`;
+          }
+        }
+      } catch {}
+    }
+    const me = { ...(req.user || {}), profile_picture_url };
+    return res.json({
+      success: true,
+      message: "Context",
+      data: { user: me, scope: req.scope },
+    });
+  } catch (err) {
+    return res.json({
+      success: true,
+      message: "Context",
+      data: { user: req.user, scope: req.scope },
+    });
+  }
 };
 
 export const listPages = async (req, res, next) => {

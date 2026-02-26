@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function PurchaseOrdersImportList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -20,6 +21,7 @@ export default function PurchaseOrdersImportList() {
   const [submittingForward, setSubmittingForward] = useState(false);
   const [workflowsCache, setWorkflowsCache] = useState(null);
   const [targetApproverId, setTargetApproverId] = useState(null);
+  const { canPerformAction } = usePermission();
 
   useEffect(() => {
     let mounted = true;
@@ -255,12 +257,14 @@ export default function PurchaseOrdersImportList() {
           <Link to="/purchase" className="btn btn-secondary">
             Return to Menu
           </Link>
-          <Link
-            to="/purchase/purchase-orders-import/new"
-            className="btn-success"
-          >
-            + New Purchase Order
-          </Link>
+          {canPerformAction("purchase:purchase-orders-import", "create") && (
+            <Link
+              to="/purchase/purchase-orders-import/new"
+              className="btn-success"
+            >
+              + New Purchase Order
+            </Link>
+          )}
         </div>
       </div>
 
@@ -349,13 +353,15 @@ export default function PurchaseOrdersImportList() {
                     </td>
                     <td>
                       <div className="flex gap-2">
-                        <Link
-                          to={`/purchase/purchase-orders-import/${po.id}`}
-                          className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                        {po.status === "DRAFT" ? (
+                        {canPerformAction("purchase:purchase-orders-import", "view") && (
+                          <Link
+                            to={`/purchase/purchase-orders-import/${po.id}`}
+                            className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
+                          >
+                            View
+                          </Link>
+                        )}
+                        {po.status === "DRAFT" && canPerformAction("purchase:purchase-orders-import", "edit") ? (
                           <Link
                             to={`/purchase/purchase-orders-import/${po.id}?mode=edit`}
                             className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"

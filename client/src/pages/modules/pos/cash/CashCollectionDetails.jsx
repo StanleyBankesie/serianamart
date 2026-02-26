@@ -3,8 +3,7 @@ import { Link } from "react-router-dom";
 import jsPDF from "jspdf";
 import api from "../../../../api/client.js";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
-
-// POS receipt settings are loaded from the database (company/branch scoped)
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 function FilterableSelect({
   value,
@@ -33,6 +32,7 @@ function FilterableSelect({
 }
 
 export default function CashCollectionDetails() {
+  const { canPerformAction } = usePermission();
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState("ALL");
@@ -863,14 +863,16 @@ export default function CashCollectionDetails() {
                       </td>
                       <td className="p-2">
                         <div className="flex gap-2">
-                          <button
-                            type="button"
-                            className="text-brand hover:text-brand-600 font-medium text-sm"
-                            onClick={() => handleView(it)}
-                            disabled={actionLoadingId === it.id}
-                          >
-                            View
-                          </button>
+                          {canPerformAction("pos:cash-collection", "view") && (
+                            <button
+                              type="button"
+                              className="text-brand hover:text-brand-600 font-medium text-sm"
+                              onClick={() => handleView(it)}
+                              disabled={actionLoadingId === it.id}
+                            >
+                              View
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="btn-primary text-xs px-3 py-1.5"

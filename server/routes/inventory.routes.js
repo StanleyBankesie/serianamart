@@ -900,6 +900,9 @@ router.post(
         const firstWf = wfDefs[0];
         if (Number(firstWf.is_active) === 0) {
           behavior = firstWf.default_behavior || null;
+          if (!behavior) {
+            behavior = "AUTO_APPROVE";
+          }
         }
       }
       if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
@@ -1556,6 +1559,9 @@ router.post(
         const firstWf = wfDefs[0];
         if (Number(firstWf.is_active) === 0) {
           behavior = firstWf.default_behavior || null;
+          if (!behavior) {
+            behavior = "AUTO_APPROVE";
+          }
         }
       }
       if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
@@ -1591,8 +1597,22 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  // requirePermission("INV.ITEMS.VIEW"),
+  requirePermission("INV.ITEMS.VIEW"),
   inventoryController.listItems,
+);
+
+router.post(
+  "/stock-balances/bulk-upload",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("INV.STOCK.ADJUSTMENT.MANAGE"),
+  async (req, res, next) => {
+    try {
+      await ensureStockBalancesWarehouseInfrastructure();
+    } catch {}
+    return inventoryController.bulkUpdateStockBalances(req, res, next);
+  },
 );
 
 router.get(
@@ -1600,6 +1620,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
+  requirePermission("INV.ITEMS.MANAGE"),
   inventoryController.getNextItemCode,
 );
 
@@ -2541,6 +2562,9 @@ router.post(
         const firstWf = wfDefs[0];
         if (Number(firstWf.is_active) === 0) {
           behavior = firstWf.default_behavior || null;
+          if (!behavior) {
+            behavior = "AUTO_APPROVE";
+          }
         }
       }
       if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
@@ -2858,6 +2882,9 @@ router.post(
         const firstWf = wfDefs[0];
         if (Number(firstWf.is_active) === 0) {
           behavior = firstWf.default_behavior || null;
+          if (!behavior) {
+            behavior = "AUTO_APPROVE";
+          }
         }
       }
       if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
@@ -5499,6 +5526,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
+  requirePermission("INV.STOCK.VIEW"),
   async (req, res, next) => {
     try {
       await ensureStockBalancesWarehouseInfrastructure();

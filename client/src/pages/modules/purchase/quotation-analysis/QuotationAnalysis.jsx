@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { format } from "date-fns";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function QuotationAnalysis() {
   const [selectedRFQ, setSelectedRFQ] = useState("");
@@ -11,6 +12,7 @@ export default function QuotationAnalysis() {
   const [rfqList, setRfqList] = useState([]);
   const [analysis, setAnalysis] = useState(null);
   const [currentTab, setCurrentTab] = useState("comparison");
+  const { canPerformAction } = usePermission();
 
   useEffect(() => {
     let mounted = true;
@@ -38,6 +40,9 @@ export default function QuotationAnalysis() {
   }, []);
 
   const loadAnalysis = async () => {
+    if (!canPerformAction("purchase:quotation-analysis", "view")) {
+      return;
+    }
     if (!selectedRFQ) return;
     setLoadingAnalysis(true);
     setError("");
@@ -92,6 +97,24 @@ export default function QuotationAnalysis() {
   };
 
   const rfqDetails = getSelectedRFQDetails();
+
+  if (!canPerformAction("purchase:quotation-analysis", "view")) {
+    return (
+      <div className="p-6">
+        <div className="max-w-3xl mx-auto card">
+          <div className="card-body">
+            <h1 className="text-xl font-semibold mb-2">Quotation Analysis</h1>
+            <p className="text-sm text-slate-600 mb-4">
+              You do not have permission to view quotation analysis.
+            </p>
+            <Link to="/purchase" className="btn btn-secondary">
+              Back to Purchase
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="quotation-analysis-container">

@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function TaxConfigList() {
+  const { canPerformAction } = usePermission();
   const items = [
     { id: 1, name: 'Income Tax', active: true },
     { id: 2, name: 'Social Security', active: true },
@@ -18,7 +20,9 @@ export default function TaxConfigList() {
           </div>
           <div className="flex gap-2">
             <Link to="/human-resources" className="btn btn-secondary">Return to Menu</Link>
-            <Link to="/human-resources/tax-config/new" className="btn-success">+ New Config</Link>
+            {canPerformAction('human-resources:tax-config', 'create') && (
+              <Link to="/human-resources/tax-config/new" className="btn-success">+ New Config</Link>
+            )}
           </div>
         </div>
       </div>
@@ -40,7 +44,9 @@ export default function TaxConfigList() {
                     <td className="font-medium">{r.name}</td>
                     <td>{r.active ? <span className="badge badge-success">Active</span> : <span className="badge badge-error">Inactive</span>}</td>
                     <td>
-                      <Link to={`/human-resources/tax-config/${r.id}`} className="text-brand hover:text-brand-600 text-sm font-medium">Edit</Link>
+                      {canPerformAction('human-resources:tax-config', 'edit') && (
+                        <Link to={`/human-resources/tax-config/${r.id}`} className="text-brand hover:text-brand-600 text-sm font-medium">Edit</Link>
+                      )}
                     </td>
                   </tr>
                 ))}

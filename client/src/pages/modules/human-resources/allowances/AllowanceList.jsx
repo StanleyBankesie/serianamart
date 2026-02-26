@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function AllowanceList() {
+  const { canPerformAction } = usePermission();
   const items = [{ id: 1, name: 'Transport Allowance', amount: 200, active: true }];
   return (
     <div className="space-y-4">
@@ -18,8 +20,12 @@ export default function AllowanceList() {
             <tr key={r.id}><td className="font-medium">{r.name}</td><td className="text-right">{Number(r.amount).toFixed(2)}</td>
               <td>{r.active?<span className="badge badge-success">Active</span>:<span className="badge badge-error">Inactive</span>}</td>
               <td>
-                <Link className="text-brand hover:text-brand-600 text-sm font-medium" to={`/human-resources/allowances/${r.id}?mode=view`}>View</Link>
-                <Link className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2" to={`/human-resources/allowances/${r.id}?mode=edit`}>Edit</Link>
+                {canPerformAction('human-resources:allowances','view') && (
+                  <Link className="text-brand hover:text-brand-600 text-sm font-medium" to={`/human-resources/allowances/${r.id}?mode=view`}>View</Link>
+                )}
+                {canPerformAction('human-resources:allowances','edit') && (
+                  <Link className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2" to={`/human-resources/allowances/${r.id}?mode=edit`}>Edit</Link>
+                )}
               </td></tr>
           ))}</tbody>
         </table>

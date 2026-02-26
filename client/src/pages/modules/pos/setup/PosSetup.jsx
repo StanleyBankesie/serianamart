@@ -4,6 +4,7 @@ import { toast } from "react-toastify";
 import api from "../../../../api/client.js";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 const POS_TAX_SETTINGS_KEY = "pos_tax_settings";
 const POS_PAYMENT_SETTINGS_KEY = "pos_payment_settings";
@@ -80,6 +81,7 @@ function FilterableSelect({
 
 function TerminalsTab() {
   const { scope } = useAuth();
+  const { canPerformAction } = usePermission();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -419,13 +421,15 @@ function TerminalsTab() {
                       </td>
                       <td>
                         <div className="flex gap-2">
-                          <button
-                            type="button"
-                            className="btn btn-secondary"
-                            onClick={() => openEdit(items.indexOf(t))}
-                          >
-                            Edit
-                          </button>
+                          {canPerformAction("pos:setup", "edit") && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              onClick={() => openEdit(items.indexOf(t))}
+                            >
+                              Edit
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="btn btn-secondary"

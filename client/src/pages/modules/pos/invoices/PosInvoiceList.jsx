@@ -5,6 +5,7 @@ import html2canvas from "html2canvas";
 import api from "../../../../api/client.js";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 // POS receipt settings are loaded from the database (company/branch scoped)
 
@@ -54,6 +55,7 @@ async function waitForImages(container) {
 
 export default function PosInvoiceList() {
   const { user } = useAuth();
+  const { canPerformAction } = usePermission();
   const [now, setNow] = useState(new Date());
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
@@ -954,14 +956,16 @@ export default function PosInvoiceList() {
                     </td>
                     <td>
                       <div className="flex gap-2">
-                        <button
-                          type="button"
-                          className="text-brand hover:text-brand-600 font-medium text-sm"
-                          onClick={() => handleView(it)}
-                          disabled={actionLoadingId === it.id}
-                        >
-                          View
-                        </button>
+                        {canPerformAction("pos:invoices", "view") && (
+                          <button
+                            type="button"
+                            className="text-brand hover:text-brand-600 font-medium text-sm"
+                            onClick={() => handleView(it)}
+                            disabled={actionLoadingId === it.id}
+                          >
+                            View
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"

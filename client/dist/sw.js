@@ -37,14 +37,31 @@ self.addEventListener("activate", (event) => {
 async function staleWhileRevalidate(cacheName, request) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
-  const networkPromise = fetch(request)
-    .then((resp) => {
-      if (resp && resp.status === 200) {
-        cache.put(request, resp.clone());
+  const networkPromise = (async () => {
+    try {
+      const resp = await fetch(request);
+      if (resp && resp.ok) {
+        const t = resp.type;
+        const canCache =
+          t === "basic" ||
+          t === "default" ||
+          // allow opaque only when request is same-origin path
+          (t === "opaque" &&
+            typeof request.url === "string" &&
+            request.url.startsWith(self.location.origin));
+        if (canCache) {
+          try {
+            await cache.put(request, resp.clone());
+          } catch (e) {
+            // swallow cache put errors (opaque, vary:*, etc.)
+          }
+        }
       }
       return resp;
-    })
-    .catch(() => cached);
+    } catch (e) {
+      return cached;
+    }
+  })();
   return cached || networkPromise;
 }
 
@@ -58,8 +75,10 @@ self.addEventListener("fetch", (event) => {
         try {
           const resp = await fetch(req);
           const cache = await caches.open(ASSET_CACHE);
-          if (resp && resp.status === 200) {
-            cache.put("/index.html", resp.clone());
+          if (resp && resp.ok) {
+            try {
+              await cache.put("/index.html", resp.clone());
+            } catch (e) {}
           }
           return resp;
         } catch {

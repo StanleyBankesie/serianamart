@@ -56,7 +56,14 @@ export const getUserById = async (req, res, next) => {
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const items = await query(
-      "SELECT * FROM adm_users WHERE id = :id LIMIT 1",
+      `
+      SELECT 
+        u.*,
+        IF(u.profile_picture IS NULL, NULL, CONCAT('data:image/jpeg;base64,', TO_BASE64(u.profile_picture))) AS profile_picture_url
+      FROM adm_users u
+      WHERE u.id = :id
+      LIMIT 1
+      `,
       { id },
     );
     if (!items.length) throw httpError(404, "NOT_FOUND", "User not found");
@@ -161,7 +168,7 @@ export const createUser = async (req, res, next) => {
       full_name,
       password_hash,
       is_active,
-      profile_picture_url,
+      profile_picture,
       is_employee,
       user_type,
       valid_from,
@@ -180,10 +187,10 @@ export const createUser = async (req, res, next) => {
     const result = await query(
       `INSERT INTO adm_users (
         company_id, branch_id, username, email, full_name, password_hash, is_active,
-        profile_picture_url, is_employee, user_type, valid_from, valid_to, role_id
+        profile_picture, is_employee, user_type, valid_from, valid_to, role_id
       ) VALUES (
         :company_id, :branch_id, :username, :email, :full_name, :password_hash, :is_active,
-        :profile_picture_url, :is_employee, :user_type, :valid_from, :valid_to, :role_id
+        :profile_picture, :is_employee, :user_type, :valid_from, :valid_to, :role_id
       )`,
       {
         company_id,
@@ -193,7 +200,16 @@ export const createUser = async (req, res, next) => {
         full_name: full_name || null,
         password_hash: password_hash || "$2b$10$EpRnTzVlqHNP0.fKbX99ij...",
         is_active: is_active === undefined ? 1 : Number(Boolean(is_active)),
-        profile_picture_url: profile_picture_url || null,
+        profile_picture:
+          typeof profile_picture === "string"
+            ? Buffer.from(
+                String(profile_picture).replace(
+                  /^data:[^;]+;base64,/,
+                  "",
+                ),
+                "base64",
+              )
+            : profile_picture || null,
         is_employee: is_employee ? 1 : 0,
         user_type: user_type || "Internal",
         valid_from: valid_from || null,
@@ -237,7 +253,7 @@ export const updateUser = async (req, res, next) => {
       email,
       full_name,
       is_active,
-      profile_picture_url,
+      profile_picture,
       is_employee,
       user_type,
       valid_from,
@@ -261,7 +277,7 @@ export const updateUser = async (req, res, next) => {
       email = :email,
       full_name = :full_name,
       is_active = :is_active,
-      profile_picture_url = :profile_picture_url,
+      profile_picture = :profile_picture,
       is_employee = :is_employee,
       user_type = :user_type,
       valid_from = :valid_from,
@@ -276,7 +292,13 @@ export const updateUser = async (req, res, next) => {
       email,
       full_name: full_name || null,
       is_active: is_active === undefined ? 1 : Number(Boolean(is_active)),
-      profile_picture_url: profile_picture_url || null,
+      profile_picture:
+        typeof profile_picture === "string"
+          ? Buffer.from(
+              String(profile_picture).replace(/^data:[^;]+;base64,/, ""),
+              "base64",
+            )
+          : profile_picture || null,
       is_employee: is_employee ? 1 : 0,
       user_type: user_type || "Internal",
       valid_from: valid_from || null,
@@ -330,7 +352,7 @@ export const patchUser = async (req, res, next) => {
       "branch_id",
       "company_id",
       "is_active",
-      "profile_picture_url",
+      "profile_picture",
       "is_employee",
       "user_type",
       "valid_from",

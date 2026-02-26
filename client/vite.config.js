@@ -12,6 +12,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      "/uploads": {
+        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:4002",
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
   resolve: {

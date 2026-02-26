@@ -44,7 +44,7 @@ export default function TaxCodesPage() {
       setComponents(res.data?.items || []);
     } catch (e) {
       toast.error(
-        e?.response?.data?.message || "Failed to load tax components"
+        e?.response?.data?.message || "Failed to load tax components",
       );
     }
   }
@@ -400,7 +400,7 @@ export default function TaxCodesPage() {
                               updateEdit(
                                 r.id,
                                 "is_active",
-                                e.target.value === "1"
+                                e.target.value === "1",
                               )
                             }
                           >
@@ -416,12 +416,6 @@ export default function TaxCodesPage() {
                       <td className="text-right">
                         {!isRowEditing ? (
                           <div className="flex justify-end gap-2">
-                            <button
-                              className="btn btn-secondary"
-                              onClick={() => startEdit(r)}
-                            >
-                              Edit
-                            </button>
                             <button
                               className="btn"
                               onClick={() => showComponents(r)}
@@ -562,7 +556,7 @@ export default function TaxCodesPage() {
                                 compUpdateEdit(
                                   c.id,
                                   "component_name",
-                                  e.target.value
+                                  e.target.value,
                                 )
                               }
                             />
@@ -586,7 +580,7 @@ export default function TaxCodesPage() {
                                 compUpdateEdit(
                                   c.id,
                                   "rate_percent",
-                                  e.target.value
+                                  e.target.value,
                                 )
                               }
                             />
@@ -609,7 +603,7 @@ export default function TaxCodesPage() {
                                 compUpdateEdit(
                                   c.id,
                                   "sort_order",
-                                  e.target.value
+                                  e.target.value,
                                 )
                               }
                             />
@@ -626,7 +620,7 @@ export default function TaxCodesPage() {
                                 compUpdateEdit(
                                   c.id,
                                   "is_active",
-                                  e.target.value === "1"
+                                  e.target.value === "1",
                                 )
                               }
                             >
@@ -642,12 +636,6 @@ export default function TaxCodesPage() {
                         <td className="text-right">
                           {!isEdit ? (
                             <div className="flex justify-end gap-2">
-                              <button
-                                className="btn btn-secondary"
-                                onClick={() => compStartEdit(c)}
-                              >
-                                Edit
-                              </button>
                               <button
                                 className="btn"
                                 onClick={() => compDisable(c.id)}

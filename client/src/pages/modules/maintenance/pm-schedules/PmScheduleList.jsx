@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function PmScheduleList() {
+  const { canPerformAction } = usePermission();
   const items = [
     { id: 1, code: 'PM-001', asset: 'AST-001 Generator', frequency: 'MONTHLY', active: true },
   ];
@@ -30,18 +32,22 @@ export default function PmScheduleList() {
                 <td>{s.frequency}</td>
                 <td>{s.active ? <span className="badge badge-success">Active</span> : <span className="badge badge-error">Inactive</span>}</td>
                 <td>
-                  <Link
-                    to={`/maintenance/pm-schedules/${s.id}?mode=view`}
-                    className="text-brand hover:text-brand-600 text-sm font-medium"
-                  >
-                    View
-                  </Link>
-                  <Link
-                    to={`/maintenance/pm-schedules/${s.id}?mode=edit`}
-                    className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                  >
-                    Edit
-                  </Link>
+                  {canPerformAction('maintenance:pm-schedules','view') && (
+                    <Link
+                      to={`/maintenance/pm-schedules/${s.id}?mode=view`}
+                      className="text-brand hover:text-brand-600 text-sm font-medium"
+                    >
+                      View
+                    </Link>
+                  )}
+                  {canPerformAction('maintenance:pm-schedules','edit') && (
+                    <Link
+                      to={`/maintenance/pm-schedules/${s.id}?mode=edit`}
+                      className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                    >
+                      Edit
+                    </Link>
+                  )}
                 </td>
               </tr>
             ))}

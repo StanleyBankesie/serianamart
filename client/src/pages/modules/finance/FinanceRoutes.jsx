@@ -23,6 +23,7 @@ import AccountsPage from "./setup/AccountsPage.jsx";
 import TaxCodesPage from "./setup/TaxCodesPage.jsx";
 import CurrenciesPage from "./setup/CurrenciesPage.jsx";
 import FiscalYearsPage from "./setup/FiscalYearsPage.jsx";
+import CostCentersPage from "./setup/CostCentersPage.jsx";
 import BankReconciliationList from "./banking/BankReconciliationList.jsx";
 import BankReconciliationForm from "./banking/BankReconciliationForm.jsx";
 import PdcPostingsList from "./banking/PdcPostingsList.jsx";
@@ -163,6 +164,7 @@ export default function FinanceRoutes() {
       <Route path="/accounts" element={<AccountsPage />} />
       <Route path="/coa" element={<AccountsPage />} />
       <Route path="/tax-codes" element={<TaxCodesPage />} />
+      <Route path="/cost-centers" element={<CostCentersPage />} />
       <Route path="/currencies" element={<CurrenciesPage />} />
       <Route path="/fiscal-years" element={<FiscalYearsPage />} />
       <Route path="/bank-reconciliation" element={<BankReconciliationList />} />

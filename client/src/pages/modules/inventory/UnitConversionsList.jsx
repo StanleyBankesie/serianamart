@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
+import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 export default function UnitConversionsList() {
+  const { canPerformAction } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -147,18 +149,22 @@ export default function UnitConversionsList() {
                     <td>{c.conversion_factor}</td>
                     <td>{c.is_active ? "Yes" : "No"}</td>
                     <td>
-                      <Link
-                        to={`/inventory/unit-conversions/${c.id}?mode=view`}
-                        className="text-brand hover:text-brand-700 text-sm font-medium"
-                      >
-                        View
-                      </Link>
-                      <Link
-                        to={`/inventory/unit-conversions/${c.id}?mode=edit`}
-                        className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                      >
-                        Edit
-                      </Link>
+                      {canPerformAction("inventory:unit-conversions", "view") && (
+                        <Link
+                          to={`/inventory/unit-conversions/${c.id}?mode=view`}
+                          className="text-brand hover:text-brand-700 text-sm font-medium"
+                        >
+                          View
+                        </Link>
+                      )}
+                      {canPerformAction("inventory:unit-conversions", "edit") && (
+                        <Link
+                          to={`/inventory/unit-conversions/${c.id}?mode=edit`}
+                          className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                        >
+                          Edit
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 ))}

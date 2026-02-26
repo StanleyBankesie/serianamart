@@ -5,6 +5,7 @@ import { toast } from "react-toastify";
 import { api } from "api/client";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 function StatusBadge({ status }) {
   const cls =
@@ -20,6 +21,7 @@ function StatusBadge({ status }) {
 }
 
 export default function VoucherListPage({ voucherTypeCode, title }) {
+  const { canPerformAction } = usePermission();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -932,24 +934,28 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                       </td>
                       <td>
                         <div className="flex gap-3">
-                          <Link
-                            to={`/finance/${basePath}/${v.id}?mode=view`}
-                            className="text-brand hover:text-brand-600 font-medium text-sm"
-                          >
-                            View
-                          </Link>
-                          <Link
-                            to={`/finance/${basePath}/${v.id}?mode=edit`}
-                            className="text-blue-600 hover:text-blue-700 font-medium text-sm"
-                            style={{
-                              display:
-                                (isPV || isRV) && v.status === "APPROVED"
-                                  ? "none"
-                                  : "inline",
-                            }}
-                          >
-                            Edit
-                          </Link>
+                          {canPerformAction("finance:vouchers", "view") && (
+                            <Link
+                              to={`/finance/${basePath}/${v.id}?mode=view`}
+                              className="text-brand hover:text-brand-600 font-medium text-sm"
+                            >
+                              View
+                            </Link>
+                          )}
+                          {canPerformAction("finance:vouchers", "edit") && (
+                            <Link
+                              to={`/finance/${basePath}/${v.id}?mode=edit`}
+                              className="text-blue-600 hover:text-blue-700 font-medium text-sm"
+                              style={{
+                                display:
+                                  (isPV || isRV) && v.status === "APPROVED"
+                                    ? "none"
+                                    : "inline",
+                              }}
+                            >
+                              Edit
+                            </Link>
+                          )}
                           {(isPV || isRV) && (
                             <>
                               <button

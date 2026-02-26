@@ -60,7 +60,7 @@ export default function AccountsPage() {
     } catch (e) {
       toast.error(
         e?.response?.data?.message ||
-          "Failed to sync accounts from customers/suppliers"
+          "Failed to sync accounts from customers/suppliers",
       );
     }
   }
@@ -106,7 +106,7 @@ export default function AccountsPage() {
       await load();
     } catch (e) {
       toast.error(
-        e?.response?.data?.message || "Failed to update active status"
+        e?.response?.data?.message || "Failed to update active status",
       );
     } finally {
       setLoading(false);
@@ -406,13 +406,6 @@ export default function AccountsPage() {
                           <td>{a.is_active ? "Yes" : "No"}</td>
                           <td>
                             <div className="flex gap-2">
-                              <button
-                                className="btn btn-secondary"
-                                disabled={loading}
-                                onClick={() => startEdit(a)}
-                              >
-                                Edit
-                              </button>
                               {a.is_active ? (
                                 <button
                                   className="btn btn-secondary"
@@ -445,7 +438,3 @@ export default function AccountsPage() {
     </div>
   );
 }
-
-
-
-

@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
+import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 export default function IssueToRequirementList() {
+  const { canPerformAction } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
 
   const [loading, setLoading] = useState(false);
@@ -125,18 +127,22 @@ export default function IssueToRequirementList() {
                       </span>
                     </td>
                     <td>
-                      <Link
-                        to={`/inventory/issue-to-requirement/${d.id}?mode=view`}
-                        className="text-brand hover:text-brand-700 text-sm font-medium"
-                      >
-                        View
-                      </Link>
-                      <Link
-                        to={`/inventory/issue-to-requirement/${d.id}?mode=edit`}
-                        className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                      >
-                        Edit
-                      </Link>
+                      {canPerformAction("inventory:issue-to-requirement", "view") && (
+                        <Link
+                          to={`/inventory/issue-to-requirement/${d.id}?mode=view`}
+                          className="text-brand hover:text-brand-700 text-sm font-medium"
+                        >
+                          View
+                        </Link>
+                      )}
+                      {canPerformAction("inventory:issue-to-requirement", "edit") && (
+                        <Link
+                          to={`/inventory/issue-to-requirement/${d.id}?mode=edit`}
+                          className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                        >
+                          Edit
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 ))}

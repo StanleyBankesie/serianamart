@@ -79,6 +79,7 @@ function MaintenanceLanding() {
       description="Asset maintenance and work order management"
       stats={stats}
       sections={sections}
+      features={maintenanceFeatures}
     />
   );
 }
@@ -105,7 +106,15 @@ export default function MaintenanceHome() {
   );
 }
 
-
+export const maintenanceFeatures = [
+  { module_key: "maintenance", label: "Assets", path: "/maintenance/assets", type: "feature" },
+  { module_key: "maintenance", label: "New Asset", path: "/maintenance/assets/new", type: "feature" },
+  { module_key: "maintenance", label: "Work Orders", path: "/maintenance/work-orders", type: "feature" },
+  { module_key: "maintenance", label: "New Work Order", path: "/maintenance/work-orders/new", type: "feature" },
+  { module_key: "maintenance", label: "PM Schedules", path: "/maintenance/pm-schedules", type: "feature" },
+  { module_key: "maintenance", label: "New Schedule", path: "/maintenance/pm-schedules/new", type: "feature" },
+  { module_key: "maintenance", label: "Maintenance Reports", path: "/maintenance/reports", type: "dashboard" },
+];
 
 
 

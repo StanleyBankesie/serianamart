@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function AssetList() {
+  const { canPerformAction } = usePermission();
   const items = [
     { id: 1, assetNo: 'AST-001', name: 'Generator', location: 'Plant 1', status: 'ACTIVE' },
     { id: 2, assetNo: 'AST-002', name: 'Forklift', location: 'Warehouse', status: 'ACTIVE' },
@@ -31,18 +33,22 @@ export default function AssetList() {
                 <td>{a.location}</td>
                 <td>{a.status}</td>
                 <td>
-                  <Link
-                    to={`/maintenance/assets/${a.id}?mode=view`}
-                    className="text-brand hover:text-brand-600 text-sm font-medium"
-                  >
-                    View
-                  </Link>
-                  <Link
-                    to={`/maintenance/assets/${a.id}?mode=edit`}
-                    className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                  >
-                    Edit
-                  </Link>
+                  {canPerformAction('maintenance:assets','view') && (
+                    <Link
+                      to={`/maintenance/assets/${a.id}?mode=view`}
+                      className="text-brand hover:text-brand-600 text-sm font-medium"
+                    >
+                      View
+                    </Link>
+                  )}
+                  {canPerformAction('maintenance:assets','edit') && (
+                    <Link
+                      to={`/maintenance/assets/${a.id}?mode=edit`}
+                      className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                    >
+                      Edit
+                    </Link>
+                  )}
                 </td>
               </tr>
             ))}

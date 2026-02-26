@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function LoanList() {
+  const { canPerformAction } = usePermission();
   const items = [{ id: 1, employee: 'John Doe', amount: 1000, balance: 600, status: 'ACTIVE' }];
 
   return (
@@ -28,8 +30,12 @@ export default function LoanList() {
                 <td className="text-right">{Number(r.balance).toFixed(2)}</td>
                 <td>{r.status}</td>
                 <td>
-                  <Link to={`/human-resources/loans/${r.id}?mode=view`} className="text-brand hover:text-brand-600 text-sm font-medium">View</Link>
-                  <Link to={`/human-resources/loans/${r.id}?mode=edit`} className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2">Edit</Link>
+                  {canPerformAction('human-resources:loans','view') && (
+                    <Link to={`/human-resources/loans/${r.id}?mode=view`} className="text-brand hover:text-brand-600 text-sm font-medium">View</Link>
+                  )}
+                  {canPerformAction('human-resources:loans','edit') && (
+                    <Link to={`/human-resources/loans/${r.id}?mode=edit`} className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2">Edit</Link>
+                  )}
                 </td>
               </tr>
             ))}

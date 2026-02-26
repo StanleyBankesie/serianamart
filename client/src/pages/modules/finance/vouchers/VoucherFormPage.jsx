@@ -41,6 +41,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   const isCV = String(voucherTypeCode).toUpperCase() === "CV";
   const isDN = String(voucherTypeCode).toUpperCase() === "DN";
   const isCN = String(voucherTypeCode).toUpperCase() === "CN";
+  const isJV = String(voucherTypeCode).toUpperCase() === "JV";
   const [rvForm, setRvForm] = useState({
     receivedFrom: "",
     receivedFromCode: "",
@@ -70,6 +71,12 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   const [showPayToLov, setShowPayToLov] = useState(false);
   const [payToSearch, setPayToSearch] = useState("");
   const [showForwardModal, setShowForwardModal] = useState(false);
+  const [showBillModal, setShowBillModal] = useState(false);
+  const [billModalLoading, setBillModalLoading] = useState(false);
+  const [billModalError, setBillModalError] = useState("");
+  const [billModalType, setBillModalType] = useState("");
+  const [billModalHeader, setBillModalHeader] = useState(null);
+  const [billModalDetails, setBillModalDetails] = useState([]);
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
@@ -155,6 +162,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
             (s.supplier_code && String(s.supplier_code).trim()) ||
             `SU-${String(Number(s.id || 0)).padStart(6, "0")}`,
           name: String(s.supplier_name || "").trim(),
+          serviceContractor: String(s.service_contractor || "N").toUpperCase(),
         })),
       ]
         .filter((p) => p.name)
@@ -175,7 +183,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
 
   async function loadInvoicesForCustomer(customerId) {
     try {
-      const res = await api.get("/sales/invoices");
+      const res = await api.get("/sales/invoices", {
+        params: { customer_id: customerId },
+      });
       const items = Array.isArray(res.data?.items) ? res.data.items : [];
       const filtered = items
         .filter(
@@ -187,7 +197,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           id: x.id,
           invoice_no: x.invoice_no,
           balance_amount: Number(x.balance_amount || 0),
-          total_amount: Number(x.total_amount || 0),
+          total_amount: Number(x.total_amount || x.net_amount || 0),
+          tax_code_id: x.tax_code_id || null,
         }))
         .sort((a, b) => a.invoice_no.localeCompare(b.invoice_no));
       setCustomerInvoices(filtered);
@@ -196,18 +207,18 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     }
   }
 
-  async function loadBillsForSupplier(supplierId) {
+  async function loadOutstandingBillsForSupplier(entry) {
     try {
-      const res = await api.get("/purchase/bills");
-      const items = Array.isArray(res.data?.items) ? res.data.items : [];
-      const filtered = items
-        .filter((x) => String(x.supplier_id) === String(supplierId))
+      const purRes = await api.get("/purchase/bills");
+      const purItems = Array.isArray(purRes.data?.items)
+        ? purRes.data.items
+        : [];
+      const purchaseFiltered = purItems
+        .filter((x) => String(x.supplier_id) === String(entry.id))
         .map((x) => ({
           id: x.id,
           bill_no: x.bill_no,
           payment_status: String(x.payment_status || "UNPAID"),
-          net_amount: Number(x.net_amount || 0),
-          amount_paid: Number(x.amount_paid || 0),
           outstanding: Math.max(
             0,
             Math.round(
@@ -215,17 +226,46 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
             ) / 100,
           ),
         }))
-        .filter((x) => x.payment_status !== "PAID" && Number(x.outstanding) > 0)
-        .sort((a, b) =>
-          String(a.bill_no || "").localeCompare(String(b.bill_no || "")),
+        .filter(
+          (x) => x.payment_status !== "PAID" && Number(x.outstanding) > 0,
         );
-      setSupplierBills(filtered);
-      const validNos = new Set(filtered.map((b) => String(b.bill_no)));
+      let combined = purchaseFiltered;
+      if (String(entry.serviceContractor || "N") === "Y") {
+        const srvRes = await api.get("/purchase/service-bills", {
+          params: { supplierId: entry.id },
+        });
+        const srvItems = Array.isArray(srvRes.data?.items)
+          ? srvRes.data.items
+          : [];
+        const serviceFiltered = srvItems
+          .map((x) => ({
+            id: `SB-${x.id}`,
+            bill_no: x.bill_no,
+            payment_status: String(x.payment || "UNPAID"),
+            outstanding: Math.max(
+              0,
+              Math.round(
+                (Number(x.total_amount || 0) - Number(x.amount_paid || 0)) *
+                  100,
+              ) / 100,
+            ),
+          }))
+          .filter(
+            (x) => x.payment_status !== "PAID" && Number(x.outstanding) > 0,
+          );
+        combined = [...purchaseFiltered, ...serviceFiltered];
+      }
+      combined = combined.sort((a, b) =>
+        String(a.bill_no || "").localeCompare(String(b.bill_no || "")),
+      );
+      setSupplierBills(combined);
+      const validNos = new Set(combined.map((b) => String(b.bill_no)));
       setSelectedBillRefs((prev) =>
         prev.filter((r) => validNos.has(String(r))),
       );
     } catch {
       setSupplierBills([]);
+      setSelectedBillRefs([]);
     }
   }
 
@@ -324,6 +364,25 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     }
     loadNextNoCn();
   }, [isCN, isEdit]);
+
+  useEffect(() => {
+    async function loadNextNoJv() {
+      if (isEdit) return;
+      if (!isJV) return;
+      try {
+        const res = await api.get(
+          "/finance/vouchers/next-no?voucherTypeCode=JV",
+        );
+        const raw = String(res.data?.nextNo || "");
+        const m = raw.match(/^JV-?(\d+)$/i);
+        const formatted = m ? `JV-${String(m[1]).padStart(6, "0")}` : raw;
+        setVoucherNoPreview(formatted);
+      } catch {
+        setVoucherNoPreview("");
+      }
+    }
+    loadNextNoJv();
+  }, [isJV, isEdit]);
 
   useEffect(() => {
     if (!(isCN || isDN)) return;
@@ -596,23 +655,32 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     return voucherTypes.find((x) => x.code === voucherTypeCode);
   }, [voucherTypes, voucherTypeCode]);
 
+  const generalVoucherTypeName = useMemo(() => {
+    const vt = voucherTypes.find(
+      (x) =>
+        String(x.code).toUpperCase() === String(voucherTypeCode).toUpperCase(),
+    );
+    if (vt?.name) return vt.name;
+    const upper = String(voucherTypeCode || "").toUpperCase();
+    return upper === "CN"
+      ? "Credit Note"
+      : upper === "DN"
+        ? "Debit Note"
+        : "Voucher";
+  }, [voucherTypes, voucherTypeCode]);
+
   const totals = useMemo(() => {
     if (isRV) {
       const subtotal = rvForm.items.reduce(
         (sum, it) => sum + Number(it.amount || 0),
         0,
       );
-      const rvRate = Number(
-        taxCodes.find((t) => String(t.id) === String(rvForm.taxCodeId))
-          ?.rate_percent || 0,
-      );
-      const tax = Math.round(subtotal * rvRate) / 100;
       return {
         debit: subtotal,
         credit: subtotal,
         subtotal,
-        tax,
-        grand: subtotal + tax,
+        tax: 0,
+        grand: subtotal,
       };
     }
     if (isPV) {
@@ -664,6 +732,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   const balanced =
     Math.round(totals.debit * 100) === Math.round(totals.credit * 100);
 
+  const disabledClass = readOnly
+    ? "bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold"
+    : "";
+
   // moved earlier to avoid temporal-dead-zone during RV render
 
   const [companyInfo, setCompanyInfo] = useState({
@@ -679,6 +751,67 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     registrationNo: "",
     logoUrl: "",
   });
+
+  const [rvTaxComponentsByCode, setRvTaxComponentsByCode] = useState({});
+
+  const payeeOptions = useMemo(() => {
+    const base = accounts.filter((a) =>
+      ["DEBTORS", "CREDITORS"].includes(
+        String(a.group_name || "").toUpperCase(),
+      ),
+    );
+    if (!payToSearch) return base;
+    const q = String(payToSearch).toLowerCase();
+    return base.filter(
+      (a) =>
+        String(a.name || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(a.code || "")
+          .toLowerCase()
+          .includes(q),
+    );
+  }, [accounts, payToSearch]);
+
+  const rvTaxComponentsTotals = useMemo(() => {
+    if (!isRV) return { components: [], taxTotal: 0, grand: totals.grand };
+    const sub = totals.subtotal || 0;
+    const comps = rvTaxComponentsByCode[String(rvForm.taxCodeId || "")] || [];
+    const components = comps
+      .map((c) => {
+        const rate = Number(c.rate_percent || 0);
+        const amount = (sub * rate) / 100;
+        return {
+          name: c.component_name,
+          rate,
+          amount,
+          sort_order: c.sort_order || 0,
+        };
+      })
+      .sort((a, b) => a.sort_order - b.sort_order);
+    const taxTotal = components.reduce((s, c) => s + c.amount, 0);
+    const grand = sub + taxTotal;
+    return { components, taxTotal, grand };
+  }, [
+    isRV,
+    totals.subtotal,
+    totals.grand,
+    rvForm.taxCodeId,
+    rvTaxComponentsByCode,
+  ]);
+
+  useEffect(() => {
+    async function loadRvTaxComponents() {
+      const key = String(rvForm.taxCodeId || "");
+      if (!isRV || !key || rvTaxComponentsByCode[key]) return;
+      try {
+        const resp = await api.get(`/finance/tax-codes/${key}/components`);
+        const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
+        setRvTaxComponentsByCode((prev) => ({ ...prev, [key]: items }));
+      } catch {}
+    }
+    loadRvTaxComponents();
+  }, [isRV, rvForm.taxCodeId, rvTaxComponentsByCode]);
 
   useEffect(() => {
     let mounted = true;
@@ -1069,12 +1202,11 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   }
   const handlePrintVoucher = async () => {
     try {
-      const body =
-        isRV
-          ? renderReceiptVoucherHtml(buildReceiptVoucherTemplateData())
-          : isPV
-            ? renderPaymentVoucherHtml(buildPaymentVoucherTemplateData())
-            : "";
+      const body = isRV
+        ? renderReceiptVoucherHtml(buildReceiptVoucherTemplateData())
+        : isPV
+          ? renderPaymentVoucherHtml(buildPaymentVoucherTemplateData())
+          : "";
       const html = wrapDoc(body);
       const iframe = document.createElement("iframe");
       iframe.style.position = "fixed";
@@ -1084,7 +1216,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       iframe.style.height = "0";
       iframe.style.border = "0";
       document.body.appendChild(iframe);
-      const doc = iframe.contentWindow?.document || iframe.contentDocument || null;
+      const doc =
+        iframe.contentWindow?.document || iframe.contentDocument || null;
       if (!doc) {
         document.body.removeChild(iframe);
         window.print();
@@ -1108,12 +1241,11 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   };
   const handleDownloadVoucherPdf = async () => {
     try {
-      const body =
-        isRV
-          ? renderReceiptVoucherHtml(buildReceiptVoucherTemplateData())
-          : isPV
-            ? renderPaymentVoucherHtml(buildPaymentVoucherTemplateData())
-            : "";
+      const body = isRV
+        ? renderReceiptVoucherHtml(buildReceiptVoucherTemplateData())
+        : isPV
+          ? renderPaymentVoucherHtml(buildPaymentVoucherTemplateData())
+          : "";
       if (!body) return;
       const container = document.createElement("div");
       container.style.position = "fixed";
@@ -1126,7 +1258,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       document.body.appendChild(container);
       try {
         await waitForImages(container);
-        const canvas = await html2canvas(container, { scale: 2, useCORS: true });
+        const canvas = await html2canvas(container, {
+          scale: 2,
+          useCORS: true,
+        });
         const imgData = canvas.toDataURL("image/png");
         const pdf = new jsPDF("p", "mm", "a4");
         const pageWidth = pdf.internal.pageSize.getWidth();
@@ -1372,6 +1507,23 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                   return b ? { bill_id: Number(b.id), amount: x.amount } : null;
                 })
                 .filter(Boolean),
+              apply_to_service_bills: (pvForm.items || [])
+                .map((it) => ({
+                  ref: (it.referenceNo && String(it.referenceNo)) || "",
+                  amount: Number(it.amount || 0),
+                }))
+                .filter((x) => x.ref && x.amount > 0)
+                .map((x) => {
+                  const b = supplierBills.find(
+                    (sb) => String(sb.bill_no) === String(x.ref),
+                  );
+                  if (!b) return null;
+                  const idStr = String(b.id || "");
+                  if (!/^SB-\d+$/.test(idStr)) return null;
+                  const idNum = Number(idStr.replace(/^SB-/, ""));
+                  return { bill_id: idNum, amount: x.amount };
+                })
+                .filter(Boolean),
             }
           : {}),
       };
@@ -1411,7 +1563,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     }
   }
 
-  if (!isRV && !isPV && !isCV) {
+  if (isJV || isCN || isDN) {
     return (
       <div className="space-y-4">
         <div className="card">
@@ -1560,21 +1712,29 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           <div className="card">
             <div className="card-body space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="label">Voucher Type</label>
-                  <input
-                    className="input"
-                    value={generalVoucherTypeName}
-                    disabled
-                  />
-                </div>
+                {!(isPV || isRV) && (
+                  <div>
+                    <label className="label">Voucher Type</label>
+                    <input
+                      className="input"
+                      value={generalVoucherTypeName}
+                      disabled
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="label">Voucher No</label>
                   <input
                     className="input"
                     value={
                       voucherNoPreview ||
-                      (isCN ? "CN-000001" : isDN ? "DN-000001" : "")
+                      (isJV
+                        ? "JV-000001"
+                        : isCN
+                          ? "CN-000001"
+                          : isDN
+                            ? "DN-000001"
+                            : "")
                     }
                     disabled
                   />
@@ -1590,23 +1750,25 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     disabled={readOnly}
                   />
                 </div>
-                <div>
-                  <label className="label">Fiscal Year *</label>
-                  <select
-                    className={`input ${disabledClass}`}
-                    value={fiscalYearId}
-                    onChange={(e) => setFiscalYearId(e.target.value)}
-                    required
-                    disabled={readOnly}
-                  >
-                    <option value="">Select</option>
-                    {fiscalYears.map((fy) => (
-                      <option key={fy.id} value={fy.id}>
-                        {fy.code}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {!(isPV || isRV) && (
+                  <div>
+                    <label className="label">Fiscal Year *</label>
+                    <select
+                      className={`input ${disabledClass}`}
+                      value={fiscalYearId}
+                      onChange={(e) => setFiscalYearId(e.target.value)}
+                      required
+                      disabled={readOnly}
+                    >
+                      <option value="">Select</option>
+                      {fiscalYears.map((fy) => (
+                        <option key={fy.id} value={fy.id}>
+                          {fy.code}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="md:col-span-3">
                   <label className="label">Narration</label>
                   <input
@@ -2335,9 +2497,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       ? String(cur.name || cur.code || "")
       : String(paymentAccountCurrencyCode || "");
   }, [currencies, paymentAccountCurrencyId, paymentAccountCurrencyCode]);
-  const disabledClass = readOnly
-    ? "bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold"
-    : "";
   const pvVoucherTypeName = useMemo(() => {
     const vt = voucherTypes.find(
       (x) =>
@@ -2351,19 +2510,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         String(x.code).toUpperCase() === String(voucherTypeCode).toUpperCase(),
     );
     return vt?.name || "Receive Voucher";
-  }, [voucherTypes, voucherTypeCode]);
-  const generalVoucherTypeName = useMemo(() => {
-    const vt = voucherTypes.find(
-      (x) =>
-        String(x.code).toUpperCase() === String(voucherTypeCode).toUpperCase(),
-    );
-    if (vt?.name) return vt.name;
-    const upper = String(voucherTypeCode || "").toUpperCase();
-    return upper === "CN"
-      ? "Credit Note"
-      : upper === "DN"
-        ? "Debit Note"
-        : "Voucher";
   }, [voucherTypes, voucherTypeCode]);
   useEffect(() => {
     if (!isCV) return;
@@ -2555,10 +2701,16 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           <div className="card">
             <div className="card-body space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="label">Voucher Type</label>
-                  <input className="input" value={rvVoucherTypeName} disabled />
-                </div>
+                {!(isPV || isRV) && (
+                  <div>
+                    <label className="label">Voucher Type</label>
+                    <input
+                      className="input"
+                      value={rvVoucherTypeName}
+                      disabled
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="label">Voucher No</label>
                   <input
@@ -2578,23 +2730,25 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     disabled={readOnly}
                   />
                 </div>
-                <div>
-                  <label className="label">Fiscal Year *</label>
-                  <select
-                    className={`input ${disabledClass}`}
-                    value={fiscalYearId}
-                    onChange={(e) => setFiscalYearId(e.target.value)}
-                    required
-                    disabled={readOnly}
-                  >
-                    <option value="">Select</option>
-                    {fiscalYears.map((fy) => (
-                      <option key={fy.id} value={fy.id}>
-                        {fy.code}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {!(isPV || isRV) && (
+                  <div>
+                    <label className="label">Fiscal Year *</label>
+                    <select
+                      className={`input ${disabledClass}`}
+                      value={fiscalYearId}
+                      onChange={(e) => setFiscalYearId(e.target.value)}
+                      required
+                      disabled={readOnly}
+                    >
+                      <option value="">Select</option>
+                      {fiscalYears.map((fy) => (
+                        <option key={fy.id} value={fy.id}>
+                          {fy.code}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2886,7 +3040,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                       const items =
                                         chosenList.length > 0
                                           ? chosenList.map((inv) => ({
-                                              description: `Invoice ${inv.invoice_no} payment`,
+                                              description: "",
                                               accountId:
                                                 rvForm.payerAccountId || "",
                                               amount: Number(
@@ -2905,7 +3059,18 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                                 referenceNo: "",
                                               },
                                             ];
-                                      updateRvForm({ items });
+                                      const firstTaxCodeId =
+                                        chosenList.length > 0
+                                          ? chosenList[0].tax_code_id || null
+                                          : null;
+                                      updateRvForm({
+                                        items,
+                                        ...(firstTaxCodeId
+                                          ? {
+                                              taxCodeId: String(firstTaxCodeId),
+                                            }
+                                          : {}),
+                                      });
                                     }}
                                     size={Math.min(
                                       6,
@@ -2986,44 +3151,58 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                         )}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        <span>
-                          Tax (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 justify-between">
+                        <div className="flex items-center gap-2">
+                          <span>Tax Code</span>
+                          <select
+                            className={`input w-36 ${disabledClass}`}
+                            value={rvForm.taxCodeId}
+                            onChange={(e) =>
+                              updateRvForm({ taxCodeId: e.target.value })
+                            }
+                            disabled={readOnly}
+                          >
+                            <option value="">Select</option>
+                            {taxCodes.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <span className="font-semibold">
                           {Number(
-                            taxCodes.find(
-                              (t) => String(t.id) === String(rvForm.taxCodeId),
-                            )?.rate_percent || 0,
-                          )}
-                          %)
+                            rvTaxComponentsTotals.taxTotal || 0,
+                          ).toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
                         </span>
-                        <select
-                          className={`input w-36 ${disabledClass}`}
-                          value={rvForm.taxCodeId}
-                          onChange={(e) =>
-                            updateRvForm({ taxCodeId: e.target.value })
-                          }
-                          disabled={readOnly}
-                        >
-                          <option value="">Select</option>
-                          {taxCodes.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.name}
-                            </option>
-                          ))}
-                        </select>
                       </div>
-                      <span className="font-semibold">
-                        {Number(totals.tax || 0).toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </span>
+                      {rvTaxComponentsTotals.components.map((c) => (
+                        <div
+                          key={c.name}
+                          className="flex justify-between text-sm text-slate-700"
+                        >
+                          <span>
+                            {c.name} [{c.rate}%]
+                          </span>
+                          <span>
+                            {Number(c.amount || 0).toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                     <div className="flex justify-between border-t pt-2">
                       <span className="font-semibold">TOTAL AMOUNT</span>
                       <span className="font-bold">
-                        {Number(totals.grand || 0).toLocaleString(undefined, {
+                        {Number(
+                          rvTaxComponentsTotals.grand || totals.grand || 0,
+                        ).toLocaleString(undefined, {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}
@@ -3035,7 +3214,11 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                       <label className="label">Amount in Words</label>
                       <textarea
                         className="input h-20"
-                        value={`${numberToWordsBasic(Number(totals.grand || 0))} ${rvAmountWord}`.trim()}
+                        value={`${numberToWordsBasic(
+                          Number(
+                            rvTaxComponentsTotals.grand || totals.grand || 0,
+                          ),
+                        )} ${rvAmountWord}`.trim()}
                         readOnly
                       />
                     </div>
@@ -3228,11 +3411,28 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   }
   function updatePvItem(idx, patch) {
     if (readOnly) return;
-    updatePv({
-      items: pvForm.items.map((it, i) =>
-        i === idx ? { ...it, ...patch } : it,
-      ),
-    });
+    const nextItems = pvForm.items.map((it, i) =>
+      i === idx ? { ...it, ...patch } : it,
+    );
+    const changed = nextItems[idx];
+    if (
+      Object.prototype.hasOwnProperty.call(patch, "amount") &&
+      (!changed.referenceNo || String(changed.referenceNo).trim() === "")
+    ) {
+      const used = new Set(
+        nextItems
+          .map((x) => String(x.referenceNo || ""))
+          .filter((r) => r && r.length > 0),
+      );
+      const candidate =
+        selectedBillRefs.find((r) => !used.has(String(r))) ||
+        selectedBillRefs[0] ||
+        null;
+      if (candidate) {
+        nextItems[idx] = { ...changed, referenceNo: String(candidate) };
+      }
+    }
+    updatePv({ items: nextItems });
   }
   function addPvItem() {
     if (readOnly) return;
@@ -3247,24 +3447,82 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       items: pvForm.items.filter((_, i) => i !== idx),
     });
   }
-  const payeeOptions = useMemo(() => {
-    const base = accounts.filter((a) =>
-      ["DEBTORS", "CREDITORS"].includes(
-        String(a.group_name || "").toUpperCase(),
-      ),
+  const [knockOffTotal, setKnockOffTotal] = useState(0);
+  function setPvAmountForRef(referenceNo, amount) {
+    if (readOnly) return;
+    const idx = pvForm.items.findIndex(
+      (it) => String(it.referenceNo || "") === String(referenceNo || ""),
     );
-    if (!payToSearch) return base;
-    const q = String(payToSearch).toLowerCase();
-    return base.filter(
-      (a) =>
-        String(a.name || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(a.code || "")
-          .toLowerCase()
-          .includes(q),
+    if (idx >= 0) {
+      updatePvItem(idx, { amount: Number(amount || 0) });
+    } else {
+      updatePv({
+        items: [
+          ...pvForm.items,
+          {
+            description: `Bill ${referenceNo} payment`,
+            accountId: pvForm.payToAccountId || "",
+            amount: Number(amount || 0),
+            referenceNo: String(referenceNo || ""),
+          },
+        ],
+      });
+    }
+  }
+  function allocatePvBillsFifo(total) {
+    if (readOnly) return;
+    const refs = [...selectedBillRefs];
+    const chosen = supplierBills.filter((b) =>
+      refs.includes(String(b.bill_no)),
     );
-  }, [accounts, payToSearch]);
+    let remaining = Number(total || 0);
+    const nextItemsMap = new Map(
+      pvForm.items.map((it) => [String(it.referenceNo || ""), { ...it }]),
+    );
+    for (let i = 0; i < chosen.length; i++) {
+      const b = chosen[i];
+      const outstanding = Number(b?.outstanding || 0);
+      const alloc = Math.max(0, Math.min(outstanding, remaining));
+      remaining = Math.max(0, remaining - alloc);
+      nextItemsMap.set(String(b.bill_no), {
+        description: `Bill ${b.bill_no} payment`,
+        accountId: pvForm.payToAccountId || "",
+        amount: alloc,
+        referenceNo: String(b.bill_no),
+      });
+    }
+    updatePv({ items: Array.from(nextItemsMap.values()) });
+  }
+  async function openBillModal(entry) {
+    if (!entry) return;
+    setShowBillModal(true);
+    setBillModalLoading(true);
+    setBillModalError("");
+    setBillModalHeader(null);
+    setBillModalDetails([]);
+    try {
+      const idStr = String(entry.id || "");
+      if (idStr.startsWith("SB-")) {
+        const idNum = Number(idStr.replace(/^SB-/, ""));
+        setBillModalType("SERVICE");
+        const res = await api.get(`/purchase/service-bills/${idNum}`);
+        setBillModalHeader(res.data?.item || null);
+        setBillModalDetails(res.data?.details || []);
+      } else {
+        const idNum = Number(entry.id);
+        setBillModalType("PURCHASE");
+        const res = await api.get(`/purchase/bills/${idNum}`);
+        setBillModalHeader(res.data?.item || null);
+        setBillModalDetails(res.data?.details || []);
+      }
+    } catch (e) {
+      setBillModalError(
+        e?.response?.data?.message || "Failed to load bill details",
+      );
+    } finally {
+      setBillModalLoading(false);
+    }
+  }
   useEffect(() => {
     if (!isPV) return;
     const acc = accounts.find(
@@ -3562,10 +3820,16 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           <div className="card">
             <div className="card-body space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="label">Voucher Type</label>
-                  <input className="input" value={pvVoucherTypeName} disabled />
-                </div>
+                {!(isPV || isRV) && (
+                  <div>
+                    <label className="label">Voucher Type</label>
+                    <input
+                      className="input"
+                      value={pvVoucherTypeName}
+                      disabled
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="label">Voucher No</label>
                   <input
@@ -3585,23 +3849,25 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     disabled={readOnly}
                   />
                 </div>
-                <div>
-                  <label className="label">Fiscal Year *</label>
-                  <select
-                    className="input"
-                    value={fiscalYearId}
-                    onChange={(e) => setFiscalYearId(e.target.value)}
-                    required
-                    disabled={readOnly}
-                  >
-                    <option value="">Select</option>
-                    {fiscalYears.map((fy) => (
-                      <option key={fy.id} value={fy.id}>
-                        {fy.code}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {!(isPV || isRV) && (
+                  <div>
+                    <label className="label">Fiscal Year *</label>
+                    <select
+                      className="input"
+                      value={fiscalYearId}
+                      onChange={(e) => setFiscalYearId(e.target.value)}
+                      required
+                      disabled={readOnly}
+                    >
+                      <option value="">Select</option>
+                      {fiscalYears.map((fy) => (
+                        <option key={fy.id} value={fy.id}>
+                          {fy.code}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -3637,7 +3903,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                           "SUPPLIER" &&
                         entry?.id
                       ) {
-                        loadBillsForSupplier(entry.id);
+                        loadOutstandingBillsForSupplier(entry);
                       } else {
                         setSupplierBills([]);
                         setSelectedBillRefs([]);
@@ -3746,25 +4012,43 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                           const chosenList = supplierBills.filter((b) =>
                             opts.includes(String(b.bill_no)),
                           );
-                          const items =
-                            chosenList.length > 0
-                              ? chosenList.map((b) => ({
-                                  description: `Bill ${b.bill_no} payment`,
-                                  accountId: pvForm.payToAccountId || "",
-                                  amount: Number(b.outstanding || 0),
-                                  referenceNo: String(b.bill_no),
-                                }))
-                              : [
-                                  {
-                                    description: "",
-                                    accountId: pvForm.payToAccountId || "",
-                                    amount: 0,
-                                    referenceNo: "",
-                                  },
-                                ];
-                          updatePv({ items });
+                          const defaultTotal = chosenList.reduce(
+                            (sum, b) => sum + Number(b.outstanding || 0),
+                            0,
+                          );
+                          setKnockOffTotal(defaultTotal);
+                          const items = chosenList.map((b) => ({
+                            description: `Bill ${b.bill_no} payment`,
+                            accountId: pvForm.payToAccountId || "",
+                            amount: Number(b.outstanding || 0),
+                            referenceNo: String(b.bill_no),
+                          }));
+                          updatePv({
+                            items:
+                              items.length > 0
+                                ? items
+                                : [
+                                    {
+                                      description: "",
+                                      accountId: pvForm.payToAccountId || "",
+                                      amount: 0,
+                                      referenceNo: "",
+                                    },
+                                  ],
+                          });
+                          allocatePvBillsFifo(defaultTotal);
                         }}
-                        size={Math.min(6, Math.max(3, supplierBills.length))}
+                        onDoubleClick={(e) => {
+                          if (readOnly) return;
+                          const i = e.target.selectedIndex;
+                          if (i == null || i < 0) return;
+                          const val = e.target.options?.[i]?.value;
+                          const entry = supplierBills.find(
+                            (b) => String(b.bill_no) === String(val),
+                          );
+                          if (entry) openBillModal(entry);
+                        }}
+                        size={Math.min(10, Math.max(3, supplierBills.length))}
                         disabled={readOnly}
                       >
                         {supplierBills.map((b) => (
@@ -3966,6 +4250,124 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                   </div>
                 </div>
               </div>
+              {selectedBillRefs.length > 0 && (
+                <div className="mt-4">
+                  <div className="font-semibold mb-2">
+                    Knock Off Payment Against Bills
+                  </div>
+                  <div className="mb-2 flex items-center gap-2">
+                    <label className="label mb-0">Total to Allocate</label>
+                    <input
+                      type="number"
+                      className={`input w-40 text-right ${disabledClass}`}
+                      min="0"
+                      step="0.01"
+                      value={Number(knockOffTotal || 0)}
+                      onChange={(e) => {
+                        const v = Number(e.target.value || 0);
+                        setKnockOffTotal(v);
+                        allocatePvBillsFifo(v);
+                      }}
+                      disabled={readOnly}
+                    />
+                    <button
+                      type="button"
+                      className="btn-success"
+                      onClick={() => {
+                        let applied = selectedBillRefs.reduce((sum, ref) => {
+                          const it = pvForm.items.find(
+                            (x) => String(x.referenceNo || "") === String(ref),
+                          );
+                          return sum + Number(it?.amount || 0);
+                        }, 0);
+                        if (applied <= 0) {
+                          allocatePvBillsFifo(knockOffTotal);
+                          applied = selectedBillRefs.reduce((sum, ref) => {
+                            const it = pvForm.items.find(
+                              (x) =>
+                                String(x.referenceNo || "") === String(ref),
+                            );
+                            return sum + Number(it?.amount || 0);
+                          }, 0);
+                        }
+                        toast.success(
+                          `Knock-off confirmed. Allocated GH₵ ${applied.toFixed(
+                            2,
+                          )} (FIFO applied)`,
+                        );
+                      }}
+                      disabled={readOnly}
+                    >
+                      Confirm Knock-off
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th className="w-32">Bill No</th>
+                          <th className="text-right w-40">Outstanding</th>
+                          <th className="text-right w-40">Knock-off Amount</th>
+                          <th className="text-right w-40">
+                            Balance After Knock-off
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedBillRefs.map((ref) => {
+                          const b = supplierBills.find(
+                            (sb) => String(sb.bill_no) === String(ref),
+                          );
+                          const outstanding = Number(b?.outstanding || 0);
+                          const it = pvForm.items.find(
+                            (x) => String(x.referenceNo || "") === String(ref),
+                          ) || {
+                            referenceNo: ref,
+                            amount: 0,
+                          };
+                          const balance = Math.max(
+                            0,
+                            outstanding - Number(it.amount || 0),
+                          );
+                          return (
+                            <tr key={`knock-${ref}`}>
+                              <td>{String(ref)}</td>
+                              <td className="text-right">
+                                {outstanding.toLocaleString(undefined, {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                              </td>
+                              <td>
+                                <input
+                                  className={`input text-right ${disabledClass}`}
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={Number(it.amount || 0)}
+                                  onChange={(e) =>
+                                    setPvAmountForRef(
+                                      ref,
+                                      Number(e.target.value || 0),
+                                    )
+                                  }
+                                  disabled={readOnly}
+                                />
+                              </td>
+                              <td className="text-right">
+                                {balance.toLocaleString(undefined, {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="label">Notes / Remarks</label>
@@ -4012,6 +4414,140 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
             </div>
           </div>
         </form>
+        {showBillModal ? (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-lg w-[800px] max-w-[95%]">
+              <div className="p-4 border-b flex justify-between items-center bg-brand text-white rounded-t-lg">
+                <div className="font-semibold">
+                  {billModalType === "SERVICE"
+                    ? "Service Bill"
+                    : "Purchase Bill"}{" "}
+                  Details
+                </div>
+                <button
+                  type="button"
+                  className="text-white text-xl font-bold"
+                  onClick={() => setShowBillModal(false)}
+                >
+                  &times;
+                </button>
+              </div>
+              <div className="p-4">
+                {billModalLoading ? (
+                  <div className="text-center py-6">Loading...</div>
+                ) : billModalError ? (
+                  <div className="text-center text-red-600 py-6">
+                    {billModalError}
+                  </div>
+                ) : !billModalHeader ? (
+                  <div className="text-center text-slate-500 py-6">No data</div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                      <div>
+                        <div className="label">Bill No</div>
+                        <div className="input">{billModalHeader.bill_no}</div>
+                      </div>
+                      <div>
+                        <div className="label">Date</div>
+                        <div className="input">
+                          {billModalHeader.bill_date || ""}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="label">Status</div>
+                        <div className="input">
+                          {billModalHeader.status || ""}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="label">Amount</div>
+                        <div className="input">
+                          {Number(
+                            billModalHeader.total_amount ||
+                              billModalHeader.net_amount ||
+                              0,
+                          ).toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th>Description</th>
+                            <th className="text-right w-32">Qty</th>
+                            <th className="text-right w-32">Price</th>
+                            <th className="text-right w-40">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {billModalDetails.length === 0 ? (
+                            <tr>
+                              <td
+                                className="text-center text-slate-500"
+                                colSpan={4}
+                              >
+                                No details
+                              </td>
+                            </tr>
+                          ) : (
+                            billModalDetails.map((d) => (
+                              <tr key={d.id}>
+                                <td>
+                                  {d.item_name || d.description || ""}{" "}
+                                  <span className="text-xs text-slate-500">
+                                    {d.item_code || d.category || ""}
+                                  </span>
+                                </td>
+                                <td className="text-right">
+                                  {Number(
+                                    d.qty || d.quantity || 0,
+                                  ).toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </td>
+                                <td className="text-right">
+                                  {Number(
+                                    d.unit_price || d.rate || 0,
+                                  ).toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </td>
+                                <td className="text-right">
+                                  {Number(
+                                    d.line_total || d.amount || 0,
+                                  ).toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="p-3 border-t flex justify-end">
+                <button
+                  type="button"
+                  className="btn-success"
+                  onClick={() => setShowBillModal(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
         {showForwardModal ? (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg shadow-lg w-[640px] max-w-[95%]">

@@ -52,9 +52,9 @@ export async function ensureBranchColumns() {
 
 export async function ensureUserColumns() {
   const table = "adm_users";
-  if (!(await hasColumn(table, "profile_picture_url"))) {
+  if (!(await hasColumn(table, "profile_picture"))) {
     await query(
-      `ALTER TABLE ${table} ADD COLUMN profile_picture_url VARCHAR(255) NULL`,
+      `ALTER TABLE ${table} ADD COLUMN profile_picture LONGBLOB NULL`,
     );
   }
   if (!(await hasColumn(table, "is_employee"))) {
@@ -647,6 +647,41 @@ export async function ensurePagesSeed() {
     },
     {
       module: "Purchase",
+      name: "Service Orders",
+      path: "/purchase/service-orders",
+    },
+    {
+      module: "Purchase",
+      name: "Service Order Form",
+      path: "/purchase/service-orders/new",
+    },
+    {
+      module: "Purchase",
+      name: "Service Order Edit",
+      path: "/purchase/service-orders/:id",
+    },
+    {
+      module: "Purchase",
+      name: "Service Confirmation Form",
+      path: "/purchase/service-confirmation/new",
+    },
+    {
+      module: "Service Management",
+      name: "Service Requests",
+      path: "/service-management/service-requests",
+    },
+    {
+      module: "Service Management",
+      name: "Service Request Form",
+      path: "/service-management/service-requests/new",
+    },
+    {
+      module: "Service Management",
+      name: "Service Request Edit",
+      path: "/service-management/service-requests/:id",
+    },
+    {
+      module: "Purchase",
       name: "Mass Suppliers Upload",
       path: "/purchase/suppliers/mass-upload",
     },
@@ -820,6 +855,16 @@ export async function ensurePagesSeed() {
     },
     {
       module: "Human Resources",
+      name: "Payslip Form",
+      path: "/human-resources/payslips/new",
+    },
+    {
+      module: "Human Resources",
+      name: "Payslip Edit",
+      path: "/human-resources/payslips/:id",
+    },
+    {
+      module: "Human Resources",
       name: "Promotions",
       path: "/human-resources/promotions",
     },
@@ -872,6 +917,16 @@ export async function ensurePagesSeed() {
       module: "Production",
       name: "Work Orders",
       path: "/production/work-orders",
+    },
+    {
+      module: "Production",
+      name: "Work Order Form",
+      path: "/production/work-orders/new",
+    },
+    {
+      module: "Production",
+      name: "Work Order Edit",
+      path: "/production/work-orders/:id",
     },
     { module: "Production", name: "Reports", path: "/production/reports" },
     { module: "POS", name: "Sales", path: "/pos/sales" },
@@ -1346,6 +1401,11 @@ export async function ensureTemplateTables() {
   if (!(await hasColumn("document_templates", "header_address"))) {
     await query(
       "ALTER TABLE document_templates ADD COLUMN header_address TEXT NULL",
+    );
+  }
+  if (!(await hasColumn("document_templates", "header_address2"))) {
+    await query(
+      "ALTER TABLE document_templates ADD COLUMN header_address2 TEXT NULL",
     );
   }
   if (!(await hasColumn("document_templates", "header_phone"))) {

@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function ShiftList() {
+  const { canPerformAction } = usePermission();
   const items = [
     { id: 1, code: 'DAY', name: 'Day Shift', start: '08:00', end: '17:00', active: true },
     { id: 2, code: 'NIGHT', name: 'Night Shift', start: '20:00', end: '05:00', active: true },
@@ -17,7 +19,9 @@ export default function ShiftList() {
           </div>
           <div className="flex gap-2">
             <Link to="/human-resources" className="btn btn-secondary">Return to Menu</Link>
-            <Link to="/human-resources/shifts/new" className="btn-success">+ New Shift</Link>
+            {canPerformAction('human-resources:shifts', 'create') && (
+              <Link to="/human-resources/shifts/new" className="btn-success">+ New Shift</Link>
+            )}
           </div>
         </div>
       </div>
@@ -45,7 +49,9 @@ export default function ShiftList() {
                     <td>{s.end}</td>
                     <td>{s.active ? <span className="badge badge-success">Active</span> : <span className="badge badge-error">Inactive</span>}</td>
                     <td>
-                      <Link to={`/human-resources/shifts/${s.id}`} className="text-brand hover:text-brand-600 text-sm font-medium">Edit</Link>
+                      {canPerformAction('human-resources:shifts', 'edit') && (
+                        <Link to={`/human-resources/shifts/${s.id}`} className="text-brand hover:text-brand-600 text-sm font-medium">Edit</Link>
+                      )}
                     </td>
                   </tr>
                 ))}

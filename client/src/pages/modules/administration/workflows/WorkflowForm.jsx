@@ -21,6 +21,55 @@ function normalizeModuleKey(mod) {
     .replace(/[^A-Z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
 }
+function routeRank(path) {
+  const s = String(path || "");
+  let score = 0;
+  if (s.includes("/:")) score += 2;
+  if (/\/(new|edit)\b/i.test(s)) score += 1;
+  return score;
+}
+function isBetterRoute(nextPath, existingPath) {
+  return routeRank(nextPath) < routeRank(existingPath);
+}
+function normalizeDocLabel(label) {
+  const s = String(label || "").trim();
+  if (!s) return s;
+  const map = {
+    user: "User",
+    users: "User",
+    invoice: "Invoice",
+    invoices: "Invoice",
+    customer: "Customer",
+    customers: "Customer",
+    branch: "Branch",
+    branches: "Branch",
+    company: "Company",
+    companies: "Company",
+    employee: "Employee",
+    employees: "Employee",
+  };
+  const lower = s.toLowerCase();
+  if (map[lower]) return map[lower];
+  const words = s.split(/\s+/).filter(Boolean);
+  if (!words.length) return s;
+  const last = words[words.length - 1];
+  const lastLower = last.toLowerCase();
+  const exceptions = new Set(["sales", "pos"]);
+  if (exceptions.has(lastLower)) return s;
+  let singular = last;
+  if (/ies$/i.test(last) && last.length > 3) {
+    singular = last.replace(/ies$/i, "y");
+  } else if (/(ses|xes|zes|ches|shes)$/i.test(last) && last.length > 3) {
+    singular = last.replace(/es$/i, "");
+  } else if (/s$/i.test(last) && last.length > 3) {
+    singular = last.slice(0, -1);
+  }
+  if (singular !== last) {
+    words[words.length - 1] = singular;
+    return words.join(" ");
+  }
+  return s;
+}
 
 const WorkflowForm = () => {
   const { id } = useParams();
@@ -66,7 +115,9 @@ const WorkflowForm = () => {
       return;
     }
     try {
-      const res = await api.get("/admin/users", { params: { q, active: 1 } });
+      const res = await api.get("/workflows/users", {
+        params: { q, active: 1 },
+      });
       const items = Array.isArray(res.data?.items) ? res.data.items : [];
       setStepUserOptions((prev) => ({ ...prev, [index]: items }));
     } catch (error) {
@@ -77,70 +128,50 @@ const WorkflowForm = () => {
   const fetchTransactionDocTypes = async () => {
     try {
       const res = await api.get("/admin/pages");
-      const items = res.data?.items || [];
-      const byModuleFeature = {};
-      const getAction = (seg) => {
-        if (seg === "new" || seg === "create") return "create";
-        if (seg && seg.startsWith(":")) return "edit";
-        return "view";
-      };
+      const items = Array.isArray(res.data?.data?.items)
+        ? res.data.data.items
+        : [];
+      const map = new Map();
       for (const p of items) {
         const module = p.module || "General";
+        const name = String(p.name || "");
         const path = String(p.path || "");
-        const parts = path.split("/").filter(Boolean);
-        if (!parts.length) continue;
-        // Exclude Administration and BI and any Reports/Dashboard/Permissions pages
+        const nameLower = name.toLowerCase();
+        const pathLower = path.toLowerCase();
         if (
-          /administration/i.test(module) ||
-          /business intelligence/i.test(module) ||
-          /reports/i.test(path) ||
-          /dashboard/i.test(path) ||
-          /permissions/i.test(path)
+          nameLower.includes("report") ||
+          pathLower.includes("/reports") ||
+          pathLower.endsWith("/reports")
         ) {
           continue;
         }
-        let baseParts = parts.slice();
-        let action = "view";
-        if (parts.length > 0) {
-          const last = parts[parts.length - 1];
-          const a = getAction(last);
-          action = a;
-          if (a !== "view") baseParts = parts.slice(0, parts.length - 1);
+        if (/\blist\b/i.test(nameLower)) {
+          continue;
         }
-        const featureKey = baseParts.join("/");
-        const label =
-          String(p.name || "").replace(/\s*(List|Form|Edit|Delete)\s*$/i, "") ||
-          toTitle(baseParts[baseParts.length - 1] || parts[1] || "");
-        if (!byModuleFeature[module]) byModuleFeature[module] = {};
-        if (!byModuleFeature[module][featureKey]) {
-          byModuleFeature[module][featureKey] = {
-            module,
-            label,
-            actions: { view: null, create: null, edit: null },
-          };
-        }
-        if (action === "create" || action === "edit" || action === "view") {
-          byModuleFeature[module][featureKey].actions[action] = p;
+        let label =
+          name.replace(/\s*(List|Form|Edit|Delete)\s*$/i, "") ||
+          toTitle(path.split("/").filter(Boolean).pop() || "");
+        label = label
+          .replace(/\bOrders\b/gi, "Order")
+          .replace(/\bBills\b/gi, "Bill")
+          .replace(/\bRequisitions\b/gi, "Requisition")
+          .replace(/\bReturns\b/gi, "Return")
+          .replace(/\bTransfers\b/gi, "Transfer");
+        label = normalizeDocLabel(label);
+        const route = path;
+        if (!label || !route) continue;
+        const key = `${module}||${label.toUpperCase()}`;
+        const existing = map.get(key);
+        if (!existing || isBetterRoute(route, existing.route)) {
+          const code = toCode(module, label);
+          map.set(key, { module, label, code, route });
         }
       }
-      const list = [];
-      for (const [module, features] of Object.entries(byModuleFeature)) {
-        for (const [featureKey, feature] of Object.entries(features)) {
-          if (feature.actions.create || feature.actions.edit) {
-            list.push({
-              module,
-              label: feature.label,
-              value: `${module}|${feature.label}`,
-              code: toCode(module, feature.label),
-              route: `/${featureKey}`,
-            });
-          }
-        }
-      }
+      const list = Array.from(map.values());
       list.sort((a, b) =>
         a.module === b.module
           ? a.label.localeCompare(b.label)
-          : a.module.localeCompare(b.module)
+          : a.module.localeCompare(b.module),
       );
       setDocTypes(list);
     } catch (error) {
@@ -161,15 +192,15 @@ const WorkflowForm = () => {
         (dt) =>
           normalizeModuleKey(dt.module) ===
             normalizeModuleKey(formData.module_key) &&
-          dt.label === formData.document_type
+          dt.label === formData.document_type,
       ) ||
       docTypes.find(
         (dt) =>
           dt.code ===
           toCode(
             normalizeModuleKey(formData.module_key),
-            formData.document_type
-          )
+            formData.document_type,
+          ),
       );
     setSelectedDocType(match ? match.code : "");
   }, [docTypes, formData.module_key, formData.document_type]);
@@ -186,8 +217,8 @@ const WorkflowForm = () => {
               Array.isArray(s.approvers) && s.approvers.length
                 ? s.approvers.map((a) => a.id)
                 : s.approver_user_id
-                ? [s.approver_user_id]
-                : [],
+                  ? [s.approver_user_id]
+                  : [],
           }))
         : [];
       setFormData({
@@ -195,6 +226,11 @@ const WorkflowForm = () => {
         is_active: !!data.is_active,
         steps: mappedSteps,
       });
+      const initialCode = toCode(
+        normalizeModuleKey(data.module_key),
+        data.document_type,
+      );
+      setSelectedDocType(initialCode);
     } catch (error) {
       console.error("Failed to fetch workflow", error);
       alert("Error loading workflow");
@@ -253,8 +289,8 @@ const WorkflowForm = () => {
         const ids = Array.isArray(step.approver_user_ids)
           ? step.approver_user_ids
           : step.approver_user_id
-          ? [step.approver_user_id]
-          : [];
+            ? [step.approver_user_id]
+            : [];
         if (!ids.length) {
           alert(`Please select an approver for step ${step.step_order}`);
           setLoading(false);
@@ -268,8 +304,8 @@ const WorkflowForm = () => {
           const ids = Array.isArray(s.approver_user_ids)
             ? s.approver_user_ids
             : s.approver_user_id
-            ? [s.approver_user_id]
-            : [];
+              ? [s.approver_user_id]
+              : [];
           return {
             ...s,
             approver_user_ids: ids.map((x) => Number(x)),
@@ -359,7 +395,16 @@ const WorkflowForm = () => {
                 name="module_key"
                 required
                 value={formData.module_key}
-                onChange={handleChange}
+                onChange={(e) => {
+                  const mk = e.target.value;
+                  setSelectedDocType("");
+                  setFormData((prev) => ({
+                    ...prev,
+                    module_key: mk,
+                    document_type: "",
+                    document_route: "",
+                  }));
+                }}
                 className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
               >
                 <option value="">Select Module</option>
@@ -367,6 +412,9 @@ const WorkflowForm = () => {
                   <>
                     <option value="PURCHASE">Purchase</option>
                     <option value="SALES">Sales</option>
+                    <option value="SERVICE_MANAGEMENT">
+                      Service Management
+                    </option>
                     <option value="HR">HR</option>
                     <option value="FINANCE">Finance</option>
                     <option value="INVENTORY">Inventory</option>
@@ -383,7 +431,7 @@ const WorkflowForm = () => {
                       >
                         {m}
                       </option>
-                    )
+                    ),
                   )
                 )}
               </select>
@@ -428,6 +476,9 @@ const WorkflowForm = () => {
                 <option value="">Select Document Type</option>
                 {docTypes.length === 0 ? (
                   <>
+                    <option value="SERVICE MANAGEMENT|Service Request">
+                      Service Request
+                    </option>
                     <option value="SALES|Sales Order">Sales Order</option>
                     <option value="PURCHASE|Purchase Order">
                       Purchase Order
@@ -436,11 +487,18 @@ const WorkflowForm = () => {
                     <option value="INVENTORY|Work Order">Work Order</option>
                   </>
                 ) : (
-                  docTypes.map((dt) => (
-                    <option key={dt.code} value={dt.code}>
-                      {dt.label}
-                    </option>
-                  ))
+                  docTypes
+                    .filter((dt) =>
+                      formData.module_key
+                        ? normalizeModuleKey(dt.module) ===
+                          normalizeModuleKey(formData.module_key)
+                        : true,
+                    )
+                    .map((dt) => (
+                      <option key={dt.code} value={dt.code}>
+                        {dt.label}
+                      </option>
+                    ))
                 )}
               </select>
               <div className="mt-2">
@@ -554,7 +612,7 @@ const WorkflowForm = () => {
                               handleStepChange(
                                 index,
                                 "approver_user_ids",
-                                next
+                                next,
                               );
                             }}
                           />
@@ -575,11 +633,11 @@ const WorkflowForm = () => {
                           const id = Number(sid);
                           const u =
                             (stepUserOptions[index] || []).find(
-                              (uu) => Number(uu.id) === id
+                              (uu) => Number(uu.id) === id,
                             ) ||
                             (Array.isArray(step.approvers)
                               ? step.approvers.find(
-                                  (aa) => Number(aa.id) === id
+                                  (aa) => Number(aa.id) === id,
                                 )
                               : null);
                           const label =

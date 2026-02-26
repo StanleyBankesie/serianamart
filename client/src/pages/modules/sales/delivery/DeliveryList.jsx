@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api } from "api/client";
+import { api } from "../../../../api/client";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { FileText, Download } from "lucide-react";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 
 function escapeHtml(v) {
@@ -170,6 +171,7 @@ async function waitForImages(rootEl) {
 }
 
 export default function DeliveryList() {
+  const { canPerformAction } = usePermission();
   const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -634,12 +636,6 @@ export default function DeliveryList() {
                       <td>
                         <div className="flex gap-2">
                           <button
-                            className="text-brand hover:text-brand-600 font-medium text-sm"
-                            onClick={() => navigate(`/sales/delivery/${r.id}`)}
-                          >
-                            View
-                          </button>
-                          <button
                             type="button"
                             className="ml-2 btn-primary text-xs px-3 py-1.5 gap-1"
                             onClick={() => printDelivery(r.id)}
@@ -656,16 +652,17 @@ export default function DeliveryList() {
                             Download
                           </button>
                           {String(r.status || "").toUpperCase() !==
-                            "DELIVERED" && (
-                            <button
-                              className="text-blue-600 hover:text-blue-700 font-medium text-sm"
-                              onClick={() =>
-                                navigate(`/sales/delivery/${r.id}`)
-                              }
-                            >
-                              Edit
-                            </button>
-                          )}
+                            "DELIVERED" &&
+                            canPerformAction("sales:delivery", "edit") && (
+                              <button
+                                className="text-blue-600 hover:text-blue-700 font-medium text-sm"
+                                onClick={() =>
+                                  navigate(`/sales/delivery/${r.id}`)
+                                }
+                              >
+                                Edit
+                              </button>
+                            )}
                         </div>
                       </td>
                     </tr>

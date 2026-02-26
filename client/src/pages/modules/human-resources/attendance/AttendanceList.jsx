@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function AttendanceList() {
+  const { canPerformAction } = usePermission();
   const items = [
     { id: 1, emp: 'EMP-001', name: 'John Doe', date: '2025-01-02', status: 'PRESENT' },
     { id: 2, emp: 'EMP-002', name: 'Jane Smith', date: '2025-01-02', status: 'PRESENT' },
@@ -43,8 +45,12 @@ export default function AttendanceList() {
                     <td>{new Date(r.date).toLocaleDateString()}</td>
                     <td>{r.status}</td>
                     <td>
-                      <Link to={`/human-resources/attendance/${r.id}?mode=view`} className="text-brand hover:text-brand-600 text-sm font-medium">View</Link>
-                      <Link to={`/human-resources/attendance/${r.id}?mode=edit`} className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2">Edit</Link>
+                      {canPerformAction('human-resources:attendance','view') && (
+                        <Link to={`/human-resources/attendance/${r.id}?mode=view`} className="text-brand hover:text-brand-600 text-sm font-medium">View</Link>
+                      )}
+                      {canPerformAction('human-resources:attendance','edit') && (
+                        <Link to={`/human-resources/attendance/${r.id}?mode=edit`} className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2">Edit</Link>
+                      )}
                     </td>
                   </tr>
                 ))}

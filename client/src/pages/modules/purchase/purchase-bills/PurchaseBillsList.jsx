@@ -2,12 +2,14 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import { api } from "api/client";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function PurchaseBillsList() {
   const location = useLocation();
   const billType = location.pathname.includes("purchase-bills-import")
     ? "IMPORT"
     : "LOCAL";
+  const { canPerformAction } = usePermission();
 
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -80,12 +82,19 @@ export default function PurchaseBillsList() {
           <Link to="/purchase" className="btn btn-secondary">
             Return to Menu
           </Link>
-          <Link
-            to={`/purchase/purchase-bills-${billType.toLowerCase()}/new`}
-            className="btn-success"
-          >
-            + New Bill
-          </Link>
+          {canPerformAction(
+            billType === "IMPORT"
+              ? "purchase:purchase-bills-import"
+              : "purchase:purchase-bills-local",
+            "create",
+          ) && (
+            <Link
+              to={`/purchase/purchase-bills-${billType.toLowerCase()}/new`}
+              className="btn-success"
+            >
+              + New Bill
+            </Link>
+          )}
         </div>
       </div>
 
@@ -112,6 +121,7 @@ export default function PurchaseBillsList() {
                 <th>Date</th>
                 <th>Supplier</th>
                 <th>PO</th>
+                <th>GRN</th>
                 <th className="text-right">Total</th>
                 <th className="text-right">Tax</th>
                 <th className="text-right">Net</th>
@@ -158,6 +168,20 @@ export default function PurchaseBillsList() {
                     </td>
                     <td>{r.supplier_name}</td>
                     <td>{r.po_no || "-"}</td>
+                    <td>
+                      {r.grn_no ? (
+                        r.grn_no
+                      ) : r.grn_id ? (
+                        <Link
+                          to={`/inventory/grn-local/${r.grn_id}?mode=view`}
+                          className="text-brand hover:text-brand-600 text-sm font-medium"
+                        >
+                          {r.grn_no || String(r.grn_id)}
+                        </Link>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
                     <td className="text-right font-medium">
                       {Number(r.total_amount || 0).toLocaleString(undefined, {
                         minimumFractionDigits: 2,
@@ -191,18 +215,58 @@ export default function PurchaseBillsList() {
                       </span>
                     </td>
                     <td>
-                      <Link
-                        to={`/purchase/purchase-bills-${billType.toLowerCase()}/${r.id}?mode=view`}
-                        className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
+                      {canPerformAction(
+                        billType === "IMPORT"
+                          ? "purchase:purchase-bills-import"
+                          : "purchase:purchase-bills-local",
+                        "view",
+                      ) && (
+                        <Link
+                          to={`/purchase/purchase-bills-${billType.toLowerCase()}/${r.id}?mode=view`}
+                          className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
+                        >
+                          View
+                        </Link>
+                      )}
+                      <button
+                        type="button"
+                        className="ml-2 text-slate-700 hover:text-slate-900 text-sm"
+                        title="Print"
+                        onClick={() =>
+                          window.open(
+                            `/purchase/purchase-bills-${billType.toLowerCase()}/${r.id}?mode=view`,
+                            "_blank",
+                          )
+                        }
                       >
-                        View
-                      </Link>
-                      <Link
-                        to={`/purchase/purchase-bills-${billType.toLowerCase()}/${r.id}?mode=edit`}
-                        className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium ml-2"
+                        Print
+                      </button>
+                      <button
+                        type="button"
+                        className="ml-2 text-slate-700 hover:text-slate-900 text-sm"
+                        title="PDF"
+                        onClick={() =>
+                          window.open(
+                            `/purchase/purchase-bills-${billType.toLowerCase()}/${r.id}?mode=view`,
+                            "_blank",
+                          )
+                        }
                       >
-                        Edit
-                      </Link>
+                        PDF
+                      </button>
+                      {canPerformAction(
+                        billType === "IMPORT"
+                          ? "purchase:purchase-bills-import"
+                          : "purchase:purchase-bills-local",
+                        "edit",
+                      ) && (
+                        <Link
+                          to={`/purchase/purchase-bills-${billType.toLowerCase()}/${r.id}?mode=edit`}
+                          className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium ml-2"
+                        >
+                          Edit
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 ))

@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function ReportList() {
+  const { canPerformAction } = usePermission();
   const items = [
     { id: 1, name: 'Sales Summary', module: 'Sales', active: true },
     { id: 2, name: 'Voucher Register', module: 'Finance', active: true },
@@ -30,18 +32,22 @@ export default function ReportList() {
                 <td>{r.module}</td>
                 <td>{r.active ? <span className="badge badge-success">Active</span> : <span className="badge badge-error">Inactive</span>}</td>
                 <td>
-                  <Link
-                    to={`/business-intelligence/reports/${r.id}?mode=view`}
-                    className="text-brand hover:text-brand-600 text-sm font-medium"
-                  >
-                    View
-                  </Link>
-                  <Link
-                    to={`/business-intelligence/reports/${r.id}?mode=edit`}
-                    className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                  >
-                    Edit
-                  </Link>
+                  {canPerformAction("business-intelligence:reports", "view") && (
+                    <Link
+                      to={`/business-intelligence/reports/${r.id}?mode=view`}
+                      className="text-brand hover:text-brand-600 text-sm font-medium"
+                    >
+                      View
+                    </Link>
+                  )}
+                  {canPerformAction("business-intelligence:reports", "edit") && (
+                    <Link
+                      to={`/business-intelligence/reports/${r.id}?mode=edit`}
+                      className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                    >
+                      Edit
+                    </Link>
+                  )}
                 </td>
               </tr>
             ))}

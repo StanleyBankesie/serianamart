@@ -25,6 +25,12 @@ export default function ServiceConfirmationForm() {
   const [error, setError] = useState("");
 
   const [suppliers, setSuppliers] = useState([]);
+  const [executions, setExecutions] = useState([]);
+  const [selectedExecutionId, setSelectedExecutionId] = useState("");
+  const selectedExecution = useMemo(
+    () => executions.find((x) => String(x.id) === String(selectedExecutionId)),
+    [executions, selectedExecutionId],
+  );
 
   const [formData, setFormData] = useState({
     sc_no: "",
@@ -36,18 +42,76 @@ export default function ServiceConfirmationForm() {
   });
   const [appointmentTime, setAppointmentTime] = useState("");
   const [depositPercent, setDepositPercent] = useState(0);
+  const [customerName, setCustomerName] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [accept1, setAccept1] = useState(false);
+  const [accept2, setAccept2] = useState(false);
+  const [accept3, setAccept3] = useState(false);
+  const [accept4, setAccept4] = useState(false);
+  const [accept5, setAccept5] = useState(false);
+  const [satisfaction, setSatisfaction] = useState("");
+  const [customerFeedback, setCustomerFeedback] = useState("");
+  const [warrantyProvided, setWarrantyProvided] = useState(false);
+  const [followUpRequired, setFollowUpRequired] = useState(false);
+  const [followUpNotes, setFollowUpNotes] = useState("");
+  const [additionalNotes, setAdditionalNotes] = useState("");
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
+
+  const readyToConfirm = useMemo(() => {
+    const checksOk = accept1 && accept2 && accept3 && accept4 && accept5;
+    const hasSatisfaction = !!satisfaction;
+    const hasExec = !!selectedExecutionId;
+    const hasSupplier = !!formData.supplier_id;
+    const hasDate = !!formData.sc_date;
+    return checksOk && hasSatisfaction && hasExec && hasSupplier && hasDate;
+  }, [
+    accept1,
+    accept2,
+    accept3,
+    accept4,
+    accept5,
+    satisfaction,
+    selectedExecutionId,
+    formData.supplier_id,
+    formData.sc_date,
+  ]);
 
   useEffect(() => {
     let mounted = true;
     api
-      .get("/purchase/suppliers")
+      .get("/purchase/suppliers", { params: { contractor: "Y" } })
       .then((res) => {
         if (!mounted) return;
-        setSuppliers(Array.isArray(res.data?.items) ? res.data.items : []);
+        const rows = Array.isArray(res.data?.items) ? res.data.items : [];
+        const filtered = rows.filter(
+          (s) => String(s.service_contractor || "").toUpperCase() === "Y",
+        );
+        setSuppliers(filtered);
       })
       .catch((e) => {
         if (!mounted) return;
         setError(e?.response?.data?.message || "Failed to load suppliers");
+      });
+
+    api
+      .get("/purchase/service-orders", { params: { type: "EXTERNAL" } })
+      .then((res) => {
+        if (!mounted) return;
+        const arr = Array.isArray(res.data?.items) ? res.data.items : [];
+        const mapped = arr.map((x) => ({
+          id: x.id,
+          order_no: x.order_no,
+          status: x.status || "",
+          assigned_supervisor_username: x.assigned_supervisor_username || "",
+          order_date: x.order_date || "",
+        }));
+        setExecutions(mapped);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setExecutions([]);
       });
 
     return () => {
@@ -202,17 +266,36 @@ export default function ServiceConfirmationForm() {
     setError("");
 
     try {
+      if (!selectedExecutionId) {
+        throw new Error("Select completed external service order");
+      }
+      if (!(accept1 && accept2 && accept3 && accept4 && accept5)) {
+        throw new Error("Check all acceptance items");
+      }
+      if (!satisfaction) {
+        throw new Error("Select satisfaction rating");
+      }
       const payload = {
-        sc_no: formData.sc_no || null,
+        sc_no:
+          formData.sc_no ||
+          `SC-${String(Math.floor(Math.random() * 1_000_000)).padStart(6, "0")}`,
         sc_date: formData.sc_date,
         supplier_id: formData.supplier_id ? Number(formData.supplier_id) : null,
-        status: formData.status || "DRAFT",
-        remarks: formData.remarks || null,
+        status: "CONFIRMED",
+        remarks:
+          (formData.remarks || "") +
+          (additionalNotes ? `\nNotes: ${additionalNotes}` : "") +
+          (warrantyProvided ? `\nWarranty provided` : "") +
+          (followUpRequired && followUpNotes
+            ? `\nFollow-up: ${followUpNotes}`
+            : ""),
         details: (formData.details || []).map((d) => ({
           description: String(d.description || "").trim(),
           qty: d.qty === "" ? null : Number(d.qty),
           unit_price: d.unit_price === "" ? null : Number(d.unit_price),
         })),
+        satisfaction: Number(satisfaction),
+        customer_feedback: customerFeedback || null,
       };
 
       if (!payload.sc_date || !payload.supplier_id) {
@@ -417,7 +500,13 @@ export default function ServiceConfirmationForm() {
       <div className="card">
         <div className="card-header bg-brand text-white rounded-t-lg">
           <div className="flex justify-between items-center text-white">
-            <div>
+            <div className="flex items-center gap-3">
+              <Link
+                to="/purchase/service-confirmation"
+                className="px-3 py-1 rounded bg-white text-brand hover:bg-slate-100"
+              >
+                ← Back
+              </Link>
               <h1 className="text-2xl font-bold dark:text-brand-300">
                 {isNew
                   ? "New Service Confirmation"
@@ -445,19 +534,59 @@ export default function ServiceConfirmationForm() {
             <div className="lg:col-span-2 space-y-4">
               <div className="card">
                 <div className="card-body space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="label">No</label>
-                      <input
-                        type="text"
-                        className="input"
-                        value={formData.sc_no}
-                        onChange={(e) =>
-                          setFormData({ ...formData, sc_no: e.target.value })
-                        }
-                        placeholder="Auto-generated if blank"
-                      />
+                  <div className="text-lg font-semibold">
+                    Service Order Reference
+                  </div>
+                  <div>
+                    <label className="label">Completed Service Order *</label>
+                    <select
+                      className="input"
+                      value={selectedExecutionId}
+                      onChange={(e) => setSelectedExecutionId(e.target.value)}
+                      required
+                    >
+                      <option value="">Select external service order...</option>
+                      {executions.map((ex) => (
+                        <option key={ex.id} value={String(ex.id)}>
+                          {ex.order_no || ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {selectedExecution ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-blue-50 border border-blue-200 rounded p-3">
+                      <div>
+                    <div className="text-xs text-slate-500">Order</div>
+                        <div className="font-semibold">
+                          {selectedExecution.order_no || "-"}
+                        </div>
+                      </div>
+                      <div>
+                    <div className="text-xs text-slate-500">Status</div>
+                        <div className="font-semibold">
+                      {selectedExecution.status || "-"}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500">Supervisor</div>
+                        <div className="font-semibold">
+                          {selectedExecution.assigned_supervisor_username ||
+                            "-"}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500">Date</div>
+                        <div className="font-semibold">
+                          {selectedExecution.order_date || "-"}
+                        </div>
+                      </div>
                     </div>
+                  ) : null}
+                </div>
+              </div>
+              <div className="card">
+                <div className="card-body space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <label className="label">Date *</label>
                       <input
@@ -469,20 +598,6 @@ export default function ServiceConfirmationForm() {
                         }
                         required
                       />
-                    </div>
-                    <div>
-                      <label className="label">Status</label>
-                      <select
-                        className="input"
-                        value={formData.status}
-                        onChange={(e) =>
-                          setFormData({ ...formData, status: e.target.value })
-                        }
-                      >
-                        <option value="DRAFT">DRAFT</option>
-                        <option value="CONFIRMED">CONFIRMED</option>
-                        <option value="CANCELLED">CANCELLED</option>
-                      </select>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -521,35 +636,93 @@ export default function ServiceConfirmationForm() {
                 </div>
               </div>
 
+              {/* Select Services section removed */}
+
+              
+
               <div className="card">
                 <div className="card-body space-y-4">
-                  <div className="text-lg font-semibold">Select Services</div>
-                  <div className="rounded-lg border border-sky-200 bg-sky-50 text-sky-900 p-3 text-sm">
-                    Click on services to select them. You can select multiple
-                    services.
+                  <div className="text-lg font-semibold">
+                    Service Acceptance
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-                    {servicesCatalog.map((svc) => {
-                      const active = isServiceSelected(svc);
-                      return (
-                        <button
-                          key={svc.key}
-                          type="button"
-                          className={`p-4 rounded-lg border transition-colors text-left ${
-                            active
-                              ? "border-brand-500 bg-brand text-white"
-                              : "border-slate-200 bg-white hover:bg-slate-800 hover:text-white"
-                          }`}
-                          onClick={() => toggleService(svc)}
+                  <div className="space-y-2">
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={accept1}
+                        onChange={(e) => setAccept1(e.target.checked)}
+                      />
+                      <span>
+                        All services listed were completed as specified
+                      </span>
+                    </label>
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={accept2}
+                        onChange={(e) => setAccept2(e.target.checked)}
+                      />
+                      <span>Work quality meets agreed standards</span>
+                    </label>
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={accept3}
+                        onChange={(e) => setAccept3(e.target.checked)}
+                      />
+                      <span>Materials used were as specified or approved</span>
+                    </label>
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={accept4}
+                        onChange={(e) => setAccept4(e.target.checked)}
+                      />
+                      <span>Service location was left clean and tidy</span>
+                    </label>
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={accept5}
+                        onChange={(e) => setAccept5(e.target.checked)}
+                      />
+                      <span>
+                        All documentation, warranties, and instructions received
+                      </span>
+                    </label>
+                  </div>
+                  <div>
+                    <label className="label">Overall Satisfaction *</label>
+                    <div className="flex flex-wrap gap-3 mt-1">
+                      {[5, 4, 3, 2, 1].map((n) => (
+                        <label
+                          key={n}
+                          className="inline-flex items-center gap-2 text-sm"
                         >
-                          <div className="text-2xl">{svc.icon}</div>
-                          <div className="font-semibold mt-1">{svc.name}</div>
-                          <div className="mt-2 font-bold">
-                            {`GH₵ ${Number(svc.price).toFixed(2)}`}
-                          </div>
-                        </button>
-                      );
-                    })}
+                          <input
+                            type="radio"
+                            name="satisfaction"
+                            value={String(n)}
+                            checked={satisfaction === String(n)}
+                            onChange={(e) => setSatisfaction(e.target.value)}
+                          />
+                          {Array.from({ length: n })
+                            .map(() => "⭐")
+                            .join("")}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="label">
+                      Customer Feedback{" "}
+                      <span className="text-slate-500">(Optional)</span>
+                    </label>
+                    <textarea
+                      className="input"
+                      value={customerFeedback}
+                      onChange={(e) => setCustomerFeedback(e.target.value)}
+                    />
                   </div>
                 </div>
               </div>
@@ -570,6 +743,45 @@ export default function ServiceConfirmationForm() {
                       }
                     />
                   </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={warrantyProvided}
+                        onChange={(e) => setWarrantyProvided(e.target.checked)}
+                      />
+                      <span>Warranty documentation provided</span>
+                    </label>
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={followUpRequired}
+                        onChange={(e) => setFollowUpRequired(e.target.checked)}
+                      />
+                      <span>Follow-up visit required</span>
+                    </label>
+                  </div>
+                  {followUpRequired ? (
+                    <div>
+                      <label className="label">Follow-up Details</label>
+                      <textarea
+                        className="input"
+                        value={followUpNotes}
+                        onChange={(e) => setFollowUpNotes(e.target.value)}
+                      />
+                    </div>
+                  ) : null}
+                  <div>
+                    <label className="label">
+                      Additional Notes{" "}
+                      <span className="text-slate-500">(Optional)</span>
+                    </label>
+                    <textarea
+                      className="input"
+                      value={additionalNotes}
+                      onChange={(e) => setAdditionalNotes(e.target.value)}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -577,7 +789,7 @@ export default function ServiceConfirmationForm() {
             <div className="space-y-4">
               <div className="card">
                 <div className="card-header bg-brand text-white rounded-t-lg">
-                  <div className="font-semibold">Service Summary</div>
+                  <div className="font-semibold">Confirmation Summary</div>
                 </div>
                 <div className="card-body space-y-2">
                   <div className="flex justify-between py-1 border-b border-slate-200">
@@ -597,97 +809,30 @@ export default function ServiceConfirmationForm() {
                     <div className="text-sm">Location</div>
                     <div className="text-sm font-semibold">In Shop</div>
                   </div>
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="card-body space-y-2">
-                  <div className="text-lg font-semibold">Selected Services</div>
-                  {!formData.details.length ? (
-                    <div className="text-center text-slate-600 p-6">
-                      <div className="text-3xl">🔧</div>
-                      <div className="text-sm mt-2">No services selected</div>
-                    </div>
-                  ) : (
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {formData.details.map((d, idx) => {
-                        const qty = Math.max(1, Number(d.qty || 1));
-                        const unit = Number(d.unit_price || 0);
-                        const amount = qty * unit;
-                        return (
-                          <div
-                            key={idx}
-                            className="p-3 rounded-lg border border-slate-200 bg-white"
-                          >
-                            <div className="flex justify-between items-center">
-                              <div className="font-medium text-brand-700">
-                                {d.description}
-                              </div>
-                              <div className="font-semibold">
-                                {`GH₵ ${amount.toFixed(2)}`}
-                              </div>
-                            </div>
-                            <div className="text-xs text-slate-600">
-                              {`GH₵ ${unit.toFixed(2)} × ${qty}`}
-                            </div>
-                            <div className="flex items-center gap-2 mt-2">
-                              <button
-                                type="button"
-                                className="btn-secondary btn-sm"
-                                onClick={() =>
-                                  updateLine(idx, {
-                                    qty: Math.max(1, qty - 1),
-                                  })
-                                }
-                              >
-                                -
-                              </button>
-                              <span className="text-sm font-semibold">
-                                {qty}
-                              </span>
-                              <button
-                                type="button"
-                                className="btn-secondary btn-sm"
-                                onClick={() =>
-                                  updateLine(idx, { qty: qty + 1 })
-                                }
-                              >
-                                +
-                              </button>
-                              <button
-                                type="button"
-                                className="btn-danger btn-sm ml-auto"
-                                onClick={() => removeLine(idx)}
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="card-header bg-brand text-white rounded-t-lg">
-                  <div className="font-semibold">Deposit</div>
-                </div>
-                <div className="card-body space-y-2">
-                  <label className="label">Deposit Percent</label>
-                  <input
-                    type="number"
-                    className="input"
-                    value={depositPercent}
-                    onChange={(e) => setDepositPercent(e.target.value)}
-                    placeholder="0"
-                  />
-                  <div className="text-sm">
-                    Deposit Amount: {`GH₵ ${depositAmount.toFixed(2)}`}
+                  <div className="flex justify-between py-1 border-t pt-2">
+                    <div className="text-sm">Total</div>
+                    <div className="text-sm font-semibold">{`GH₵ ${computedTotal.toFixed(2)}`}</div>
+                  </div>
+                  <div className="mt-2">
+                    <span
+                      className={
+                        "inline-block px-3 py-1 rounded-full text-xs font-semibold " +
+                        (readyToConfirm
+                          ? "bg-green-100 text-green-700"
+                          : "bg-yellow-100 text-yellow-700")
+                      }
+                    >
+                      {readyToConfirm
+                        ? "Ready to Confirm"
+                        : "Pending Confirmation"}
+                    </span>
                   </div>
                 </div>
               </div>
+
+              {/* Selected Services card removed */}
+
+              {/* Deposit card removed */}
             </div>
           </div>
 
@@ -700,11 +845,21 @@ export default function ServiceConfirmationForm() {
             </Link>
             <button
               type="button"
-              className="btn-primary"
-              onClick={handleSubmit}
-              disabled={saving}
+              className="btn-danger px-4 py-2"
+              onClick={() => {
+                setRejectionReason("");
+                setShowRejectModal(true);
+              }}
             >
-              Save Confirmation
+              Reject Service
+            </button>
+            <button
+              type="button"
+              className="btn-success"
+              onClick={handleSubmit}
+              disabled={saving || !readyToConfirm}
+            >
+              Confirm Service Completion
             </button>
           </div>
           {error ? (
@@ -712,6 +867,49 @@ export default function ServiceConfirmationForm() {
           ) : null}
         </div>
       </div>
+      {showRejectModal ? (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="card w-full max-w-lg">
+            <div className="card-header bg-brand text-white rounded-t-lg">
+              <div className="font-semibold">Service Rejection</div>
+            </div>
+            <div className="card-body space-y-3">
+              <div>
+                <label className="label">Reason for Rejection *</label>
+                <textarea
+                  className="input"
+                  rows="4"
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setShowRejectModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-danger"
+                  onClick={() => {
+                    if (!rejectionReason.trim()) {
+                      alert("Please provide a reason for rejection.");
+                      return;
+                    }
+                    alert("Service rejection has been recorded.");
+                    setShowRejectModal(false);
+                  }}
+                >
+                  Submit Rejection
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

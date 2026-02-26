@@ -286,7 +286,7 @@ export default function PriceSetup() {
     } catch (err) {
       console.error("Error saving data:", err);
       alert(
-        "Failed to save data: " + (err.response?.data?.message || err.message)
+        "Failed to save data: " + (err.response?.data?.message || err.message),
       );
     }
   };
@@ -304,14 +304,13 @@ export default function PriceSetup() {
             <th>Price Type</th>
             <th>UOM</th>
             <th>Currency</th>
-            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {data.map((item, index) => {
             const product = products.find((p) => p.id === item.product_id);
             const priceType = priceTypes.find(
-              (pt) => pt.id === item.price_type_id
+              (pt) => pt.id === item.price_type_id,
             );
             const currency = currencies.find((c) => c.id === item.currency_id);
             return (
@@ -331,14 +330,6 @@ export default function PriceSetup() {
                   {currency
                     ? `${currency.code} - ${currency.name}`
                     : item.currency_id || "-"}
-                </td>
-                <td>
-                  <button
-                    className="btn btn-sm btn-info"
-                    onClick={() => handleOpenModal("standard", item)}
-                  >
-                    Edit
-                  </button>
                 </td>
               </tr>
             );
@@ -363,7 +354,6 @@ export default function PriceSetup() {
             <th>Price Type</th>
             <th>UOM</th>
             <th>Currency</th>
-            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -371,7 +361,7 @@ export default function PriceSetup() {
             const customer = customers.find((c) => c.id === item.customer_id);
             const product = products.find((p) => p.id === item.product_id);
             const priceType = priceTypes.find(
-              (pt) => pt.id === item.price_type_id
+              (pt) => pt.id === item.price_type_id,
             );
             const currency = currencies.find((c) => c.id === item.currency_id);
             return (
@@ -393,14 +383,6 @@ export default function PriceSetup() {
                   {currency
                     ? `${currency.code} - ${currency.name}`
                     : item.currency_id || "-"}
-                </td>
-                <td>
-                  <button
-                    className="btn btn-sm btn-info"
-                    onClick={() => handleOpenModal("customer", item)}
-                  >
-                    Edit
-                  </button>
                 </td>
               </tr>
             );

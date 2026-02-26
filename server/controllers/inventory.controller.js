@@ -1,8 +1,46 @@
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 
+async function hasColumn(tableName, columnName) {
+  const rows = await query(
+    `
+    SELECT COUNT(*) AS c
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = :tableName
+      AND column_name = :columnName
+    `,
+    { tableName, columnName },
+  );
+  return Number(rows?.[0]?.c || 0) > 0;
+}
+
+async function ensureItemFlagColumns() {
+  if (!(await hasColumn("inv_items", "service_item"))) {
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN service_item CHAR(1) NOT NULL DEFAULT 'N'",
+    );
+  }
+  if (!(await hasColumn("inv_items", "is_stockable"))) {
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN is_stockable CHAR(1) NOT NULL DEFAULT 'N'",
+    );
+  }
+  if (!(await hasColumn("inv_items", "is_sellable"))) {
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN is_sellable CHAR(1) NOT NULL DEFAULT 'N'",
+    );
+  }
+  if (!(await hasColumn("inv_items", "is_purchasable"))) {
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN is_purchasable CHAR(1) NOT NULL DEFAULT 'N'",
+    );
+  }
+}
+
 export const listItems = async (req, res, next) => {
   try {
+    await ensureItemFlagColumns();
     const { companyId, branchId } = req.scope;
     const rows = await query(
       `
@@ -22,6 +60,10 @@ export const listItems = async (req, res, next) => {
              i.vat_on_sales_id,
              i.purchase_account_id,
              i.sales_account_id,
+             i.service_item,
+             i.is_stockable,
+             i.is_sellable,
+             i.is_purchasable,
              i.is_active,
              COALESCE(sb.qty, 0) AS avail_qty
       FROM inv_items i
@@ -65,6 +107,97 @@ export const listWarehouses = async (req, res, next) => {
   }
 };
 
+export const bulkUpdateStockBalances = async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req.scope;
+    const body = req.body || {};
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+    const warehouseId =
+      Number(body.warehouseId || 0) > 0 ? Number(body.warehouseId) : null;
+    if (!rows.length) throw httpError(400, "VALIDATION_ERROR", "No rows");
+
+    // Resolve optional warehouse by code if provided
+    let resolvedWarehouseId = warehouseId;
+    const warehouseCode = String(body.warehouseCode || "").trim();
+    if (!resolvedWarehouseId && warehouseCode) {
+      const wRows = await query(
+        `SELECT id FROM inv_warehouses 
+         WHERE company_id = :companyId AND branch_id = :branchId 
+           AND UPPER(warehouse_code) = :code 
+         LIMIT 1`,
+        { companyId, branchId, code: warehouseCode.toUpperCase() },
+      ).catch(() => []);
+      resolvedWarehouseId = Number(wRows?.[0]?.id || 0) || null;
+    }
+
+    // Build item_code -> id map for efficient resolve
+    const codes = Array.from(
+      new Set(
+        rows
+          .map((r) => String(r.item_code || r.ITEM_CODE || "").trim())
+          .filter(Boolean),
+      ),
+    );
+    const placeholders = codes.map((_, i) => `:c${i}`).join(", ");
+    const params = { companyId };
+    codes.forEach((c, i) => (params[`c${i}`] = c));
+    let codeToId = new Map();
+    if (codes.length) {
+      const items = await query(
+        `SELECT id, item_code FROM inv_items 
+         WHERE company_id = :companyId 
+           AND item_code IN (${placeholders})`,
+        params,
+      ).catch(() => []);
+      for (const it of items || []) {
+        codeToId.set(String(it.item_code || "").trim(), Number(it.id));
+      }
+    }
+
+    let ok = 0;
+    let fail = 0;
+    for (const r of rows) {
+      const code = String(r.item_code || r.ITEM_CODE || "").trim();
+      const explicitItemId = Number(r.item_id || r.ITEM_ID || 0) || null;
+      const qty = Number(r.qty ?? r.NEW_QTY ?? r.QTY ?? 0);
+      if ((!code && !explicitItemId) || !Number.isFinite(qty)) {
+        fail += 1;
+        continue;
+      }
+      const itemId =
+        explicitItemId ||
+        codeToId.get(code) ||
+        // Try case-insensitive lookup if not found
+        null;
+      if (!itemId) {
+        fail += 1;
+        continue;
+      }
+      try {
+        // Upsert with replacement (set absolute quantity)
+        await query(
+          `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
+           VALUES (:companyId, :branchId, :warehouseId, :itemId, :qty)
+           ON DUPLICATE KEY UPDATE qty = :qty`,
+          {
+            companyId,
+            branchId,
+            warehouseId: resolvedWarehouseId,
+            itemId,
+            qty,
+          },
+        );
+        ok += 1;
+      } catch {
+        fail += 1;
+      }
+    }
+    res.json({ updated: ok, failed: fail });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const getItemById = async (req, res, next) => {
   try {
     const { companyId } = req.scope;
@@ -89,8 +222,16 @@ export const getItemById = async (req, res, next) => {
 
 export const createItem = async (req, res, next) => {
   try {
+    await ensureItemFlagColumns();
     const { companyId } = req.scope;
     const body = req.body || {};
+    const yn = (v, def = "N") => {
+      if (v === undefined || v === null) return def;
+      const s = String(v).toUpperCase();
+      if (s === "Y") return "Y";
+      if (s === "N") return "N";
+      return Boolean(v) ? "Y" : "N";
+    };
     const itemCode = String(body.item_code || "").trim();
     const itemName = String(body.item_name || "").trim();
     const uom = String(body.uom || "PCS").trim() || "PCS";
@@ -105,6 +246,10 @@ export const createItem = async (req, res, next) => {
     const vatOnSalesId = Number(body.vat_on_sales_id || 0) || null;
     const purchaseAccountId = Number(body.purchase_account_id || 0) || null;
     const salesAccountId = Number(body.sales_account_id || 0) || null;
+    const serviceItem = yn(body.service_item, "N");
+    const isStockable = yn(body.is_stockable, "N");
+    const isSellable = yn(body.is_sellable, "N");
+    const isPurchasable = yn(body.is_purchasable, "N");
     const isActive =
       body.is_active === undefined ? 1 : Number(Boolean(body.is_active));
     if (!itemCode || !itemName)
@@ -115,8 +260,8 @@ export const createItem = async (req, res, next) => {
       );
     const result = await query(
       `
-      INSERT INTO inv_items (company_id, item_code, item_name, uom, item_type, barcode, cost_price, selling_price, currency_id, price_type_id, image_url, vat_on_purchase_id, vat_on_sales_id, purchase_account_id, sales_account_id, is_active)
-      VALUES (:companyId, :itemCode, :itemName, :uom, :itemType, :barcode, :costPrice, :sellingPrice, :currencyId, :priceTypeId, :imageUrl, :vatOnPurchaseId, :vatOnSalesId, :purchaseAccountId, :salesAccountId, :isActive)
+      INSERT INTO inv_items (company_id, item_code, item_name, uom, item_type, barcode, cost_price, selling_price, currency_id, price_type_id, image_url, vat_on_purchase_id, vat_on_sales_id, purchase_account_id, sales_account_id, service_item, is_stockable, is_sellable, is_purchasable, is_active)
+      VALUES (:companyId, :itemCode, :itemName, :uom, :itemType, :barcode, :costPrice, :sellingPrice, :currencyId, :priceTypeId, :imageUrl, :vatOnPurchaseId, :vatOnSalesId, :purchaseAccountId, :salesAccountId, :serviceItem, :isStockable, :isSellable, :isPurchasable, :isActive)
       `,
       {
         companyId,
@@ -134,6 +279,10 @@ export const createItem = async (req, res, next) => {
         vatOnSalesId,
         purchaseAccountId,
         salesAccountId,
+        serviceItem,
+        isStockable,
+        isSellable,
+        isPurchasable,
         isActive,
       },
     );
@@ -145,11 +294,19 @@ export const createItem = async (req, res, next) => {
 
 export const updateItem = async (req, res, next) => {
   try {
+    await ensureItemFlagColumns();
     const { companyId } = req.scope;
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const body = req.body || {};
+    const yn = (v, def = "N") => {
+      if (v === undefined || v === null) return def;
+      const s = String(v).toUpperCase();
+      if (s === "Y") return "Y";
+      if (s === "N") return "N";
+      return Boolean(v) ? "Y" : "N";
+    };
     const itemCode = String(body.item_code || "").trim();
     const itemName = String(body.item_name || "").trim();
     const uom = String(body.uom || "PCS").trim() || "PCS";
@@ -164,6 +321,10 @@ export const updateItem = async (req, res, next) => {
     const vatOnSalesId = Number(body.vat_on_sales_id || 0) || null;
     const purchaseAccountId = Number(body.purchase_account_id || 0) || null;
     const salesAccountId = Number(body.sales_account_id || 0) || null;
+    const serviceItem = yn(body.service_item, "N");
+    const isStockable = yn(body.is_stockable, "N");
+    const isSellable = yn(body.is_sellable, "N");
+    const isPurchasable = yn(body.is_purchasable, "N");
     const isActive =
       body.is_active === undefined ? 1 : Number(Boolean(body.is_active));
     if (!itemCode || !itemName)
@@ -189,6 +350,10 @@ export const updateItem = async (req, res, next) => {
           vat_on_sales_id = :vatOnSalesId,
           purchase_account_id = :purchaseAccountId,
           sales_account_id = :salesAccountId,
+          service_item = :serviceItem,
+          is_stockable = :isStockable,
+          is_sellable = :isSellable,
+          is_purchasable = :isPurchasable,
           is_active = :isActive
       WHERE id = :id AND company_id = :companyId
       `,
@@ -209,6 +374,10 @@ export const updateItem = async (req, res, next) => {
         vatOnSalesId,
         purchaseAccountId,
         salesAccountId,
+        serviceItem,
+        isStockable,
+        isSellable,
+        isPurchasable,
         isActive,
       },
     );

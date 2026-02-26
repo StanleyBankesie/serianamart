@@ -3,16 +3,16 @@ import { Link } from "react-router-dom";
 import {
   Search,
   Plus,
-  Eye,
-  Edit,
   Check,
   FileText,
   Package,
   AlertCircle,
 } from "lucide-react";
-import { api } from "api/client";
+import { api } from "../../../api/client";
+import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 export default function StockVerificationList() {
+  const { canPerformAction } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [verifications, setVerifications] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -33,14 +33,14 @@ export default function StockVerificationList() {
         // Filter for verification-related types if possible, or just show all adjustments
         // Assuming Stock Verification maps to Stock Adjustments for now
         setVerifications(
-          Array.isArray(adjRes.data?.items) ? adjRes.data.items : []
+          Array.isArray(adjRes.data?.items) ? adjRes.data.items : [],
         );
         setWarehouses(Array.isArray(whRes.data?.items) ? whRes.data.items : []);
       })
       .catch((e) => {
         if (!mounted) return;
         setError(
-          e?.response?.data?.message || "Failed to load stock verifications"
+          e?.response?.data?.message || "Failed to load stock verifications",
         );
       })
       .finally(() => {
@@ -125,8 +125,7 @@ export default function StockVerificationList() {
         // We'll skip warehouse search if data not present
         false;
 
-      const matchesStatus =
-        filterStatus === "ALL" || v.status === filterStatus;
+      const matchesStatus = filterStatus === "ALL" || v.status === filterStatus;
 
       return matchesSearch && matchesStatus;
     });
@@ -136,10 +135,10 @@ export default function StockVerificationList() {
   const stats = {
     total: verifications.length,
     inProgress: verifications.filter(
-      (v) => v.status === "IN_PROGRESS" || v.status === "DRAFT"
+      (v) => v.status === "IN_PROGRESS" || v.status === "DRAFT",
     ).length,
     completed: verifications.filter(
-      (v) => v.status === "COMPLETED" || v.status === "POSTED"
+      (v) => v.status === "COMPLETED" || v.status === "POSTED",
     ).length,
     variance: 0, // Not available in current API
   };
@@ -345,20 +344,30 @@ export default function StockVerificationList() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex gap-2">
-                          <Link
-                            to={`/inventory/stock-verification/${verification.id}?mode=view`}
-                            className="text-blue-600 hover:text-blue-900"
-                            title="View Details"
-                          >
-                            <Eye className="w-5 h-5" />
-                          </Link>
-                          <Link
-                            to={`/inventory/stock-verification/${verification.id}?mode=edit`}
-                            className="text-green-600 hover:text-green-900"
-                            title="Edit"
-                          >
-                            <Edit className="w-5 h-5" />
-                          </Link>
+                          {canPerformAction(
+                            "inventory:stock-verification",
+                            "view",
+                          ) && (
+                            <Link
+                              to={`/inventory/stock-verification/${verification.id}?mode=view`}
+                              className="text-blue-600 hover:text-blue-900"
+                              title="View Details"
+                            >
+                              View
+                            </Link>
+                          )}
+                          {canPerformAction(
+                            "inventory:stock-verification",
+                            "edit",
+                          ) && (
+                            <Link
+                              to={`/inventory/stock-verification/${verification.id}?mode=edit`}
+                              className="text-green-600 hover:text-green-900"
+                              title="Edit"
+                            >
+                              Edit
+                            </Link>
+                          )}
                         </div>
                       </td>
                     </tr>

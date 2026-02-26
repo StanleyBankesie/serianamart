@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
+import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 export default function ServiceConfirmationsList() {
+  const { canPerformAction } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -144,18 +146,22 @@ export default function ServiceConfirmationsList() {
                     </td>
                     <td>
                       <div className="flex gap-2">
-                        <Link
-                          to={`/purchase/service-confirmation/${c.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                        <Link
-                          to={`/purchase/service-confirmation/${c.id}?mode=edit`}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                        >
-                          Edit
-                        </Link>
+                        {canPerformAction("purchase:service-confirmation", "view") && (
+                          <Link
+                            to={`/purchase/service-confirmation/${c.id}?mode=view`}
+                            className="text-brand hover:text-brand-700 text-sm font-medium"
+                          >
+                            View
+                          </Link>
+                        )}
+                        {canPerformAction("purchase:service-confirmation", "edit") && (
+                          <Link
+                            to={`/purchase/service-confirmation/${c.id}?mode=edit`}
+                            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                          >
+                            Edit
+                          </Link>
+                        )}
                       </div>
                     </td>
                   </tr>

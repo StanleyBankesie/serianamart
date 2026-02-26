@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { api } from "../../../../api/client";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { toast } from "react-toastify";
 
 function SectionHeader({ number, title }) {
   return (
@@ -16,16 +17,33 @@ function SectionHeader({ number, title }) {
 }
 
 export default function ServiceRequestForm() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  function normalizeDateString(v) {
+    if (!v) return "";
+    const s =
+      typeof v === "string"
+        ? v
+        : (() => {
+            try {
+              return new Date(v).toISOString();
+            } catch {
+              return String(v);
+            }
+          })();
+    return s.slice(0, 10);
+  }
   const [form, setForm] = useState({
-    firstName: "",
-    lastName: "",
+    customerType: "",
+    customerId: "",
+    accountEmail: "",
     email: "",
     phone: "",
     company: "",
     address: "",
     city: "",
     state: "",
-    zipCode: "",
+    country: "",
     serviceType: "",
     department: "",
     requestTitle: "",
@@ -38,25 +56,30 @@ export default function ServiceRequestForm() {
     additionalNotes: "",
     terms: false,
   });
+  const [customers, setCustomers] = useState([]);
+  const [prospects, setProspects] = useState([]);
   const [files, setFiles] = useState([]);
   const [dragActive, setDragActive] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [serverRef, setServerRef] = useState({ id: null, request_no: "" });
   const [submitting, setSubmitting] = useState(false);
-  const requiredKeys = useMemo(
-    () => [
-      "firstName",
-      "lastName",
-      "email",
-      "phone",
+  const [departments, setDepartments] = useState([]);
+  const requiredKeys = useMemo(() => {
+    const base = [
+      "customerType",
       "serviceType",
       "requestTitle",
       "description",
       "urgency",
       "terms",
-    ],
-    [],
-  );
+    ];
+    if (form.customerType === "existing") {
+      base.push("customerId");
+    } else {
+      base.push("company", "email", "phone");
+    }
+    return base;
+  }, [form.customerType]);
   const progress = useMemo(() => {
     let filled = 0;
     for (const k of requiredKeys) {
@@ -74,6 +97,117 @@ export default function ServiceRequestForm() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  useEffect(() => {
+    let mounted = true;
+    async function fetchCustomers() {
+      try {
+        const resp = await api.get("/sales/customers");
+        const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
+        if (mounted) setCustomers(items);
+      } catch {
+        if (mounted) setCustomers([]);
+      }
+    }
+    async function fetchProspects(q = "") {
+      try {
+        const resp = await api.get("/sales/prospects", {
+          params: { q: q || null },
+        });
+        const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
+        if (mounted) setProspects(items);
+      } catch {
+        if (mounted) setProspects([]);
+      }
+    }
+    if (form.customerType === "existing") {
+      fetchCustomers();
+    }
+    fetchProspects("");
+    return () => {
+      mounted = false;
+    };
+  }, [form.customerType]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function fetchDepartments() {
+      try {
+        const resp = await api.get("/admin/departments");
+        const rows = Array.isArray(resp.data?.items) ? resp.data.items : [];
+        if (mounted) setDepartments(rows);
+      } catch {
+        if (mounted) setDepartments([]);
+      }
+    }
+    fetchDepartments();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const id = params.get("id");
+    let cancelled = false;
+    async function loadExisting() {
+      try {
+        if (!id) return;
+        const resp = await api.get(`/purchase/service-requests/${id}`);
+        const item = resp.data?.item;
+        if (!item || cancelled) return;
+        setForm((prev) => ({
+          ...prev,
+          customerType: "general",
+          customerId: "",
+          accountEmail: item.requester_email || "",
+          email: item.requester_email || "",
+          phone: item.requester_phone || "",
+          company: item.requester_full_name || "",
+          address: item.requester_address || "",
+          city: "",
+          state: "",
+          country: "",
+          serviceType: item.service_type || "",
+          department: item.department || "",
+          requestTitle: item.request_title || "",
+          description: item.description || "",
+          urgency: item.priority === "high" ? "emergency" : item.priority === "medium" ? "urgent" : "normal",
+          preferredDate: normalizeDateString(item.preferred_date) || "",
+          preferredTime: item.preferred_time || "",
+          contactMethod: item.contact_method || "email",
+          recurring: item.recurring || "no",
+          additionalNotes: item.additional_notes || "",
+          terms: Boolean(item.agreed_terms),
+        }));
+      } catch {}
+    }
+    loadExisting();
+    return () => {
+      cancelled = true;
+    };
+  }, [location.search]);
+
+  function handleCustomerSelect(id) {
+    const sid = String(id || "");
+    update("customerId", sid);
+    const cust =
+      customers.find((c) => String(c.id) === sid) ||
+      customers.find((c) => String(c.customer_code || "") === sid) ||
+      null;
+    const emailVal = cust.email || form.email || "";
+    const phoneVal = cust.phone || cust.mobile || form.phone || "";
+    setForm((prev) => ({
+      ...prev,
+      company: cust.customer_name || prev.company || "",
+      email: emailVal,
+      phone: phoneVal,
+      accountEmail: cust.email || prev.accountEmail || "",
+      address: cust.address || prev.address || "",
+      city: cust.city || prev.city || "",
+      state: cust.state || prev.state || "",
+      country: cust.country || prev.country || "",
+    }));
+  }
   function handleFileInput(e) {
     const incoming = Array.from(e.target.files || []);
     addFiles(incoming);
@@ -107,15 +241,13 @@ export default function ServiceRequestForm() {
 
   function resetForm() {
     setForm({
-      firstName: "",
-      lastName: "",
       email: "",
       phone: "",
       company: "",
       address: "",
       city: "",
       state: "",
-      zipCode: "",
+      country: "",
       serviceType: "",
       department: "",
       requestTitle: "",
@@ -143,29 +275,34 @@ export default function ServiceRequestForm() {
     }
     if (submitting) return;
     setSubmitting(true);
-    const fullName =
-      `${String(form.firstName || "").trim()} ${String(form.lastName || "").trim()}`.trim();
+    const fullName = String(form.company || "").trim();
     const addrParts = [
       String(form.address || "").trim(),
       String(form.city || "").trim(),
       String(form.state || "").trim(),
-      String(form.zipCode || "").trim(),
+      String(form.country || "").trim(),
     ].filter(Boolean);
     const combinedAddress = addrParts.join(", ");
     const priorityMap = { normal: "low", urgent: "medium", emergency: "high" };
     const priority = priorityMap[String(form.urgency || "normal")] || "low";
     const payload = {
+      customer_type: form.customerType,
+      customer_id: form.customerId || null,
+      account_email: form.accountEmail || null,
       full_name: fullName,
       email: form.email,
       phone: form.phone,
       company: form.company || null,
       address: combinedAddress || null,
-      service_type: form.serviceType,
+      service_type: String(form.serviceType || "").trim(),
       department: form.department || null,
       request_title: form.requestTitle,
       description: form.description,
       priority,
-      preferred_date: form.preferredDate || null,
+      preferred_date: (() => {
+        const s = normalizeDateString(form.preferredDate);
+        return s ? s : null;
+      })(),
       preferred_time: form.preferredTime || null,
       contact_method: form.contactMethod || "email",
       recurring: form.recurring || "no",
@@ -176,17 +313,33 @@ export default function ServiceRequestForm() {
         size: f.size,
         type: f.type,
       })),
+      prospect: {
+        prospect_customer: form.company || null,
+        address: form.address || null,
+        city: form.city || null,
+        state: form.state || null,
+        country: form.country || null,
+        telephone: form.phone || null,
+        email: form.email || null,
+      },
     };
-    api
-      .post("/purchase/service-requests", payload)
+    const params = new URLSearchParams(location.search);
+    const editId = params.get("id");
+    const req = editId
+      ? api.put(`/purchase/service-requests/${editId}`, payload)
+      : api.post("/purchase/service-requests", payload);
+    req
       .then((res) => {
-        const id = res?.data?.id || null;
         const requestNo = res?.data?.request_no || "";
-        setServerRef({ id, request_no: requestNo });
-        setShowModal(true);
+        toast.success(
+          requestNo
+            ? `Service request ${requestNo} submitted successfully`
+            : "Service request submitted successfully",
+        );
+        navigate("/service-management/service-requests");
       })
       .catch((err) => {
-        alert(
+        toast.error(
           err?.response?.data?.message ||
             "Failed to submit request. Please try again.",
         );
@@ -201,10 +354,10 @@ export default function ServiceRequestForm() {
       <div className="flex items-center justify-between">
         <div>
           <Link
-            to="/service-management"
+            to="/service-management/service-requests"
             className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
-            ← Back to Service Management
+            ← Back to Request List
           </Link>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             Service Request
@@ -227,67 +380,111 @@ export default function ServiceRequestForm() {
       <form onSubmit={onSubmit} className="space-y-6">
         <div className="card">
           <div className="card-body space-y-4">
-            <SectionHeader number="1" title="Personal Information" />
+            <SectionHeader number="0" title="Customer Type" />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className="label">
-                  First Name <span className="text-red-600">*</span>
-                </label>
-                <input
-                  className="input"
-                  value={form.firstName}
-                  onChange={(e) => update("firstName", e.target.value)}
-                  placeholder="John"
-                />
-              </div>
-              <div>
-                <label className="label">
-                  Last Name <span className="text-red-600">*</span>
-                </label>
-                <input
-                  className="input"
-                  value={form.lastName}
-                  onChange={(e) => update("lastName", e.target.value)}
-                  placeholder="Doe"
-                />
-              </div>
-              <div>
-                <label className="label">
-                  Email <span className="text-red-600">*</span>
-                </label>
-                <input
-                  className="input"
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => update("email", e.target.value)}
-                  placeholder="john.doe@example.com"
-                />
-              </div>
-              <div>
-                <label className="label">
-                  Phone <span className="text-red-600">*</span>
-                </label>
-                <input
-                  className="input"
-                  value={form.phone}
-                  onChange={(e) => update("phone", e.target.value)}
-                  placeholder="+233 ..."
-                />
-              </div>
+              <button
+                type="button"
+                className={
+                  "rounded-lg border px-4 py-3 text-left " +
+                  (form.customerType === "existing"
+                    ? "bg-brand text-white border-brand"
+                    : "border-slate-300 bg-white")
+                }
+                onClick={() => update("customerType", "existing")}
+              >
+                <div className="text-sm font-semibold">Existing Customer</div>
+                <div className="text-xs">You have an account with us</div>
+              </button>
+              <button
+                type="button"
+                className={
+                  "rounded-lg border px-4 py-3 text-left " +
+                  (form.customerType === "general"
+                    ? "bg-brand text-white border-brand"
+                    : "border-slate-300 bg-white")
+                }
+                onClick={() => update("customerType", "general")}
+              >
+                <div className="text-sm font-semibold">New Customer</div>
+                <div className="text-xs">First time requesting service</div>
+              </button>
             </div>
+            {String(form.customerType || "") === "" && (
+              <div className="text-xs text-red-600">
+                Please select a customer type
+              </div>
+            )}
+            {form.customerType === "existing" && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="label">
+                    Customer ID <span className="text-red-600">*</span>
+                  </label>
+                  <select
+                    className="input"
+                    value={form.customerId}
+                    onChange={(e) => handleCustomerSelect(e.target.value)}
+                  >
+                    <option value="">Select Customer</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.customer_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Account Email</label>
+                  <input
+                    className="input"
+                    type="email"
+                    value={form.accountEmail}
+                    readOnly
+                    placeholder="your.email@example.com"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-body space-y-4">
             <SectionHeader number="2" title="Company & Address" />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {form.customerType === "general" && (
+                <div>
+                  <label className="label">Company</label>
+                  <div className="relative">
+                    <input
+                      className="input"
+                      list="prospectsList"
+                      value={form.company}
+                      onChange={async (e) => {
+                        const v = e.target.value;
+                        update("company", v);
+                        try {
+                          const resp = await api.get("/sales/prospects", {
+                            params: { q: v || null },
+                          });
+                          const items = Array.isArray(resp.data?.items)
+                            ? resp.data.items
+                            : [];
+                          setProspects(items);
+                        } catch {}
+                      }}
+                      placeholder="Requester / Company"
+                    />
+                    <datalist id="prospectsList">
+                      {prospects.map((p) => (
+                        <option key={`${p.company_id}-${p.id}`} value={p.prospect_customer} />
+                      ))}
+                    </datalist>
+                  </div>
+                </div>
+              )}
               <div>
-                <label className="label">Company</label>
-                <input
-                  className="input"
-                  value={form.company}
-                  onChange={(e) => update("company", e.target.value)}
-                  placeholder="Company Ltd."
-                />
-              </div>
-              <div>
-                <label className="label">Street Address</label>
+                <label className="label">Address</label>
                 <input
                   className="input"
                   value={form.address}
@@ -314,27 +511,47 @@ export default function ServiceRequestForm() {
                 />
               </div>
               <div>
-                <label className="label">Zip Code</label>
+                <label className="label">Country</label>
                 <input
                   className="input"
-                  value={form.zipCode}
-                  onChange={(e) => update("zipCode", e.target.value)}
-                  placeholder="00000"
+                  value={form.country}
+                  onChange={(e) => update("country", e.target.value)}
+                  placeholder="Ghana"
+                />
+              </div>
+              <div>
+                <label className="label">
+                  Email <span className="text-red-600">*</span>
+                </label>
+                <input
+                  className="input"
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => update("email", e.target.value)}
+                  placeholder="customer@example.com"
+                />
+              </div>
+              <div>
+                <label className="label">Telephone</label>
+                <input
+                  className="input"
+                  value={form.phone}
+                  onChange={(e) => update("phone", e.target.value)}
+                  placeholder="+233 ..."
                 />
               </div>
             </div>
             <SectionHeader number="3" title="Service Details" />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
-                <label className="label">
-                  Service Type <span className="text-red-600">*</span>
-                </label>
+                <label className="label">Service Type</label>
                 <select
                   className="input"
                   value={form.serviceType}
                   onChange={(e) => update("serviceType", e.target.value)}
                 >
                   <option value="">Select service</option>
+                  <option value="general">General Services</option>
                   <option value="installation">Installation</option>
                   <option value="maintenance">Maintenance</option>
                   <option value="repair">Repair</option>
@@ -343,12 +560,18 @@ export default function ServiceRequestForm() {
               </div>
               <div>
                 <label className="label">Department</label>
-                <input
+                <select
                   className="input"
                   value={form.department}
                   onChange={(e) => update("department", e.target.value)}
-                  placeholder="IT / Facilities / Operations"
-                />
+                >
+                  <option value="">Select department</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.name}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="md:col-span-2">
                 <label className="label">

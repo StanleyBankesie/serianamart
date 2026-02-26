@@ -137,6 +137,7 @@ function ProjectManagementLanding() {
       description="Project planning, tracking, and resource allocation"
       stats={stats}
       sections={sections}
+      features={projectManagementFeatures}
     />
   );
 }
@@ -158,3 +159,11 @@ export default function ProjectManagementHome() {
     </Routes>
   );
 }
+
+export const projectManagementFeatures = [
+  { module_key: "project-management", label: "Projects", path: "/project-management/projects", type: "feature" },
+  { module_key: "project-management", label: "New Project", path: "/project-management/projects/new", type: "feature" },
+  { module_key: "project-management", label: "Tasks", path: "/project-management/tasks", type: "feature" },
+  { module_key: "project-management", label: "New Task", path: "/project-management/tasks/new", type: "feature" },
+  { module_key: "project-management", label: "Project Reports", path: "/project-management/reports", type: "dashboard" },
+];

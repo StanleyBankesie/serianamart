@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function BomList() {
+  const { canPerformAction } = usePermission();
   const items = [
     { id: 1, code: 'BOM-001', product: 'Finished Good A', version: 'v1', active: true },
     { id: 2, code: 'BOM-002', product: 'Finished Good B', version: 'v1', active: true },
@@ -31,18 +33,22 @@ export default function BomList() {
                 <td>{b.version}</td>
                 <td>{b.active ? <span className="badge badge-success">Active</span> : <span className="badge badge-error">Inactive</span>}</td>
                 <td>
-                  <Link
-                    to={`/production/bom/${b.id}?mode=view`}
-                    className="text-brand hover:text-brand-600 text-sm font-medium"
-                  >
-                    View
-                  </Link>
-                  <Link
-                    to={`/production/bom/${b.id}?mode=edit`}
-                    className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                  >
-                    Edit
-                  </Link>
+                  {canPerformAction('production:bom','view') && (
+                    <Link
+                      to={`/production/bom/${b.id}?mode=view`}
+                      className="text-brand hover:text-brand-600 text-sm font-medium"
+                    >
+                      View
+                    </Link>
+                  )}
+                  {canPerformAction('production:bom','edit') && (
+                    <Link
+                      to={`/production/bom/${b.id}?mode=edit`}
+                      className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                    >
+                      Edit
+                    </Link>
+                  )}
                 </td>
               </tr>
             ))}

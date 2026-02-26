@@ -68,13 +68,12 @@ export function AuthProvider({ children }) {
     const res = await api.post("/login", { username, password });
     setToken(res.data.token);
     setUser(res.data.user);
-    await loadPermissions(res.data.user);
+    setAccess({ patterns: [], modules: [] });
     return res.data;
   }
   useEffect(() => {
-    if (token && user) {
-      loadPermissions(user);
-    }
+    // Skip permission loading - RBAC disabled
+    setAccess({ patterns: [], modules: [] });
   }, [token, user]);
 
   async function logout() {
@@ -112,33 +111,38 @@ export function AuthProvider({ children }) {
     return new RegExp(re);
   }
 
-  function buildAccess(pages = [], permissions = []) {
+  function buildAccess(allPages = [], rolePages = [], permissions = []) {
     const byId = {};
-    for (const p of pages) {
+    for (const p of allPages) {
       byId[p.id] = p;
     }
+    const permByPageId = {};
+    for (const r of permissions) {
+      if (!r || typeof r.page_id === "undefined") continue;
+      permByPageId[r.page_id] = r;
+    }
     const byPath = {};
-    for (const p of pages) {
-      if (!p?.path) continue;
+    for (const p of rolePages) {
+      if (!p || !p.id || !p.path) continue;
+      const perm = permByPageId[p.id];
+      const hasOverride = typeof perm !== "undefined";
+      let can_view = 1;
+      let can_create = 0;
+      let can_edit = 0;
+      let can_delete = 0;
+      if (hasOverride) {
+        can_view = Number(perm.can_view) ? 1 : 0;
+        can_create = Number(perm.can_create) ? 1 : 0;
+        can_edit = Number(perm.can_edit) ? 1 : 0;
+        can_delete = Number(perm.can_delete) ? 1 : 0;
+      }
       byPath[p.path] = {
         path: p.path,
         module: p.module || "",
-        can_view: 1,
-        can_create: 0,
-        can_edit: 0,
-        can_delete: 0,
-      };
-    }
-    for (const r of permissions) {
-      const pg = byId[r.page_id];
-      if (!pg || !pg.path) continue;
-      byPath[pg.path] = {
-        path: pg.path,
-        module: pg.module || "",
-        can_view: Number(r.can_view) ? 1 : 0,
-        can_create: Number(r.can_create) ? 1 : 0,
-        can_edit: Number(r.can_edit) ? 1 : 0,
-        can_delete: Number(r.can_delete) ? 1 : 0,
+        can_view,
+        can_create,
+        can_edit,
+        can_delete,
       };
     }
     const patterns = Object.values(byPath).map((v) => ({
@@ -162,63 +166,19 @@ export function AuthProvider({ children }) {
   }
 
   async function loadPermissions(userPayload) {
-    const userId =
-      Number(userPayload?.sub) ||
-      Number(userPayload?.id) ||
-      Number(user?.sub) ||
-      Number(user?.id);
-    if (!Number.isFinite(userId) || userId <= 0) {
-      setAccess({ patterns: [], modules: [] });
-      return;
-    }
-    try {
-      const res = await api.get(`/admin/users/${userId}/permissions-context`);
-      const pages = Array.isArray(res.data?.pages) ? res.data.pages : [];
-      const permissions = Array.isArray(res.data?.permissions)
-        ? res.data.permissions
-        : [];
-      buildAccess(pages, permissions);
-    } catch {
-      setAccess({ patterns: [], modules: [] });
-    }
+    // Stub - no backend calls needed with RBAC disabled
+    setAccess({ patterns: [], modules: [] });
   }
 
   function hasAccess(path, action = "view") {
-    if (!Array.isArray(access.patterns) || access.patterns.length === 0)
-      return true;
+    if (!Array.isArray(access.patterns) || access.patterns.length === 0) {
+      return false;
+    }
     const pth = String(path || "");
-    const isEditPath = /\/edit$/.test(pth);
-    const isCreatePath = /(\/new|\/create)$/.test(pth);
-    let found =
+    const found =
       access.patterns.find((p) => p.pattern === pth) ||
       access.patterns.find((p) => p.regex.test(pth));
-    if (isEditPath) {
-      const base = pth.replace(/\/edit$/, "");
-      const baseFound =
-        access.patterns.find((p) => p.pattern === base) ||
-        access.patterns.find((p) => p.regex.test(base));
-      if (baseFound) {
-        return Boolean(baseFound.can_view || baseFound.can_edit);
-      }
-      if (found) {
-        return Boolean(found.can_edit || found.can_view);
-      }
-      return true;
-    }
-    if (isCreatePath) {
-      const base = pth.replace(/\/(new|create)$/, "");
-      const baseFound =
-        access.patterns.find((p) => p.pattern === base) ||
-        access.patterns.find((p) => p.regex.test(base));
-      if (baseFound) {
-        return Boolean(baseFound.can_create || baseFound.can_view);
-      }
-      if (found) {
-        return Boolean(found.can_create || found.can_view);
-      }
-      return true;
-    }
-    if (!found) return true;
+    if (!found) return false;
     if (action === "create") return Boolean(found.can_create);
     if (action === "edit") return Boolean(found.can_edit);
     if (action === "delete") return Boolean(found.can_delete);
@@ -226,9 +186,47 @@ export function AuthProvider({ children }) {
   }
 
   function hasModuleAccess(label) {
-    if (!Array.isArray(access.modules) || access.modules.length === 0)
+    if (!Array.isArray(access.modules) || access.modules.length === 0) {
+      return false;
+    }
+    const raw = String(label || "");
+    const t = raw.toLowerCase().trim();
+    let norm = raw;
+    if (t.includes("administration")) norm = "Administration";
+    else if (t.includes("inventory")) norm = "Inventory";
+    else if (t.includes("sales")) norm = "Sales";
+    else if (t.includes("purchase")) norm = "Purchase";
+    else if (t.includes("finance")) norm = "Finance";
+    else if (t.includes("human resources")) norm = "Human Resources";
+    else if (t.includes("project management")) norm = "Project Management";
+    else if (t.includes("service management")) norm = "Service Management";
+    else if (t.includes("maintenance")) norm = "Maintenance";
+    else if (t.includes("production")) norm = "Production";
+    else if (t.includes("business intelligence"))
+      norm = "Business Intelligence";
+    else if (t.includes("pos")) norm = "POS";
+    if (access.modules.includes(norm) || access.modules.includes(raw))
       return true;
-    return access.modules.includes(String(label || ""));
+    const pats = Array.isArray(access.patterns) ? access.patterns : [];
+    const hasPrefix = (prefix) =>
+      pats.some(
+        (p) =>
+          p.can_view && String(p.pattern || p.path || "").startsWith(prefix),
+      );
+    if (norm === "Administration") return hasPrefix("/administration/");
+    if (norm === "Inventory") return hasPrefix("/inventory/");
+    if (norm === "Sales") return hasPrefix("/sales/");
+    if (norm === "Purchase") return hasPrefix("/purchase/");
+    if (norm === "Finance") return hasPrefix("/finance/");
+    if (norm === "Human Resources") return hasPrefix("/human-resources/");
+    if (norm === "Project Management") return hasPrefix("/project-management/");
+    if (norm === "Service Management") return hasPrefix("/service-management/");
+    if (norm === "Maintenance") return hasPrefix("/maintenance/");
+    if (norm === "Production") return hasPrefix("/production/");
+    if (norm === "Business Intelligence")
+      return hasPrefix("/business-intelligence/");
+    if (norm === "POS") return hasPrefix("/pos/");
+    return false;
   }
 
   const value = useMemo(

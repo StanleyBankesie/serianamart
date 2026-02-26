@@ -5,6 +5,7 @@ import {
   requireBranchScope,
 } from "../middleware/auth.js";
 import * as workflowController from "../controllers/workflow.controller.js";
+import { query } from "../db/pool.js";
 
 const router = express.Router();
 
@@ -43,6 +44,47 @@ router.get(
   requireAuth,
   requireCompanyScope,
   workflowController.getNotifications,
+);
+
+// Search Users for Approver selection
+router.get(
+  "/users",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const { q, active, limit } = req.query || {};
+      const clauses = ["u.company_id = :companyId", "u.branch_id = :branchId"];
+      const params = { companyId, branchId };
+      if (typeof active !== "undefined" && active !== "") {
+        clauses.push("u.is_active = :is_active");
+        params.is_active = Number(Boolean(active));
+      }
+      if (q && String(q).trim().length > 0) {
+        params.q = `%${String(q).trim()}%`;
+        clauses.push(
+          "(u.username LIKE :q OR u.full_name LIKE :q OR u.email LIKE :q)",
+        );
+      }
+      const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+      const lim = Math.min(50, Math.max(1, parseInt(limit || "20", 10)));
+      const items = await query(
+        `
+        SELECT u.id, u.username, u.full_name, u.email, u.is_active
+        FROM adm_users u
+        ${where}
+        ORDER BY u.username ASC
+        LIMIT ${lim}
+        `,
+        params,
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 // Mark Notification Read

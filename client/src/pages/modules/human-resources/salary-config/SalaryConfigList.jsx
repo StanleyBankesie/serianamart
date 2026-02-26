@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function SalaryConfigList() {
+  const { canPerformAction } = usePermission();
   const items = [
     { id: 1, name: 'Standard Monthly', currency: 'GHS', active: true },
   ];
@@ -16,7 +18,9 @@ export default function SalaryConfigList() {
           </div>
           <div className="flex gap-2">
             <Link to="/human-resources" className="btn btn-secondary">Return to Menu</Link>
-            <Link to="/human-resources/salary-config/new" className="btn-success">+ New Config</Link>
+            {canPerformAction('human-resources:salary-config', 'create') && (
+              <Link to="/human-resources/salary-config/new" className="btn-success">+ New Config</Link>
+            )}
           </div>
         </div>
       </div>
@@ -40,7 +44,9 @@ export default function SalaryConfigList() {
                     <td>{r.currency}</td>
                     <td>{r.active ? <span className="badge badge-success">Active</span> : <span className="badge badge-error">Inactive</span>}</td>
                     <td>
-                      <Link to={`/human-resources/salary-config/${r.id}`} className="text-brand hover:text-brand-600 text-sm font-medium">Edit</Link>
+                      {canPerformAction('human-resources:salary-config', 'edit') && (
+                        <Link to={`/human-resources/salary-config/${r.id}`} className="text-brand hover:text-brand-600 text-sm font-medium">Edit</Link>
+                      )}
                     </td>
                   </tr>
                 ))}

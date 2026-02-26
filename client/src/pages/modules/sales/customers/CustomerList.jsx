@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function CustomerList() {
   const navigate = useNavigate();
@@ -17,6 +18,7 @@ export default function CustomerList() {
   const [bulkCascade, setBulkCascade] = useState(false);
   const [bulkCleanupFinance, setBulkCleanupFinance] = useState(false);
   const { hasAccess, scope } = useAuth();
+  const { canPerformAction } = usePermission();
   const [branchOnly, setBranchOnly] = useState(false);
 
   useEffect(() => {
@@ -225,12 +227,14 @@ export default function CustomerList() {
                       )}
                     </td>
                     <td>
-                      <button
-                        className="text-brand hover:text-brand-600 text-sm font-medium"
-                        onClick={() => navigate(`/sales/customers/${r.id}`)}
-                      >
-                        Edit
-                      </button>
+                      {canPerformAction("sales:customers", "edit") && (
+                        <button
+                          className="text-brand hover:text-brand-600 text-sm font-medium"
+                          onClick={() => navigate(`/sales/customers/${r.id}`)}
+                        >
+                          Edit
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

@@ -17,10 +17,13 @@ export const uploadFile = async (req, res, next) => {
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });
     }
-    const fileUrl = `/uploads/${req.file.filename}`;
+    const filePath = `/uploads/${req.file.filename}`;
+    const origin = `${req.protocol}://${req.get("host")}`;
+    const fileUrl = `${origin}${filePath}`;
     res.json({
       message: "File uploaded successfully",
       url: fileUrl,
+      path: filePath,
       filename: req.file.filename,
     });
   } catch (e) {

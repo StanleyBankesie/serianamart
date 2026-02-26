@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
+import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 export default function ItemGroupsList() {
+  const { canPerformAction } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -171,18 +173,22 @@ export default function ItemGroupsList() {
                     <td>{g.parent_group_name || "-"}</td>
                     <td>{g.is_active ? "Yes" : "No"}</td>
                     <td>
-                      <Link
-                        to={`/inventory/item-groups/${g.id}?mode=view`}
-                        className="text-brand hover:text-brand-700 text-sm font-medium"
-                      >
-                        View
-                      </Link>
-                      <Link
-                        to={`/inventory/item-groups/${g.id}?mode=edit`}
-                        className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                      >
-                        Edit
-                      </Link>
+                      {canPerformAction("inventory:item-groups", "view") && (
+                        <Link
+                          to={`/inventory/item-groups/${g.id}?mode=view`}
+                          className="text-brand hover:text-brand-700 text-sm font-medium"
+                        >
+                          View
+                        </Link>
+                      )}
+                      {canPerformAction("inventory:item-groups", "edit") && (
+                        <Link
+                          to={`/inventory/item-groups/${g.id}?mode=edit`}
+                          className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                        >
+                          Edit
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 ))}

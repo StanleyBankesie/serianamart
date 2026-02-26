@@ -4,6 +4,7 @@ import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
 import { AuthProvider } from "./auth/AuthContext.jsx";
+import { PermissionProvider } from "./auth/PermissionContext.jsx";
 import { ThemeProvider } from "./theme/ThemeContext.jsx";
 import ProtectedRoute from "./auth/ProtectedRoute.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
@@ -22,10 +23,11 @@ export default function App() {
   const base = (import.meta.env.BASE_URL || "/").replace(/\/+$/, "");
   const basename = base.startsWith("/") ? base : "/";
   return (
-    <BrowserRouter basename={basename}>
+    <BrowserRouter basename={basename} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Provider store={store}>
         <ThemeProvider>
           <AuthProvider>
+            <PermissionProvider>
             <ToastContainer position="top-right" theme="dark" />
             <Notifications />
             <Routes>
@@ -53,6 +55,7 @@ export default function App() {
               />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
+            </PermissionProvider>
           </AuthProvider>
         </ThemeProvider>
       </Provider>

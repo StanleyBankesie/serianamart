@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
+import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 export default function StockUpdationList() {
+  const { canPerformAction } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [adjustments, setAdjustments] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -337,18 +339,22 @@ export default function StockUpdationList() {
                     </td>
                     <td>
                       <div className="flex gap-2 items-center">
-                        <Link
-                          to={`/inventory/stock-updation/${adj.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                        <Link
-                          to={`/inventory/stock-updation/${adj.id}?mode=edit`}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                        >
-                          Edit
-                        </Link>
+                        {canPerformAction("inventory:stock-updation", "view") && (
+                          <Link
+                            to={`/inventory/stock-updation/${adj.id}?mode=view`}
+                            className="text-brand hover:text-brand-700 text-sm font-medium"
+                          >
+                            View
+                          </Link>
+                        )}
+                        {canPerformAction("inventory:stock-updation", "edit") && (
+                          <Link
+                            to={`/inventory/stock-updation/${adj.id}?mode=edit`}
+                            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                          >
+                            Edit
+                          </Link>
+                        )}
                         {adj.status === "APPROVED" ? (
                           <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
                             Approved

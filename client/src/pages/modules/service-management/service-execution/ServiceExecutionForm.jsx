@@ -1,63 +1,20 @@
-import React, { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { api } from "../../../../api/client.js";
 
-const mockServiceOrders = [
-  {
-    id: "ORD-20240001",
-    orderNumber: "ORD-20240001",
-    customer: "John Smith",
-    serviceType: "HVAC Maintenance",
-    location: "123 Main St, Downtown",
-    scheduledDate: "2024-02-15",
-    status: "Pending Execution",
-    priority: "Medium",
-    estimatedCost: 450.0,
-  },
-  {
-    id: "ORD-20240002",
-    orderNumber: "ORD-20240002",
-    customer: "ABC Corporation",
-    serviceType: "Electrical Installation",
-    location: "456 Business Park, Suite 200",
-    scheduledDate: "2024-02-16",
-    status: "Pending Execution",
-    priority: "High",
-    estimatedCost: 1250.0,
-  },
-  {
-    id: "ORD-20240003",
-    orderNumber: "ORD-20240003",
-    customer: "Sarah Johnson",
-    serviceType: "Plumbing Repair",
-    location: "789 Residential Ave, Apt 5B",
-    scheduledDate: "2024-02-14",
-    status: "Pending Execution",
-    priority: "Urgent",
-    estimatedCost: 325.0,
-  },
-  {
-    id: "ORD-20240004",
-    orderNumber: "ORD-20240004",
-    customer: "Tech Solutions Inc",
-    serviceType: "Network Installation",
-    location: "321 Tech Plaza, Floor 3",
-    scheduledDate: "2024-02-17",
-    status: "Pending Execution",
-    priority: "High",
-    estimatedCost: 2100.0,
-  },
-];
-
-const technicianOptions = [
-  { id: "TECH-001", name: "David Rodriguez", role: "Senior Technician - Electrical" },
-  { id: "TECH-002", name: "Lisa Anderson", role: "Technician - HVAC" },
-  { id: "TECH-003", name: "Robert Kim", role: "Junior Technician - Plumbing" },
-  { id: "TECH-004", name: "Amanda White", role: "Specialist - Installation" },
-];
+function toYmd(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
 
 export default function ServiceExecutionForm() {
+  const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [search, setSearch] = useState("");
+  const [orders, setOrders] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [executionDate, setExecutionDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
@@ -65,6 +22,8 @@ export default function ServiceExecutionForm() {
 
   const [materials, setMaterials] = useState([]);
   const [requisitionNotes, setRequisitionNotes] = useState("");
+  const [invItems, setInvItems] = useState([]);
+  const [supervisors, setSupervisors] = useState([]);
 
   const [assignedTechs, setAssignedTechs] = useState(new Set());
   const [actualStartTime, setActualStartTime] = useState("");
@@ -83,8 +42,12 @@ export default function ServiceExecutionForm() {
   const [actualEndTime, setActualEndTime] = useState("");
   const totalDuration = useMemo(() => {
     try {
-      const [sh, sm] = (actualStartTime || "00:00").split(":").map((x) => Number(x || 0));
-      const [eh, em] = (actualEndTime || "00:00").split(":").map((x) => Number(x || 0));
+      const [sh, sm] = (actualStartTime || "00:00")
+        .split(":")
+        .map((x) => Number(x || 0));
+      const [eh, em] = (actualEndTime || "00:00")
+        .split(":")
+        .map((x) => Number(x || 0));
       const start = sh + sm / 60;
       const end = eh + em / 60;
       const diff = end - start;
@@ -110,13 +73,55 @@ export default function ServiceExecutionForm() {
 
   const filteredOrders = useMemo(() => {
     const s = search.toLowerCase();
-    return mockServiceOrders.filter(
+    return orders.filter(
       (o) =>
         o.orderNumber.toLowerCase().includes(s) ||
         o.customer.toLowerCase().includes(s) ||
         o.serviceType.toLowerCase().includes(s),
     );
   }, [search]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function fetchOrders() {
+      try {
+        const resp = await api.get("/purchase/service-orders", {
+          params: { type: "INTERNAL" },
+        });
+        const rows = Array.isArray(resp.data?.items) ? resp.data.items : [];
+        const mapped = rows.map((r) => ({
+          id: r.id,
+          orderNumber: r.order_no,
+          customer: r.customer_name || "",
+          serviceType: r.service_type || "",
+          location: r.work_location || "",
+          scheduledDate: r.order_date || "",
+          status: r.status || "",
+          estimatedCost: Number(r.total_amount || 0),
+          assigned_supervisor_username: r.assigned_supervisor_username || "",
+          assigned_supervisor_user_id: r.assigned_supervisor_user_id || null,
+        }));
+        if (mounted) setOrders(mapped);
+      } catch {
+        if (mounted) setOrders([]);
+      }
+    }
+    const now = new Date();
+    setExecutionDate(toYmd(now));
+    setScheduledTime(
+      `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
+    );
+    fetchOrders();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (selectedOrder) {
+      setAssignedSupervisor(selectedOrder.assigned_supervisor_username || "");
+    }
+  }, [selectedOrder]);
 
   function nextStep(n) {
     setStep(n);
@@ -127,11 +132,20 @@ export default function ServiceExecutionForm() {
   function addMaterialItem() {
     setMaterials((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), code: "", name: "", qty: 1, unit: "", note: "" },
+      {
+        id: crypto.randomUUID(),
+        code: "",
+        name: "",
+        qty: 1,
+        unit: "",
+        note: "",
+      },
     ]);
   }
   function updateMaterial(id, key, value) {
-    setMaterials((prev) => prev.map((m) => (m.id === id ? { ...m, [key]: value } : m)));
+    setMaterials((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, [key]: value } : m)),
+    );
   }
   function removeMaterial(id) {
     setMaterials((prev) => prev.filter((m) => m.id !== id));
@@ -154,11 +168,68 @@ export default function ServiceExecutionForm() {
   function formatMoney(n) {
     return Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2 });
   }
-  function submit(e) {
+  useEffect(() => {
+    let mounted = true;
+    async function fetchItems() {
+      try {
+        const resp = await api.get("/inventory/items", {
+          params: { active: 1 },
+        });
+        const rows = Array.isArray(resp.data?.items) ? resp.data.items : [];
+        if (mounted) setInvItems(rows);
+      } catch {
+        if (mounted) setInvItems([]);
+      }
+    }
+    async function fetchSupervisors() {
+      try {
+        const resp = await api.get("/purchase/service-setup/supervisors");
+        const rows = Array.isArray(resp.data?.items) ? resp.data.items : [];
+        if (mounted) setSupervisors(rows);
+      } catch {
+        if (mounted) setSupervisors([]);
+      }
+    }
+    fetchItems();
+    fetchSupervisors();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+  async function submit(e) {
     e.preventDefault();
-    const num = `EXEC-${Date.now().toString().slice(-8)}`;
-    setExecutionNumber(num);
-    setShowSuccess(true);
+    const orderId = selectedOrder?.id || null;
+    const payload = {
+      order_id: orderId,
+      execution_no: "",
+      execution_date: executionDate || null,
+      scheduled_time: scheduledTime || null,
+      assigned_supervisor_user_id:
+        selectedOrder?.assigned_supervisor_user_id || null,
+      assigned_supervisor_username:
+        selectedOrder?.assigned_supervisor_username || null,
+      requisition_notes: requisitionNotes || null,
+      status: "PENDING",
+      materials: materials.map((m) => ({
+        code: m.code || null,
+        name: m.name || "",
+        unit: m.unit || "",
+        qty: Number(m.qty || 0) || 0,
+        note: m.note || "",
+      })),
+    };
+    try {
+      const res = await api.post("/purchase/service-executions", payload);
+      const num =
+        res.data?.execution_no || `EXEC-${Date.now().toString().slice(-8)}`;
+      setExecutionNumber(num);
+      navigate("/service-management/service-executions", {
+        state: { success: "Service execution saved successfully" },
+      });
+    } catch (err) {
+      alert("Failed to save service execution");
+      setExecutionNumber("");
+    }
   }
 
   const summaryHtml = useMemo(() => {
@@ -189,12 +260,14 @@ export default function ServiceExecutionForm() {
       <div className="flex items-center justify-between">
         <div>
           <Link
-            to="/service-management"
+            to="/service-management/service-executions"
             className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
-            ← Back to Service Management
+            ← Back
           </Link>
-          <h1 className="text-2xl font-bold mt-2">Service Execution Management</h1>
+          <h1 className="text-2xl font-bold mt-2">
+            Service Execution Management
+          </h1>
           <p className="text-sm mt-1">
             Track and manage service execution from assignment to completion
           </p>
@@ -226,46 +299,46 @@ export default function ServiceExecutionForm() {
                 {step === 1 && (
                   <div className="card">
                     <div className="card-body space-y-3">
-                      <div className="text-lg font-semibold">📋 Service Order Reference</div>
+                      <div className="text-lg font-semibold">
+                        📋 Service Order Reference
+                      </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div className="md:col-span-2">
                           <label className="label">
-                            Search Service Order <span className="text-red-600">*</span>
+                            Search Service Order{" "}
+                            <span className="text-red-600">*</span>
                           </label>
-                          <input
+                          <select
                             className="input"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Search by order number, customer name, or service type..."
-                          />
-                          {search.trim() && (
-                            <div className="mt-2 border rounded">
-                              {filteredOrders.map((o) => (
-                                <div
-                                  key={o.id}
-                                  className="p-2 hover:bg-slate-50 cursor-pointer"
-                                  onClick={() => {
-                                    setSelectedOrder(o);
-                                    setSearch(o.orderNumber);
-                                  }}
-                                >
-                                  <div className="font-medium text-brand-700">
-                                    {o.orderNumber} • {o.customer}
-                                  </div>
-                                  <div className="text-xs text-slate-500">
-                                    {o.serviceType} • {o.location} • {o.scheduledDate}
-                                  </div>
-                                </div>
-                              ))}
-                              {!filteredOrders.length && (
-                                <div className="p-2 text-sm text-slate-500">No matches</div>
-                              )}
-                            </div>
-                          )}
+                            value={selectedOrder?.id || ""}
+                            onChange={(e) => {
+                              const id = e.target.value;
+                              const o = orders.find(
+                                (x) => String(x.id) === String(id),
+                              );
+                              if (o) {
+                                setSelectedOrder(o);
+                                setSearch(o.orderNumber);
+                              } else {
+                                setSelectedOrder(null);
+                                setSearch("");
+                              }
+                            }}
+                          >
+                            <option value="">
+                              -- Select Internal Service Order --
+                            </option>
+                            {orders.map((o) => (
+                              <option key={o.id} value={o.id}>
+                                {o.orderNumber} • {o.customer} • {o.serviceType}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                         <div>
                           <label className="label">
-                            Execution Date <span className="text-red-600">*</span>
+                            Execution Date{" "}
+                            <span className="text-red-600">*</span>
                           </label>
                           <input
                             className="input"
@@ -276,7 +349,8 @@ export default function ServiceExecutionForm() {
                         </div>
                         <div>
                           <label className="label">
-                            Scheduled Time <span className="text-red-600">*</span>
+                            Scheduled Time{" "}
+                            <span className="text-red-600">*</span>
                           </label>
                           <input
                             className="input"
@@ -287,23 +361,26 @@ export default function ServiceExecutionForm() {
                         </div>
                         <div className="md:col-span-2">
                           <label className="label">
-                            Assigned Supervisor <span className="text-red-600">*</span>
+                            Assigned Supervisor{" "}
+                            <span className="text-red-600">*</span>
                           </label>
-                          <select
+                          <input
                             className="input"
                             value={assignedSupervisor}
-                            onChange={(e) => setAssignedSupervisor(e.target.value)}
-                          >
-                            <option value="">-- Select Supervisor --</option>
-                            <option value="SUP-001">John Smith - Senior Supervisor</option>
-                            <option value="SUP-002">Sarah Johnson - Field Supervisor</option>
-                            <option value="SUP-003">Michael Chen - Technical Supervisor</option>
-                            <option value="SUP-004">Emily Brown - Quality Supervisor</option>
-                          </select>
+                            onChange={(e) =>
+                              setAssignedSupervisor(e.target.value)
+                            }
+                            placeholder="Auto-filled from service order"
+                            readOnly
+                          />
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <button type="button" className="btn-primary" onClick={() => nextStep(2)}>
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          onClick={() => nextStep(2)}
+                        >
                           Next: Material Requisition →
                         </button>
                       </div>
@@ -314,9 +391,12 @@ export default function ServiceExecutionForm() {
                 {step === 2 && (
                   <div className="card">
                     <div className="card-body space-y-3">
-                      <div className="text-lg font-semibold">📦 Material Requisition from Stores</div>
+                      <div className="text-lg font-semibold">
+                        📦 Material Requisition from Stores
+                      </div>
                       <div className="text-sm bg-blue-50 border-l-4 border-blue-400 p-3 rounded">
-                        Materials will be checked against store inventory. Unavailable items will be flagged for procurement.
+                        Materials will be checked against store inventory.
+                        Unavailable items will be flagged for procurement.
                       </div>
                       <div className="space-y-2">
                         {materials.map((m) => (
@@ -326,12 +406,30 @@ export default function ServiceExecutionForm() {
                           >
                             <div>
                               <label className="label">Description</label>
-                              <input
+                              <select
                                 className="input"
-                                value={m.name}
-                                onChange={(e) => updateMaterial(m.id, "name", e.target.value)}
-                                placeholder="Material description"
-                              />
+                                value={m.code}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  const item = invItems.find(
+                                    (it) => String(it.id) === String(val),
+                                  );
+                                  updateMaterial(m.id, "code", val);
+                                  updateMaterial(
+                                    m.id,
+                                    "name",
+                                    item?.item_name || "",
+                                  );
+                                  updateMaterial(m.id, "unit", item?.uom || "");
+                                }}
+                              >
+                                <option value="">-- Select Item --</option>
+                                {invItems.map((it) => (
+                                  <option key={it.id} value={it.id}>
+                                    {it.item_name}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
                             <div>
                               <label className="label">Qty</label>
@@ -340,7 +438,9 @@ export default function ServiceExecutionForm() {
                                 type="number"
                                 min="1"
                                 value={m.qty}
-                                onChange={(e) => updateMaterial(m.id, "qty", e.target.value)}
+                                onChange={(e) =>
+                                  updateMaterial(m.id, "qty", e.target.value)
+                                }
                               />
                             </div>
                             <div>
@@ -348,8 +448,7 @@ export default function ServiceExecutionForm() {
                               <input
                                 className="input"
                                 value={m.unit}
-                                onChange={(e) => updateMaterial(m.id, "unit", e.target.value)}
-                                placeholder="pcs / ft / roll"
+                                readOnly
                               />
                             </div>
                             <div>
@@ -357,16 +456,26 @@ export default function ServiceExecutionForm() {
                               <input
                                 className="input"
                                 value={m.note}
-                                onChange={(e) => updateMaterial(m.id, "note", e.target.value)}
+                                onChange={(e) =>
+                                  updateMaterial(m.id, "note", e.target.value)
+                                }
                                 placeholder="Optional note"
                               />
                             </div>
-                            <button type="button" className="btn-danger" onClick={() => removeMaterial(m.id)}>
+                            <button
+                              type="button"
+                              className="btn-danger"
+                              onClick={() => removeMaterial(m.id)}
+                            >
                               ×
                             </button>
                           </div>
                         ))}
-                        <button type="button" className="btn-primary" onClick={addMaterialItem}>
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          onClick={addMaterialItem}
+                        >
                           + Add Material Item
                         </button>
                       </div>
@@ -380,10 +489,18 @@ export default function ServiceExecutionForm() {
                         />
                       </div>
                       <div className="flex gap-2">
-                        <button type="button" className="btn-secondary" onClick={() => previousStep(1)}>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => previousStep(1)}
+                        >
                           ← Back
                         </button>
-                        <button type="button" className="btn-primary" onClick={() => nextStep(3)}>
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          onClick={() => nextStep(3)}
+                        >
                           Next: Execution Details →
                         </button>
                       </div>
@@ -394,18 +511,22 @@ export default function ServiceExecutionForm() {
                 {step === 3 && (
                   <div className="card">
                     <div className="card-body space-y-3">
-                      <div className="text-lg font-semibold">🔧 Service Execution Details</div>
+                      <div className="text-lg font-semibold">
+                        🔧 Service Execution Details
+                      </div>
                       <div className="space-y-2">
-                        {technicianOptions.map((t) => (
-                          <div key={t.id} className="flex items-center justify-between p-3 bg-slate-50 rounded border">
-                            <div>
-                              <div className="font-medium text-brand-700">{t.name}</div>
-                              <div className="text-xs text-slate-500">{t.role}</div>
+                        {supervisors.map((s) => (
+                          <div
+                            key={s.id}
+                            className="flex items-center justify-between p-3 bg-slate-50 rounded border"
+                          >
+                            <div className="font-medium text-brand-700">
+                              {s.username}
                             </div>
                             <input
                               type="checkbox"
-                              checked={assignedTechs.has(t.id)}
-                              onChange={() => toggleTech(t.id)}
+                              checked={assignedTechs.has(s.user_id)}
+                              onChange={() => toggleTech(s.user_id)}
                             />
                           </div>
                         ))}
@@ -413,7 +534,8 @@ export default function ServiceExecutionForm() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
                           <label className="label">
-                            Actual Start Time <span className="text-red-600">*</span>
+                            Actual Start Time{" "}
+                            <span className="text-red-600">*</span>
                           </label>
                           <input
                             className="input"
@@ -424,7 +546,8 @@ export default function ServiceExecutionForm() {
                         </div>
                         <div>
                           <label className="label">
-                            Estimated Duration (hours) <span className="text-red-600">*</span>
+                            Estimated Duration (hours){" "}
+                            <span className="text-red-600">*</span>
                           </label>
                           <input
                             className="input"
@@ -432,13 +555,16 @@ export default function ServiceExecutionForm() {
                             step="0.5"
                             min="0"
                             value={estimatedDuration}
-                            onChange={(e) => setEstimatedDuration(e.target.value)}
+                            onChange={(e) =>
+                              setEstimatedDuration(e.target.value)
+                            }
                           />
                         </div>
                       </div>
                       <div>
                         <label className="label">
-                          Work Performed Description <span className="text-red-600">*</span>
+                          Work Performed Description{" "}
+                          <span className="text-red-600">*</span>
                         </label>
                         <textarea
                           className="input"
@@ -448,12 +574,22 @@ export default function ServiceExecutionForm() {
                         />
                       </div>
                       <div>
-                        <label className="label">Service Execution Photos</label>
-                        <input type="file" multiple accept=".jpg,.jpeg,.png" onChange={onFileAdd(setExecutionFiles)} />
+                        <label className="label">
+                          Service Execution Photos
+                        </label>
+                        <input
+                          type="file"
+                          multiple
+                          accept=".jpg,.jpeg,.png"
+                          onChange={onFileAdd(setExecutionFiles)}
+                        />
                         {executionFiles.length > 0 && (
                           <div className="mt-2 space-y-1">
                             {executionFiles.map((f) => (
-                              <div key={f.name} className="flex items-center justify-between p-2 border rounded">
+                              <div
+                                key={f.name}
+                                className="flex items-center justify-between p-2 border rounded"
+                              >
                                 <div className="text-xs">
                                   {f.name} • {(f.size / 1024).toFixed(1)} KB
                                 </div>
@@ -463,10 +599,18 @@ export default function ServiceExecutionForm() {
                         )}
                       </div>
                       <div className="flex gap-2">
-                        <button type="button" className="btn-secondary" onClick={() => previousStep(2)}>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => previousStep(2)}
+                        >
                           ← Back
                         </button>
-                        <button type="button" className="btn-primary" onClick={() => nextStep(4)}>
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          onClick={() => nextStep(4)}
+                        >
                           Next: Quality Check →
                         </button>
                       </div>
@@ -477,32 +621,43 @@ export default function ServiceExecutionForm() {
                 {step === 4 && (
                   <div className="card">
                     <div className="card-body space-y-3">
-                      <div className="text-lg font-semibold">✅ Quality Check & Verification</div>
+                      <div className="text-lg font-semibold">
+                        ✅ Quality Check & Verification
+                      </div>
                       <div className="space-y-2">
                         {Object.keys(qualityChecks).map((key, idx) => (
-                          <label key={key} className="inline-flex items-center gap-2 text-sm p-2 border rounded">
+                          <label
+                            key={key}
+                            className="inline-flex items-center gap-2 text-sm p-2 border rounded"
+                          >
                             <input
                               type="checkbox"
                               checked={qualityChecks[key]}
                               onChange={(e) =>
-                                setQualityChecks((prev) => ({ ...prev, [key]: e.target.checked }))
+                                setQualityChecks((prev) => ({
+                                  ...prev,
+                                  [key]: e.target.checked,
+                                }))
                               }
                             />
-                            {[
-                              "All work completed as per service order specifications",
-                              "All materials used are documented and accounted for",
-                              "Work area cleaned and restored to original condition",
-                              "All safety protocols followed during execution",
-                              "Equipment/systems tested and functioning properly",
-                              "No additional issues or defects identified",
-                            ][idx]}
+                            {
+                              [
+                                "All work completed as per service order specifications",
+                                "All materials used are documented and accounted for",
+                                "Work area cleaned and restored to original condition",
+                                "All safety protocols followed during execution",
+                                "Equipment/systems tested and functioning properly",
+                                "No additional issues or defects identified",
+                              ][idx]
+                            }
                           </label>
                         ))}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
                           <label className="label">
-                            Actual End Time <span className="text-red-600">*</span>
+                            Actual End Time{" "}
+                            <span className="text-red-600">*</span>
                           </label>
                           <input
                             className="input"
@@ -512,8 +667,14 @@ export default function ServiceExecutionForm() {
                           />
                         </div>
                         <div>
-                          <label className="label">Total Duration (hours)</label>
-                          <input className="input" value={totalDuration} readOnly />
+                          <label className="label">
+                            Total Duration (hours)
+                          </label>
+                          <input
+                            className="input"
+                            value={totalDuration}
+                            readOnly
+                          />
                         </div>
                       </div>
                       <div>
@@ -526,10 +687,18 @@ export default function ServiceExecutionForm() {
                         />
                       </div>
                       <div className="flex gap-2">
-                        <button type="button" className="btn-secondary" onClick={() => previousStep(3)}>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => previousStep(3)}
+                        >
                           ← Back
                         </button>
-                        <button type="button" className="btn-primary" onClick={() => nextStep(5)}>
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          onClick={() => nextStep(5)}
+                        >
                           Next: Service Closing →
                         </button>
                       </div>
@@ -540,65 +709,17 @@ export default function ServiceExecutionForm() {
                 {step === 5 && (
                   <div className="card">
                     <div className="card-body space-y-3">
-                      <div className="text-lg font-semibold">🏁 Service Closing</div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                          <label className="label">
-                            Customer Name <span className="text-red-600">*</span>
-                          </label>
-                          <input
-                            className="input"
-                            value={customerName}
-                            onChange={(e) => setCustomerName(e.target.value)}
-                            placeholder="Name of person receiving service"
-                          />
-                        </div>
-                        <div>
-                          <label className="label">
-                            Customer Contact <span className="text-red-600">*</span>
-                          </label>
-                          <input
-                            className="input"
-                            value={customerContact}
-                            onChange={(e) => setCustomerContact(e.target.value)}
-                            placeholder="Phone or email"
-                          />
-                        </div>
+                      <div className="text-lg font-semibold">
+                        🏁 Service Closing
                       </div>
-                      <div>
-                        <label className="label">Customer Feedback</label>
-                        <textarea
-                          className="input"
-                          value={customerFeedback}
-                          onChange={(e) => setCustomerFeedback(e.target.value)}
-                          placeholder="Customer comments"
-                        />
-                      </div>
-                      <div>
-                        <label className="label">Customer Satisfaction Rating</label>
-                        <div className="flex flex-wrap gap-3 mt-1">
-                          {[5, 4, 3, 2, 1].map((n) => (
-                            <label key={n} className="inline-flex items-center gap-2 text-sm">
-                              <input
-                                type="radio"
-                                name="satisfaction"
-                                value={String(n)}
-                                checked={satisfaction === String(n)}
-                                onChange={(e) => setSatisfaction(e.target.value)}
-                              />
-                              {Array.from({ length: n })
-                                .map(() => "⭐")
-                                .join("")}{" "}
-                              {["Excellent", "Good", "Average", "Poor", "Very Poor"][5 - n]}
-                            </label>
-                          ))}
-                        </div>
-                      </div>
+                      {/* Customer fields removed */}
                       <div className="flex items-center gap-2">
                         <input
                           type="checkbox"
                           checked={followUpRequired}
-                          onChange={(e) => setFollowUpRequired(e.target.checked)}
+                          onChange={(e) =>
+                            setFollowUpRequired(e.target.checked)
+                          }
                         />
                         <span>Follow-up service required</span>
                       </div>
@@ -614,7 +735,8 @@ export default function ServiceExecutionForm() {
                       )}
                       <div>
                         <label className="label">
-                          Closing Remarks <span className="text-red-600">*</span>
+                          Closing Remarks{" "}
+                          <span className="text-red-600">*</span>
                         </label>
                         <textarea
                           className="input"
@@ -624,12 +746,22 @@ export default function ServiceExecutionForm() {
                         />
                       </div>
                       <div>
-                        <label className="label">Completion Certificate/Photos</label>
-                        <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" onChange={onFileAdd(setClosingFiles)} />
+                        <label className="label">
+                          Completion Certificate/Photos
+                        </label>
+                        <input
+                          type="file"
+                          multiple
+                          accept=".pdf,.jpg,.jpeg,.png"
+                          onChange={onFileAdd(setClosingFiles)}
+                        />
                         {closingFiles.length > 0 && (
                           <div className="mt-2 space-y-1">
                             {closingFiles.map((f) => (
-                              <div key={f.name} className="flex items-center justify-between p-2 border rounded">
+                              <div
+                                key={f.name}
+                                className="flex items-center justify-between p-2 border rounded"
+                              >
                                 <div className="text-xs">
                                   {f.name} • {(f.size / 1024).toFixed(1)} KB
                                 </div>
@@ -645,15 +777,23 @@ export default function ServiceExecutionForm() {
                           onChange={(e) => setConfirmClosure(e.target.checked)}
                         />
                         <span>
-                          I confirm that all work has been completed satisfactorily and customer has
-                          approved the service
+                          I confirm that all work has been completed
+                          satisfactorily and customer has approved the service
                         </span>
                       </div>
                       <div className="flex gap-2">
-                        <button type="button" className="btn-secondary" onClick={() => previousStep(4)}>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => previousStep(4)}
+                        >
                           ← Back
                         </button>
-                        <button type="submit" className="btn-success" disabled={!confirmClosure}>
+                        <button
+                          type="submit"
+                          className="btn-success"
+                          disabled={!confirmClosure}
+                        >
                           Complete Service Execution
                         </button>
                       </div>
@@ -665,7 +805,9 @@ export default function ServiceExecutionForm() {
             <div>
               <div className="card">
                 <div className="card-body">
-                  <h2 className="text-lg font-semibold mb-2">Execution Summary</h2>
+                  <h2 className="text-lg font-semibold mb-2">
+                    Execution Summary
+                  </h2>
                   <div dangerouslySetInnerHTML={{ __html: summaryHtml }} />
                 </div>
               </div>
@@ -674,27 +816,7 @@ export default function ServiceExecutionForm() {
         </div>
       </div>
 
-      {showSuccess && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/40 z-50">
-          <div className="card w-full max-w-md">
-            <div className="card-header bg-brand text-white rounded-t-lg">
-              <div className="font-semibold">Service Execution Completed</div>
-            </div>
-            <div className="card-body space-y-3 text-center">
-              <div className="text-4xl mb-2 text-green-600">✓</div>
-              <div className="text-sm">
-                The service has been successfully executed and closed. All documentation has been recorded.
-              </div>
-              <div className="font-semibold">Execution Number: {executionNumber}</div>
-              <div className="flex justify-center gap-2">
-                <button type="button" className="btn-primary" onClick={() => setShowSuccess(false)}>
-                  Done
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Success modal removed; navigation occurs after save */}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import PosPostToFinance from "./finance/PosPostToFinance.jsx";
 import ModuleDashboard from "../../../components/ModuleDashboard.jsx";
 import api from "../../../api/client.js";
 import PosDayManagement from "./day/PosDayManagement.jsx";
+import PosDashboard from "./dashboard/PosDashboard.jsx";
 import { useAuth } from "../../../auth/AuthContext.jsx";
 
 function PosLanding() {
@@ -141,38 +142,29 @@ function PosLanding() {
           description: "Daily sales and performance reports",
           icon: "📊",
         },
+        {
+          name: "Dashboard",
+          path: "/pos/dashboard",
+          description: "Charts and analytics for POS",
+          icon: "📈",
+        },
       ],
     },
   ];
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-2xl font-bold text-slate-900">Point of Sale</div>
-          <div className="text-sm text-slate-600">
-            Retail sales and transaction management
-          </div>
-        </div>
-        <div className="text-right">
-          <div className="text-sm text-slate-700">
-            {now.toLocaleDateString(undefined, {
-              weekday: "long",
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            })}
-          </div>
-          <div className="text-sm font-semibold text-brand-700">
-            {now.toLocaleTimeString()}
-          </div>
-        </div>
+      <div className="flex items-center justify-end">
+        <a href="/pos/dashboard" className="btn-primary">
+          Dashboard
+        </a>
       </div>
       <ModuleDashboard
         title="Point of Sale"
         description="Retail sales and transaction management"
         stats={stats}
         sections={sections}
+        features={posFeatures}
       />
     </div>
   );
@@ -194,6 +186,20 @@ export default function PosHome() {
 
       <Route path="/reports" element={<PosReports />} />
       <Route path="/setup" element={<PosSetup />} />
+      <Route path="/dashboard" element={<PosDashboard />} />
     </Routes>
   );
 }
+
+export const posFeatures = [
+  { module_key: "pos", label: "Sales Entry", path: "/pos/sales-entry", type: "feature" },
+  { module_key: "pos", label: "Start/End Business Day", path: "/pos/day-management", type: "feature" },
+  { module_key: "pos", label: "Cash Collection", path: "/pos/cash-collection", type: "feature" },
+  { module_key: "pos", label: "POS Invoices", path: "/pos/invoices", type: "feature" },
+  { module_key: "pos", label: "Post to Finance", path: "/pos/post-to-finance", type: "feature" },
+  { module_key: "pos", label: "POS Returns", path: "/pos/returns", type: "feature" },
+  { module_key: "pos", label: "POS Register", path: "/pos/register", type: "feature" },
+  { module_key: "pos", label: "POS Setup", path: "/pos/setup", type: "feature" },
+  { module_key: "pos", label: "POS Reports", path: "/pos/reports", type: "dashboard" },
+  { module_key: "pos", label: "Dashboard", path: "/pos/dashboard", type: "dashboard" },
+];

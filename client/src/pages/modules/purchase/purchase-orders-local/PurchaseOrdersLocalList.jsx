@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function PurchaseOrdersLocalList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -19,6 +20,8 @@ export default function PurchaseOrdersLocalList() {
   const [targetApproverId, setTargetApproverId] = useState(null);
   const [submittingForward, setSubmittingForward] = useState(false);
   const [selectedPO, setSelectedPO] = useState(null);
+  const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
+  const { canPerformAction } = usePermission();
 
   useEffect(() => {
     let mounted = true;
@@ -30,13 +33,15 @@ export default function PurchaseOrdersLocalList() {
         if (!mounted) return;
         const all = Array.isArray(res.data?.items) ? res.data.items : [];
         setPurchaseOrders(
-          all.filter((po) => String(po.po_type || "").toUpperCase() === "LOCAL")
+          all.filter(
+            (po) => String(po.po_type || "").toUpperCase() === "LOCAL",
+          ),
         );
       })
       .catch((e) => {
         if (!mounted) return;
         setError(
-          e?.response?.data?.message || "Failed to load purchase orders"
+          e?.response?.data?.message || "Failed to load purchase orders",
         );
       })
       .finally(() => {
@@ -102,6 +107,7 @@ export default function PurchaseOrdersLocalList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+      setHasInactiveWorkflow(false);
       return;
     }
     const route = "/purchase/purchase-orders-local";
@@ -110,17 +116,24 @@ export default function PurchaseOrdersLocalList() {
         .trim()
         .toUpperCase()
         .replace(/\s+/g, "_");
+    const matching = workflowsCache.filter(
+      (w) =>
+        String(w.document_route) === route ||
+        normalize(w.document_type) === "PURCHASE_ORDER",
+    );
+    const hasInactive = matching.some((w) => Number(w.is_active) === 0);
     const chosen =
       workflowsCache.find(
-        (w) => Number(w.is_active) === 1 && String(w.document_route) === route
+        (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
       ) ||
       workflowsCache.find(
         (w) =>
           Number(w.is_active) === 1 &&
-          normalize(w.document_type) === "PURCHASE_ORDER"
+          normalize(w.document_type) === "PURCHASE_ORDER",
       ) ||
       null;
     setCandidateWorkflow(chosen || null);
+    setHasInactiveWorkflow(!chosen && hasInactive);
     setFirstApprover(null);
     if (!chosen) return;
     try {
@@ -139,7 +152,7 @@ export default function PurchaseOrdersLocalList() {
               stepOrder: first.step_order,
               approvalLimit: first.approval_limit,
             }
-          : null
+          : null,
       );
       if (first) {
         const defaultTarget =
@@ -152,7 +165,7 @@ export default function PurchaseOrdersLocalList() {
       }
     } catch (e) {
       setWfError(
-        e?.response?.data?.message || "Failed to load workflow details"
+        e?.response?.data?.message || "Failed to load workflow details",
       );
     } finally {
       setWfLoading(false);
@@ -164,6 +177,7 @@ export default function PurchaseOrdersLocalList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+      setHasInactiveWorkflow(false);
       return;
     }
     const route = "/purchase/purchase-orders-local";
@@ -172,17 +186,24 @@ export default function PurchaseOrdersLocalList() {
         .trim()
         .toUpperCase()
         .replace(/\s+/g, "_");
+    const matching = items.filter(
+      (w) =>
+        String(w.document_route) === route ||
+        normalize(w.document_type) === "PURCHASE_ORDER",
+    );
+    const hasInactive = matching.some((w) => Number(w.is_active) === 0);
     const chosen =
       items.find(
-        (w) => Number(w.is_active) === 1 && String(w.document_route) === route
+        (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
       ) ||
       items.find(
         (w) =>
           Number(w.is_active) === 1 &&
-          normalize(w.document_type) === "PURCHASE_ORDER"
+          normalize(w.document_type) === "PURCHASE_ORDER",
       ) ||
       null;
     setCandidateWorkflow(chosen || null);
+    setHasInactiveWorkflow(!chosen && hasInactive);
     setFirstApprover(null);
     if (!chosen) return;
     try {
@@ -201,7 +222,7 @@ export default function PurchaseOrdersLocalList() {
               stepOrder: first.step_order,
               approvalLimit: first.approval_limit,
             }
-          : null
+          : null,
       );
       if (first) {
         const defaultTarget =
@@ -214,7 +235,7 @@ export default function PurchaseOrdersLocalList() {
       }
     } catch (e) {
       setWfError(
-        e?.response?.data?.message || "Failed to load workflow details"
+        e?.response?.data?.message || "Failed to load workflow details",
       );
     } finally {
       setWfLoading(false);
@@ -229,8 +250,8 @@ export default function PurchaseOrdersLocalList() {
       ? Array.isArray(first.approvers) && first.approvers.length
         ? first.approvers
         : first.approver_user_id
-        ? [{ id: first.approver_user_id }]
-        : []
+          ? [{ id: first.approver_user_id }]
+          : []
       : [];
     if (candidateWorkflow && opts.length > 0 && !targetApproverId) {
       setWfError("Please select target approver");
@@ -251,14 +272,14 @@ export default function PurchaseOrdersLocalList() {
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
       setPurchaseOrders((prev) =>
         prev.map((po) =>
-          po.id === selectedPO.id ? { ...po, status: newStatus } : po
-        )
+          po.id === selectedPO.id ? { ...po, status: newStatus } : po,
+        ),
       );
       setShowForwardModal(false);
       setSelectedPO(null);
     } catch (e) {
       setWfError(
-        e?.response?.data?.message || "Failed to forward for approval"
+        e?.response?.data?.message || "Failed to forward for approval",
       );
     } finally {
       setSubmittingForward(false);
@@ -278,12 +299,14 @@ export default function PurchaseOrdersLocalList() {
           <Link to="/purchase" className="btn btn-secondary">
             Return to Menu
           </Link>
-          <Link
-            to="/purchase/purchase-orders-local/new"
-            className="btn-success"
-          >
-            + New Purchase Order
-          </Link>
+          {canPerformAction("purchase:purchase-orders-local", "create") && (
+            <Link
+              to="/purchase/purchase-orders-local/new"
+              className="btn-success"
+            >
+              + New Purchase Order
+            </Link>
+          )}
         </div>
       </div>
 
@@ -376,13 +399,15 @@ export default function PurchaseOrdersLocalList() {
                     </td>
                     <td>
                       <div className="flex gap-2">
-                        <Link
-                          to={`/purchase/purchase-orders-local/${po.id}`}
-                          className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                        {po.status === "DRAFT" && (
+                        {canPerformAction("purchase:purchase-orders-local", "view") && (
+                          <Link
+                            to={`/purchase/purchase-orders-local/${po.id}`}
+                            className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
+                          >
+                            View
+                          </Link>
+                        )}
+                        {po.status === "DRAFT" && canPerformAction("purchase:purchase-orders-local", "edit") && (
                           <Link
                             to={`/purchase/purchase-orders-local/${po.id}/edit`}
                             className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
@@ -394,11 +419,13 @@ export default function PurchaseOrdersLocalList() {
                           <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
                             Approved
                           </span>
-                        ) : (po.status === "DRAFT" || po.status === "RETURNED") ? (
+                        ) : po.status === "DRAFT" ||
+                          po.status === "RETURNED" ? (
                           <button
                             type="button"
                             className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 transition-colors"
                             onClick={() => openForwardModal(po)}
+                            disabled={hasInactiveWorkflow}
                           >
                             Forward for Approval
                           </button>
@@ -484,15 +511,15 @@ export default function PurchaseOrdersLocalList() {
                           name: u.username,
                         }))
                       : first.approver_user_id
-                      ? [
-                          {
-                            id: first.approver_user_id,
-                            name:
-                              first.approver_name ||
-                              String(first.approver_user_id),
-                          },
-                        ]
-                      : []
+                        ? [
+                            {
+                              id: first.approver_user_id,
+                              name:
+                                first.approver_name ||
+                                String(first.approver_user_id),
+                            },
+                          ]
+                        : []
                     : [];
                   return opts.length > 0 ? (
                     <div className="mt-1">
@@ -501,7 +528,7 @@ export default function PurchaseOrdersLocalList() {
                         value={targetApproverId || ""}
                         onChange={(e) =>
                           setTargetApproverId(
-                            e.target.value ? Number(e.target.value) : null
+                            e.target.value ? Number(e.target.value) : null,
                           )
                         }
                       >
@@ -519,7 +546,7 @@ export default function PurchaseOrdersLocalList() {
                             }${
                               firstApprover.approvalLimit != null
                                 ? ` • Limit: ${Number(
-                                    firstApprover.approvalLimit
+                                    firstApprover.approvalLimit,
                                   ).toLocaleString()}`
                                 : ""
                             }`

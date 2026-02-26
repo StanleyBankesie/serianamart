@@ -1,6 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../auth/AuthContext.jsx";
+import { usePermission } from "../auth/PermissionContext.jsx";
 
 const ModuleDashboard = ({
   title,
@@ -8,9 +8,10 @@ const ModuleDashboard = ({
   stats = [],
   quickActions = [],
   sections = [],
+  features = [],
 }) => {
   const navigate = useNavigate();
-  const { hasAccess } = useAuth();
+  const { canAccessPath, canAccessFeatureKey } = usePermission();
 
   const handleNavigate = (path, e) => {
     if (e) e.stopPropagation();
@@ -41,6 +42,64 @@ const ModuleDashboard = ({
     return selections;
   }, [stats.length]);
 
+  function isFeatureEnabled(path) {
+    return canAccessPath(path);
+  }
+
+  const canShowItem = (item) => {
+    if (!item) return false;
+    if (item.hidden) return false;
+    const path = String(item.path || "");
+    if (!path) return false;
+
+    const parts = path.split("/").filter(Boolean);
+    const mk = String(item.module_key || parts[0] || "");
+    const fk = String(item.feature_key || parts[1] || "");
+
+    if (mk && fk) {
+      if (canAccessFeatureKey(mk, fk)) return true;
+      if (!item.feature_key && parts.length > 2) {
+        const fk2 = String(parts[2] || "");
+        if (fk2 && canAccessFeatureKey(mk, fk2)) return true;
+      }
+      return canAccessPath(path);
+    }
+    return canAccessPath(path);
+  };
+
+  const allSections = React.useMemo(() => {
+    const base = Array.isArray(sections) ? sections : [];
+    const feats = Array.isArray(features) ? features : [];
+    if (!feats.length) return base;
+    const existing = new Set();
+    for (const section of base) {
+      const sectionItems =
+        (section && (section.items || section.features)) || [];
+      for (const item of sectionItems) {
+        if (item && item.path) existing.add(String(item.path));
+      }
+    }
+    const extras = [];
+    for (const f of feats) {
+      const path = String(f.path || "");
+      if (!path || existing.has(path)) continue;
+      extras.push({
+        title: f.label || f.name || "Page",
+        name: f.label || f.name,
+        path,
+        icon: f.icon || "📄",
+      });
+    }
+    if (!extras.length) return base;
+    return [
+      ...base,
+      {
+        title: "Other Pages",
+        items: extras,
+      },
+    ];
+  }, [sections, features]);
+
   return (
     <div className="p-6 space-y-8 animate-fade-in fullbleed-sm">
       {/* Header */}
@@ -54,15 +113,14 @@ const ModuleDashboard = ({
       </div>
 
       {/* Key Statistics */}
-      {stats.filter((s) => !s?.path || hasAccess(s.path, "view")).length >
-        0 && (
+      {stats.filter((s) => canShowItem(s)).length > 0 && (
         <div className="mb-8">
           <h2 className="text-xl font-semibold text-brand-800 dark:text-brand-200 mb-4 flex items-center gap-2">
             <span>📈</span> Business Overview
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {stats
-              .filter((stat) => !stat?.path || hasAccess(stat.path, "view"))
+              .filter((stat) => canShowItem(stat))
               .map((stat, index) => (
                 <div
                   key={index}
@@ -89,17 +147,14 @@ const ModuleDashboard = ({
       )}
 
       {/* Quick Actions */}
-      {quickActions.filter((a) => !a?.path || hasAccess(a.path, "view"))
-        .length > 0 && (
+      {quickActions.filter((a) => !a?.path || canShowItem(a)).length > 0 && (
         <div className="mb-10">
           <h2 className="text-xl font-semibold text-brand-800 dark:text-brand-200 mb-4 flex items-center gap-2">
             <span>⚡</span> Quick Actions
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
             {quickActions
-              .filter(
-                (action) => !action?.path || hasAccess(action.path, "view"),
-              )
+              .filter((action) => !action?.path || canShowItem(action))
               .map((action, index) => (
                 <button
                   key={index}
@@ -120,7 +175,7 @@ const ModuleDashboard = ({
 
       {/* Category Sections */}
       <div className="space-y-10">
-        {sections.map((section, sectionIndex) => {
+        {allSections.map((section, sectionIndex) => {
           const sectionTitle = section.title || section.category;
           const sectionItems = section.items || section.features || [];
 
@@ -139,11 +194,7 @@ const ModuleDashboard = ({
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                 {sectionItems
-                  .filter(
-                    (item) =>
-                      !item?.hidden &&
-                      (!item?.path || hasAccess(item.path, "view")),
-                  )
+                  .filter((item) => canShowItem(item))
                   .map((item, itemIndex) => {
                     const itemTitle = item.title || item.name;
 

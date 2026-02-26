@@ -37,7 +37,7 @@ export default function AccountGroupsPage() {
       setItems(res.data?.items || []);
     } catch (e) {
       toast.error(
-        e?.response?.data?.message || "Failed to load account groups"
+        e?.response?.data?.message || "Failed to load account groups",
       );
     } finally {
       setLoading(false);
@@ -78,8 +78,7 @@ export default function AccountGroupsPage() {
       await load();
     } catch (e) {
       toast.error(
-        e?.response?.data?.message ||
-          "Failed to update active status"
+        e?.response?.data?.message || "Failed to update active status",
       );
     } finally {
       setLoading(false);
@@ -332,13 +331,6 @@ export default function AccountGroupsPage() {
                           </td>
                           <td>
                             <div className="flex gap-2">
-                              <button
-                                className="btn btn-secondary"
-                                onClick={() => startEdit(g)}
-                                disabled={loading}
-                              >
-                                Edit
-                              </button>
                               {g.is_active ? (
                                 <button
                                   className="btn btn-secondary"
@@ -382,9 +374,3 @@ export default function AccountGroupsPage() {
     </div>
   );
 }
-
-
-
-
-
-

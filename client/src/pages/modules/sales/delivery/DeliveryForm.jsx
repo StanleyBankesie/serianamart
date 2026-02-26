@@ -174,57 +174,50 @@ export default function DeliveryForm() {
 
     try {
       setLoading(true);
-      // Find the selected invoice from the list
-      const match = invoices.find((i) => String(i.id) === String(invoiceId));
-
-      if (match) {
-        // Check if it's linked to a sales order
-        if (!match.sales_order_id) {
-          console.warn("This invoice is not linked to a sales order.");
-        }
-
-        let orderData = null;
-        let orderDetails = [];
-
-        if (match.sales_order_id) {
-          // Fetch linked sales order
+      const invRes = await api.get(`/sales/invoices/${invoiceId}`);
+      const invItem = invRes.data?.item || {};
+      const invDetails = Array.isArray(invRes.data?.details)
+        ? invRes.data.details
+        : [];
+      let itemsToLoad = invDetails;
+      if (!itemsToLoad.length) {
+        const inList = invoices.find((i) => String(i.id) === String(invoiceId));
+        if (inList?.sales_order_id) {
           const orderRes = await api.get(
-            `/sales/orders/${match.sales_order_id}`,
+            `/sales/orders/${inList.sales_order_id}`,
           );
-          orderData = orderRes.data.item;
-          orderDetails = orderRes.data.details;
-        }
-
-        const itemsToLoad = orderDetails.length > 0 ? orderDetails : [];
-
-        setFormData((prev) => ({
-          ...prev,
-          customer_id: match.customer_id,
-          sales_order_id: match.sales_order_id || "",
-          invoice_id: match.id || "",
-          items: itemsToLoad.map((d) => ({
-            item_id: d.item_id,
-            item_name:
-              d.item_name ||
-              itemsCatalog.find((p) => String(p.id) === String(d.item_id))
-                ?.item_name ||
-              "",
-            quantity: d.quantity,
-            ordered_qty: d.quantity,
-            tax_type: d.tax_id || (taxes.length > 0 ? taxes[0].value : ""),
-            uom: d.uom || "PCS",
-            unit_price: Number(d.unit_price || 0),
-          })),
-        }));
-
-        if (orderData) {
-          setSearchOrderNo(orderData.order_no);
+          itemsToLoad = Array.isArray(orderRes.data?.details)
+            ? orderRes.data.details
+            : [];
+          setSearchOrderNo(orderRes.data?.item?.order_no || "");
         } else {
           setSearchOrderNo("");
         }
-
-        setSuccess(`Loaded from Invoice ${match.invoice_no}`);
+      } else {
+        setSearchOrderNo("");
       }
+      setFormData((prev) => ({
+        ...prev,
+        customer_id: invItem.customer_id || prev.customer_id,
+        sales_order_id: invItem.sales_order_id || "",
+        invoice_id: invItem.id || invoiceId,
+        items: itemsToLoad.map((d) => ({
+          item_id: d.item_id,
+          item_name:
+            d.item_name ||
+            itemsCatalog.find((p) => String(p.id) === String(d.item_id))
+              ?.item_name ||
+            "",
+          quantity: Number(d.quantity || 0),
+          ordered_qty: Number(d.quantity || 0),
+          tax_type: taxes.length > 0 ? taxes[0].value : "",
+          uom: d.uom || "PCS",
+          unit_price: Number(d.unit_price || 0),
+        })),
+      }));
+      setSuccess(
+        `Loaded from Invoice ${invItem.invoice_no || String(invoiceId)}`,
+      );
     } catch (err) {
       console.error(err);
       alert("Error loading invoice details");
@@ -242,22 +235,28 @@ export default function DeliveryForm() {
 
     try {
       setSaving(true);
+      console.log("Scope companyId before payload:", scope?.companyId);
       const payload = {
         ...formData,
-        company_id: scope?.companyId,
+        company_id: scope?.companyId || 1,
         branch_id: scope?.branchId,
-        invoice_id: formData.invoice_id || undefined,
+        invoice_id: formData.invoice_id || null,
+        sales_order_id: formData.sales_order_id || null,
         items: formData.items.map((item) => {
           const tax = taxes.find((t) => t.value == item.tax_type);
-          return {
+          const itemPayload = {
             item_id: item.item_id,
             quantity: Number(item.quantity),
-            tax_id: item.tax_type,
-            tax_rate: tax ? tax.rate : 0,
-            tax_amount: 0,
           };
+          if (item.tax_type) {
+            itemPayload.tax_id = item.tax_type;
+            itemPayload.tax_rate = tax ? tax.rate : 0;
+            itemPayload.tax_amount = 0;
+          }
+          return itemPayload;
         }),
       };
+      console.log("Delivery payload:", payload);
       if (isEdit) {
         await api.put(`/sales/deliveries/${id}`, payload);
       } else {
@@ -266,8 +265,13 @@ export default function DeliveryForm() {
       setSuccess("Delivery saved successfully");
       setTimeout(() => navigate("/sales/delivery"), 1500);
     } catch (err) {
-      setError("Failed to save delivery");
-      console.error(err);
+      const serverMessage =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Failed to save delivery";
+      setError(serverMessage);
+      console.error("Failed to save delivery", err?.response?.data || err);
     } finally {
       setSaving(false);
     }
@@ -382,9 +386,17 @@ export default function DeliveryForm() {
                 <select
                   id="customer"
                   value={formData.customer_id}
-                  onChange={(e) =>
-                    setFormData({ ...formData, customer_id: e.target.value })
-                  }
+                  onChange={(e) => {
+                    const newCustomerId = e.target.value;
+                    setFormData({
+                      ...formData,
+                      customer_id: newCustomerId,
+                      invoice_id: "",
+                      sales_order_id: "",
+                      items: [],
+                    });
+                    setSearchOrderNo("");
+                  }}
                   className="w-full border rounded p-2"
                 >
                   <option value="">Select Customer</option>
@@ -415,7 +427,14 @@ export default function DeliveryForm() {
                   <option value="" disabled>
                     Select an Invoice...
                   </option>
-                  {invoices.map((inv) => (
+                  {invoices
+                    .filter((inv) =>
+                      formData.customer_id
+                        ? String(inv.customer_id) ===
+                          String(formData.customer_id)
+                        : true,
+                    )
+                    .map((inv) => (
                     <option key={inv.id} value={inv.id}>
                       {inv.invoice_no} -{" "}
                       {new Date(inv.invoice_date).toLocaleDateString()} (
@@ -449,7 +468,7 @@ export default function DeliveryForm() {
                 <thead className="bg-gray-50 text-gray-700">
                   <tr>
                     <th className="p-3">Item</th>
-                    <th className="p-3 w-28">Ordered</th>
+                    <th className="p-3 w-28">Ordered Qty</th>
                     <th className="p-3 w-28">To Deliver</th>
                     <th className="p-3 w-20">UOM</th>
                     <th className="p-3 w-28">Unit Price</th>

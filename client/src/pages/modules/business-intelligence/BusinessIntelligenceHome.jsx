@@ -47,6 +47,7 @@ function BusinessIntelligenceLanding() {
       features: [
         { name: 'Dashboard List', path: '/business-intelligence/dashboards', description: 'Manage KPI dashboards', icon: '📊' },
         { name: 'New Dashboard', path: '/business-intelligence/dashboards/new', description: 'Create a new dashboard', icon: '➕' },
+        { name: 'Analytics', path: '/business-intelligence/analytics', description: 'Interactive analytics workspace', icon: '📈' },
       ],
     },
     {
@@ -65,6 +66,7 @@ function BusinessIntelligenceLanding() {
       description="Analytics, reporting, and data insights"
       stats={stats}
       sections={sections}
+      features={businessIntelligenceFeatures}
     />
   );
 }
@@ -83,12 +85,19 @@ export default function BusinessIntelligenceHome() {
       <Route path="/reports/:id" element={<ReportForm />} />
 
       <Route path="/bi-reports" element={<BiReportsPage />} />
+      <Route path="/analytics" element={<BiReportsPage />} />
     </Routes>
   );
 }
 
-
-
+export const businessIntelligenceFeatures = [
+  { module_key: "business-intelligence", label: "Dashboard List", path: "/business-intelligence/dashboards", type: "dashboard" },
+  { module_key: "business-intelligence", label: "New Dashboard", path: "/business-intelligence/dashboards/new", type: "dashboard" },
+  { module_key: "business-intelligence", label: "Analytics", path: "/business-intelligence/analytics", type: "dashboard" },
+  { module_key: "business-intelligence", label: "Saved Reports", path: "/business-intelligence/reports", type: "dashboard" },
+  { module_key: "business-intelligence", label: "New Report", path: "/business-intelligence/reports/new", type: "dashboard" },
+  { module_key: "business-intelligence", label: "BI Reports", path: "/business-intelligence/bi-reports", type: "dashboard" },
+];
 
 
 

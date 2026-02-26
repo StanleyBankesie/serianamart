@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 
 import { useAuth } from "../auth/AuthContext.jsx";
@@ -10,6 +10,7 @@ import { Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login, setScope } = useAuth();
 
   const [username, setUsername] = useState("");
@@ -49,7 +50,26 @@ export default function LoginPage() {
           companyId: companyId || prev.companyId || 1,
           branchId: branchId,
         }));
-        navigate("/", { replace: true });
+        let target = "/";
+        try {
+          const fromState = location?.state?.from;
+          const fromPath =
+            fromState && typeof fromState.pathname === "string"
+              ? fromState.pathname + (fromState.search || "")
+              : null;
+          const last =
+            typeof sessionStorage !== "undefined"
+              ? sessionStorage.getItem("last_path")
+              : null;
+          const candidate = fromPath || last;
+          if (
+            candidate &&
+            !/^\/(login|reset-password|forgot-password)$/.test(candidate)
+          ) {
+            target = candidate;
+          }
+        } catch {}
+        navigate(target, { replace: true });
       } else {
         navigate("/select-branch", { replace: true });
       }

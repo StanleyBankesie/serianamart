@@ -3,8 +3,6 @@ import { Link, Route, Routes } from "react-router-dom";
 import ModuleDashboard from "../../../components/ModuleDashboard";
 import { api } from "../../../api/client.js";
 
-import RoleList from "./roles/RoleList.jsx";
-import RoleForm from "./roles/RoleForm.jsx";
 import UserList from "./users/UserList.jsx";
 import UserForm from "./users/UserForm.jsx";
 import WorkflowList from "./workflows/WorkflowList.jsx";
@@ -12,8 +10,6 @@ import WorkflowForm from "./workflows/WorkflowForm.jsx";
 import MyApprovals from "./workflows/MyApprovals.jsx";
 import ApprovedDocuments from "./workflows/ApprovedDocuments.jsx";
 import DocumentReview from "./workflows/DocumentReview.jsx";
-import ExceptionalPermissionList from "./exceptional-permissions/ExceptionalPermissionList.jsx";
-import ExceptionalPermissionForm from "./exceptional-permissions/ExceptionalPermissionForm.jsx";
 import CompanyList from "./companies/CompanyList.jsx";
 import CompanyForm from "./companies/CompanyForm.jsx";
 import BranchList from "./branches/BranchList.jsx";
@@ -21,10 +17,11 @@ import BranchForm from "./branches/BranchForm.jsx";
 import ReportsPage from "./reports/ReportsPage.jsx";
 import SystemLogBookPage from "./reports/SystemLogBookPage.jsx";
 import UserLoginActivityReportPage from "./reports/UserLoginActivityReportPage.jsx";
-import UserPermissionList from "./permissions/UserPermissionList.jsx";
-import UserPermissionAssignment from "./permissions/UserPermissionAssignment.jsx";
 import SettingsPage from "./SettingsPage.jsx";
 import DocumentTemplatesPage from "./templates/DocumentTemplatesPage.jsx";
+import RoleManagement from "./access-control/RoleManagementNew.jsx";
+import UserOverrides from "./access-control/UserOverrides.jsx";
+import UserPermissions from "./access-control/UserPermissionsNew.jsx";
 
 function AdministrationLanding() {
   const [stats, setStats] = React.useState([
@@ -149,18 +146,51 @@ function AdministrationLanding() {
       items: [
         {
           title: "Role Setup",
-          description: "Configure roles and assign permissions to roles",
-          path: "/administration/roles",
-          icon: "👥",
+          description: "Create roles and assign modules, features, and dashboards",
+          module_key: "administration",
+          feature_key: "roles",
+          path: "/administration/access/roles",
+          icon: "�️",
           actions: [
             {
-              label: "View Roles",
-              path: "/administration/roles",
-              type: "outline",
+              label: "Open",
+              module_key: "administration",
+              feature_key: "roles",
+              path: "/administration/access/roles",
+              type: "primary",
             },
+          ],
+        },
+        {
+          title: "User Permissions",
+          description: "Set granular CRUD permissions for individual users",
+          module_key: "administration",
+          feature_key: "user-permissions",
+          path: "/administration/access/user-permissions",
+          icon: "✅",
+          actions: [
             {
-              label: "New Role",
-              path: "/administration/roles/new",
+              label: "Open",
+              module_key: "administration",
+              feature_key: "user-permissions",
+              path: "/administration/access/user-permissions",
+              type: "primary",
+            },
+          ],
+        },
+        {
+          title: "Exceptional Permissions",
+          description: "Set exceptional permissions and overrides per user",
+          module_key: "administration",
+          feature_key: "user-overrides",
+          path: "/administration/access/user-overrides",
+          icon: "✨",
+          actions: [
+            {
+              label: "Open",
+              module_key: "administration",
+              feature_key: "user-overrides",
+              path: "/administration/access/user-overrides",
               type: "primary",
             },
           ],
@@ -184,42 +214,6 @@ function AdministrationLanding() {
             },
           ],
         },
-        {
-          title: "Permissions",
-          description: "Overview of system permissions, roles, and assignments",
-          path: "/administration/permissions",
-          icon: "🔐",
-          actions: [
-            {
-              label: "Dashboard",
-              path: "/administration/permissions",
-              type: "outline",
-            },
-            {
-              label: "Assign Rights",
-              path: "/administration/user-permissions",
-              type: "primary",
-            },
-          ],
-        },
-        {
-          title: "Exceptional Permissions",
-          description: "Grant special permissions to users temporarily",
-          path: "/administration/exceptional-permissions",
-          icon: "🔑",
-          actions: [
-            {
-              label: "View Permissions",
-              path: "/administration/exceptional-permissions",
-              type: "outline",
-            },
-            {
-              label: "Grant",
-              path: "/administration/exceptional-permissions/new",
-              type: "primary",
-            },
-          ],
-        },
       ],
     },
     {
@@ -237,6 +231,18 @@ function AdministrationLanding() {
               type: "primary",
             },
           ],
+        },
+        {
+          title: "Workflow Approvals",
+          description: "Approve pending documents",
+          path: "/administration/workflows/approvals",
+          icon: "✅",
+        },
+        {
+          title: "Document Review",
+          description: "Review documents awaiting action",
+          path: "/administration/workflows/approvals",
+          icon: "📝",
         },
         {
           title: "Reports",
@@ -261,6 +267,18 @@ function AdministrationLanding() {
             },
           ],
         },
+        {
+          title: "System Log Book Report",
+          description: "Audit logs and system activity",
+          path: "/administration/reports/system-log-book",
+          icon: "📘",
+        },
+        {
+          title: "User Login Activity Report",
+          description: "Recent user sign-ins and sessions",
+          path: "/administration/reports/user-login-activity",
+          icon: "👤",
+        },
       ],
     },
   ];
@@ -272,6 +290,7 @@ function AdministrationLanding() {
       stats={stats}
       quickActions={quickActions}
       sections={sections}
+      features={administrationFeatures}
     />
   );
 }
@@ -280,9 +299,6 @@ export default function AdministrationHome() {
   return (
     <Routes>
       <Route path="/" element={<AdministrationLanding />} />
-      <Route path="/roles" element={<RoleList />} />
-      <Route path="/roles/new" element={<RoleForm />} />
-      <Route path="/roles/:id" element={<RoleForm />} />
       <Route path="/users" element={<UserList />} />
       <Route path="/users/new" element={<UserForm />} />
       <Route path="/users/:id" element={<UserForm />} />
@@ -295,18 +311,7 @@ export default function AdministrationHome() {
         path="/workflows/approvals/:instanceId"
         element={<DocumentReview />}
       />
-      <Route
-        path="/exceptional-permissions"
-        element={<ExceptionalPermissionList />}
-      />
-      <Route
-        path="/exceptional-permissions/new"
-        element={<ExceptionalPermissionForm />}
-      />
-      <Route
-        path="/exceptional-permissions/:id"
-        element={<ExceptionalPermissionForm />}
-      />
+
       <Route path="/companies" element={<CompanyList />} />
       <Route path="/companies/new" element={<CompanyForm />} />
       <Route path="/companies/:id" element={<CompanyForm />} />
@@ -319,10 +324,93 @@ export default function AdministrationHome() {
         path="/reports/user-login-activity"
         element={<UserLoginActivityReportPage />}
       />
-      <Route path="/permissions" element={<UserPermissionList />} />
-      <Route path="/user-permissions" element={<UserPermissionAssignment />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/settings/templates" element={<DocumentTemplatesPage />} />
+      <Route path="/access/roles" element={<RoleManagement />} />
+      <Route path="/access/user-permissions" element={<UserPermissions />} />
+      <Route path="/access/user-permissions/:id" element={<UserPermissions />} />
+      <Route path="/access/user-overrides" element={<UserOverrides />} />
     </Routes>
   );
 }
+
+export const administrationFeatures = [
+  {
+    module_key: "administration",
+    label: "Role Setup",
+    path: "/administration/access/roles",
+    type: "feature",
+  },
+  {
+    module_key: "administration",
+    label: "User Permissions",
+    path: "/administration/access/user-permissions",
+    type: "feature",
+  },
+  {
+    module_key: "administration",
+    label: "Exceptional Permissions",
+    path: "/administration/access/user-overrides",
+    type: "feature",
+  },
+  {
+    module_key: "administration",
+    label: "User Management",
+    path: "/administration/users",
+    type: "feature",
+  },
+  {
+    module_key: "administration",
+    label: "Settings",
+    path: "/administration/settings",
+    type: "feature",
+  },
+  {
+    module_key: "administration",
+    label: "Company Setup",
+    path: "/administration/companies",
+    type: "feature",
+  },
+  {
+    module_key: "administration",
+    label: "Branch Setup",
+    path: "/administration/branches",
+    type: "feature",
+  },
+  {
+    module_key: "administration",
+    label: "Workflow Configuration",
+    path: "/administration/workflows",
+    type: "feature",
+  },
+  {
+    module_key: "administration",
+    label: "Workflow Approvals",
+    path: "/administration/workflows/approvals",
+    type: "feature",
+  },
+  {
+    module_key: "administration",
+    label: "Document Review",
+    path: "/administration/workflows/approvals",
+    type: "feature",
+  },
+  {
+    module_key: "administration",
+    label: "System Log Book Report",
+    path: "/administration/reports/system-log-book",
+    type: "dashboard",
+  },
+  {
+    module_key: "administration",
+    label: "User Login Activity Report",
+    path: "/administration/reports/user-login-activity",
+    type: "dashboard",
+  },
+  {
+    module_key: "administration",
+    label: "Reports",
+    path: "/administration/reports",
+    type: "dashboard",
+  },
+];

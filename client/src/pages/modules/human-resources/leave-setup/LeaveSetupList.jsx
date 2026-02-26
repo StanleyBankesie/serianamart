@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function LeaveSetupList() {
+  const { canPerformAction } = usePermission();
   const items = [
     { id: 1, code: 'ANNUAL', name: 'Annual Leave', daysPerYear: 21, active: true },
     { id: 2, code: 'SICK', name: 'Sick Leave', daysPerYear: 10, active: true },
@@ -43,8 +45,12 @@ export default function LeaveSetupList() {
                     <td>{r.daysPerYear}</td>
                     <td>{r.active ? <span className="badge badge-success">Active</span> : <span className="badge badge-error">Inactive</span>}</td>
                     <td>
-                      <Link to={`/human-resources/leave-setup/${r.id}?mode=view`} className="text-brand hover:text-brand-600 text-sm font-medium">View</Link>
-                      <Link to={`/human-resources/leave-setup/${r.id}?mode=edit`} className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2">Edit</Link>
+                      {canPerformAction('human-resources:leave-setup','view') && (
+                        <Link to={`/human-resources/leave-setup/${r.id}?mode=view`} className="text-brand hover:text-brand-600 text-sm font-medium">View</Link>
+                      )}
+                      {canPerformAction('human-resources:leave-setup','edit') && (
+                        <Link to={`/human-resources/leave-setup/${r.id}?mode=edit`} className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2">Edit</Link>
+                      )}
                     </td>
                   </tr>
                 ))}

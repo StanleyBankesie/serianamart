@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { api } from "api/client";
+import { api } from "../../../api/client";
+import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 export default function MaterialRequisitionList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -14,10 +15,12 @@ export default function MaterialRequisitionList() {
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
+  const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
   const [firstApprover, setFirstApprover] = useState(null);
   const [workflowSteps, setWorkflowSteps] = useState([]);
   const [submittingForward, setSubmittingForward] = useState(false);
   const [workflowsCache, setWorkflowsCache] = useState(null);
+  const { canPerformAction } = usePermission();
   const [targetApproverId, setTargetApproverId] = useState(null);
 
   useEffect(() => {
@@ -34,7 +37,7 @@ export default function MaterialRequisitionList() {
       .catch((e) => {
         if (!mounted) return;
         setError(
-          e?.response?.data?.message || "Failed to load material requisitions"
+          e?.response?.data?.message || "Failed to load material requisitions",
         );
       })
       .finally(() => {
@@ -79,7 +82,7 @@ export default function MaterialRequisitionList() {
         const res = await api.get("/workflows");
         setWorkflowsCache(Array.isArray(res.data?.items) ? res.data.items : []);
         await computeCandidateFromList(
-          Array.isArray(res.data?.items) ? res.data.items : []
+          Array.isArray(res.data?.items) ? res.data.items : [],
         );
       } catch (e) {
         setWfError(e?.response?.data?.message || "Failed to load workflows");
@@ -96,6 +99,7 @@ export default function MaterialRequisitionList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+      setHasInactiveWorkflow(false);
       return;
     }
     const route = "/inventory/material-requisitions";
@@ -104,17 +108,24 @@ export default function MaterialRequisitionList() {
         .trim()
         .toUpperCase()
         .replace(/\s+/g, "_");
+    const matching = workflowsCache.filter(
+      (w) =>
+        String(w.document_route) === route ||
+        normalize(w.document_type) === "MATERIAL_REQUISITION",
+    );
+    const hasInactive = matching.some((w) => Number(w.is_active) === 0);
     const chosen =
       workflowsCache.find(
-        (w) => Number(w.is_active) === 1 && String(w.document_route) === route
+        (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
       ) ||
       workflowsCache.find(
         (w) =>
           Number(w.is_active) === 1 &&
-          normalize(w.document_type) === "MATERIAL_REQUISITION"
+          normalize(w.document_type) === "MATERIAL_REQUISITION",
       ) ||
       null;
     setCandidateWorkflow(chosen || null);
+    setHasInactiveWorkflow(!chosen && hasInactive);
     setFirstApprover(null);
     if (!chosen) return;
     if (chosen) {
@@ -134,7 +145,7 @@ export default function MaterialRequisitionList() {
                 stepOrder: first.step_order,
                 approvalLimit: first.approval_limit,
               }
-            : null
+            : null,
         );
         if (first) {
           const defaultTarget =
@@ -147,7 +158,7 @@ export default function MaterialRequisitionList() {
         }
       } catch (e) {
         setWfError(
-          e?.response?.data?.message || "Failed to load workflow details"
+          e?.response?.data?.message || "Failed to load workflow details",
         );
       } finally {
         setWfLoading(false);
@@ -160,6 +171,7 @@ export default function MaterialRequisitionList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+      setHasInactiveWorkflow(false);
       return;
     }
     const route = "/inventory/material-requisitions";
@@ -168,17 +180,24 @@ export default function MaterialRequisitionList() {
         .trim()
         .toUpperCase()
         .replace(/\s+/g, "_");
+    const matching = items.filter(
+      (w) =>
+        String(w.document_route) === route ||
+        normalize(w.document_type) === "MATERIAL_REQUISITION",
+    );
+    const hasInactive = matching.some((w) => Number(w.is_active) === 0);
     const chosen =
       items.find(
-        (w) => Number(w.is_active) === 1 && String(w.document_route) === route
+        (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
       ) ||
       items.find(
         (w) =>
           Number(w.is_active) === 1 &&
-          normalize(w.document_type) === "MATERIAL_REQUISITION"
+          normalize(w.document_type) === "MATERIAL_REQUISITION",
       ) ||
       null;
     setCandidateWorkflow(chosen || null);
+    setHasInactiveWorkflow(!chosen && hasInactive);
     setFirstApprover(null);
     if (!chosen) return;
     try {
@@ -197,11 +216,11 @@ export default function MaterialRequisitionList() {
               stepOrder: first.step_order,
               approvalLimit: first.approval_limit,
             }
-          : null
+          : null,
       );
     } catch (e) {
       setWfError(
-        e?.response?.data?.message || "Failed to load workflow details"
+        e?.response?.data?.message || "Failed to load workflow details",
       );
     } finally {
       setWfLoading(false);
@@ -219,19 +238,19 @@ export default function MaterialRequisitionList() {
           amount: null,
           workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
           target_user_id: targetApproverId || null,
-        }
+        },
       );
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
       setRequisitions((prev) =>
         prev.map((r) =>
-          r.id === selectedReq.id ? { ...r, status: newStatus } : r
-        )
+          r.id === selectedReq.id ? { ...r, status: newStatus } : r,
+        ),
       );
       setShowForwardModal(false);
       setSelectedReq(null);
     } catch (e) {
       setWfError(
-        e?.response?.data?.message || "Failed to forward for approval"
+        e?.response?.data?.message || "Failed to forward for approval",
       );
     } finally {
       setSubmittingForward(false);
@@ -308,18 +327,22 @@ export default function MaterialRequisitionList() {
                       </span>
                     </td>
                     <td>
-                      <Link
-                        to={`/inventory/material-requisitions/${req.id}?mode=view`}
-                        className="text-brand hover:text-brand-700 text-sm font-medium"
-                      >
-                        View
-                      </Link>
-                      <Link
-                        to={`/inventory/material-requisitions/${req.id}?mode=edit`}
-                        className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                      >
-                        Edit
-                      </Link>
+                      {canPerformAction("inventory:material-requisitions", "view") && (
+                        <Link
+                          to={`/inventory/material-requisitions/${req.id}?mode=view`}
+                          className="text-brand hover:text-brand-700 text-sm font-medium"
+                        >
+                          View
+                        </Link>
+                      )}
+                      {canPerformAction("inventory:material-requisitions", "edit") && (
+                        <Link
+                          to={`/inventory/material-requisitions/${req.id}?mode=edit`}
+                          className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                        >
+                          Edit
+                        </Link>
+                      )}
                       {req.status === "APPROVED" ? (
                         <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
                           Approved
@@ -332,7 +355,8 @@ export default function MaterialRequisitionList() {
                           disabled={
                             submittingForward ||
                             req.status === "ISSUED" ||
-                            req.status === "PENDING_APPROVAL"
+                            req.status === "PENDING_APPROVAL" ||
+                            hasInactiveWorkflow
                           }
                         >
                           Forward for Approval
@@ -400,15 +424,15 @@ export default function MaterialRequisitionList() {
                           name: u.username,
                         }))
                       : first.approver_user_id
-                      ? [
-                          {
-                            id: first.approver_user_id,
-                            name:
-                              first.approver_name ||
-                              String(first.approver_user_id),
-                          },
-                        ]
-                      : []
+                        ? [
+                            {
+                              id: first.approver_user_id,
+                              name:
+                                first.approver_name ||
+                                String(first.approver_user_id),
+                            },
+                          ]
+                        : []
                     : [];
                   return opts.length > 0 ? (
                     <div className="mt-1">
@@ -417,7 +441,7 @@ export default function MaterialRequisitionList() {
                         value={targetApproverId || ""}
                         onChange={(e) =>
                           setTargetApproverId(
-                            e.target.value ? Number(e.target.value) : null
+                            e.target.value ? Number(e.target.value) : null,
                           )
                         }
                       >
@@ -435,7 +459,7 @@ export default function MaterialRequisitionList() {
                             }${
                               firstApprover.approvalLimit != null
                                 ? ` • Limit: ${Number(
-                                    firstApprover.approvalLimit
+                                    firstApprover.approvalLimit,
                                   ).toLocaleString()}`
                                 : ""
                             }`

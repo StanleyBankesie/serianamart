@@ -4,6 +4,7 @@ import fs from "fs";
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
+import http from "http";
 
 import { errorHandler } from "./middleware/errorHandler.js";
 import { notFound } from "./middleware/notFound.js";
@@ -30,6 +31,10 @@ import pushRoutes, {
 } from "./routes/push.routes.js";
 import templatesRoutes from "./routes/templates.routes.js";
 import documentsRoutes from "./routes/documents.routes.js";
+import socialFeedRoutes from "./routes/social-feed.routes.js";
+import accessRoutes from "./routes/access.routes.js";
+import chatRoutes from "./routes/chat.routes.js";
+import { initializeSocket } from "./utils/socket.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -83,6 +88,12 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 /* ---------------- DB ---------------- */
 
 /* ---------------- ROUTES ---------------- */
+app.use(
+  "/uploads",
+  express.static(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "uploads"),
+  ),
+);
 app.use("/api/admin", adminRoutes);
 app.use("/api/workflows", workflowRoutes);
 app.use("/api/upload", uploadRoutes);
@@ -101,6 +112,9 @@ app.use("/api", authRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/templates", templatesRoutes);
 app.use("/api/documents", documentsRoutes);
+app.use("/api/social-feed", socialFeedRoutes);
+app.use("/api/access", accessRoutes);
+app.use("/api/chat", chatRoutes);
 
 /* ---------------- STATIC FILES & SPA FALLBACK ---------------- */
 // Determine where the frontend build is located
@@ -144,9 +158,22 @@ app.get("*", (req, res, next) => {
 // app.use(notFound); // Handled by SPA catch-all now, or use for API 404s if desired
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 4002;
+const PORT = Number(process.env.PORT || 4002);
+
+// Create HTTP server for Socket.io
+const server = http.createServer(app);
+
+// Initialize Socket.io
+let ioInstance = null;
 if (process.env.NODE_ENV !== "test") {
-  app.listen(PORT, () => {
+  ioInstance = initializeSocket(server);
+}
+
+// Export io for use in other modules
+export { ioInstance as io };
+
+if (process.env.NODE_ENV !== "test") {
+  server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Mailer configured: ${isMailerConfigured() ? "yes" : "no"}`);
     verifyMailer().then((ok) => {

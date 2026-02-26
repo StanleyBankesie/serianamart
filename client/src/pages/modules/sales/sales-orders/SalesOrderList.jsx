@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { api } from "../../../../api/client";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
 export default function SalesOrderList() {
   const navigate = useNavigate();
+  const { canPerformAction } = usePermission();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -699,29 +701,32 @@ export default function SalesOrderList() {
                       </td>
                       <td>
                         <div className="flex gap-2">
-                          <button
-                            onClick={() =>
-                              navigate(
-                                `/sales/sales-orders/${order.id}?mode=view`,
-                              )
-                            }
-                            className="text-brand hover:text-brand-600 font-medium text-sm"
-                          >
-                            View
-                          </button>
-                          {String(order.status || "").toUpperCase() !==
-                            "CONFIRMED" && (
+                          {canPerformAction("sales:sales-orders", "view") && (
                             <button
                               onClick={() =>
                                 navigate(
-                                  `/sales/sales-orders/${order.id}?mode=edit`,
+                                  `/sales/sales-orders/${order.id}?mode=view`,
                                 )
                               }
-                              className="text-blue-600 hover:text-blue-700 font-medium text-sm"
+                              className="text-brand hover:text-brand-600 font-medium text-sm"
                             >
-                              Edit
+                              View
                             </button>
                           )}
+                          {String(order.status || "").toUpperCase() !==
+                            "CONFIRMED" &&
+                            canPerformAction("sales:sales-orders", "edit") && (
+                              <button
+                                onClick={() =>
+                                  navigate(
+                                    `/sales/sales-orders/${order.id}?mode=edit`,
+                                  )
+                                }
+                                className="text-blue-600 hover:text-blue-700 font-medium text-sm"
+                              >
+                                Edit
+                              </button>
+                            )}
                           {order.status === "APPROVED" ? (
                             <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
                               Approved

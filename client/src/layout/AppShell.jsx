@@ -9,6 +9,7 @@ import {
 } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext.jsx";
+import { usePermission } from "../auth/PermissionContext.jsx";
 import { useTheme } from "../theme/ThemeContext.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
 import DashboardPage from "../pages/dashboard/DashboardPage.jsx";
@@ -26,6 +27,10 @@ import PosHome from "../pages/modules/pos/PosHome.jsx";
 import BusinessIntelligenceHome from "../pages/modules/business-intelligence/BusinessIntelligenceHome.jsx";
 import ServiceManagementHome from "../pages/modules/service-management/ServiceManagementHome.jsx";
 import NotificationsPage from "../pages/NotificationsPage.jsx";
+import SocialFeedPage from "../pages/social/SocialFeedPage.jsx";
+import RoleSetup from "../pages/admin/RoleSetup.jsx";
+import UserPermissions from "../pages/admin/UserPermissions.jsx";
+import SocialFeedNotification from "../components/CompanyFeed/SocialFeedNotification.jsx";
 import addNotification from "react-push-notification";
 
 import logoDark from "../assets/resources/OMNISUITE_WHITE_LOGO.png";
@@ -35,6 +40,7 @@ import useOfflineQueue from "../offline/useOfflineQueue.js";
 import FloatingInstallButton from "../components/FloatingInstallButton.jsx";
 import { toast } from "react-toastify";
 import { Bell } from "lucide-react";
+import ChatPage from "../pages/chat/ChatPage.jsx";
 
 const modules = [
   {
@@ -82,7 +88,8 @@ const modules = [
 ];
 
 export default function AppShell() {
-  const { token, user, scope, setScope, logout, hasModuleAccess } = useAuth();
+  const { token, user, scope, setScope, logout } = useAuth();
+  const { isModuleEnabled, canPerformAction, globalOverrides } = usePermission();
   const { theme } = useTheme();
   const { pending, failed, completed, items, lastEvent } = useOfflineQueue();
   const navigate = useNavigate();
@@ -131,6 +138,14 @@ export default function AppShell() {
   }, [navigate]);
 
   useEffect(() => {
+    try {
+      if (typeof sessionStorage !== "undefined") {
+        const path = location.pathname + (location.search || "");
+        sessionStorage.setItem("last_path", path);
+      }
+    } catch {}
+  }, [location.pathname, location.search]);
+  useEffect(() => {
     async function logPageView() {
       try {
         const path = location.pathname || "/";
@@ -138,14 +153,16 @@ export default function AppShell() {
         const moduleName = seg
           .replace(/-/g, " ")
           .replace(/\b\w/g, (c) => c.toUpperCase());
-        await api.post("/admin/activity/log", {
-          module_name: moduleName,
-          action: "VIEW",
-          ref_no: String(user?.username || ""),
-          message: "Page View",
-          url_path: path,
-          event_time: new Date().toISOString(),
-        });
+        try {
+          await api.post("/admin/activity/log", {
+            module_name: moduleName,
+            action: "VIEW",
+            ref_no: String(user?.username || ""),
+            message: "Page View",
+            url_path: path,
+            event_time: new Date().toISOString(),
+          });
+        } catch {}
       } catch {}
     }
     logPageView();
@@ -199,7 +216,12 @@ export default function AppShell() {
       setDbRolesLoading(true);
       try {
         const res = await api.get(`/admin/users/${userId}/roles`);
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        const items =
+          (res.data && res.data.data && Array.isArray(res.data.data.items)
+            ? res.data.data.items
+            : Array.isArray(res.data?.items)
+              ? res.data.items
+              : []) || [];
         if (mounted) setDbRoles(items);
         if (mounted && items.length > 0 && !selectedRole) {
           setSelectedRole(items[0]?.name || items[0]?.code || null);
@@ -239,8 +261,13 @@ export default function AppShell() {
         if (!("Notification" in window)) return;
         if (window.Notification.permission !== "granted") return;
         const reg = await navigator.serviceWorker.ready;
-        const res = await api.get("/push/public-key");
-        const publicKey = String(res.data?.publicKey || "");
+        let publicKey = "";
+        try {
+          const res = await api.get("/push/public-key");
+          publicKey = String(res.data?.publicKey || "");
+        } catch {
+          publicKey = "";
+        }
         if (!publicKey) return;
         function urlBase64ToUint8Array(base64String) {
           const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -257,9 +284,11 @@ export default function AppShell() {
         const applicationServerKey = urlBase64ToUint8Array(publicKey);
         const existing = await reg.pushManager.getSubscription();
         if (existing && existing.endpoint) {
-          await api.post("/push/subscribe", {
-            subscription: existing.toJSON(),
-          });
+          try {
+            await api.post("/push/subscribe", {
+              subscription: existing.toJSON(),
+            });
+          } catch {}
           return;
         }
         const sub = await reg.pushManager.subscribe({
@@ -267,7 +296,9 @@ export default function AppShell() {
           applicationServerKey,
         });
         if (cancelled) return;
-        await api.post("/push/subscribe", { subscription: sub.toJSON() });
+        try {
+          await api.post("/push/subscribe", { subscription: sub.toJSON() });
+        } catch {}
       } catch {}
     }
     subscribePush();
@@ -413,7 +444,12 @@ export default function AppShell() {
       try {
         if (!Number.isFinite(userIdNum)) return;
         const res = await api.get(`/admin/users/${userIdNum}/branches`);
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        const items =
+          (res.data && res.data.data && Array.isArray(res.data.data.items)
+            ? res.data.data.items
+            : Array.isArray(res.data?.items)
+              ? res.data.items
+              : []) || [];
         if (mounted) {
           setBranchOptions(items);
           if (!selectedBranchId && items.length > 0) {
@@ -459,15 +495,16 @@ export default function AppShell() {
     };
   }, []);
   const currentBranchName = useMemo(() => {
-    const found = branchOptions.find(
-      (b) => Number(b.id) === Number(scope?.branchId),
-    );
+    const targetId = Number(scope?.branchId ?? selectedBranchId);
+    const found =
+      branchOptions.find((b) => Number(b.id) === targetId) ||
+      (branchOptions.length ? branchOptions[0] : null);
     if (found) {
       const comp = found.company_name || `Company #${found.company_id}`;
       return `${found.name} (${comp})`;
     }
     return profile.branchName;
-  }, [branchOptions, scope?.branchId, profile.branchName]);
+  }, [branchOptions, scope?.branchId, selectedBranchId, profile.branchName]);
   const currentCompanyName = useMemo(() => {
     const found = branchOptions.find(
       (b) => Number(b.id) === Number(scope?.branchId),
@@ -529,8 +566,135 @@ export default function AppShell() {
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
+  useEffect(() => {
+    let raf = 0;
+    const labels = {
+      create: ["+", "new", "create", "generate", "add"],
+      delete: ["delete", "deactivate", "remove"],
+      edit: ["edit", "update"],
+      view: ["view", "open", "details", "preview"],
+    };
+    const norm = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+    const matches = (t, group) => {
+      if (!t) return false;
+      if (group.includes("+") && t.includes("+")) return true;
+      for (const w of group) {
+        if (w === "+") continue;
+        const re = new RegExp(
+          `\\b${w.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\b`,
+          "i",
+        );
+        if (re.test(t)) return true;
+      }
+      return false;
+    };
+    const resolveFeatureKey = () => {
+      const path = (window.location && window.location.pathname) || "/";
+      const parts = path.split("/").filter(Boolean);
+      if (parts.length >= 2) return `${parts[0]}:${parts[1]}`;
+      return null;
+    };
+    const apply = () => {
+      const fk = resolveFeatureKey();
+      const go =
+        globalOverrides ||
+        {
+          view: false,
+          create: false,
+          edit: false,
+          delete: false,
+        };
+      const allow = {
+        view: go.view || (fk ? canPerformAction(fk, "view") : true),
+        create: go.create || (fk ? canPerformAction(fk, "create") : true),
+        edit: go.edit || (fk ? canPerformAction(fk, "edit") : true),
+        delete: go.delete || (fk ? canPerformAction(fk, "delete") : false),
+      };
+      const nodes = Array.from(
+        document.querySelectorAll(
+          'button, a, [role="button"], input[type="button"], input[type="submit"]',
+        ),
+      );
+      for (const el of nodes) {
+        const title =
+          el.getAttribute("aria-label") ||
+          el.getAttribute("title") ||
+          (el.value ? String(el.value) : "") ||
+          el.textContent ||
+          "";
+        const t = norm(title);
+        let action = null;
+        if (matches(t, labels.create)) {
+          action = "create";
+        } else if (matches(t, labels.delete)) {
+          action = "delete";
+        } else if (matches(t, labels.edit)) {
+          action = "edit";
+        } else if (matches(t, labels.view)) {
+          action = "view";
+        }
+        if (!action) continue;
+        const allowed = allow[action];
+        if (allowed) {
+          el.hidden = false;
+          el.style.display = "";
+          el.style.pointerEvents = "";
+          el.style.opacity = "";
+          el.setAttribute("aria-disabled", "false");
+          if ("disabled" in el) el.disabled = false;
+        } else {
+          el.hidden = true;
+          el.style.pointerEvents = "none";
+          el.style.opacity = "0.6";
+          el.setAttribute("aria-disabled", "true");
+          if ("disabled" in el) el.disabled = true;
+        }
+      }
+    };
+    const schedule = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(apply);
+    };
+    const mo = new MutationObserver(() => schedule());
+    mo.observe(document.body, { childList: true, subtree: true });
+    schedule();
+    const onRbac = () => schedule();
+    const onStorage = (e) => {
+      try {
+        const k = String(e?.key || "");
+        if (
+          k === "rbac_allow_all_view" ||
+          k === "rbac_allow_all_create" ||
+          k === "rbac_allow_all_edit" ||
+          k === "rbac_allow_all_delete"
+        ) {
+          schedule();
+        }
+      } catch {
+        schedule();
+      }
+    };
+    window.addEventListener("rbac:changed", onRbac);
+    window.addEventListener("rbac:updated", onRbac);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      cancelAnimationFrame(raf);
+      mo.disconnect();
+      window.removeEventListener("rbac:changed", onRbac);
+      window.removeEventListener("rbac:updated", onRbac);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [location.pathname, canPerformAction, globalOverrides]);
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100 flex flex-col">
+      {/* Floating Social Feed Notification - Always Visible */}
+      <SocialFeedNotification />
+
       <header className="flex justify-between items-center px-6 py-1 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-sm z-50 sticky top-0">
         <div className="flex items-center gap-3">
           <button
@@ -561,26 +725,6 @@ export default function AppShell() {
             Role-based + Branch-based
           </div> */}
           <ThemeToggle />
-          <button
-            type="button"
-            aria-label="Notifications"
-            onClick={() => navigate("/notifications")}
-            className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
-            title="Notifications"
-          >
-            <Bell size={18} />
-            {(unreadCount > 0 || lowStockCount > 0) && (
-              <span className="absolute -top-1 -right-1 text-[10px] leading-none font-bold px-1.5 py-0.5 rounded-full bg-red-600 text-white">
-                {unreadCount > 0
-                  ? unreadCount > 99
-                    ? "99+"
-                    : unreadCount
-                  : lowStockCount > 99
-                    ? "99+"
-                    : lowStockCount}
-              </span>
-            )}
-          </button>
 
           <div className="relative" ref={profileRef}>
             <button
@@ -879,7 +1023,10 @@ export default function AppShell() {
               Home
             </NavLink>
             {modules
-              .filter((m) => hasModuleAccess(m.label))
+              .filter((m) => {
+                // Use PermissionContext to check if module is enabled
+                return isModuleEnabled(m.key);
+              })
               .map((m) => (
                 <NavLink
                   key={m.key}
@@ -904,7 +1051,7 @@ export default function AppShell() {
         </aside>
 
         <main className="bg-slate-50 dark:bg-slate-900">
-          <div className="w-full max-w-full lg:max-w-[1200px] mx-auto p-3 md:p-4 lg:p-6">
+          <div className="w-full max-w-full lg:max-w-[1200px] mx-auto p-2 md:p-2 lg:p-3">
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
@@ -936,6 +1083,16 @@ export default function AppShell() {
                 element={<ServiceManagementHome />}
               />
               <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/social-feed" element={<SocialFeedPage />} />
+              <Route path="/social-feed/:id" element={<SocialFeedPage />} />
+              <Route path="/chat" element={<ChatPage />} />
+
+              {/* Admin Routes */}
+              <Route path="/admin/roles" element={<RoleSetup />} />
+              <Route
+                path="/admin/user-permissions"
+                element={<UserPermissions />}
+              />
             </Routes>
           </div>
         </main>

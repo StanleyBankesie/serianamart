@@ -1,8 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+
 import { api } from "api/client";
+import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 export default function StockTransferList() {
+  const { canPerformAction } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [transfers, setTransfers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -133,18 +136,22 @@ export default function StockTransferList() {
                       </span>
                     </td>
                     <td>
-                      <Link
-                        to={`/inventory/stock-transfers/${transfer.id}?mode=view`}
-                        className="text-brand hover:text-brand-700 text-sm font-medium"
-                      >
-                        View
-                      </Link>
-                      <Link
-                        to={`/inventory/stock-transfers/${transfer.id}?mode=edit`}
-                        className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                      >
-                        Edit
-                      </Link>
+                      {canPerformAction("inventory:stock-transfers", "view") && (
+                        <Link
+                          to={`/inventory/stock-transfers/${transfer.id}?mode=view`}
+                          className="text-brand hover:text-brand-700 text-sm font-medium"
+                        >
+                          View
+                        </Link>
+                      )}
+                      {canPerformAction("inventory:stock-transfers", "edit") && (
+                        <Link
+                          to={`/inventory/stock-transfers/${transfer.id}?mode=edit`}
+                          className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                        >
+                          Edit
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 ))}
