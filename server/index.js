@@ -53,14 +53,23 @@ if (isProd && fs.existsSync(prodPath)) {
 const app = express();
 
 /* ---------------- CORS ---------------- */
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-  "http://localhost:5174",
-  "http://127.0.0.1:5174",
-  "https://serianamart.omnisuite-erp.com",
-  "https://serianaserver.omnisuite-erp.com",
-];
+const allowedOrigins = (() => {
+  const raw = String(process.env.CORS_ALLOWED_ORIGINS || "").trim();
+  if (raw) {
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "https://serianamart.omnisuite-erp.com",
+    "https://serianaserver.omnisuite-erp.com",
+  ];
+})();
 
 app.use(
   cors({
@@ -117,55 +126,68 @@ app.use("/api/access", accessRoutes);
 app.use("/api/chat", chatRoutes);
 
 /* ---------------- STATIC FILES & SPA FALLBACK ---------------- */
-// Determine where the frontend build is located
-// Prefer ../client/dist if it has index.html, otherwise fallback to ./public if it has index.html
-let frontendPath = null;
-const overrideDir =
-  String(process.env.STATIC_DIR || process.env.PUBLIC_DIR || "").trim() || null;
-if (overrideDir) {
-  const abs =
-    path.isAbsolute(overrideDir) === true
-      ? overrideDir
-      : path.join(process.cwd(), overrideDir);
-  if (fs.existsSync(path.join(abs, "index.html"))) {
-    frontendPath = abs;
+const serveFrontendFlag = (() => {
+  const v1 = String(process.env.SERVE_FRONTEND || "").toLowerCase();
+  const v2 = String(process.env.ENABLE_SPA || "").toLowerCase();
+  return v1 === "1" || v1 === "true" || v2 === "1" || v2 === "true";
+})();
+if (serveFrontendFlag) {
+  let frontendPath = null;
+  const overrideDir =
+    String(process.env.STATIC_DIR || process.env.PUBLIC_DIR || "").trim() ||
+    null;
+  if (overrideDir) {
+    const abs =
+      path.isAbsolute(overrideDir) === true
+        ? overrideDir
+        : path.join(process.cwd(), overrideDir);
+    if (fs.existsSync(path.join(abs, "index.html"))) {
+      frontendPath = abs;
+    }
   }
-}
-const distPath = path.join(__dirname, "../client/dist");
-const distIndex = path.join(distPath, "index.html");
-const publicPath = path.join(__dirname, "public");
-const publicIndex = path.join(publicPath, "index.html");
-if (!frontendPath && fs.existsSync(distIndex)) {
-  frontendPath = distPath;
-  console.log("Serving frontend from ../client/dist");
-} else if (!frontendPath && fs.existsSync(publicIndex)) {
-  frontendPath = publicPath;
-  console.log("Serving frontend from ./public");
-} else if (!frontendPath) {
-  // Fallback to dist directory even if index missing (for assets), but warn
-  frontendPath = fs.existsSync(distPath) ? distPath : publicPath;
-  console.warn(
-    "Frontend build not found (index.html missing) in ./public or ../client/dist",
-  );
-}
-
-// Serve static assets
-if (frontendPath && fs.existsSync(frontendPath)) {
-  app.use(express.static(frontendPath));
-}
-
-// SPA Catch-all: serve index.html for any unknown route (that isn't /api)
-app.get("*", (req, res, next) => {
-  if (req.url.startsWith("/api")) {
-    return next();
+  const distPath = path.join(__dirname, "../client/dist");
+  const distIndex = path.join(distPath, "index.html");
+  const publicPath = path.join(__dirname, "public");
+  const publicIndex = path.join(publicPath, "index.html");
+  if (!frontendPath && fs.existsSync(distIndex)) {
+    frontendPath = distPath;
+    console.log("Serving frontend from ../client/dist");
+  } else if (!frontendPath && fs.existsSync(publicIndex)) {
+    frontendPath = publicPath;
+    console.log("Serving frontend from ./public");
+  } else if (!frontendPath) {
+    frontendPath = fs.existsSync(distPath) ? distPath : publicPath;
+    console.warn(
+      "Frontend build not found (index.html missing) in ./public or ../client/dist",
+    );
   }
-  const indexPath = path.join(frontendPath, "index.html");
-  if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
-  } else {
-    res.status(404).send("Frontend not built or index.html missing.");
+  if (frontendPath && fs.existsSync(frontendPath)) {
+    app.use(express.static(frontendPath));
   }
-});
+  app.get("*", (req, res, next) => {
+    if (req.url.startsWith("/api")) {
+      return next();
+    }
+    const indexPath = path.join(frontendPath, "index.html");
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).send("Frontend not built or index.html missing.");
+    }
+  });
+} else {
+  app.get("/", (req, res) => {
+    res.status(200).json({ status: "ok" });
+  });
+  // Explicitly block any non-API routes from rendering a SPA or static login
+  app.get(/^\/(?!api\/|uploads\/|socket\.io\/).*/, (req, res) => {
+    res.status(404).json({
+      error: "Not Found",
+      scope: "backend-api",
+      path: req.path,
+    });
+  });
+}
 
 /* ---------------- ERRORS ---------------- */
 // app.use(notFound); // Handled by SPA catch-all now, or use for API 404s if desired
