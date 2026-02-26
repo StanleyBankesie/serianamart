@@ -76,7 +76,9 @@ api.interceptors.request.use(
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("token");
-    if (token && config.url !== "/register") {
+    // Do not attach Authorization for unauthenticated endpoints
+    const skipAuthFor = new Set(["/register", "/login"]);
+    if (token && !skipAuthFor.has(String(config.url || ""))) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
