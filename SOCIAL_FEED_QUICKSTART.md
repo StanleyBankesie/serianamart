@@ -8,6 +8,7 @@ node scripts/init_social_feed.js
 ```
 
 Expected output:
+
 ```
 ✅ posts table created
 ✅ post_selected_users table created
@@ -32,12 +33,13 @@ npm install
 cd server
 npm run dev
 
-# Terminal 2 - Frontend  
+# Terminal 2 - Frontend
 cd client
 npm run dev
 ```
 
 Backend should log:
+
 ```
 ✅ Socket.io initialized
 Server running on port 4002
@@ -63,6 +65,7 @@ export default function HomePage() {
 ## ✨ You're Done!
 
 The system is now live with:
+
 - ✅ Post creation with images
 - ✅ Company/warehouse/selected visibility
 - ✅ Real-time likes and comments
@@ -72,17 +75,20 @@ The system is now live with:
 ## 🎯 What You Can Do
 
 **Create a Post:**
+
 1. Click the text area in the CompanyFeed
 2. Write content, optionally add image
 3. Select visibility (Company/Warehouse/Selected users)
 4. Click "Post"
 
 **Like/Comment:**
+
 1. Click "👍 Like" to toggle like
 2. Click "💬 Comment" to expand comments
 3. Add comment and click "Post"
 
 **Real-time Magic:**
+
 - Other users see your post instantly
 - Like counts update in real-time
 - Comments appear without refresh
@@ -105,6 +111,7 @@ DESC post_selected_users;
 ## 🔑 Key Files Created/Modified
 
 **Backend:**
+
 - ✅ `server/controllers/social-feed.controller.js` - All business logic
 - ✅ `server/routes/social-feed.routes.js` - API endpoints
 - ✅ `server/utils/socket.js` - Socket.io setup
@@ -112,6 +119,7 @@ DESC post_selected_users;
 - ✅ `server/index.js` - Updated with Socket.io
 
 **Frontend:**
+
 - ✅ `client/src/components/CompanyFeed/CompanyFeed.jsx` - Main component
 - ✅ `client/src/components/CompanyFeed/PostCreator.jsx` - Create posts
 - ✅ `client/src/components/CompanyFeed/PostList.jsx` - List posts
@@ -134,20 +142,24 @@ DESC post_selected_users;
 ## ❓ Common Issues
 
 **"Socket.io not initializing"**
+
 - Check server terminal for errors
 - Verify Socket.io imports are correct
 - Make sure server restarted after changes
 
 **"Tables already exist"**
+
 - Script checks `IF NOT EXISTS`, safe to run again
 - Tables will not be recreated
 
 **"No token in Socket.io"**
+
 - Ensure token is in localStorage
 - Check auth flow saves token with key 'token'
 - Check userId and warehouseId are also saved
 
 **"Port 4002 still in use"**
+
 - Kill old processes: `taskkill /F /IM node.exe`
 - Or restart your computer
 
@@ -169,6 +181,7 @@ DESC post_selected_users;
 ## 📖 Full Documentation
 
 See `SOCIAL_FEED_README.md` for:
+
 - Complete API reference
 - Detailed database schema
 - Advanced Socket.io usage

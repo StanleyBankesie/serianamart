@@ -5,6 +5,7 @@
 A **complete, production-ready Company Internal Chat + Social Feed System** for your ERP application.
 
 ### In Simple Terms:
+
 - Users can create posts (with images)
 - Posts are visible to company/warehouse/selected users
 - Users can like and comment on posts
@@ -16,13 +17,16 @@ A **complete, production-ready Company Internal Chat + Social Feed System** for 
 ## ⚡ Quick Start (3 Steps, 5 Minutes)
 
 ### Step 1: Initialize Database
+
 ```bash
 cd server
 node scripts/init_social_feed.js
 ```
+
 This creates 4 database tables with all the tables and indexes needed.
 
 ### Step 2: Restart Your Servers
+
 ```bash
 # Terminal 1
 cd server
@@ -34,7 +38,9 @@ npm run dev
 ```
 
 ### Step 3: Add to Your Dashboard
+
 Open your homepage/dashboard component and add:
+
 ```jsx
 import CompanyFeed from "../components/CompanyFeed/CompanyFeed";
 
@@ -55,6 +61,7 @@ export default function HomePage() {
 ## 📂 What Was Created
 
 ### Backend (Server-side)
+
 ```
 ✅ Routes: GET/POST /api/social-feed and related
 ✅ Database: 4 new tables (posts, comments, likes, selected_users)
@@ -64,6 +71,7 @@ export default function HomePage() {
 ```
 
 ### Frontend (Client-side)
+
 ```
 ✅ Components: PostCreator, PostCard, PostList, CompanyFeed
 ✅ Styling: Professional CSS (responsive & mobile-friendly)
@@ -72,6 +80,7 @@ export default function HomePage() {
 ```
 
 ### Documentation
+
 ```
 ✅ QUICKSTART: 5-minute setup guide
 ✅ README: Complete reference documentation
@@ -86,27 +95,32 @@ export default function HomePage() {
 ## 🎯 Key Features
 
 ✅ **Create Posts**
+
 - Text content
 - Image upload (JPG, PNG, WebP)
 - Set visibility (company/warehouse/selected users)
 
 ✅ **Engagement**
+
 - Like/unlike posts
 - Add comments
 - Real-time updates
 
 ✅ **Real-time**
+
 - Socket.io powered
 - No page refresh needed
 - Instant notifications
 
 ✅ **Secure**
+
 - Visibility enforced server-side
 - Authentication required
 - Input validation
 - Duplicate prevention
 
 ✅ **Optimized**
+
 - Database indexes
 - Cached counters
 - Efficient queries
@@ -117,6 +131,7 @@ export default function HomePage() {
 ## 📊 Files Created/Modified
 
 ### New Backend Files
+
 ```
 server/controllers/social-feed.controller.js
 server/routes/social-feed.routes.js
@@ -126,6 +141,7 @@ server/scripts/verify_social_feed.js
 ```
 
 ### New Frontend Files
+
 ```
 client/src/components/CompanyFeed/CompanyFeed.jsx
 client/src/components/CompanyFeed/PostCreator.jsx
@@ -139,12 +155,14 @@ client/src/hooks/useSocket.js
 ```
 
 ### Modified Files
+
 ```
 server/index.js (added Socket.io)
 client/package.json (added socket.io-client)
 ```
 
 ### Documentation Files
+
 ```
 README_SOCIAL_FEED.md (this index)
 SOCIAL_FEED_QUICKSTART.md (5-min setup)
@@ -159,6 +177,7 @@ SOCIAL_FEED_IMPLEMENTATION.md (technical)
 ## 🚀 How It Works
 
 ### Creating a Post
+
 1. User enters text in CompanyFeed
 2. Optionally uploads image
 3. Selects visibility (company/warehouse/selected)
@@ -168,6 +187,7 @@ SOCIAL_FEED_IMPLEMENTATION.md (technical)
 7. ✅ Notification created
 
 ### Liking a Post
+
 1. User clicks "Like"
 2. ✅ Like recorded in database
 3. ✅ Like count updated
@@ -175,6 +195,7 @@ SOCIAL_FEED_IMPLEMENTATION.md (technical)
 5. ✅ All viewers see count update instantly
 
 ### Commenting
+
 1. User clicks "Comment"
 2. Types comment
 3. Clicks "Post"
@@ -183,6 +204,7 @@ SOCIAL_FEED_IMPLEMENTATION.md (technical)
 6. ✅ All viewers see it instantly
 
 ### Real-time Updates
+
 - Socket.io connects users to WebSocket
 - Changes broadcast to relevant users
 - No polling - true real-time
@@ -198,7 +220,7 @@ SOCIAL_FEED_IMPLEMENTATION.md (technical)
 ✅ **Duplicate Prevention** - Database constraints prevent double-likes  
 ✅ **File Validation** - Images checked for type/size  
 ✅ **Warehouse Access** - Users only see their warehouse posts  
-✅ **Selected Users** - Posts only visible to handpicked users  
+✅ **Selected Users** - Posts only visible to handpicked users
 
 ---
 
@@ -212,6 +234,7 @@ node scripts/verify_social_feed.js
 ```
 
 Should show:
+
 - ✅ All 4 tables exist
 - ✅ All indexes present
 - ✅ All constraints in place
@@ -253,23 +276,27 @@ After setup, test it by:
 ## 🆘 If Something Goes Wrong
 
 ### "Database tables don't exist"
+
 ```bash
 node scripts/init_social_feed.js
 ```
 
 ### "Socket.io not connecting"
+
 - Check both servers are running
 - Refresh browser (Ctrl+Shift+R)
 - Check browser console for errors
 - Verify token in localStorage
 
 ### "Posts not appearing"
+
 - Check user is logged in
 - Check user's warehouse_id matches post
 - Try creating "company" visibility post
 - Check server logs for SQL errors
 
 ### "Images not uploading"
+
 - Check file size < 5MB
 - Check file type (JPG/PNG/WebP only)
 - Check upload endpoint works
@@ -281,13 +308,13 @@ node scripts/init_social_feed.js
 
 Start here based on your need:
 
-| Need | File | Time |
-|------|------|------|
-| Just get it running | QUICKSTART | 5 min |
-| Understand everything | README | 15 min |
-| See what was built | SUMMARY | 10 min |
-| Setup checklist | NEXT_STEPS | 10 min |
-| Technical details | IMPLEMENTATION | 10 min |
+| Need                  | File           | Time   |
+| --------------------- | -------------- | ------ |
+| Just get it running   | QUICKSTART     | 5 min  |
+| Understand everything | README         | 15 min |
+| See what was built    | SUMMARY        | 10 min |
+| Setup checklist       | NEXT_STEPS     | 10 min |
+| Technical details     | IMPLEMENTATION | 10 min |
 
 **All files are in your project root directory.**
 
@@ -296,6 +323,7 @@ Start here based on your need:
 ## 🎓 What You Can Learn
 
 This implementation shows:
+
 - Real-time architecture with Socket.io
 - Secure visibility control in SQL
 - React hooks and components
@@ -310,6 +338,7 @@ This implementation shows:
 ## 🚀 Production Ready
 
 The system is:
+
 - ✅ Fully tested
 - ✅ Documented
 - ✅ Secure
@@ -335,6 +364,7 @@ Just add to your dashboard and deploy! 🎉
 You now have a complete social feed system ready to use.
 
 ### To Get Started:
+
 ```bash
 cd server
 node scripts/init_social_feed.js
@@ -344,6 +374,7 @@ node scripts/init_social_feed.js
 ```
 
 ### To Learn More:
+
 Read `SOCIAL_FEED_QUICKSTART.md` (5 minutes)
 
 ---
@@ -351,6 +382,7 @@ Read `SOCIAL_FEED_QUICKSTART.md` (5 minutes)
 ## 🎉 Congratulations!
 
 Your ERP now has a professional internal communication system with:
+
 - Real-time posts
 - Smart visibility control
 - Secure design

@@ -120,17 +120,28 @@ app.use("/api/chat", chatRoutes);
 // Determine where the frontend build is located
 // Prefer ../client/dist if it has index.html, otherwise fallback to ./public if it has index.html
 let frontendPath = null;
+const overrideDir =
+  String(process.env.STATIC_DIR || process.env.PUBLIC_DIR || "").trim() || null;
+if (overrideDir) {
+  const abs =
+    path.isAbsolute(overrideDir) === true
+      ? overrideDir
+      : path.join(process.cwd(), overrideDir);
+  if (fs.existsSync(path.join(abs, "index.html"))) {
+    frontendPath = abs;
+  }
+}
 const distPath = path.join(__dirname, "../client/dist");
 const distIndex = path.join(distPath, "index.html");
 const publicPath = path.join(__dirname, "public");
 const publicIndex = path.join(publicPath, "index.html");
-if (fs.existsSync(distIndex)) {
+if (!frontendPath && fs.existsSync(distIndex)) {
   frontendPath = distPath;
   console.log("Serving frontend from ../client/dist");
-} else if (fs.existsSync(publicIndex)) {
+} else if (!frontendPath && fs.existsSync(publicIndex)) {
   frontendPath = publicPath;
   console.log("Serving frontend from ./public");
-} else {
+} else if (!frontendPath) {
   // Fallback to dist directory even if index missing (for assets), but warn
   frontendPath = fs.existsSync(distPath) ? distPath : publicPath;
   console.warn(
@@ -139,7 +150,9 @@ if (fs.existsSync(distIndex)) {
 }
 
 // Serve static assets
-app.use(express.static(frontendPath));
+if (frontendPath && fs.existsSync(frontendPath)) {
+  app.use(express.static(frontendPath));
+}
 
 // SPA Catch-all: serve index.html for any unknown route (that isn't /api)
 app.get("*", (req, res, next) => {

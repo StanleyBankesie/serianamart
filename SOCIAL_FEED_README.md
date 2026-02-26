@@ -11,7 +11,7 @@ A production-ready internal communication system for the ERP application with re
 ✅ **Image Uploads** - Support for JPG, PNG, WebP (max 5MB)  
 ✅ **Real-time Updates** - Socket.io for instant notifications  
 ✅ **Notification Integration** - Triggers notifications for post/comment/like events  
-✅ **Security** - Backend visibility filtering, auth middleware, input validation  
+✅ **Security** - Backend visibility filtering, auth middleware, input validation
 
 ## 📦 Installation
 
@@ -23,6 +23,7 @@ node scripts/init_social_feed.js
 ```
 
 This creates 4 tables:
+
 - `posts` - Post data with visibility settings
 - `post_selected_users` - Maps selected user visibility
 - `post_likes` - Like tracking with unique constraint
@@ -40,6 +41,7 @@ Socket.io-client is already added to package.json.
 ### 3. Restart the Application
 
 The backend now:
+
 - Initializes Socket.io on HTTP server
 - Exposes `/api/social-feed` routes
 - Broadcasts real-time events to users
@@ -65,11 +67,13 @@ GET /api/social-feed?offset=0&limit=20
 ```
 
 Returns posts visible to the authenticated user based on:
+
 - Company posts (visible to all)
 - Warehouse posts (visible to warehouse members)
 - Selected posts (visible to selected users only)
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -116,6 +120,7 @@ Content-Type: application/json
 ```
 
 **Visibility Types:**
+
 - `company` - Visible to all users
 - `warehouse` - Visible to users in same warehouse
 - `selected` - Visible to specified users only
@@ -189,6 +194,7 @@ CompanyFeed
 ### Socket.io Real-time Updates
 
 The `useSocket` hook automatically:
+
 - Connects on component mount
 - Joins user/warehouse/company rooms
 - Listens for new posts, likes, and comments
@@ -219,7 +225,7 @@ function MyComponent() {
 The server enforces visibility at query level:
 
 ```sql
-WHERE 
+WHERE
   (p.visibility_type = 'company')
   OR
   (p.visibility_type = 'warehouse' AND p.warehouse_id = ?)
@@ -252,6 +258,7 @@ router.use(authenticate); // Added to all social-feed routes
 ## 📊 Database Schema
 
 ### posts
+
 ```
 id (PK)
 user_id (FK → users.id)
@@ -266,6 +273,7 @@ updated_at (TIMESTAMP)
 ```
 
 ### post_selected_users
+
 ```
 id (PK)
 post_id (FK → posts.id)
@@ -275,6 +283,7 @@ UNIQUE(post_id, user_id)
 ```
 
 ### post_likes
+
 ```
 id (PK)
 post_id (FK → posts.id)
@@ -284,6 +293,7 @@ UNIQUE(post_id, user_id)
 ```
 
 ### post_comments
+
 ```
 id (PK)
 post_id (FK → posts.id)
@@ -310,6 +320,7 @@ When a post, comment, or like is created, notifications are:
 ## ⚡ Performance Optimization
 
 ### Indexes
+
 - `idx_posts_visibility` - Fast visibility filtering
 - `idx_posts_warehouse` - Fast warehouse queries
 - `idx_posts_created_at` - Fast chronological sorting
@@ -317,12 +328,14 @@ When a post, comment, or like is created, notifications are:
 - `idx_likes_post` - Fast like counting
 
 ### Cached Counters
+
 - `posts.like_count` - Updated on like/unlike
 - `posts.comment_count` - Updated on comment add
 
-Prevents expensive COUNT(*) queries on every request.
+Prevents expensive COUNT(\*) queries on every request.
 
 ### Socket.io Rooms
+
 - `user_{id}` - Personal messages for user
 - `warehouse_{id}` - Warehouse posts
 - `company` - Company-wide posts
@@ -333,6 +346,7 @@ Efficient broadcasting without unnecessary messages.
 ## 🧪 Testing
 
 ### Test Company Post Visibility
+
 ```javascript
 // User A creates company post
 // User B should see it
@@ -340,6 +354,7 @@ Efficient broadcasting without unnecessary messages.
 ```
 
 ### Test Warehouse Post Visibility
+
 ```javascript
 // User A (Warehouse 1) creates warehouse post
 // User B (Warehouse 1) should see it
@@ -347,6 +362,7 @@ Efficient broadcasting without unnecessary messages.
 ```
 
 ### Test Selected User Visibility
+
 ```javascript
 // User A creates post, selects User B & User C
 // User B should see it
@@ -355,6 +371,7 @@ Efficient broadcasting without unnecessary messages.
 ```
 
 ### Test Duplicate Likes
+
 ```javascript
 // User A likes post
 // Response: 200 OK
@@ -363,6 +380,7 @@ Efficient broadcasting without unnecessary messages.
 ```
 
 ### Test Real-time Updates
+
 ```javascript
 // User A creates post
 // User B sees instant update (Socket.io event)
@@ -374,6 +392,7 @@ Efficient broadcasting without unnecessary messages.
 ### Environment Variables
 
 Ensure these are set:
+
 ```
 NODE_ENV=production
 PORT=4002
@@ -381,9 +400,11 @@ DATABASE_URL=mysql://...
 ```
 
 ### Database Indexes
+
 All indexes are created during schema initialization.
 
 ### Socket.io with Redis (Multi-server)
+
 For load balancing across multiple Node instances:
 
 ```bash
@@ -391,13 +412,16 @@ npm install socket.io-redis
 ```
 
 Update `socket.js`:
+
 ```javascript
 import redisAdapter from "socket.io-redis";
 io.adapter(redisAdapter.createAdapter("redis://localhost:6379"));
 ```
 
 ### File Upload Service
+
 Uses existing `/api/upload` endpoint. Ensure:
+
 - Cloudinary or local storage is configured
 - File validation is in place
 - Size limits are enforced
@@ -436,23 +460,27 @@ client/
 ## 🐛 Troubleshooting
 
 ### Socket.io not connecting
+
 - Check browser console for errors
 - Ensure token is stored in localStorage
 - Verify CORS settings in socket.js
 - Check server is running on correct port
 
 ### Posts not appearing
+
 - Check user warehouse_id matches post warehouse_id
 - Verify visibility_type is correct
 - Check user is in post_selected_users if visibility='selected'
 - Look for SQL errors in server logs
 
 ### Likes/comments not updating
+
 - Check Socket.io rooms are joined correctly
 - Verify events are being broadcast (check console logs)
 - Ensure frontend is listening to correct event names
 
 ### Images not uploading
+
 - Check file size < 5MB
 - Verify file type is JPG/PNG/WebP
 - Check upload endpoint is working (`/api/upload`)

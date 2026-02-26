@@ -66,7 +66,9 @@ async function initSocialFeedSchema() {
 
     console.log("\n✅ Social Feed Schema initialized successfully!");
     console.log("\nYou can now use the following API endpoints:");
-    console.log("  GET    /api/social-feed         - Get posts with pagination");
+    console.log(
+      "  GET    /api/social-feed         - Get posts with pagination",
+    );
     console.log("  POST   /api/social-feed         - Create a new post");
     console.log("  POST   /api/social-feed/:id/like   - Like a post");
     console.log("  DELETE /api/social-feed/:id/like   - Unlike a post");

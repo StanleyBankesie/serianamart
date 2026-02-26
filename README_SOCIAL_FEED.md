@@ -5,14 +5,18 @@ Welcome! Here's your complete guide to the newly implemented **Company Internal 
 ## 🎯 Where to Start
 
 ### ⚡ 5-Minute Quick Start
+
 👉 **Read:** [`SOCIAL_FEED_QUICKSTART.md`](./SOCIAL_FEED_QUICKSTART.md)
+
 - Step-by-step setup
 - Run initialization script
 - Add component to dashboard
 - Done!
 
 ### 📖 Complete Guide
+
 👉 **Read:** [`SOCIAL_FEED_README.md`](./SOCIAL_FEED_README.md)
+
 - Full feature documentation
 - API reference
 - Database schema details
@@ -21,7 +25,9 @@ Welcome! Here's your complete guide to the newly implemented **Company Internal 
 - Troubleshooting
 
 ### 🏗️ Implementation Overview
+
 👉 **Read:** [`SOCIAL_FEED_SUMMARY.md`](./SOCIAL_FEED_SUMMARY.md)
+
 - What was built
 - Implementation checklist
 - File structure
@@ -29,7 +35,9 @@ Welcome! Here's your complete guide to the newly implemented **Company Internal 
 - Technologies used
 
 ### 📋 Setup & Next Steps
+
 👉 **Read:** [`SOCIAL_FEED_NEXT_STEPS.md`](./SOCIAL_FEED_NEXT_STEPS.md)
+
 - Getting started checklist
 - Feature checklist
 - Testing procedures
@@ -37,7 +45,9 @@ Welcome! Here's your complete guide to the newly implemented **Company Internal 
 - Production deployment
 
 ### 🔍 Complete Details
+
 👉 **Read:** [`SOCIAL_FEED_IMPLEMENTATION.md`](./SOCIAL_FEED_IMPLEMENTATION.md)
+
 - Complete implementation summary
 - All files created/modified
 - Database schema explained
@@ -48,13 +58,13 @@ Welcome! Here's your complete guide to the newly implemented **Company Internal 
 
 ## ⏱️ Reading Time Guide
 
-| Document | Time | Best For |
-|----------|------|----------|
-| QUICKSTART | 5 min | Getting it running NOW |
-| README | 15 min | Understanding all features |
-| SUMMARY | 10 min | Seeing what was built |
-| NEXT_STEPS | 10 min | Checklists and verification |
-| IMPLEMENTATION | 10 min | Complete technical details |
+| Document       | Time   | Best For                    |
+| -------------- | ------ | --------------------------- |
+| QUICKSTART     | 5 min  | Getting it running NOW      |
+| README         | 15 min | Understanding all features  |
+| SUMMARY        | 10 min | Seeing what was built       |
+| NEXT_STEPS     | 10 min | Checklists and verification |
+| IMPLEMENTATION | 10 min | Complete technical details  |
 
 **Total: 50 minutes for complete understanding** (or 5 minutes to get started)
 
@@ -63,12 +73,14 @@ Welcome! Here's your complete guide to the newly implemented **Company Internal 
 ## 🚀 Quick Start (Copy-Paste)
 
 ### Step 1: Initialize Database
+
 ```bash
 cd server
 node scripts/init_social_feed.js
 ```
 
 ### Step 2: Restart Servers
+
 ```bash
 # Terminal 1
 cd server && npm run dev
@@ -78,7 +90,9 @@ cd client && npm run dev
 ```
 
 ### Step 3: Add Component
+
 Edit your dashboard component:
+
 ```jsx
 import CompanyFeed from "../components/CompanyFeed/CompanyFeed";
 
@@ -94,6 +108,7 @@ export default function HomePage() {
 ## 📂 What's Included
 
 ### Backend
+
 - ✅ REST API with 5 endpoints
 - ✅ Socket.io real-time communication
 - ✅ Secure visibility filtering
@@ -102,6 +117,7 @@ export default function HomePage() {
 - ✅ Initialization scripts
 
 ### Frontend
+
 - ✅ 4 React components
 - ✅ Professional styling
 - ✅ Socket.io hooks
@@ -110,6 +126,7 @@ export default function HomePage() {
 - ✅ Error handling
 
 ### Documentation
+
 - ✅ 5 comprehensive guides
 - ✅ API reference
 - ✅ Setup instructions
@@ -126,7 +143,7 @@ export default function HomePage() {
 ✅ Socket.io notifications  
 ✅ Image upload (5MB max)  
 ✅ Security-first design  
-✅ Production-ready code  
+✅ Production-ready code
 
 ---
 
@@ -189,6 +206,7 @@ After setup, verify everything works:
 ## 📞 Having Issues?
 
 ### Check These First
+
 1. Are both servers running? (`npm run dev` in each directory)
 2. Did database initialize? (Run `verify_social_feed.js`)
 3. Is CompanyFeed added to your dashboard?
@@ -196,6 +214,7 @@ After setup, verify everything works:
 5. Check server logs for SQL/Socket.io errors
 
 ### Resources
+
 - **Quick fixes:** See NEXT_STEPS.md "Troubleshooting"
 - **Details:** See README.md "Troubleshooting"
 - **Code:** Check inline comments in source files
@@ -205,12 +224,14 @@ After setup, verify everything works:
 ## 🔑 Key Points
 
 ⚠️ **Important:**
+
 1. Run `init_social_feed.js` FIRST (creates database tables)
 2. Restart both servers after database changes
 3. Ensure `token`, `userId` in localStorage for auth
 4. CompanyFeed must be added to visible route
 
 ✨ **Features:**
+
 - Real-time via Socket.io (not polling)
 - Visibility enforced server-side (secure)
 - Cached counters (fast)
@@ -218,6 +239,7 @@ After setup, verify everything works:
 - Production-ready code (tested)
 
 🚀 **Performance:**
+
 - Handles 1000+ concurrent users
 - Sub-100ms queries
 - Instant real-time updates
@@ -247,18 +269,21 @@ IMPLEMENTATION
 ## 🎓 Learning Path
 
 ### Beginner: Just Want It Working
+
 1. Read QUICKSTART
 2. Run 3 terminal commands
 3. Add component
 4. Done!
 
 ### Intermediate: Want to Understand It
+
 1. Read QUICKSTART (setup)
 2. Read SUMMARY (what was built)
 3. Check file structure
 4. Explore component code
 
 ### Advanced: Want to Master It
+
 1. Read all 5 documents
 2. Study controller logic
 3. Understand Socket.io flow
@@ -276,7 +301,7 @@ IMPLEMENTATION
 ✅ Error handling  
 ✅ Input validation  
 ✅ Authentication  
-✅ Comprehensive docs  
+✅ Comprehensive docs
 
 **Yes! Ready to deploy.** 🎉
 
@@ -295,6 +320,7 @@ IMPLEMENTATION
 ## 🎯 Next Actions
 
 **Option 1: Get Started Now**
+
 ```bash
 cd server
 node scripts/init_social_feed.js
@@ -302,11 +328,13 @@ node scripts/init_social_feed.js
 ```
 
 **Option 2: Learn First**
+
 1. Read SOCIAL_FEED_QUICKSTART.md (5 min)
 2. Read SOCIAL_FEED_README.md (15 min)
 3. Then follow setup steps
 
 **Option 3: Deep Dive**
+
 - Read all 5 documents (50 min)
 - Study all source code
 - Customize to your needs
@@ -315,13 +343,13 @@ node scripts/init_social_feed.js
 
 ## 📞 Support Summary
 
-| Need | Document |
-|------|----------|
-| Quick setup | QUICKSTART |
-| API details | README |
-| What's included | SUMMARY |
-| Testing | NEXT_STEPS |
-| Tech details | IMPLEMENTATION |
+| Need            | Document       |
+| --------------- | -------------- |
+| Quick setup     | QUICKSTART     |
+| API details     | README         |
+| What's included | SUMMARY        |
+| Testing         | NEXT_STEPS     |
+| Tech details    | IMPLEMENTATION |
 
 ---
 

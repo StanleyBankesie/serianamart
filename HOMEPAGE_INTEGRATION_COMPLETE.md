@@ -70,18 +70,21 @@ The feed appears on your **HomePage** (`/`) in a dedicated section below the sys
 ## 🎯 Features Available
 
 ### Create Posts
+
 - ✅ Text content
 - ✅ Image upload
 - ✅ Visibility selection (company/warehouse/selected)
 - ✅ Real-time posting
 
 ### Engage with Posts
+
 - ✅ Like/unlike posts
 - ✅ Add comments
 - ✅ View comments
 - ✅ Real-time updates
 
 ### Smart Visibility
+
 - 🌍 **Company** - Visible to all users
 - 🏬 **Warehouse** - Visible to warehouse members
 - 👥 **Selected** - Visible to chosen users
@@ -91,6 +94,7 @@ The feed appears on your **HomePage** (`/`) in a dedicated section below the sys
 ## 🛠️ Technical Details
 
 ### Files Modified
+
 ```
 ✅ client/src/pages/home/HomePage.jsx
    - Added CompanyFeed import
@@ -98,13 +102,14 @@ The feed appears on your **HomePage** (`/`) in a dedicated section below the sys
 ```
 
 ### Files Updated for Integration
+
 ```
 ✅ client/src/components/CompanyFeed/CompanyFeed.css
    - Optimized spacing and layout
-   
+
 ✅ client/src/components/CompanyFeed/PostCard.css
    - Integrated shadow and border styling
-   
+
 ✅ client/src/components/CompanyFeed/PostCreator.css
    - Improved visual consistency
 ```
@@ -114,6 +119,7 @@ The feed appears on your **HomePage** (`/`) in a dedicated section below the sys
 ## 🎨 Design Consistency
 
 The feed matches your ERP design:
+
 - ✅ Same color scheme (brand colors, slate grays)
 - ✅ Consistent shadows and spacing
 - ✅ Professional card-based layout
@@ -125,9 +131,11 @@ The feed matches your ERP design:
 ## 🚀 How to Use
 
 ### 1. View the Homepage
+
 Navigate to `/` (your dashboard) after restarting the servers.
 
 ### 2. Create Your First Post
+
 - Click in the text area
 - Type your message
 - Optionally upload an image
@@ -135,11 +143,13 @@ Navigate to `/` (your dashboard) after restarting the servers.
 - Click "Post"
 
 ### 3. Engage with Posts
+
 - Click "👍 Like" to like a post
 - Click "💬 Comment" to add comments
 - Posts update instantly
 
 ### 4. Real-time Updates
+
 - Open your feed in multiple windows
 - Create a post in one
 - See it appear instantly in others
@@ -150,6 +160,7 @@ Navigate to `/` (your dashboard) after restarting the servers.
 ## 📱 Responsive Design
 
 The feed works perfectly on:
+
 - ✅ Desktop (1920px+)
 - ✅ Tablets (768px)
 - ✅ Mobile (320px+)
@@ -179,6 +190,7 @@ The feed works perfectly on:
 ## 🎯 What's Happening Behind the Scenes
 
 ### When You Create a Post
+
 1. ✅ Post sent to backend
 2. ✅ Saved to database
 3. ✅ Broadcast via Socket.io
@@ -186,12 +198,14 @@ The feed works perfectly on:
 5. ✅ Notification created
 
 ### When You Like a Post
+
 1. ✅ Like recorded in database
 2. ✅ Like count updates
 3. ✅ Instantly visible everywhere
 4. ✅ Post owner gets notified
 
 ### When You Comment
+
 1. ✅ Comment saved to database
 2. ✅ Broadcast to all viewers
 3. ✅ Appears instantly
@@ -283,25 +297,33 @@ HomePage
 ## 🔧 Integration Steps (If You Need to Modify)
 
 ### To Move the Feed
+
 Find this in `HomePage.jsx`:
+
 ```jsx
-{/* Company Social Feed */}
+{
+  /* Company Social Feed */
+}
 <div>
   <CompanyFeed />
-</div>
+</div>;
 ```
 
 And move it to a different location in the JSX tree.
 
 ### To Customize Styling
+
 Edit these files:
+
 - `CompanyFeed.css` - Main container
 - `PostCreator.css` - Post creation form
 - `PostCard.css` - Individual posts
 - `PostList.css` - Feed layout
 
 ### To Change Default Visibility
+
 Edit `PostCreator.jsx`:
+
 ```jsx
 const [visibilityType, setVisibilityType] = useState("company"); // Change here
 ```
@@ -311,22 +333,26 @@ const [visibilityType, setVisibilityType] = useState("company"); // Change here
 ## 🐛 Troubleshooting
 
 ### Feed Not Showing
+
 - Verify servers are running
 - Check browser console for errors
 - Ensure user is logged in
 - Refresh page with Ctrl+Shift+R
 
 ### Posts Not Appearing
+
 - Check database initialized: `node scripts/init_social_feed.js`
 - Check user's warehouse_id matches post
 - Check visibility rules
 
 ### Real-time Not Working
+
 - Check Socket.io connection (browser console)
 - Verify both servers running
 - Check CORS settings
 
 ### Styling Issues
+
 - Clear CSS cache: Ctrl+Shift+R
 - Check CSS files are in correct location
 - Verify Tailwind/CSS variables defined

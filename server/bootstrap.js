@@ -16,4 +16,4 @@ if (isProd && fs.existsSync(prodPath)) {
   dotenv.config({ path: localPath, override: true });
 }
 
-await import("./index.js");
+import("./index.js");
