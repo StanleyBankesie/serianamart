@@ -488,11 +488,14 @@ export default function RoleSetup() {
                 const allDashboardKeys = (module.dashboards || []).map(
                   (d) => `${moduleKey}:${d.key}`,
                 );
-                const totalCount = allFeatureKeys.length + allDashboardKeys.length;
+                const totalCount =
+                  allFeatureKeys.length + allDashboardKeys.length;
                 const selectedCount =
                   allFeatureKeys.filter((k) => selectedFeatures.has(k)).length +
-                  allDashboardKeys.filter((k) => selectedDashboards.has(k)).length;
-                const isAllSelected = totalCount > 0 && selectedCount === totalCount;
+                  allDashboardKeys.filter((k) => selectedDashboards.has(k))
+                    .length;
+                const isAllSelected =
+                  totalCount > 0 && selectedCount === totalCount;
 
                 return (
                   <div key={moduleKey} className="border rounded-lg">
@@ -518,7 +521,10 @@ export default function RoleSetup() {
                               className="checkbox checkbox-sm"
                               checked={isAllSelected}
                               onChange={(e) =>
-                                handleModuleSelectAll(moduleKey, e.target.checked)
+                                handleModuleSelectAll(
+                                  moduleKey,
+                                  e.target.checked,
+                                )
                               }
                             />
                             Select All

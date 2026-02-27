@@ -45,7 +45,7 @@ export default function ItemGroupsList() {
       .catch((e) => {
         if (!mounted) return;
         setCategoriesError(
-          e?.response?.data?.message || "Failed to load item categories"
+          e?.response?.data?.message || "Failed to load item categories",
         );
       })
       .finally(() => {
@@ -96,19 +96,22 @@ export default function ItemGroupsList() {
     <div className="space-y-6">
       <div className="card">
         <div className="card-header bg-brand text-white rounded-t-lg">
-          <div className="flex justify-between items-center text-white"><div>
+          <div className="flex justify-between items-center text-white">
+            <div>
               <h1 className="text-2xl font-bold dark:text-brand-300">
                 Item Groups &amp; Sub Groups
               </h1>
-              <p className="text-sm mt-1">
-                Organize items by categories
-              </p>
+              <p className="text-sm mt-1">Organize items by categories</p>
             </div>
             <div className="flex gap-2">
               <Link to="/inventory" className="btn btn-secondary">
                 Return to Menu
               </Link>
-              <Link to="/inventory/item-groups/new" className="btn-success">
+              <Link
+                to="/inventory/item-groups/new"
+                className="btn-success"
+                data-rbac-exempt="true"
+              >
                 + New Group
               </Link>
             </div>
@@ -173,22 +176,20 @@ export default function ItemGroupsList() {
                     <td>{g.parent_group_name || "-"}</td>
                     <td>{g.is_active ? "Yes" : "No"}</td>
                     <td>
-                      {canPerformAction("inventory:item-groups", "view") && (
-                        <Link
-                          to={`/inventory/item-groups/${g.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                      )}
-                      {canPerformAction("inventory:item-groups", "edit") && (
-                        <Link
-                          to={`/inventory/item-groups/${g.id}?mode=edit`}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                        >
-                          Edit
-                        </Link>
-                      )}
+                      <Link
+                        to={`/inventory/item-groups/${g.id}?mode=view`}
+                        className="text-brand hover:text-brand-700 text-sm font-medium"
+                        data-rbac-exempt="true"
+                      >
+                        View
+                      </Link>
+                      <Link
+                        to={`/inventory/item-groups/${g.id}?mode=edit`}
+                        className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                        data-rbac-exempt="true"
+                      >
+                        Edit
+                      </Link>
                     </td>
                   </tr>
                 ))}
@@ -266,10 +267,3 @@ export default function ItemGroupsList() {
     </div>
   );
 }
-
-
-
-
-
-
-

@@ -383,7 +383,6 @@ export default function HomePage() {
     }
   };
 
-
   return (
     <div className="min-h-screen bg-slate-50/50 p-2 md:p-3 font-sans text-slate-900">
       <div className="max-w-7xl mx-auto space-y-4 fullbleed-sm">

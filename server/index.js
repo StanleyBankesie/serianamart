@@ -44,7 +44,10 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 const isProd = String(process.env.NODE_ENV).toLowerCase() === "production";
 const prodPath = path.join(__dirname, ".env.production");
 const localPath = path.join(__dirname, ".env.local");
-if (isProd && fs.existsSync(prodPath)) {
+const forceLocal = String(process.env.DEV_FORCE_LOCAL_ENV || "").trim() === "1";
+if (forceLocal && fs.existsSync(localPath)) {
+  dotenv.config({ path: localPath, override: true });
+} else if (isProd && fs.existsSync(prodPath)) {
   dotenv.config({ path: prodPath, override: true });
 } else if (fs.existsSync(localPath)) {
   dotenv.config({ path: localPath, override: true });

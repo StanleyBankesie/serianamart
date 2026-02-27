@@ -59,23 +59,23 @@ export default function UserPermissions() {
   useEffect(() => {
     if (selectedRole) {
       const allFeatureKeys = [];
-      
+
       // Collect all feature keys from module hierarchy
       Object.entries(moduleHierarchy).forEach(([moduleKey, module]) => {
-        module.features.forEach(feature => {
+        module.features.forEach((feature) => {
           allFeatureKeys.push(`${moduleKey}:${feature.key}`);
         });
-        module.dashboards.forEach(dashboard => {
+        module.dashboards.forEach((dashboard) => {
           allFeatureKeys.push(`${moduleKey}:${dashboard.key}`);
         });
       });
 
       // Create missing permissions
-      setRolePermissions(prev => {
-        const existingKeys = new Set(prev.map(p => p.feature_key));
+      setRolePermissions((prev) => {
+        const existingKeys = new Set(prev.map((p) => p.feature_key));
         const missingPermissions = [];
-        
-        allFeatureKeys.forEach(featureKey => {
+
+        allFeatureKeys.forEach((featureKey) => {
           if (!existingKeys.has(featureKey)) {
             const [moduleKey] = featureKey.split(":");
             missingPermissions.push({
@@ -89,7 +89,7 @@ export default function UserPermissions() {
             });
           }
         });
-        
+
         return [...prev, ...missingPermissions];
       });
     }

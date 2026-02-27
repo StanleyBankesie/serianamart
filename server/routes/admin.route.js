@@ -1645,7 +1645,7 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
     const reqPath = String(req.query?.path || "").trim() || "/";
     const base = basePathFromRequestPath(reqPath);
     const pages = await query(
-      `SELECT id, path FROM adm_pages WHERE path = :path AND is_active = 1 LIMIT 1`,
+      `SELECT id, path, feature_key FROM adm_pages WHERE path = :path AND is_active = 1 LIMIT 1`,
       { path: base },
     );
     if (!pages.length) {
@@ -1658,7 +1658,45 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
       });
     }
     const page = pages[0];
-    // Prefer the effective cache table for performance
+    // Start with role-level defaults using feature_key (if present)
+    let roleDefaults = {
+      can_view: 0,
+      can_create: 0,
+      can_edit: 0,
+      can_delete: 0,
+    };
+    try {
+      const segs = String(base || "/")
+        .split("/")
+        .filter(Boolean);
+      const mk = segs[0] || "";
+      const feat = segs[1] || "";
+      const fk = mk && feat ? `${mk}:${feat}` : null;
+      if (fk) {
+        const agg = await query(
+          `SELECT 
+             MAX(rp.can_view)   AS can_view,
+             MAX(rp.can_create) AS can_create,
+             MAX(rp.can_edit)   AS can_edit,
+             MAX(rp.can_delete) AS can_delete
+           FROM adm_role_permissions rp
+           JOIN adm_users u ON u.role_id = rp.role_id
+           WHERE u.id = :uid
+             AND (rp.feature_key = :fk OR rp.feature_key LIKE CONCAT(:fk, ':%'))
+           LIMIT 1`,
+          { uid: userId, fk },
+        );
+        if (agg.length) {
+          roleDefaults = {
+            can_view: Number(agg[0].can_view) ? 1 : 0,
+            can_create: Number(agg[0].can_create) ? 1 : 0,
+            can_edit: Number(agg[0].can_edit) ? 1 : 0,
+            can_delete: Number(agg[0].can_delete) ? 1 : 0,
+          };
+        }
+      }
+    } catch {}
+    // Prefer the effective cache table for performance; override role defaults if user-specific exists
     let row = null;
     try {
       const eff = await query(
@@ -1680,22 +1718,20 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
       );
       row = ups[0] || null;
     }
-    if (!row) {
-      return res.json({
-        path: base,
-        can_view: 0,
-        can_create: 0,
-        can_edit: 0,
-        can_delete: 0,
-      });
-    }
-    res.json({
+    const out = {
       path: base,
-      can_view: Number(row.can_view) ? 1 : 0,
-      can_create: Number(row.can_create) ? 1 : 0,
-      can_edit: Number(row.can_edit) ? 1 : 0,
-      can_delete: Number(row.can_delete) ? 1 : 0,
-    });
+      can_view: roleDefaults.can_view,
+      can_create: roleDefaults.can_create,
+      can_edit: roleDefaults.can_edit,
+      can_delete: roleDefaults.can_delete,
+    };
+    if (row) {
+      out.can_view = Number(row.can_view) ? 1 : 0;
+      out.can_create = Number(row.can_create) ? 1 : 0;
+      out.can_edit = Number(row.can_edit) ? 1 : 0;
+      out.can_delete = Number(row.can_delete) ? 1 : 0;
+    }
+    res.json(out);
   } catch (err) {
     next(err);
   }

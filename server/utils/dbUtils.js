@@ -86,7 +86,9 @@ export async function ensureUserColumns() {
     );
   }
   if (!(await hasColumn(table, "is_active"))) {
-    await query(`ALTER TABLE ${table} ADD COLUMN is_active TINYINT(1) DEFAULT 1`);
+    await query(
+      `ALTER TABLE ${table} ADD COLUMN is_active TINYINT(1) DEFAULT 1`,
+    );
   }
   if (!(await hasColumn(table, "created_at"))) {
     await query(
@@ -157,10 +159,13 @@ export async function ensurePagesTable() {
     const segs = rawPath.split("/").filter(Boolean);
     if (segs.length < 2) continue;
     const feature_key = `${segs[0]}:${segs[1]}`;
-    await query(`UPDATE adm_pages SET feature_key = :feature_key WHERE id = :id`, {
-      feature_key,
-      id: row.id,
-    });
+    await query(
+      `UPDATE adm_pages SET feature_key = :feature_key WHERE id = :id`,
+      {
+        feature_key,
+        id: row.id,
+      },
+    );
   }
 }
 
