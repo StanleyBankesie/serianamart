@@ -112,18 +112,18 @@ const ItemGroupForm = () => {
         type === "group"
           ? "GRP"
           : type === "category"
-          ? "CAT"
-          : type === "type"
-          ? "TYP"
-          : "";
+            ? "CAT"
+            : type === "type"
+              ? "TYP"
+              : "";
       const list =
         type === "group"
           ? itemGroups
           : type === "category"
-          ? categoryList
-          : type === "type"
-          ? itemTypeList
-          : uomList;
+            ? categoryList
+            : type === "type"
+              ? itemTypeList
+              : uomList;
       setFormData({
         code: prefix ? generateCode(prefix, list) : "",
         name: "",
@@ -171,7 +171,7 @@ const ItemGroupForm = () => {
         } else {
           await api.put(
             `/inventory/item-groups/${selectedItem.group_id}`,
-            payload
+            payload,
           );
         }
         await fetchGroups();
@@ -188,7 +188,7 @@ const ItemGroupForm = () => {
         } else {
           await api.put(
             `/inventory/item-categories/${selectedItem.id}`,
-            payload
+            payload,
           );
         }
         await fetchCategories();
@@ -218,7 +218,7 @@ const ItemGroupForm = () => {
         } else {
           await api.put(
             `/inventory/item-types/${selectedItem.type_id}`,
-            payload
+            payload,
           );
         }
         await fetchItemTypes();
@@ -227,7 +227,7 @@ const ItemGroupForm = () => {
       setSelectedItem(null);
     } catch (err) {
       alert(
-        "Failed to save item: " + (err.response?.data?.message || err.message)
+        "Failed to save item: " + (err.response?.data?.message || err.message),
       );
     }
   };
@@ -244,7 +244,7 @@ const ItemGroupForm = () => {
       } catch (err) {
         alert(
           "Failed to delete category: " +
-            (err.response?.data?.message || err.message)
+            (err.response?.data?.message || err.message),
         );
       }
     } else if (type === "uom") {
@@ -254,7 +254,7 @@ const ItemGroupForm = () => {
       } catch (err) {
         alert(
           "Failed to delete UOM: " +
-            (err.response?.data?.message || err.message)
+            (err.response?.data?.message || err.message),
         );
       }
     } else if (type === "type") {
@@ -264,7 +264,7 @@ const ItemGroupForm = () => {
       } catch (err) {
         alert(
           "Failed to delete item type: " +
-            (err.response?.data?.message || err.message)
+            (err.response?.data?.message || err.message),
         );
       }
     }
@@ -293,7 +293,7 @@ const ItemGroupForm = () => {
         item.type_name || "",
       ];
       return searchFields.some((field) =>
-        field.toLowerCase().includes(searchTerm.toLowerCase())
+        field.toLowerCase().includes(searchTerm.toLowerCase()),
       );
     });
   };
@@ -444,15 +444,16 @@ const ItemGroupForm = () => {
                     activeTab === "groups"
                       ? "group"
                       : activeTab === "categories"
-                      ? "category"
-                      : activeTab === "types"
-                      ? "type"
-                      : "uom",
-                    "create"
+                        ? "category"
+                        : activeTab === "types"
+                          ? "type"
+                          : "uom",
+                    "create",
                   )
                 }
                 className="flex items-center gap-2 px-4 py-2 text-white rounded-lg hover:opacity-90"
                 style={{ backgroundColor: "#0E3646" }}
+                data-rbac-exempt="true"
               >
                 <Plus className="w-5 h-5" />
                 Add New
@@ -751,10 +752,10 @@ const ItemGroupForm = () => {
                   {modalType === "group"
                     ? "Group"
                     : modalType === "category"
-                    ? "Category"
-                    : modalType === "type"
-                    ? "Item Type"
-                    : "UOM"}
+                      ? "Category"
+                      : modalType === "type"
+                        ? "Item Type"
+                        : "UOM"}
                 </h2>
                 <button
                   onClick={() => setShowModal(false)}
@@ -811,7 +812,7 @@ const ItemGroupForm = () => {
                     <option value="">Root (No Parent)</option>
                     {categoryList
                       .filter(
-                        (c) => c.category_id !== selectedItem?.category_id
+                        (c) => c.category_id !== selectedItem?.category_id,
                       )
                       .map((c) => (
                         <option key={c.category_id} value={c.category_id}>
@@ -871,6 +872,7 @@ const ItemGroupForm = () => {
                 onClick={handleSubmit}
                 className="px-4 py-2 text-white rounded-lg hover:opacity-90"
                 style={{ backgroundColor: "#0E3646" }}
+                data-rbac-exempt="true"
               >
                 {modalMode === "create" ? "Create" : "Save Changes"}
               </button>
