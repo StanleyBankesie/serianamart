@@ -254,6 +254,39 @@ if (process.env.NODE_ENV !== "test") {
     verifyMailer().then((ok) => {
       console.log(`Mailer verified: ${ok ? "yes" : "no"}`);
     });
+    (async () => {
+      try {
+        await query("SELECT 1");
+        console.log("Database connectivity: ok");
+        const admin = await query(
+          "SELECT id, is_active FROM adm_users WHERE username = :u LIMIT 1",
+          { u: "admin" },
+        );
+        if (!admin.length) {
+          console.log("Admin user 'admin' not found");
+        } else {
+          const a = admin[0];
+          console.log(
+            `Admin user status: id=${a.id}, active=${Number(a.is_active) === 1 ? "yes" : "no"}`,
+          );
+        }
+      } catch (e) {
+        console.log(`[StartupCheck] ${e?.message || e}`);
+      }
+      try {
+        const allowDefault =
+          String(process.env.AUTH_ALLOW_DEFAULT_LOGIN || "").trim() === "1";
+        if (allowDefault) {
+          console.log("Emergency default login is ENABLED");
+        }
+      } catch {}
+      try {
+        const secret = process.env.JWT_SECRET || "";
+        if (!secret) {
+          console.log("JWT secret missing");
+        }
+      } catch {}
+    })();
     // Automatic low-stock email & notification scheduler
     const intervalMin = Number(process.env.LOW_STOCK_ALERT_INTERVAL_MIN || 30);
     const throttleHours = Number(
