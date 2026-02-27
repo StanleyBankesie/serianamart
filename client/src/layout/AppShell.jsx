@@ -820,6 +820,17 @@ export default function AppShell() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100 flex flex-col">
+      {!sidebarOpen && (
+        <button
+          type="button"
+          aria-label="Open menu"
+          className="lg:hidden fixed left-3 top-3 z-[90] inline-flex items-center justify-center w-12 h-12 rounded-full shadow-erp bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700"
+          onClick={() => setSidebarOpen(true)}
+          data-rbac-exempt="true"
+        >
+          <span className="text-2xl leading-none">☰</span>
+        </button>
+      )}
       {/* Floating Social Feed Notification - Always Visible */}
       <SocialFeedNotification />
 

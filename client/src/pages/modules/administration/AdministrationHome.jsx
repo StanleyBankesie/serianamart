@@ -179,6 +179,23 @@ function AdministrationLanding() {
           ],
         },
         {
+          title: "Dashboard Permissions",
+          description: "Grant and override access for dashboards",
+          module_key: "administration",
+          feature_key: "user-permissions",
+          path: "/administration/access/user-permissions",
+          icon: "📊",
+          actions: [
+            {
+              label: "Open",
+              module_key: "administration",
+              feature_key: "user-permissions",
+              path: "/administration/access/user-permissions",
+              type: "primary",
+            },
+          ],
+        },
+        {
           title: "Exceptional Permissions",
           description: "Set exceptional permissions and overrides per user",
           module_key: "administration",
