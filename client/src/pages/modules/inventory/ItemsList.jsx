@@ -707,7 +707,7 @@ export default function ItemsList() {
         const payload = basePayload;
         try {
           const resp = await api.post("/inventory/items", payload, {
-            headers: { "x-skip-offline-queue": "1" },
+            __skipOfflineQueue: true,
           });
           if (resp?.data?.offline) {
             throw new Error("Offline queued");
@@ -760,12 +760,12 @@ export default function ItemsList() {
             // Try regenerate item code once and retry
             try {
               const res = await api.get("/inventory/items/next-code", {
-                headers: { "x-skip-offline-queue": "1" },
+                __skipOfflineQueue: true,
               });
               if (res?.data?.nextCode) {
                 payload.item_code = res.data.nextCode;
                 const resp2 = await api.post("/inventory/items", payload, {
-                  headers: { "x-skip-offline-queue": "1" },
+                  __skipOfflineQueue: true,
                 });
                 if (resp2?.data?.offline) {
                   throw new Error("Offline queued");
@@ -781,12 +781,12 @@ export default function ItemsList() {
             if (/duplicate entry/i.test(msg)) {
               try {
                 const res = await api.get("/inventory/items/next-code", {
-                  headers: { "x-skip-offline-queue": "1" },
+                  __skipOfflineQueue: true,
                 });
                 if (res?.data?.nextCode) {
                   payload.item_code = res.data.nextCode;
                   const resp3 = await api.post("/inventory/items", payload, {
-                    headers: { "x-skip-offline-queue": "1" },
+                    __skipOfflineQueue: true,
                   });
                   if (resp3?.data?.offline) {
                     throw new Error("Offline queued");

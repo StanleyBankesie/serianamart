@@ -54,6 +54,7 @@ api.interceptors.request.use(
     const method = String(config.method || "get").toLowerCase();
     if (["post", "put", "patch", "delete"].includes(method)) {
       const skipOffline =
+        config?.__skipOfflineQueue === true ||
         config?.headers?.["x-skip-offline-queue"] === "1" ||
         config?.headers?.["x-skip-offline-queue"] === 1 ||
         config?.headers?.["x-skip-offline-queue"] === true;
