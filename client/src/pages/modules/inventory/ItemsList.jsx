@@ -533,17 +533,28 @@ export default function ItemsList() {
             image_url: rowData.IMAGE_URL || rowData.IMAGE || "",
             vat_on_purchase_code:
               rowData.VAT_ON_PURCHASE || rowData.VAT_PURCHASE_CODE || "",
-            // Pass direct account IDs when provided to ensure saving without resolution ambiguity
-            purchase_account_id: rowData.PURCHASE_ACCOUNT_ID || "",
-            sales_account_id: rowData.SALES_ACCOUNT_ID || "",
+            purchase_account_id:
+              Number(rowData.PURCHASE_ACCOUNT_ID || 0) ||
+              accountCodeToId.get(
+                String(
+                  rowData.PURCHASE_ACCOUNT_CODE ||
+                    rowData.PURCHASE_ACCOUNT ||
+                    "",
+                ).toUpperCase(),
+              ) ||
+              null,
+            sales_account_id:
+              Number(rowData.SALES_ACCOUNT_ID || 0) ||
+              accountCodeToId.get(
+                String(
+                  rowData.SALES_ACCOUNT_CODE || rowData.SALES_ACCOUNT || "",
+                ).toUpperCase(),
+              ) ||
+              null,
             vat_on_sales_code:
               rowData.VAT_ON_SALES || rowData.VAT_SALES_CODE || "",
             purchase_account_code:
               rowData.PURCHASE_ACCOUNT_CODE || rowData.PURCHASE_ACCOUNT || "",
-            sales_account_code:
-              rowData.SALES_ACCOUNT_CODE || rowData.SALES_ACCOUNT || "",
-            description: rowData.DESCRIPTION || "",
-            is_stockable: rowData.IS_STOCKABLE === "Y",
             is_sellable: rowData.IS_SELLABLE === "Y",
             is_purchasable: rowData.IS_PURCHASABLE === "Y",
             min_stock_level: Number(rowData.MIN_STOCK_LEVEL) || 0,
