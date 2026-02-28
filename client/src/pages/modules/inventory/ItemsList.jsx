@@ -455,33 +455,28 @@ export default function ItemsList() {
           ? groupIdToName.get(Number(groupResolved)) || ""
           : "";
         const errorsRow = [];
-        if (!rowData.ITEM_NAME) errorsRow.push("Missing ITEM_NAME");
+        // Only minimally validate to avoid blocking bulk upload
+        // Leave server to resolve and create related master data
         const nameUpper = String(rowData.ITEM_NAME || "").toUpperCase();
+        if (!nameUpper) errorsRow.push("Missing ITEM_NAME");
         if (nameUpper) {
           if (seenNames.has(nameUpper)) errorsRow.push("Duplicate in CSV");
           seenNames.add(nameUpper);
         }
-        if (!itemTypeRaw) errorsRow.push("Missing ITEM_TYPE");
-        if (!itemTypeValid) errorsRow.push("Unknown ITEM_TYPE");
-        if (!rowData.BASE_UOM) errorsRow.push("Missing BASE_UOM");
-        if (rowData.ITEM_CATEGORY && !categoryResolved)
-          errorsRow.push("Unknown ITEM_CATEGORY");
-        if (rowData.ITEM_GROUP && !groupResolved)
-          errorsRow.push("Unknown ITEM_GROUP");
         rows.push({
           index: i + 1,
           raw: rowData,
           preview: {
             item_code: nextItemCode,
             item_name: rowData.ITEM_NAME,
-            item_type: itemTypeResolved || itemTypeRaw,
+            item_type: itemTypeResolved || itemTypeRaw || "",
             category_id: categoryResolved,
             item_group_id: groupResolved,
             category_label: String(categoryLabel),
             group_label: String(groupLabel),
             category_name: categoryName,
             group_name: groupName,
-            uom: rowData.BASE_UOM,
+            uom: rowData.BASE_UOM || "PCS",
             barcode: barcodeExpanded,
           },
           valid: errorsRow.length === 0,
@@ -560,10 +555,6 @@ export default function ItemsList() {
             rowData.PURCHASE_ACCOUNT_CODE || rowData.PURCHASE_ACCOUNT || null,
           sales_account_code:
             rowData.SALES_ACCOUNT_CODE || rowData.SALES_ACCOUNT || null,
-          category_label: r.preview.category_label,
-          category_name: r.preview.category_name,
-          group_label: r.preview.group_label,
-          group_name: r.preview.group_name,
           uom: rowData.BASE_UOM,
           barcode: r.preview.barcode || null,
           cost_price: Number(rowData.STANDARD_COST) || 0,
