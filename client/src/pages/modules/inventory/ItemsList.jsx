@@ -186,6 +186,8 @@ export default function ItemsList() {
       let taxCodeToId = new Map();
       let accountCodeToId = new Map();
       let itemTypeSet = new Set();
+      let itemTypeCodeToCode = new Map();
+      let itemTypeNameToCode = new Map();
       try {
         const [catRes, grpRes, curRes, taxRes, accRes, typeRes] =
           await Promise.all([
@@ -266,14 +268,26 @@ export default function ItemsList() {
             t.type_code || t.code || t.key || "",
           ).toUpperCase();
           const name = String(t.type_name || t.name || "").toUpperCase();
-          if (code) itemTypeSet.add(code);
-          if (name) itemTypeSet.add(name);
+          if (code) {
+            itemTypeSet.add(code);
+            itemTypeCodeToCode.set(code, code);
+          }
+          if (name) {
+            itemTypeSet.add(name);
+            if (code) itemTypeNameToCode.set(name, code);
+          }
         });
       } catch (_) {
         // proceed without maps; numeric IDs in CSV will still work via fallback below
       }
 
       const rows = [];
+      const existingNames = new Set(
+        (Array.isArray(items) ? items : [])
+          .map((it) => String(it.item_name || "").toUpperCase())
+          .filter(Boolean),
+      );
+      const seenNames = new Set();
       // Build preview rows with validation
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -287,8 +301,12 @@ export default function ItemsList() {
         });
         let nextItemCode = rowData.ITEM_CODE || "";
         const itemTypeRaw = String(rowData.ITEM_TYPE || "").toUpperCase();
+        const itemTypeResolved =
+          itemTypeCodeToCode.get(itemTypeRaw) ||
+          itemTypeNameToCode.get(itemTypeRaw) ||
+          (itemTypeSet.has(itemTypeRaw) ? itemTypeRaw : null);
         const itemTypeValid =
-          itemTypeSet.size === 0 ? true : itemTypeSet.has(itemTypeRaw);
+          itemTypeSet.size === 0 ? true : !!itemTypeResolved;
         const barcodeExpanded = normalizeBarcode(rowData.BARCODE || "");
         const categoryResolved =
           (rowData.ITEM_CATEGORY &&
@@ -348,6 +366,13 @@ export default function ItemsList() {
           : "";
         const errorsRow = [];
         if (!rowData.ITEM_NAME) errorsRow.push("Missing ITEM_NAME");
+        const nameUpper = String(rowData.ITEM_NAME || "").toUpperCase();
+        if (nameUpper) {
+          if (existingNames.has(nameUpper))
+            errorsRow.push("Duplicate ITEM_NAME");
+          if (seenNames.has(nameUpper)) errorsRow.push("Duplicate in CSV");
+          seenNames.add(nameUpper);
+        }
         if (!itemTypeRaw) errorsRow.push("Missing ITEM_TYPE");
         if (!itemTypeValid) errorsRow.push("Unknown ITEM_TYPE");
         if (!rowData.BASE_UOM) errorsRow.push("Missing BASE_UOM");
@@ -361,7 +386,7 @@ export default function ItemsList() {
           preview: {
             item_code: nextItemCode,
             item_name: rowData.ITEM_NAME,
-            item_type: itemTypeRaw,
+            item_type: itemTypeResolved || itemTypeRaw,
             category_id: categoryResolved,
             item_group_id: groupResolved,
             category_label: String(categoryLabel),
@@ -418,7 +443,7 @@ export default function ItemsList() {
         const payload = {
           item_code: nextItemCode,
           item_name: rowData.ITEM_NAME,
-          item_type: rowData.ITEM_TYPE,
+          item_type: r.preview.item_type || rowData.ITEM_TYPE,
           category_id: r.preview.category_id || null,
           item_group_id: r.preview.item_group_id || null,
           uom: rowData.BASE_UOM,

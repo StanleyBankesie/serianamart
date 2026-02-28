@@ -189,6 +189,39 @@ export const PermissionProvider = ({ children }) => {
     }
   };
 
+  // Dashboard element view permissions (cards/tickers/dashboards)
+  const [dashboardViewMap, setDashboardViewMap] = useState(() => new Map());
+  const [dashboardViewLoaded, setDashboardViewLoaded] = useState(false);
+  const loadDashboardPermissions = async () => {
+    try {
+      const res = await api.get("/access/dashboard-permissions");
+      const items = Array.isArray(res.data?.items) ? res.data.items : [];
+      const m = new Map();
+      const byModule = new Map();
+      for (const it of items) {
+        const mk = String(it.module_key || "");
+        const type = it.card_key
+          ? "card"
+          : it.ticker_key
+            ? "ticker"
+            : "dashboard";
+        const key = String(
+          it.card_key || it.ticker_key || it.dashboard_key || "",
+        );
+        const composite = `${mk}|${type}|${key}`;
+        m.set(composite, Number(it.can_view) === 1);
+        const set = byModule.get(mk) || new Set();
+        set.add(type);
+        byModule.set(mk, set);
+      }
+      setDashboardViewMap(m);
+      setDashboardViewLoaded(true);
+    } catch {
+      setDashboardViewMap(new Map());
+      setDashboardViewLoaded(true);
+    }
+  };
+
   const basePathFrom = (p) => {
     const raw = String(p || "").trim() || "/";
     const parts = raw.split("/").filter(Boolean);
@@ -542,10 +575,14 @@ export const PermissionProvider = ({ children }) => {
    */
   const refreshPermissions = async () => {
     await loadPermissions();
+    await loadDashboardPermissions();
   };
 
   useEffect(() => {
     loadPermissions();
+  }, [user?.id]);
+  useEffect(() => {
+    loadDashboardPermissions();
   }, [user?.id]);
 
   useEffect(() => {
@@ -584,6 +621,29 @@ export const PermissionProvider = ({ children }) => {
     getPagePerms,
     canPerformPageAction,
     basePathFrom,
+    canViewDashboardElement: (moduleKey, type, key) => {
+      const mk = String(moduleKey || "");
+      const t = String(type || "");
+      const rawKey = String(key || "");
+      const normKey = rawKey
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9-]/g, "");
+      if (!dashboardViewLoaded) return true;
+      // If no explicit entries for this module+type, default allow
+      let moduleHasType = false;
+      for (const k of dashboardViewMap.keys()) {
+        if (k.startsWith(`${mk}|${t}|`)) {
+          moduleHasType = true;
+          break;
+        }
+      }
+      if (!moduleHasType) return true;
+      // If there are explicit entries, only allow those set to can_view
+      const comp = `${mk}|${t}|${normKey}`;
+      return dashboardViewMap.get(comp) === true;
+    },
     setActionSessionOverride: (fk, action, value) => {
       const key =
         action === "can_view"

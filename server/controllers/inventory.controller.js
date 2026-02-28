@@ -37,7 +37,9 @@ async function ensureItemFlagColumns() {
     );
   }
   if (!(await hasColumn("inv_items", "category_id"))) {
-    await query("ALTER TABLE inv_items ADD COLUMN category_id BIGINT UNSIGNED NULL");
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN category_id BIGINT UNSIGNED NULL",
+    );
   }
   if (!(await hasColumn("inv_items", "item_group_id"))) {
     await query(
@@ -255,7 +257,8 @@ export const createItem = async (req, res, next) => {
     const purchaseAccountId = Number(body.purchase_account_id || 0) || null;
     const salesAccountId = Number(body.sales_account_id || 0) || null;
     const categoryId = Number(body.category_id || 0) || null;
-    const itemGroupId = Number(body.item_group_id || body.group_id || 0) || null;
+    const itemGroupId =
+      Number(body.item_group_id || body.group_id || 0) || null;
     const serviceItem = yn(body.service_item, "N");
     const isStockable = yn(body.is_stockable, "N");
     const isSellable = yn(body.is_sellable, "N");
@@ -268,6 +271,17 @@ export const createItem = async (req, res, next) => {
         "VALIDATION_ERROR",
         "item_code and item_name are required",
       );
+    // Prevent duplicate item_name within the same company (case-insensitive)
+    const dup = await query(
+      `SELECT id 
+       FROM inv_items 
+       WHERE company_id = :companyId AND UPPER(item_name) = UPPER(:itemName) 
+       LIMIT 1`,
+      { companyId, itemName },
+    );
+    if (dup.length) {
+      throw httpError(409, "DUPLICATE_ITEM_NAME", "Item name already exists");
+    }
     const result = await query(
       `
       INSERT INTO inv_items (company_id, item_code, item_name, uom, item_type, barcode, cost_price, selling_price, currency_id, price_type_id, image_url, vat_on_purchase_id, vat_on_sales_id, purchase_account_id, sales_account_id, category_id, item_group_id, service_item, is_stockable, is_sellable, is_purchasable, is_active)
@@ -334,7 +348,8 @@ export const updateItem = async (req, res, next) => {
     const purchaseAccountId = Number(body.purchase_account_id || 0) || null;
     const salesAccountId = Number(body.sales_account_id || 0) || null;
     const categoryId = Number(body.category_id || 0) || null;
-    const itemGroupId = Number(body.item_group_id || body.group_id || 0) || null;
+    const itemGroupId =
+      Number(body.item_group_id || body.group_id || 0) || null;
     const serviceItem = yn(body.service_item, "N");
     const isStockable = yn(body.is_stockable, "N");
     const isSellable = yn(body.is_sellable, "N");
@@ -347,6 +362,17 @@ export const updateItem = async (req, res, next) => {
         "VALIDATION_ERROR",
         "item_code and item_name are required",
       );
+    // Prevent duplicate item_name on rename (case-insensitive)
+    const exists = await query(
+      `SELECT id 
+       FROM inv_items 
+       WHERE company_id = :companyId AND UPPER(item_name) = UPPER(:itemName) AND id <> :id
+       LIMIT 1`,
+      { companyId, itemName, id },
+    );
+    if (exists.length) {
+      throw httpError(409, "DUPLICATE_ITEM_NAME", "Item name already exists");
+    }
     const upd = await query(
       `
       UPDATE inv_items

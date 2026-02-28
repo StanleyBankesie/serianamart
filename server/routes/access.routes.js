@@ -72,6 +72,89 @@ async function ensureAccessTables() {
   // - adm_role_disabled_features
 }
 
+async function ensureDashboardPermissionsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS adm_dashboard_permissions (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id BIGINT UNSIGNED NOT NULL,
+      module_key VARCHAR(100) NOT NULL,
+      dashboard_key VARCHAR(150) NULL,
+      card_key VARCHAR(150) NULL,
+      ticker_key VARCHAR(150) NULL,
+      can_view TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_user_scope (user_id, module_key, dashboard_key, card_key, ticker_key),
+      INDEX idx_user (user_id),
+      INDEX idx_module (module_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+// Get dashboard permissions for user (current if user_id omitted)
+router.get(
+  "/dashboard-permissions",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureDashboardPermissionsTable();
+      const me = Number(req.user?.sub || req.user?.id);
+      const userId = Number(req.query?.user_id || me);
+      if (!Number.isFinite(userId) || userId <= 0) {
+        return res.json({ items: [] });
+      }
+      const rows = await query(
+        `SELECT user_id, module_key, dashboard_key, card_key, ticker_key, can_view
+         FROM adm_dashboard_permissions
+         WHERE user_id = :userId
+         ORDER BY module_key ASC, dashboard_key ASC, card_key ASC, ticker_key ASC`,
+        { userId },
+      );
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Bulk upsert dashboard permissions for user
+router.put(
+  "/dashboard-permissions",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureDashboardPermissionsTable();
+      const me = Number(req.user?.sub || req.user?.id);
+      const { user_id, permissions } = req.body || {};
+      const targetUserId = Number(user_id || me);
+      if (!Array.isArray(permissions))
+        return res.status(400).json({ message: "permissions must be array" });
+      for (const p of permissions) {
+        const payload = {
+          user_id: targetUserId,
+          module_key: String(p.module_key || "").trim(),
+          dashboard_key: p.dashboard_key ? String(p.dashboard_key) : null,
+          card_key: p.card_key ? String(p.card_key) : null,
+          ticker_key: p.ticker_key ? String(p.ticker_key) : null,
+          can_view: Number(Boolean(p.can_view)),
+        };
+        if (!payload.module_key) continue;
+        await query(
+          `INSERT INTO adm_dashboard_permissions (user_id, module_key, dashboard_key, card_key, ticker_key, can_view)
+           VALUES (:user_id, :module_key, :dashboard_key, :card_key, :ticker_key, :can_view)
+           ON DUPLICATE KEY UPDATE can_view = VALUES(can_view)`,
+          payload,
+        );
+      }
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 router.get(
   "/context",
   requireAuth,

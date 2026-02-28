@@ -49,6 +49,7 @@ const ActionButton = ({ label, path, type, featureKey, action }) => {
 const SalesModuleHome = () => {
   const [stats, setStats] = React.useState([
     {
+      rbac_key: "total-sales",
       icon: "💰",
       value: "GHS 5.2M",
       label: "Total Sales (YTD)",
@@ -57,6 +58,7 @@ const SalesModuleHome = () => {
       path: "/sales/reports",
     },
     {
+      rbac_key: "open-orders",
       icon: "🛒",
       value: "45",
       label: "Open Orders",
@@ -65,6 +67,7 @@ const SalesModuleHome = () => {
       path: "/sales/sales-orders",
     },
     {
+      rbac_key: "pending-deliveries",
       icon: "🚚",
       value: "12",
       label: "Pending Deliveries",

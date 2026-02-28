@@ -7,7 +7,8 @@ import CompanyFeed from "../../components/CompanyFeed/CompanyFeed";
 
 export default function HomePage() {
   const { user, token } = useAuth();
-  const { canAccessPath, hasRoleFeature } = usePermission();
+  const { canAccessPath, hasRoleFeature, canViewDashboardElement } =
+    usePermission();
   const navigate = useNavigate();
   const [pendingItems, setPendingItems] = useState([]);
   const [notifications, setNotifications] = useState([]);
@@ -296,10 +297,17 @@ export default function HomePage() {
   ];
 
   const visibleMetrics = metrics.filter((m) => {
-    if (m?.home_key)
-      return (
-        hasRoleFeature(`home:${m.home_key}`) || canAccessPath(m.path, "view")
-      );
+    const labelKey = String(m.label || "")
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "");
+    const allowedByHome = canViewDashboardElement("home", "card", labelKey);
+    if (!allowedByHome) return false;
+    if (m?.home_key) {
+      // Backward-compatible: also allow if legacy role feature is granted
+      if (hasRoleFeature(`home:${m.home_key}`)) return true;
+    }
     return canAccessPath(m.path, "view");
   });
 

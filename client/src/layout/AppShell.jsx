@@ -31,6 +31,7 @@ import SocialFeedPage from "../pages/social/SocialFeedPage.jsx";
 import RoleSetup from "../pages/admin/RoleSetup.jsx";
 import UserPermissions from "../pages/admin/UserPermissions.jsx";
 import SocialFeedNotification from "../components/CompanyFeed/SocialFeedNotification.jsx";
+import DashboardPermissions from "../pages/admin/DashboardPermissions.jsx";
 import addNotification from "react-push-notification";
 
 import logoDark from "../assets/resources/OMNISUITE_WHITE_LOGO.png";
@@ -1220,6 +1221,10 @@ export default function AppShell() {
               <Route
                 path="/service-management/*"
                 element={<ServiceManagementHome />}
+              />
+              <Route
+                path="/administration/access/dashboard-permissions"
+                element={<DashboardPermissions />}
               />
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/social-feed" element={<SocialFeedPage />} />

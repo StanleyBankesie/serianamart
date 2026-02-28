@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../../api/client.js";
 import { usePermission } from "../../auth/PermissionContext.jsx";
 import { MODULES_REGISTRY } from "../../data/modulesRegistry.js";
+import { toast } from "react-toastify";
 
 export default function RoleSetup() {
   const navigate = useNavigate();
@@ -311,8 +312,10 @@ export default function RoleSetup() {
         });
       }
 
-      setSuccess("Role assignments saved successfully");
-      setTimeout(() => setSuccess(""), 3000);
+      setSuccess("Role saved successfully");
+      toast.success("Role saved successfully");
+      setTimeout(() => setSuccess(""), 2000);
+      navigate("/administration/access/roles");
       try {
         window.dispatchEvent(new Event("rbac:changed"));
       } catch {}
@@ -474,7 +477,7 @@ export default function RoleSetup() {
                 onClick={saveRoleAssignments}
                 disabled={loading}
               >
-                {loading ? "Saving..." : "Save Assignments"}
+                {loading ? "Saving..." : "Save Role"}
               </button>
             </div>
 

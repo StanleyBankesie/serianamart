@@ -11,7 +11,8 @@ const ModuleDashboard = ({
   features = [],
 }) => {
   const navigate = useNavigate();
-  const { canAccessPath, canAccessFeatureKey } = usePermission();
+  const { canAccessPath, canAccessFeatureKey, canViewDashboardElement } =
+    usePermission();
 
   const handleNavigate = (path, e) => {
     if (e) e.stopPropagation();
@@ -113,14 +114,46 @@ const ModuleDashboard = ({
       </div>
 
       {/* Key Statistics */}
-      {stats.filter((s) => canShowItem(s)).length > 0 && (
+      {stats.filter((s) => {
+        if (!canShowItem(s)) return false;
+        const path = String(s.path || "");
+        const parts = path.split("/").filter(Boolean);
+        const mk = String(s.module_key || parts[0] || "");
+        const key =
+          String(s.rbac_key || "")
+            .toLowerCase()
+            .trim() ||
+          String(s.label || s.name || s.title || "")
+            .toLowerCase()
+            .trim()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9-]/g, "");
+        if (!mk || !key) return true;
+        return canViewDashboardElement(mk, "card", key);
+      }).length > 0 && (
         <div className="mb-8">
           <h2 className="text-xl font-semibold text-brand-800 dark:text-brand-200 mb-4 flex items-center gap-2">
             <span>📈</span> Business Overview
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {stats
-              .filter((stat) => canShowItem(stat))
+              .filter((stat) => {
+                if (!canShowItem(stat)) return false;
+                const path = String(stat.path || "");
+                const parts = path.split("/").filter(Boolean);
+                const mk = String(stat.module_key || parts[0] || "");
+                const key =
+                  String(stat.rbac_key || "")
+                    .toLowerCase()
+                    .trim() ||
+                  String(stat.label || stat.name || stat.title || "")
+                    .toLowerCase()
+                    .trim()
+                    .replace(/\s+/g, "-")
+                    .replace(/[^a-z0-9-]/g, "");
+                if (!mk || !key) return true;
+                return canViewDashboardElement(mk, "card", key);
+              })
               .map((stat, index) => (
                 <div
                   key={index}

@@ -26,6 +26,7 @@ import UserPermissions from "./access-control/UserPermissionsNew.jsx";
 function AdministrationLanding() {
   const [stats, setStats] = React.useState([
     {
+      rbac_key: "total-users",
       // icon: "👥",
       value: "120",
       label: "Total Users",
@@ -34,6 +35,7 @@ function AdministrationLanding() {
       path: "/administration/users",
     },
     {
+      rbac_key: "active-sessions",
       // icon: "💻",
       value: "15",
       label: "Active Sessions",
@@ -42,6 +44,7 @@ function AdministrationLanding() {
       path: "/administration/reports",
     },
     {
+      rbac_key: "pending-workflows",
       // icon: "🔄",
       value: "5",
       label: "Pending Workflows",
@@ -146,7 +149,8 @@ function AdministrationLanding() {
       items: [
         {
           title: "Role Setup",
-          description: "Create roles and assign modules, features, and dashboards",
+          description:
+            "Create roles and assign modules, features, and dashboards",
           module_key: "administration",
           feature_key: "roles",
           path: "/administration/access/roles",
@@ -183,14 +187,14 @@ function AdministrationLanding() {
           description: "Grant and override access for dashboards",
           module_key: "administration",
           feature_key: "user-permissions",
-          path: "/administration/access/user-permissions",
+          path: "/administration/access/dashboard-permissions",
           icon: "📊",
           actions: [
             {
               label: "Open",
               module_key: "administration",
               feature_key: "user-permissions",
-              path: "/administration/access/user-permissions",
+              path: "/administration/access/dashboard-permissions",
               type: "primary",
             },
           ],
@@ -345,7 +349,10 @@ export default function AdministrationHome() {
       <Route path="/settings/templates" element={<DocumentTemplatesPage />} />
       <Route path="/access/roles" element={<RoleManagement />} />
       <Route path="/access/user-permissions" element={<UserPermissions />} />
-      <Route path="/access/user-permissions/:id" element={<UserPermissions />} />
+      <Route
+        path="/access/user-permissions/:id"
+        element={<UserPermissions />}
+      />
       <Route path="/access/user-overrides" element={<UserOverrides />} />
     </Routes>
   );

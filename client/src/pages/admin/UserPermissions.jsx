@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../../api/client.js";
 import { MODULES_REGISTRY } from "../../data/modulesRegistry.js";
 import { usePermission } from "../../auth/PermissionContext.jsx";
+import { toast } from "react-toastify";
 
 export default function UserPermissions() {
   const navigate = useNavigate();
@@ -142,7 +143,9 @@ export default function UserPermissions() {
         await refreshPermissions();
       } catch {}
       setSuccess("Permissions saved successfully");
-      setTimeout(() => setSuccess(""), 3000);
+      toast.success("Permissions saved successfully");
+      setTimeout(() => setSuccess(""), 1500);
+      navigate("/administration/access/user-permissions");
     } catch (err) {
       setError(err.response?.data?.message || "Failed to save permissions");
     } finally {
