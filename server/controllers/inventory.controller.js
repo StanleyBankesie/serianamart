@@ -259,6 +259,9 @@ export const listItems = async (req, res, next) => {
   try {
     await ensureItemFlagColumns();
     const { companyId, branchId } = req.scope;
+    const groupCol = (await hasColumn("inv_items", "group_id"))
+      ? "group_id"
+      : "item_group_id";
     const rows = await query(
       `
       SELECT i.id,
@@ -277,6 +280,10 @@ export const listItems = async (req, res, next) => {
              i.vat_on_sales_id,
              i.purchase_account_id,
              i.sales_account_id,
+             i.category_id,
+             i.${groupCol} AS item_group_id,
+             c.category_name,
+             g.group_name,
              i.service_item,
              i.is_stockable,
              i.is_sellable,
@@ -287,6 +294,10 @@ export const listItems = async (req, res, next) => {
       LEFT JOIN inv_item_types t
         ON t.company_id = i.company_id
        AND t.type_code = i.item_type
+      LEFT JOIN inv_item_categories c
+        ON c.id = i.category_id
+      LEFT JOIN inv_item_groups g
+        ON g.id = i.${groupCol}
       LEFT JOIN (
         SELECT company_id, branch_id, item_id, SUM(qty) AS qty
         FROM inv_stock_balances

@@ -533,6 +533,9 @@ export default function ItemsList() {
             image_url: rowData.IMAGE_URL || rowData.IMAGE || "",
             vat_on_purchase_code:
               rowData.VAT_ON_PURCHASE || rowData.VAT_PURCHASE_CODE || "",
+            // Pass direct account IDs when provided to ensure saving without resolution ambiguity
+            purchase_account_id: rowData.PURCHASE_ACCOUNT_ID || "",
+            sales_account_id: rowData.SALES_ACCOUNT_ID || "",
             vat_on_sales_code:
               rowData.VAT_ON_SALES || rowData.VAT_SALES_CODE || "",
             purchase_account_code:
@@ -546,14 +549,13 @@ export default function ItemsList() {
             min_stock_level: Number(rowData.MIN_STOCK_LEVEL) || 0,
             max_stock_level: Number(rowData.MAX_STOCK_LEVEL) || 0,
             reorder_level: Number(rowData.REORDER_LEVEL) || 0,
-            safety_stock: Number(rowData.SAFETY_STOCK) || 0,
           };
         });
       if (payloadRows.length) {
         const resp = await api.post(
           "/inventory/items/bulk",
           { rows: payloadRows, auto_create_missing: true },
-          { headers: { "x-skip-offline-queue": "1" } },
+          { __skipOfflineQueue: true },
         );
         const inserted = Number(resp?.data?.inserted || 0);
         const updated = Number(resp?.data?.updated || 0);
@@ -880,7 +882,6 @@ export default function ItemsList() {
       "MIN_STOCK_LEVEL",
       "MAX_STOCK_LEVEL",
       "REORDER_LEVEL",
-      "SAFETY_STOCK",
     ];
     const sample = [
       [
@@ -904,7 +905,6 @@ export default function ItemsList() {
         "10",
         "100",
         "20",
-        "5",
       ],
       [
         "Finished Good 1",
@@ -927,7 +927,6 @@ export default function ItemsList() {
         "5",
         "50",
         "10",
-        "3",
       ],
     ];
     const rows = [headers.join(","), ...sample.map((r) => r.join(","))].join(
@@ -1146,6 +1145,7 @@ export default function ItemsList() {
                   <th onClick={() => onSort("item_name")}>Item Name</th>
                   <th onClick={() => onSort("item_type")}>Type</th>
                   <th onClick={() => onSort("category_name")}>Category</th>
+                  <th onClick={() => onSort("group_name")}>Group</th>
                   <th onClick={() => onSort("uom")}>UOM</th>
                   <th>Barcode</th>
                   <th onClick={() => onSort("stock_level")}>Stock Level</th>
@@ -1194,6 +1194,7 @@ export default function ItemsList() {
                     <td>{it.item_name}</td>
                     <td>{it.item_type_name || it.item_type || "-"}</td>
                     <td>{it.category_name || "-"}</td>
+                    <td>{it.group_name || "-"}</td>
                     <td>{it.uom}</td>
                     <td>{it.barcode || "-"}</td>
                     <td>{it.stock_level ?? "-"}</td>
