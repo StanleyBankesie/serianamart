@@ -36,6 +36,14 @@ async function ensureItemFlagColumns() {
       "ALTER TABLE inv_items ADD COLUMN is_purchasable CHAR(1) NOT NULL DEFAULT 'N'",
     );
   }
+  if (!(await hasColumn("inv_items", "category_id"))) {
+    await query("ALTER TABLE inv_items ADD COLUMN category_id BIGINT UNSIGNED NULL");
+  }
+  if (!(await hasColumn("inv_items", "item_group_id"))) {
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN item_group_id BIGINT UNSIGNED NULL",
+    );
+  }
 }
 
 export const listItems = async (req, res, next) => {
@@ -246,6 +254,8 @@ export const createItem = async (req, res, next) => {
     const vatOnSalesId = Number(body.vat_on_sales_id || 0) || null;
     const purchaseAccountId = Number(body.purchase_account_id || 0) || null;
     const salesAccountId = Number(body.sales_account_id || 0) || null;
+    const categoryId = Number(body.category_id || 0) || null;
+    const itemGroupId = Number(body.item_group_id || body.group_id || 0) || null;
     const serviceItem = yn(body.service_item, "N");
     const isStockable = yn(body.is_stockable, "N");
     const isSellable = yn(body.is_sellable, "N");
@@ -260,8 +270,8 @@ export const createItem = async (req, res, next) => {
       );
     const result = await query(
       `
-      INSERT INTO inv_items (company_id, item_code, item_name, uom, item_type, barcode, cost_price, selling_price, currency_id, price_type_id, image_url, vat_on_purchase_id, vat_on_sales_id, purchase_account_id, sales_account_id, service_item, is_stockable, is_sellable, is_purchasable, is_active)
-      VALUES (:companyId, :itemCode, :itemName, :uom, :itemType, :barcode, :costPrice, :sellingPrice, :currencyId, :priceTypeId, :imageUrl, :vatOnPurchaseId, :vatOnSalesId, :purchaseAccountId, :salesAccountId, :serviceItem, :isStockable, :isSellable, :isPurchasable, :isActive)
+      INSERT INTO inv_items (company_id, item_code, item_name, uom, item_type, barcode, cost_price, selling_price, currency_id, price_type_id, image_url, vat_on_purchase_id, vat_on_sales_id, purchase_account_id, sales_account_id, category_id, item_group_id, service_item, is_stockable, is_sellable, is_purchasable, is_active)
+      VALUES (:companyId, :itemCode, :itemName, :uom, :itemType, :barcode, :costPrice, :sellingPrice, :currencyId, :priceTypeId, :imageUrl, :vatOnPurchaseId, :vatOnSalesId, :purchaseAccountId, :salesAccountId, :categoryId, :itemGroupId, :serviceItem, :isStockable, :isSellable, :isPurchasable, :isActive)
       `,
       {
         companyId,
@@ -279,6 +289,8 @@ export const createItem = async (req, res, next) => {
         vatOnSalesId,
         purchaseAccountId,
         salesAccountId,
+        categoryId,
+        itemGroupId,
         serviceItem,
         isStockable,
         isSellable,
@@ -321,6 +333,8 @@ export const updateItem = async (req, res, next) => {
     const vatOnSalesId = Number(body.vat_on_sales_id || 0) || null;
     const purchaseAccountId = Number(body.purchase_account_id || 0) || null;
     const salesAccountId = Number(body.sales_account_id || 0) || null;
+    const categoryId = Number(body.category_id || 0) || null;
+    const itemGroupId = Number(body.item_group_id || body.group_id || 0) || null;
     const serviceItem = yn(body.service_item, "N");
     const isStockable = yn(body.is_stockable, "N");
     const isSellable = yn(body.is_sellable, "N");
@@ -350,6 +364,8 @@ export const updateItem = async (req, res, next) => {
           vat_on_sales_id = :vatOnSalesId,
           purchase_account_id = :purchaseAccountId,
           sales_account_id = :salesAccountId,
+          category_id = :categoryId,
+          item_group_id = :itemGroupId,
           service_item = :serviceItem,
           is_stockable = :isStockable,
           is_sellable = :isSellable,
@@ -374,6 +390,8 @@ export const updateItem = async (req, res, next) => {
         vatOnSalesId,
         purchaseAccountId,
         salesAccountId,
+        categoryId,
+        itemGroupId,
         serviceItem,
         isStockable,
         isSellable,

@@ -158,13 +158,17 @@ router.get("/conversations", async (req, res, next) => {
     const rows = await query(
       `SELECT c.id, c.title, c.is_group,
               MAX(m.created_at) AS last_time,
-              SUM(CASE WHEN s.user_id = :me AND s.status = 'read' THEN 0 ELSE 0 END) AS unread_count
+              SUM(CASE WHEN s.user_id = :me AND s.status != 'read' THEN 1 ELSE 0 END) AS unread_count,
+              (SELECT cm.content
+                 FROM chat_messages cm
+                 WHERE cm.conversation_id = c.id
+                 ORDER BY cm.id DESC LIMIT 1) AS last_preview
        FROM chat_conversations c
        JOIN chat_participants p ON p.conversation_id = c.id AND p.user_id = :me
        LEFT JOIN chat_messages m ON m.conversation_id = c.id
        LEFT JOIN chat_message_status s ON s.message_id = m.id AND s.user_id = :me
        GROUP BY c.id
-       ORDER BY last_time DESC NULLS LAST`,
+       ORDER BY last_time DESC`,
       { me },
     );
     res.json({ items: rows || [] });
@@ -201,6 +205,7 @@ router.get("/conversations/:id/messages", async (req, res, next) => {
     const me = Number(req.user?.sub || req.user?.id);
     const id = Number(req.params.id);
     const beforeId = Number(req.query?.beforeId || 0) || null;
+    const search = String(req.query?.search || "").trim();
     const limit = Math.min(Number(req.query?.limit || 20), 100);
     const auth = await query(
       `SELECT 1 FROM chat_participants WHERE conversation_id = :id AND user_id = :me LIMIT 1`,
@@ -208,15 +213,218 @@ router.get("/conversations/:id/messages", async (req, res, next) => {
     );
     if (!auth.length) throw httpError(403, "FORBIDDEN", "Not a participant");
     const rows = await query(
-      `SELECT m.*
+      `SELECT m.*,
+              sm.status AS my_status,
+              so.status AS other_status,
+              COALESCE(JSON_ARRAYAGG(
+                CASE WHEN ca.id IS NOT NULL THEN
+                  JSON_OBJECT(
+                    'id', ca.id,
+                    'file_path', ca.file_path,
+                    'mime_type', ca.mime_type,
+                    'file_size', ca.file_size,
+                    'thumbnail_path', ca.thumbnail_path
+                  )
+                ELSE NULL END
+              ), JSON_ARRAY()) AS attachments
        FROM chat_messages m
+       LEFT JOIN chat_message_status sm
+         ON sm.message_id = m.id AND sm.user_id = :me
+       LEFT JOIN chat_participants op
+         ON op.conversation_id = m.conversation_id AND op.user_id <> :me
+       LEFT JOIN chat_message_status so
+         ON so.message_id = m.id AND so.user_id = op.user_id
+       LEFT JOIN chat_attachments ca
+         ON ca.message_id = m.id
        WHERE m.conversation_id = :id
          ${beforeId ? "AND m.id < :beforeId" : ""}
+         ${search ? "AND m.content LIKE :term" : ""}
+         AND NOT EXISTS (
+            SELECT 1 FROM chat_deleted_messages d
+            WHERE d.message_id = m.id AND d.user_id = :me
+         )
+       GROUP BY m.id
        ORDER BY m.id DESC
        LIMIT :limit`,
-      { id, beforeId, limit },
+      { id, beforeId, limit, term: `%${search}%` },
     );
+    // Mark any messages for me that are currently 'sent' as 'delivered'
+    try {
+      const ids = (rows || [])
+        .filter((r) => String(r.my_status || "sent") === "sent")
+        .map((r) => Number(r.id))
+        .filter((n) => Number.isFinite(n));
+      if (ids.length) {
+        await query(
+          `UPDATE chat_message_status
+           SET status = 'delivered', updated_at = NOW()
+           WHERE user_id = :me AND message_id IN (${ids.join(",")})`,
+          { me },
+        );
+      }
+    } catch {}
     res.json({ items: rows.reverse() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Mark all messages as read in a conversation for current user
+router.post("/conversations/:id/read", async (req, res, next) => {
+  try {
+    const me = Number(req.user?.sub || req.user?.id);
+    const id = Number(req.params.id);
+    const auth = await query(
+      `SELECT 1 FROM chat_participants WHERE conversation_id = :id AND user_id = :me LIMIT 1`,
+      { id, me },
+    );
+    if (!auth.length) throw httpError(403, "FORBIDDEN", "Not a participant");
+    await query(
+      `UPDATE chat_message_status s
+       JOIN chat_messages m ON m.id = s.message_id
+       SET s.status = 'read', s.updated_at = NOW()
+       WHERE s.user_id = :me AND m.conversation_id = :id`,
+      { me, id },
+    );
+    try {
+      const { io } = await import("../index.js");
+      if (io)
+        io.to(`chat2_${id}`).emit("chat2:read", {
+          conversation_id: id,
+          user_id: me,
+        });
+    } catch {}
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Star / unstar a message for current user
+router.post("/messages/:id/star", async (req, res, next) => {
+  try {
+    const me = Number(req.user?.sub || req.user?.id);
+    const id = Number(req.params.id);
+    const { star } = req.body || {};
+    await query(
+      `CREATE TABLE IF NOT EXISTS chat_starred_messages (
+        message_id BIGINT UNSIGNED NOT NULL,
+        user_id BIGINT UNSIGNED NOT NULL,
+        PRIMARY KEY (message_id, user_id)
+      ) ENGINE=InnoDB`,
+    );
+    if (star) {
+      await query(
+        `INSERT IGNORE INTO chat_starred_messages (message_id, user_id) VALUES (:id, :me)`,
+        { id, me },
+      );
+    } else {
+      await query(
+        `DELETE FROM chat_starred_messages WHERE message_id = :id AND user_id = :me`,
+        { id, me },
+      );
+    }
+    try {
+      const { io } = await import("../index.js");
+      if (io)
+        io.to(`chat2_${id}`).emit("chat2:star", {
+          message_id: id,
+          user_id: me,
+          star: !!star,
+        });
+    } catch {}
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Edit a message (sender only, time-limited)
+router.post("/messages/:id/edit", async (req, res, next) => {
+  try {
+    const me = Number(req.user?.sub || req.user?.id);
+    const id = Number(req.params.id);
+    const { content } = req.body || {};
+    const rows = await query(
+      `SELECT sender_user_id, created_at, conversation_id FROM chat_messages WHERE id = :id LIMIT 1`,
+      { id },
+    );
+    if (!rows.length) throw httpError(404, "NOT_FOUND", "Missing message");
+    const msg = rows[0];
+    if (Number(msg.sender_user_id) !== me)
+      throw httpError(403, "FORBIDDEN", "Not sender");
+    const diff = await query(
+      `SELECT TIMESTAMPDIFF(MINUTE, :created, NOW()) AS mins`,
+      { created: msg.created_at },
+    );
+    const mins = Number(diff?.[0]?.mins || 0);
+    if (mins > 10) throw httpError(400, "TIME_LIMIT", "Edit window elapsed");
+    await query(
+      `UPDATE chat_messages SET content = :content, edited_at = NOW() WHERE id = :id`,
+      { content, id },
+    );
+    try {
+      const { io } = await import("../index.js");
+      if (io)
+        io.to(`chat2_${msg.conversation_id}`).emit("chat2:edit", {
+          message_id: id,
+        });
+    } catch {}
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Delete a message (me or everyone)
+router.post("/messages/:id/delete", async (req, res, next) => {
+  try {
+    const me = Number(req.user?.sub || req.user?.id);
+    const id = Number(req.params.id);
+    const { scope } = req.body || {};
+    const rows = await query(
+      `SELECT sender_user_id, conversation_id, created_at FROM chat_messages WHERE id = :id LIMIT 1`,
+      { id },
+    );
+    if (!rows.length) throw httpError(404, "NOT_FOUND", "Missing message");
+    const msg = rows[0];
+    if (scope === "everyone") {
+      if (Number(msg.sender_user_id) !== me)
+        throw httpError(403, "FORBIDDEN", "Not sender");
+      const diff = await query(
+        `SELECT TIMESTAMPDIFF(MINUTE, :created, NOW()) AS mins`,
+        { created: msg.created_at },
+      );
+      const mins = Number(diff?.[0]?.mins || 0);
+      if (mins > 10)
+        throw httpError(400, "TIME_LIMIT", "Delete window elapsed");
+      await query(`UPDATE chat_messages SET is_deleted = 1 WHERE id = :id`, {
+        id,
+      });
+      try {
+        const { io } = await import("../index.js");
+        if (io)
+          io.to(`chat2_${msg.conversation_id}`).emit("chat2:delete", {
+            message_id: id,
+            scope: "everyone",
+          });
+      } catch {}
+    } else {
+      await query(
+        `INSERT IGNORE INTO chat_deleted_messages (message_id, user_id) VALUES (:id, :me)`,
+        { id, me },
+      );
+      try {
+        const { io } = await import("../index.js");
+        if (io)
+          io.to(`chat2_${msg.conversation_id}`).emit("chat2:delete", {
+            message_id: id,
+            scope: "me",
+            user_id: me,
+          });
+      } catch {}
+    }
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }

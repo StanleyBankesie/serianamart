@@ -179,7 +179,9 @@ export default function ItemsList() {
 
       // Build lookup maps for category/group/currency/tax/account codes -> IDs
       let categoryCodeToId = new Map();
+      let categoryIdToName = new Map();
       let groupCodeToId = new Map();
+      let groupIdToName = new Map();
       let currencyCodeToId = new Map();
       let taxCodeToId = new Map();
       let accountCodeToId = new Map();
@@ -219,6 +221,7 @@ export default function ItemsList() {
           if (id > 0) {
             if (code) categoryCodeToId.set(code, id);
             if (name) categoryCodeToId.set(name, id);
+            categoryIdToName.set(id, String(c.category_name || ""));
           }
         });
         grps.forEach((g) => {
@@ -228,6 +231,7 @@ export default function ItemsList() {
           if (id > 0) {
             if (code) groupCodeToId.set(code, id);
             if (name) groupCodeToId.set(name, id);
+            groupIdToName.set(id, String(g.group_name || ""));
           }
         });
         curs.forEach((c) => {
@@ -304,6 +308,44 @@ export default function ItemsList() {
             groupCodeToId.get(String(rowData.ITEM_GROUP_CODE).toUpperCase())) ||
           rowData.ITEM_GROUP_ID ||
           null;
+        let categoryLabel = "";
+        if (rowData.ITEM_CATEGORY_ID) {
+          const cid = Number(rowData.ITEM_CATEGORY_ID);
+          categoryLabel =
+            categoryIdToName.get(cid) ||
+            rowData.ITEM_CATEGORY ||
+            rowData.ITEM_CATEGORY_CODE ||
+            String(rowData.ITEM_CATEGORY_ID);
+        } else {
+          categoryLabel =
+            rowData.ITEM_CATEGORY ||
+            rowData.ITEM_CATEGORY_CODE ||
+            (categoryResolved
+              ? categoryIdToName.get(Number(categoryResolved)) || ""
+              : "");
+        }
+        let groupLabel = "";
+        if (rowData.ITEM_GROUP_ID) {
+          const gid = Number(rowData.ITEM_GROUP_ID);
+          groupLabel =
+            groupIdToName.get(gid) ||
+            rowData.ITEM_GROUP ||
+            rowData.ITEM_GROUP_CODE ||
+            String(rowData.ITEM_GROUP_ID);
+        } else {
+          groupLabel =
+            rowData.ITEM_GROUP ||
+            rowData.ITEM_GROUP_CODE ||
+            (groupResolved
+              ? groupIdToName.get(Number(groupResolved)) || ""
+              : "");
+        }
+        const categoryName = categoryResolved
+          ? categoryIdToName.get(Number(categoryResolved)) || ""
+          : "";
+        const groupName = groupResolved
+          ? groupIdToName.get(Number(groupResolved)) || ""
+          : "";
         const errorsRow = [];
         if (!rowData.ITEM_NAME) errorsRow.push("Missing ITEM_NAME");
         if (!itemTypeRaw) errorsRow.push("Missing ITEM_TYPE");
@@ -322,6 +364,10 @@ export default function ItemsList() {
             item_type: itemTypeRaw,
             category_id: categoryResolved,
             item_group_id: groupResolved,
+            category_label: String(categoryLabel),
+            group_label: String(groupLabel),
+            category_name: categoryName,
+            group_name: groupName,
             uom: rowData.BASE_UOM,
             barcode: barcodeExpanded,
           },
@@ -334,8 +380,10 @@ export default function ItemsList() {
         "Item Code",
         "Name",
         "Type",
-        "Category",
-        "Group",
+        "Uploaded Category",
+        "Category Name",
+        "Uploaded Group",
+        "Group Name",
         "UOM",
         "Barcode",
         "Status",
@@ -917,16 +965,10 @@ export default function ItemsList() {
                           <td>{r.preview.item_code || "-"}</td>
                           <td>{r.preview.item_name || "-"}</td>
                           <td>{r.preview.item_type || "-"}</td>
-                          <td>
-                            {r.preview.category_id
-                              ? String(r.preview.category_id)
-                              : "-"}
-                          </td>
-                          <td>
-                            {r.preview.item_group_id
-                              ? String(r.preview.item_group_id)
-                              : "-"}
-                          </td>
+                          <td>{r.preview.category_label || "-"}</td>
+                          <td>{r.preview.category_name || "-"}</td>
+                          <td>{r.preview.group_label || "-"}</td>
+                          <td>{r.preview.group_name || "-"}</td>
                           <td>{r.preview.uom || "-"}</td>
                           <td>{r.preview.barcode || "-"}</td>
                           <td>
