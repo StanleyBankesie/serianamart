@@ -96,6 +96,7 @@ app.use(
       "x-company-id",
       "x-branch-id",
       "x-user-id",
+      "x-skip-offline-queue",
     ],
   }),
 );
