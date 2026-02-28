@@ -185,11 +185,12 @@ export default function ItemsList() {
       let currencyCodeToId = new Map();
       let taxCodeToId = new Map();
       let accountCodeToId = new Map();
+      let priceTypeNameToId = new Map();
       let itemTypeSet = new Set();
       let itemTypeCodeToCode = new Map();
       let itemTypeNameToCode = new Map();
       try {
-        const [catRes, grpRes, curRes, taxRes, accRes, typeRes] =
+        const [catRes, grpRes, curRes, taxRes, accRes, typeRes, ptRes] =
           await Promise.all([
             api.get("/inventory/item-categories"),
             api.get("/inventory/item-groups"),
@@ -197,6 +198,7 @@ export default function ItemsList() {
             api.get("/finance/tax-codes"),
             api.get("/finance/accounts"),
             api.get("/inventory/item-types"),
+            api.get("/sales/price-types?active=true"),
           ]);
         const cats = Array.isArray(catRes?.data?.items)
           ? catRes.data.items
@@ -262,6 +264,12 @@ export default function ItemsList() {
             if (code) accountCodeToId.set(code, id);
             if (name) accountCodeToId.set(name, id);
           }
+        });
+        const pts = Array.isArray(ptRes?.data?.items) ? ptRes.data.items : [];
+        pts.forEach((p) => {
+          const id = Number(p.id);
+          const name = String(p.name || "").toUpperCase();
+          if (id > 0 && name) priceTypeNameToId.set(name, id);
         });
         types.forEach((t) => {
           const code = String(
@@ -447,11 +455,70 @@ export default function ItemsList() {
           category_id: r.preview.category_id || null,
           item_group_id: r.preview.item_group_id || null,
           group_id: r.preview.item_group_id || null,
+          category_label: r.preview.category_label,
+          category_name: r.preview.category_name,
+          group_label: r.preview.group_label,
+          group_name: r.preview.group_name,
           uom: rowData.BASE_UOM,
           barcode: r.preview.barcode || null,
           cost_price: Number(rowData.STANDARD_COST) || 0,
           selling_price: Number(rowData.SELLING_PRICE) || 0,
-          currency_id: null,
+          currency_id:
+            currencyCodeToId.get(
+              String(
+                rowData.CURRENCY_ID ||
+                  rowData.CURRENCY_CODE ||
+                  rowData.CURRENCY ||
+                  "",
+              ).toUpperCase(),
+            ) || null,
+          price_type_id:
+            priceTypeNameToId.get(
+              String(
+                rowData.PRICE_TYPE || rowData.PRICE_TYPE_NAME || "",
+              ).toUpperCase(),
+            ) ||
+            Number(rowData.PRICE_TYPE_ID || 0) ||
+            null,
+          image_url: rowData.IMAGE_URL || rowData.IMAGE || null,
+          vat_on_purchase_id:
+            taxCodeToId.get(
+              String(
+                rowData.VAT_ON_PURCHASE_ID ||
+                  rowData.VAT_ON_PURCHASE ||
+                  rowData.VAT_PURCHASE ||
+                  rowData.VAT_PURCHASE_CODE ||
+                  "",
+              ).toUpperCase(),
+            ) || null,
+          vat_on_sales_id:
+            taxCodeToId.get(
+              String(
+                rowData.VAT_ON_SALES_ID ||
+                  rowData.VAT_ON_SALES ||
+                  rowData.VAT_SALES ||
+                  rowData.VAT_SALES_CODE ||
+                  "",
+              ).toUpperCase(),
+            ) || null,
+          purchase_account_id:
+            accountCodeToId.get(
+              String(
+                rowData.PURCHASE_ACCOUNT_ID ||
+                  rowData.PURCHASE_ACCOUNT_CODE ||
+                  rowData.PURCHASE_ACCOUNT ||
+                  "",
+              ).toUpperCase(),
+            ) || null,
+          sales_account_id:
+            accountCodeToId.get(
+              String(
+                rowData.SALES_ACCOUNT_ID ||
+                  rowData.SALES_ACCOUNT_CODE ||
+                  rowData.SALES_ACCOUNT ||
+                  "",
+              ).toUpperCase(),
+            ) || null,
           description: rowData.DESCRIPTION,
           is_stockable: rowData.IS_STOCKABLE === "Y",
           is_sellable: rowData.IS_SELLABLE === "Y",

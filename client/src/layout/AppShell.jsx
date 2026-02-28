@@ -41,7 +41,7 @@ import useOfflineQueue from "../offline/useOfflineQueue.js";
 import FloatingInstallButton from "../components/FloatingInstallButton.jsx";
 import { toast } from "react-toastify";
 import { Bell } from "lucide-react";
-import FloatingChatV2 from "../components/chatv2/FloatingChatV2.jsx";
+import FloatingChat from "../components/chat/FloatingChat.jsx";
 
 const modules = [
   {
@@ -1242,7 +1242,7 @@ export default function AppShell() {
         </main>
       </div>
       <FloatingInstallButton />
-      <FloatingChatV2 />
+      <FloatingChat />
     </div>
   );
 }

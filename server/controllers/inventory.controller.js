@@ -48,6 +48,120 @@ async function ensureItemFlagColumns() {
   }
 }
 
+async function resolveCategoryId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const code = v.toUpperCase();
+  const rows = await query(
+    `
+    SELECT id
+    FROM inv_item_categories
+    WHERE company_id = :companyId
+      AND (UPPER(category_code) = :code OR UPPER(category_name) = :code)
+    LIMIT 1
+    `,
+    { companyId, code },
+  ).catch(() => []);
+  return Number(rows?.[0]?.id || 0) || null;
+}
+
+async function resolveGroupId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const code = v.toUpperCase();
+  const rows = await query(
+    `
+    SELECT id
+    FROM inv_item_groups
+    WHERE company_id = :companyId
+      AND (UPPER(group_code) = :code OR UPPER(group_name) = :code)
+    LIMIT 1
+    `,
+    { companyId, code },
+  ).catch(() => []);
+  return Number(rows?.[0]?.id || 0) || null;
+}
+
+async function resolveCurrencyId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const code = v.toUpperCase();
+  const rows = await query(
+    `
+    SELECT id
+    FROM fin_currencies
+    WHERE company_id = :companyId
+      AND (UPPER(code) = :code OR UPPER(name) = :code)
+    LIMIT 1
+    `,
+    { companyId, code },
+  ).catch(() => []);
+  return Number(rows?.[0]?.id || 0) || null;
+}
+
+async function resolvePriceTypeId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const name = v;
+  const rows = await query(
+    `
+    SELECT id
+    FROM sal_price_types
+    WHERE company_id = :companyId
+      AND UPPER(name) = UPPER(:name)
+    LIMIT 1
+    `,
+    { companyId, name },
+  ).catch(() => []);
+  return Number(rows?.[0]?.id || 0) || null;
+}
+
+async function resolveTaxCodeId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const code = v.toUpperCase();
+  const rows = await query(
+    `
+    SELECT id
+    FROM fin_tax_codes
+    WHERE company_id = :companyId
+      AND (UPPER(code) = :code OR UPPER(name) = :code)
+    LIMIT 1
+    `,
+    { companyId, code },
+  ).catch(() => []);
+  return Number(rows?.[0]?.id || 0) || null;
+}
+
+async function resolveAccountId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  // Prefer code match; fallback to name
+  const asNum = Number(v);
+  if (Number.isFinite(asNum) && asNum > 0) {
+    const rows = await query(
+      `
+      SELECT id FROM fin_accounts
+      WHERE company_id = :companyId AND id = :id
+      LIMIT 1
+      `,
+      { companyId, id: asNum },
+    ).catch(() => []);
+    return Number(rows?.[0]?.id || 0) || null;
+  }
+  const rows = await query(
+    `
+    SELECT id
+    FROM fin_accounts
+    WHERE company_id = :companyId
+      AND (code = :v OR UPPER(name) = UPPER(:v))
+    LIMIT 1
+    `,
+    { companyId, v },
+  ).catch(() => []);
+  return Number(rows?.[0]?.id || 0) || null;
+}
+
 export const listItems = async (req, res, next) => {
   try {
     await ensureItemFlagColumns();
@@ -252,16 +366,65 @@ export const createItem = async (req, res, next) => {
     const barcode = body.barcode ? String(body.barcode).trim() : null;
     const costPrice = Number(body.cost_price || 0);
     const sellingPrice = Number(body.selling_price || 0);
-    const currencyId = Number(body.currency_id || 0) || null;
-    const priceTypeId = Number(body.price_type_id || 0) || null;
+    let currencyId = Number(body.currency_id || 0) || null;
+    let priceTypeId = Number(body.price_type_id || 0) || null;
     const imageUrl = body.image_url ? String(body.image_url).trim() : null;
-    const vatOnPurchaseId = Number(body.vat_on_purchase_id || 0) || null;
-    const vatOnSalesId = Number(body.vat_on_sales_id || 0) || null;
-    const purchaseAccountId = Number(body.purchase_account_id || 0) || null;
-    const salesAccountId = Number(body.sales_account_id || 0) || null;
-    const categoryId = Number(body.category_id || 0) || null;
-    const itemGroupId =
-      Number(body.item_group_id || body.group_id || 0) || null;
+    let vatOnPurchaseId = Number(body.vat_on_purchase_id || 0) || null;
+    let vatOnSalesId = Number(body.vat_on_sales_id || 0) || null;
+    let purchaseAccountId = Number(body.purchase_account_id || 0) || null;
+    let salesAccountId = Number(body.sales_account_id || 0) || null;
+    let categoryId = Number(body.category_id || 0) || null;
+    let itemGroupId = Number(body.item_group_id || body.group_id || 0) || null;
+    // Fallback server-side resolution if IDs not provided
+    if (!categoryId) {
+      categoryId =
+        (await resolveCategoryId(companyId, body.category_label)) ||
+        (await resolveCategoryId(companyId, body.category_name)) ||
+        (await resolveCategoryId(companyId, body.category_code));
+    }
+    if (!itemGroupId) {
+      itemGroupId =
+        (await resolveGroupId(companyId, body.group_label)) ||
+        (await resolveGroupId(companyId, body.group_name)) ||
+        (await resolveGroupId(companyId, body.group_code));
+    }
+    // Fallbacks for finance-related IDs
+    if (!currencyId) {
+      currencyId =
+        (await resolveCurrencyId(companyId, body.currency_code)) ||
+        (await resolveCurrencyId(companyId, body.currency_name));
+    }
+    if (!priceTypeId) {
+      priceTypeId =
+        (await resolvePriceTypeId(companyId, body.price_type)) ||
+        (await resolvePriceTypeId(companyId, body.price_type_name));
+    }
+    if (!vatOnPurchaseId) {
+      vatOnPurchaseId =
+        (await resolveTaxCodeId(companyId, body.vat_on_purchase_code)) ||
+        (await resolveTaxCodeId(companyId, body.vat_on_purchase_name)) ||
+        (await resolveTaxCodeId(companyId, body.vat_purchase)) ||
+        (await resolveTaxCodeId(companyId, body.vat_on_purchase));
+    }
+    if (!vatOnSalesId) {
+      vatOnSalesId =
+        (await resolveTaxCodeId(companyId, body.vat_on_sales_code)) ||
+        (await resolveTaxCodeId(companyId, body.vat_on_sales_name)) ||
+        (await resolveTaxCodeId(companyId, body.vat_sales)) ||
+        (await resolveTaxCodeId(companyId, body.vat_on_sales));
+    }
+    if (!purchaseAccountId) {
+      purchaseAccountId =
+        (await resolveAccountId(companyId, body.purchase_account_code)) ||
+        (await resolveAccountId(companyId, body.purchase_account_name)) ||
+        (await resolveAccountId(companyId, body.purchase_account));
+    }
+    if (!salesAccountId) {
+      salesAccountId =
+        (await resolveAccountId(companyId, body.sales_account_code)) ||
+        (await resolveAccountId(companyId, body.sales_account_name)) ||
+        (await resolveAccountId(companyId, body.sales_account));
+    }
     const serviceItem = yn(body.service_item, "N");
     const isStockable = yn(body.is_stockable, "N");
     const isSellable = yn(body.is_sellable, "N");

@@ -33,7 +33,7 @@ import templatesRoutes from "./routes/templates.routes.js";
 import documentsRoutes from "./routes/documents.routes.js";
 import socialFeedRoutes from "./routes/social-feed.routes.js";
 import accessRoutes from "./routes/access.routes.js";
-import chatV2Routes from "./routes/chatv2.routes.js";
+import chatRoutes from "./routes/chat.routes.js";
 import { initializeSocket } from "./utils/socket.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -141,7 +141,7 @@ app.use("/api/templates", templatesRoutes);
 app.use("/api/documents", documentsRoutes);
 app.use("/api/social-feed", socialFeedRoutes);
 app.use("/api/access", accessRoutes);
-app.use("/api/chat2", chatV2Routes);
+app.use("/api/chat", chatRoutes);
 
 /* ---------------- STATIC FILES & SPA FALLBACK ---------------- */
 const serveFrontendFlag = (() => {

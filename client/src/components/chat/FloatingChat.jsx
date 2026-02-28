@@ -1,37 +1,34 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
-import ChatModalV2 from "./ChatModalV2";
 import useSocket from "../../hooks/useSocket";
+import ChatModal from "./ChatModal.jsx";
 
-export default function FloatingChatV2() {
+export default function FloatingChat() {
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const socket = useSocket();
 
   const loadUnread = async () => {
     try {
-      const res = await api.get("/chat2/unread-count");
+      const res = await api.get("/chat/unread-count");
       setUnread(Number(res?.data?.unread || 0));
     } catch {
       setUnread(0);
     }
   };
-
   useEffect(() => {
     loadUnread();
   }, []);
-
   useEffect(() => {
     if (!socket) return;
-    const onMsg = () => loadUnread();
-    const onNotify = () => loadUnread();
-    socket.on("chat2:message", onMsg);
-    socket.on("chat2:status", onMsg);
-    socket.on("chat2:notify", onNotify);
+    const onReceive = () => loadUnread();
+    socket.on("receive_message", onReceive);
+    socket.on("message_delivered", onReceive);
+    socket.on("message_read", onReceive);
     return () => {
-      socket.off("chat2:message", onMsg);
-      socket.off("chat2:status", onMsg);
-      socket.off("chat2:notify", onNotify);
+      socket.off("receive_message", onReceive);
+      socket.off("message_delivered", onReceive);
+      socket.off("message_read", onReceive);
     };
   }, [socket]);
 
@@ -53,19 +50,12 @@ export default function FloatingChatV2() {
         data-rbac-exempt="true"
         className="fixed z-[9999] md:right-6 md:bottom-6 w-12 h-12 rounded-full shadow-xl text-white flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
         style={{
-          backgroundColor: "#F59E0B",
+          backgroundColor: "#22C55E",
           right: 16,
           bottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)",
         }}
       >
-        <svg
-          width="26"
-          height="26"
-          viewBox="0 0 24 24"
-          fill="none"
-          aria-hidden="true"
-          focusable="false"
-        >
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
           <path
             d="M20.52 3.48A11.5 11.5 0 0 0 3.48 20.52L2 22l3.02-.4A11.5 11.5 0 1 0 20.52 3.48zM12 20.5c-1.8 0-3.47-.53-4.87-1.44l-.35-.22-1.8.24.25-1.75-.23-.36A8.5 8.5 0 1 1 12 20.5z"
             fill="white"
@@ -78,7 +68,8 @@ export default function FloatingChatV2() {
         </svg>
         {badge}
       </button>
-      {open && <ChatModalV2 onClose={() => setOpen(false)} />}
+      {open && <ChatModal onClose={() => setOpen(false)} />}
     </>
   );
 }
+
