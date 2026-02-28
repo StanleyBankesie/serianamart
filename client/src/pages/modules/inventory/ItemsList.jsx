@@ -535,6 +535,8 @@ export default function ItemsList() {
               rowData.VAT_ON_SALES || rowData.VAT_SALES_CODE || "",
             purchase_account_code:
               rowData.PURCHASE_ACCOUNT_CODE || rowData.PURCHASE_ACCOUNT || "",
+            sales_account_code:
+              rowData.SALES_ACCOUNT_CODE || rowData.SALES_ACCOUNT || "",
             is_sellable: rowData.IS_SELLABLE === "Y",
             is_purchasable: rowData.IS_PURCHASABLE === "Y",
             min_stock_level: Number(rowData.MIN_STOCK_LEVEL) || 0,
