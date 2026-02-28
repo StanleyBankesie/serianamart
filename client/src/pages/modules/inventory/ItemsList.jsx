@@ -529,23 +529,8 @@ export default function ItemsList() {
             vat_on_purchase_code:
               rowData.VAT_ON_PURCHASE || rowData.VAT_PURCHASE_CODE || "",
             purchase_account_id:
-              Number(rowData.PURCHASE_ACCOUNT_ID || 0) ||
-              accountCodeToId.get(
-                String(
-                  rowData.PURCHASE_ACCOUNT_CODE ||
-                    rowData.PURCHASE_ACCOUNT ||
-                    "",
-                ).toUpperCase(),
-              ) ||
-              null,
-            sales_account_id:
-              Number(rowData.SALES_ACCOUNT_ID || 0) ||
-              accountCodeToId.get(
-                String(
-                  rowData.SALES_ACCOUNT_CODE || rowData.SALES_ACCOUNT || "",
-                ).toUpperCase(),
-              ) ||
-              null,
+              Number(rowData.PURCHASE_ACCOUNT_ID || 0) || null,
+            sales_account_id: Number(rowData.SALES_ACCOUNT_ID || 0) || null,
             vat_on_sales_code:
               rowData.VAT_ON_SALES || rowData.VAT_SALES_CODE || "",
             purchase_account_code:
