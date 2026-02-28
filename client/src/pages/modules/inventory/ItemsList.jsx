@@ -373,9 +373,7 @@ export default function ItemsList() {
       }
 
       const rows = [];
-      // Only guard against duplicate names within the same CSV import.
-      // Do not block based on existing DB names; server will reject 409 per row.
-      const existingNames = new Set(); // intentionally empty: allow server to decide
+      // Do not block on client. Let server handle duplicates/conflicts.
       const seenNames = new Set();
       // Build preview rows with validation using parsed CSV
       for (let i = 1; i < rowsCsv.length; i++) {
@@ -455,14 +453,10 @@ export default function ItemsList() {
           ? groupIdToName.get(Number(groupResolved)) || ""
           : "";
         const errorsRow = [];
-        // Only minimally validate to avoid blocking bulk upload
-        // Leave server to resolve and create related master data
+        // Only annotate (do not block) basic issues; server will decide final result
         const nameUpper = String(rowData.ITEM_NAME || "").toUpperCase();
         if (!nameUpper) errorsRow.push("Missing ITEM_NAME");
-        if (nameUpper) {
-          if (seenNames.has(nameUpper)) errorsRow.push("Duplicate in CSV");
-          seenNames.add(nameUpper);
-        }
+        if (nameUpper) seenNames.add(nameUpper);
         rows.push({
           index: i + 1,
           raw: rowData,
@@ -508,7 +502,7 @@ export default function ItemsList() {
     try {
       setUploading(true);
       const payloadRows = previewRows
-        .filter((r) => r && r.valid)
+        .filter((r) => r) // attempt all rows; server decides validity
         .map((r) => {
           const rowData = r.raw || {};
           return {
