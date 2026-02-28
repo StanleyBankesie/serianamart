@@ -290,11 +290,9 @@ export default function ItemsList() {
       }
 
       const rows = [];
-      const existingNames = new Set(
-        (Array.isArray(items) ? items : [])
-          .map((it) => String(it.item_name || "").toUpperCase())
-          .filter(Boolean),
-      );
+      // Only guard against duplicate names within the same CSV import.
+      // Do not block based on existing DB names; server will reject 409 per row.
+      const existingNames = new Set(); // intentionally empty: allow server to decide
       const seenNames = new Set();
       // Build preview rows with validation
       for (let i = 1; i < lines.length; i++) {
@@ -376,8 +374,6 @@ export default function ItemsList() {
         if (!rowData.ITEM_NAME) errorsRow.push("Missing ITEM_NAME");
         const nameUpper = String(rowData.ITEM_NAME || "").toUpperCase();
         if (nameUpper) {
-          if (existingNames.has(nameUpper))
-            errorsRow.push("Duplicate ITEM_NAME");
           if (seenNames.has(nameUpper)) errorsRow.push("Duplicate in CSV");
           seenNames.add(nameUpper);
         }

@@ -1,4 +1,7 @@
 import express from "express";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import { query } from "../db/pool.js";
 import {
   requireAuth,
@@ -7,6 +10,7 @@ import {
 } from "../middleware/auth.js";
 import { httpError } from "../utils/httpError.js";
 import { io as ioInstance } from "../index.js";
+import { isUserOnline } from "../utils/socket.js";
 import { sendPushToUser } from "./push.routes.js";
 
 const router = express.Router();
@@ -85,6 +89,45 @@ async function ensureChatTables() {
       CONSTRAINT fk_msg_conv FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `).catch(() => null);
+  // Upgrade columns/enums to support media and receiver
+  try {
+    const cols = await query(
+      `
+      SELECT column_name 
+      FROM information_schema.columns
+      WHERE table_schema = DATABASE() AND table_name = 'chat_messages'
+      `,
+    );
+    const names = new Set(cols.map((r) => r.column_name));
+    if (!names.has("receiver_id")) {
+      await query(
+        "ALTER TABLE chat_messages ADD COLUMN receiver_id BIGINT UNSIGNED NULL AFTER sender_id",
+      ).catch(() => null);
+    }
+    if (!names.has("file_name")) {
+      await query(
+        "ALTER TABLE chat_messages ADD COLUMN file_name VARCHAR(255) NULL AFTER content",
+      ).catch(() => null);
+    }
+    if (!names.has("file_size")) {
+      await query(
+        "ALTER TABLE chat_messages ADD COLUMN file_size BIGINT UNSIGNED NULL AFTER file_name",
+      ).catch(() => null);
+    }
+    await query(
+      "ALTER TABLE chat_messages MODIFY COLUMN message_type ENUM('text','image','video','document','contact') NOT NULL DEFAULT 'text'",
+    ).catch(() => null);
+  } catch {}
+}
+
+async function ensurePresenceTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS chat_presence (
+      user_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+      is_online TINYINT(1) NOT NULL DEFAULT 0,
+      last_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `).catch(() => null);
 }
 
 function inRoom(io, room) {
@@ -97,6 +140,59 @@ function inRoom(io, room) {
 }
 
 router.use(requireAuth, requireCompanyScope, requireBranchScope);
+
+// Users for recipient selection
+router.get("/users", async (req, res, next) => {
+  try {
+    await ensurePresenceTable();
+    const me = Number(req.user?.sub || req.user?.id);
+    const q = String(req.query?.q || "").trim();
+    const params = { me };
+    let where = "id <> :me";
+    if (q) {
+      where += " AND (username LIKE :q OR full_name LIKE :q)";
+      params.q = `%${q}%`;
+    }
+    const users =
+      (await query(
+        `
+        SELECT id, username, full_name
+        FROM adm_users
+        WHERE ${where}
+        ORDER BY username ASC
+        `,
+        params,
+      ).catch(() => [])) || [];
+    const ids = users.map((u) => Number(u.id)).filter((n) => Number.isFinite(n));
+    let pres = [];
+    if (ids.length) {
+      const placeholders = ids.map((_, i) => `:p${i}`).join(",");
+      const p = {};
+      ids.forEach((v, i) => (p[`p${i}`] = v));
+      pres =
+        (await query(
+          `SELECT user_id, is_online, last_seen FROM chat_presence WHERE user_id IN (${placeholders})`,
+          p,
+        ).catch(() => [])) || [];
+    }
+    const map = new Map(pres.map((r) => [Number(r.user_id), r]));
+    res.json({
+      items: users.map((u) => {
+        const pr = map.get(Number(u.id));
+        return {
+          id: u.id,
+          username: u.username,
+          full_name: u.full_name,
+          is_online: pr ? Number(pr.is_online) === 1 : false,
+          last_seen: pr?.last_seen || null,
+          avatar_url: null,
+        };
+      }),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // List conversations for current user
 router.get("/conversations", async (req, res, next) => {
@@ -199,26 +295,46 @@ router.post("/messages", async (req, res, next) => {
   try {
     await ensureChatTables();
     const me = Number(req.user?.sub || req.user?.id);
-    const { conversation_id, content } = req.body || {};
+    const {
+      conversation_id,
+      content,
+      message_type = "text",
+      file_name = null,
+      file_size = null,
+    } = req.body || {};
     const cid = Number(conversation_id);
-    if (!Number.isFinite(cid) || !String(content || "").trim()) {
-      throw httpError(
-        400,
-        "VALIDATION_ERROR",
-        "conversation_id and content required",
-      );
-    }
+    const type = String(message_type || "text").toLowerCase();
+    const isMedia = type !== "text";
+    if (!Number.isFinite(cid))
+      throw httpError(400, "VALIDATION_ERROR", "Invalid conversation_id");
+    if (!isMedia && !String(content || "").trim())
+      throw httpError(400, "VALIDATION_ERROR", "content required for text");
     const auth = await query(
       `SELECT 1 FROM chat_conversation_participants WHERE conversation_id = :cid AND user_id = :me LIMIT 1`,
       { cid, me },
     );
     if (!auth.length) throw httpError(403, "FORBIDDEN", "Not a participant");
+    // Resolve receiver for direct chat
+    const others =
+      (await query(
+        `SELECT user_id FROM chat_conversation_participants WHERE conversation_id = :cid AND user_id <> :me LIMIT 2`,
+        { cid, me },
+      ).catch(() => [])) || [];
+    const receiverId = Number(others?.[0]?.user_id || 0) || null;
     const ins = await query(
       `
-      INSERT INTO chat_messages (conversation_id, sender_id, message_type, content, status, sent_at)
-      VALUES (:cid, :me, 'text', :content, 'sent', NOW())
+      INSERT INTO chat_messages (conversation_id, sender_id, receiver_id, message_type, content, file_name, file_size, status, sent_at)
+      VALUES (:cid, :me, :receiverId, :type, :content, :file_name, :file_size, 'sent', NOW())
       `,
-      { cid, me, content: String(content).trim() },
+      {
+        cid,
+        me,
+        receiverId,
+        type,
+        content: isMedia ? String(content || "") : String(content).trim(),
+        file_name: file_name || null,
+        file_size: file_size == null ? null : Number(file_size),
+      },
     );
     const mid = ins.insertId;
     const io = ioInstance;
@@ -227,8 +343,11 @@ router.post("/messages", async (req, res, next) => {
         id: mid,
         conversation_id: cid,
         sender_id: me,
-        message_type: "text",
+        receiver_id: receiverId,
+        message_type: type,
         content: String(content || ""),
+        file_name: file_name || null,
+        file_size: file_size == null ? null : Number(file_size),
         status: "sent",
         sent_at: new Date().toISOString(),
       });
@@ -242,9 +361,16 @@ router.post("/messages", async (req, res, next) => {
       .map((r) => Number(r.user_id))
       .filter((n) => Number.isFinite(n));
     // If receiver not in room, set delivered later when they connect and send push
-    const anyInRoom = io ? io.sockets.adapter.rooms.get(`conv_${cid}`) : null;
-    const hasViewers = !!(anyInRoom && anyInRoom.size);
-    if (!hasViewers) {
+    let delivered = false;
+    if (receiverId && isUserOnline && isUserOnline(receiverId)) {
+      await query(
+        `UPDATE chat_messages SET status = 'delivered', delivered_at = NOW() WHERE id = :id`,
+        { id: mid },
+      ).catch(() => null);
+      delivered = true;
+      if (io) io.to(`conv_${cid}`).emit("message_delivered", { message_id: mid });
+    }
+    if (!delivered) {
       // Trigger existing push + notification row
       const senderNameRows = await query(
         `SELECT full_name AS name, username FROM adm_users WHERE id = :id LIMIT 1`,
@@ -359,6 +485,63 @@ router.get("/unread-count", async (req, res, next) => {
     res.json({ unread: Number(rows?.[0]?.total || 0) });
   } catch (err) {
     next(err);
+  }
+});
+
+// Media upload for chat
+const chatUploadDir = path.join(process.cwd(), "uploads");
+try {
+  if (!fs.existsSync(chatUploadDir)) fs.mkdirSync(chatUploadDir, { recursive: true });
+} catch {}
+const chatStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, chatUploadDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, `chat-${unique}${ext}`);
+  },
+});
+const allowedMimes = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "video/mp4",
+  "video/webm",
+  "video/ogg",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/zip",
+]);
+function chatFileFilter(req, file, cb) {
+  if (allowedMimes.has(file.mimetype) || file.mimetype.startsWith("image/") || file.mimetype.startsWith("video/")) {
+    cb(null, true);
+  } else {
+    cb(new Error("Unsupported file type"), false);
+  }
+}
+const chatUpload = multer({
+  storage: chatStorage,
+  fileFilter: chatFileFilter,
+  limits: { fileSize: 50 * 1024 * 1024 },
+});
+router.post("/upload", chatUpload.single("file"), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+    const filePath = `/uploads/${req.file.filename}`;
+    const origin = `${req.protocol}://${req.get("host")}`;
+    res.json({
+      path: filePath,
+      url: `${origin}${filePath}`,
+      file_name: req.file.originalname || req.file.filename,
+      file_size: req.file.size,
+      mime: req.file.mimetype,
+    });
+  } catch (e) {
+    next(e);
   }
 });
 
