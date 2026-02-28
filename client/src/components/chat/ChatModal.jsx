@@ -3,7 +3,7 @@ import { api } from "../../api/client";
 import useSocket from "../../hooks/useSocket";
 import { useAuth } from "../../auth/AuthContext";
 
-function ConversationList({ items, activeId, onOpen }) {
+function ConversationList({ items, activeId, onOpen, users, onStart }) {
   return (
     <div className="w-[290px] border-r border-slate-200 bg-slate-50 h-full overflow-auto">
       <div className="p-2 font-semibold text-slate-700">Chats</div>
@@ -41,6 +41,26 @@ function ConversationList({ items, activeId, onOpen }) {
           </div>
         </button>
       ))}
+      <div className="p-2 font-semibold text-slate-700 border-t border-slate-200">
+        Users
+      </div>
+      {Array.isArray(users) &&
+        users.map((u) => (
+          <button
+            key={u.id}
+            onClick={() => onStart(u)}
+            className="w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-white"
+          >
+            <div className="flex-1">
+              <div className="text-sm font-semibold text-slate-800">
+                {u.full_name || u.username}
+              </div>
+              <div className="text-[11px] text-slate-500">
+                {u.username} {u.is_online ? "• online" : ""}
+              </div>
+            </div>
+          </button>
+        ))}
     </div>
   );
 }
@@ -159,6 +179,7 @@ export default function ChatModal({ onClose }) {
   const [userOptions, setUserOptions] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [allUsers, setAllUsers] = useState([]);
 
   async function loadConvos() {
     try {
@@ -174,6 +195,9 @@ export default function ChatModal({ onClose }) {
       const res = await api.get(`/chat/conversations/${c.id}/messages`);
       setMessages(Array.isArray(res.data?.items) ? res.data.items : []);
       await api.post(`/chat/conversations/${c.id}/read`);
+      try {
+        localStorage.setItem("omni.chat.lastConversationId", String(c.id));
+      } catch {}
     } catch {
       setMessages([]);
     }
@@ -182,7 +206,28 @@ export default function ChatModal({ onClose }) {
     }
   }
   useEffect(() => {
-    loadConvos();
+    (async () => {
+      await loadConvos();
+      try {
+        const res = await api.get("/chat/users");
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        setAllUsers(items);
+      } catch {
+        setAllUsers([]);
+      }
+      try {
+        const raw = localStorage.getItem("omni.chat.lastConversationId");
+        const lastId = raw ? Number(raw) : null;
+        if (lastId) {
+          const res2 = await api.get("/chat/conversations");
+          const list = Array.isArray(res2.data?.items) ? res2.data.items : [];
+          setConvos(list);
+          const found = list.find((c) => Number(c.id) === Number(lastId));
+          if (found) openConversation(found);
+        }
+      } catch {}
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     if (!socket) return;
@@ -338,6 +383,8 @@ export default function ChatModal({ onClose }) {
           items={convos}
           activeId={active?.id}
           onOpen={openConversation}
+          users={allUsers}
+          onStart={startDirectChat}
         />
         <div className="flex-1 flex flex-col">
           <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">

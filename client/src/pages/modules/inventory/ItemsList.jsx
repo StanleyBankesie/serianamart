@@ -557,39 +557,43 @@ export default function ItemsList() {
           };
         });
       if (payloadRows.length) {
-        const resp = await api.post(
-          "/inventory/items/bulk",
-          { rows: payloadRows, auto_create_missing: true },
-          { __skipOfflineQueue: true },
-        );
-        const inserted = Number(resp?.data?.inserted || 0);
-        const updated = Number(resp?.data?.updated || 0);
-        const failed = Number(resp?.data?.failed || 0);
-        if (inserted || updated) {
-          toast.success(`Uploaded ${inserted} new, updated ${updated}`);
-          const res = await api.get("/inventory/items");
-          setItems(Array.isArray(res.data?.items) ? res.data.items : []);
-        }
-        if (failed) {
-          toast.error(`Skipped ${failed} rows`);
-          const errs = Array.isArray(resp?.data?.errors)
-            ? resp.data.errors
-            : [];
-          if (errs.length) {
-            alert(
-              "Some rows failed:\n" +
-                errs
-                  .slice(0, 10)
-                  .map(
-                    (e) =>
-                      `Row ${e.index} (${e.item_name || "-"}) - ${e.message}`,
-                  )
-                  .join("\n") +
-                (errs.length > 10 ? "\n..." : ""),
-            );
+        try {
+          const resp = await api.post(
+            "/inventory/items/bulk",
+            { rows: payloadRows, auto_create_missing: true },
+            { __skipOfflineQueue: true },
+          );
+          const inserted = Number(resp?.data?.inserted || 0);
+          const updated = Number(resp?.data?.updated || 0);
+          const failed = Number(resp?.data?.failed || 0);
+          if (inserted || updated) {
+            toast.success(`Uploaded ${inserted} new, updated ${updated}`);
+            const res = await api.get("/inventory/items");
+            setItems(Array.isArray(res.data?.items) ? res.data.items : []);
           }
+          if (failed) {
+            toast.error(`Skipped ${failed} rows`);
+            const errs = Array.isArray(resp?.data?.errors)
+              ? resp.data.errors
+              : [];
+            if (errs.length) {
+              alert(
+                "Some rows failed:\n" +
+                  errs
+                    .slice(0, 10)
+                    .map(
+                      (e) =>
+                        `Row ${e.index} (${e.item_name || "-"}) - ${e.message}`,
+                    )
+                    .join("\n") +
+                  (errs.length > 10 ? "\n..." : ""),
+              );
+            }
+          }
+          return;
+        } catch (bulkErr) {
+          // Fallback to per-row upload when bulk endpoint is unavailable
         }
-        return;
       }
       let success = 0;
       let failed = 0;
