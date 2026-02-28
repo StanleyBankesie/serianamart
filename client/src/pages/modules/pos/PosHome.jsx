@@ -49,24 +49,28 @@ function PosLanding() {
 
   const stats = [
     {
+      rbac_key: "today-sales",
       icon: "💵",
       value: fmt(overview?.todaySales || 0),
       label: "Today Sales",
       path: "/pos/reports",
     },
     {
+      rbac_key: "total-customers",
       icon: "👥",
       value: String(overview?.totalCustomers ?? 0),
       label: "Total Customers",
       path: "/sales/customers",
     },
     {
+      rbac_key: "average-order",
       icon: "🧾",
       value: fmt(overview?.averageOrder || 0),
       label: "Average Order",
       path: "/pos/reports",
     },
     {
+      rbac_key: "monthly-revenue",
       icon: "📊",
       value: fmt(overview?.monthlyRevenue || 0),
       label: "Monthly Revenue",

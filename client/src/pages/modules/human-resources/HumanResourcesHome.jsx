@@ -29,9 +29,9 @@ import ModuleDashboard from '../../../components/ModuleDashboard.jsx';
 
 function HRDashboard() {
   const [stats, setStats] = React.useState([
-    { icon: '👥', value: '142', label: 'Active Employees', change: '5 new this month', changeType: 'positive', path: '/human-resources/employees' },
-    { icon: '📅', value: '8', label: 'On Leave', change: 'Today', changeType: 'neutral', path: '/human-resources/leave-setup' },
-    { icon: '💰', value: 'Pending', label: 'Payroll Status', change: 'Due in 3 days', changeType: 'negative', path: '/human-resources/payslips' }
+    { rbac_key: 'active-employees', icon: '👥', value: '142', label: 'Active Employees', change: '5 new this month', changeType: 'positive', path: '/human-resources/employees' },
+    { rbac_key: 'on-leave', icon: '📅', value: '8', label: 'On Leave', change: 'Today', changeType: 'neutral', path: '/human-resources/leave-setup' },
+    { rbac_key: 'payroll-status', icon: '💰', value: 'Pending', label: 'Payroll Status', change: 'Due in 3 days', changeType: 'negative', path: '/human-resources/payslips' }
   ]);
 
   React.useEffect(() => {
@@ -171,7 +171,6 @@ export const humanResourcesFeatures = [
   { module_key: "human-resources", label: "Medical Policies", path: "/human-resources/medical-policies", type: "feature" },
   { module_key: "human-resources", label: "HR Reports", path: "/human-resources/reports", type: "dashboard" },
 ];
-
 
 
 

@@ -19,6 +19,7 @@ import ServiceParametersPage from "./setup/ServiceParametersPage.jsx";
 function ServiceManagementLanding() {
   const [stats, setStats] = React.useState([
     {
+      rbac_key: "open-requests",
       icon: "🔧",
       value: "12",
       label: "Open Requests",
@@ -27,6 +28,7 @@ function ServiceManagementLanding() {
       path: "/service-management/service-requests",
     },
     {
+      rbac_key: "pending-bills",
       icon: "🧾",
       value: "7",
       label: "Pending Bills",
@@ -35,6 +37,7 @@ function ServiceManagementLanding() {
       path: "/service-management/service-bills",
     },
     {
+      rbac_key: "confirmed-services",
       icon: "✅",
       value: "19",
       label: "Confirmed Services",

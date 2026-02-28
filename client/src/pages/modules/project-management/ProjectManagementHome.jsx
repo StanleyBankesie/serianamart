@@ -12,6 +12,7 @@ import ProjectReports from "./reports/ProjectReports.jsx";
 function ProjectManagementLanding() {
   const [stats, setStats] = React.useState([
     {
+      rbac_key: "active-projects",
       icon: "📁",
       value: "8",
       label: "Active Projects",
@@ -20,6 +21,7 @@ function ProjectManagementLanding() {
       path: "/project-management/projects",
     },
     {
+      rbac_key: "open-tasks",
       icon: "✅",
       value: "34",
       label: "Open Tasks",
@@ -28,6 +30,7 @@ function ProjectManagementLanding() {
       path: "/project-management/tasks",
     },
     {
+      rbac_key: "on-time-completion",
       icon: "📊",
       value: "92%",
       label: "On Time Completion",

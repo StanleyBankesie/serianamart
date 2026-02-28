@@ -11,9 +11,9 @@ import { api } from '../../../api/client.js';
 
 function ProductionLanding() {
   const [stats, setStats] = React.useState([
-    { icon: '🏭', value: '12', label: 'Active Work Orders', change: '3 due today', changeType: 'neutral', path: '/production/work-orders' },
-    { icon: '⚙', value: '94%', label: 'Efficiency', change: '↑ 2% this week', changeType: 'positive', path: '/production/reports' },
-    { icon: '🧩', value: '45', label: 'Active BOMs', change: '5 new this month', changeType: 'neutral', path: '/production/bom' }
+    { rbac_key: 'active-work-orders', icon: '🏭', value: '12', label: 'Active Work Orders', change: '3 due today', changeType: 'neutral', path: '/production/work-orders' },
+    { rbac_key: 'efficiency', icon: '⚙', value: '94%', label: 'Efficiency', change: '↑ 2% this week', changeType: 'positive', path: '/production/reports' },
+    { rbac_key: 'active-boms', icon: '🧩', value: '45', label: 'Active BOMs', change: '5 new this month', changeType: 'neutral', path: '/production/bom' }
   ]);
 
   React.useEffect(() => {
@@ -100,7 +100,6 @@ export const productionFeatures = [
   { module_key: "production", label: "New Work Order", path: "/production/work-orders/new", type: "feature" },
   { module_key: "production", label: "Production Reports", path: "/production/reports", type: "dashboard" },
 ];
-
 
 
 

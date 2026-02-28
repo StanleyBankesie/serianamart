@@ -43,6 +43,52 @@ export default function DashboardPermissions() {
         { key: "open-orders", label: "Open Orders" },
         { key: "pending-deliveries", label: "Pending Deliveries" },
       ],
+      inventory: [
+        { key: "items-tracked", label: "Items Tracked" },
+        { key: "pending-requisitions", label: "Pending Requisitions" },
+        { key: "incoming-transfers", label: "Incoming Transfers" },
+      ],
+      finance: [
+        { key: "cash-balance", label: "Cash Balance" },
+        { key: "pending-vouchers", label: "Pending Vouchers" },
+        { key: "monthly-expenses", label: "Monthly Expenses" },
+      ],
+      "human-resources": [
+        { key: "active-employees", label: "Active Employees" },
+        { key: "on-leave", label: "On Leave" },
+        { key: "payroll-status", label: "Payroll Status" },
+      ],
+      maintenance: [
+        { key: "open-work-orders", label: "Open Work Orders" },
+        { key: "overdue-pms", label: "Overdue PMs" },
+        { key: "asset-health", label: "Asset Health" },
+      ],
+      production: [
+        { key: "active-work-orders", label: "Active Work Orders" },
+        { key: "efficiency", label: "Efficiency" },
+        { key: "active-boms", label: "Active BOMs" },
+      ],
+      "project-management": [
+        { key: "active-projects", label: "Active Projects" },
+        { key: "open-tasks", label: "Open Tasks" },
+        { key: "on-time-completion", label: "On Time Completion" },
+      ],
+      pos: [
+        { key: "today-sales", label: "Today Sales" },
+        { key: "total-customers", label: "Total Customers" },
+        { key: "average-order", label: "Average Order" },
+        { key: "monthly-revenue", label: "Monthly Revenue" },
+      ],
+      "business-intelligence": [
+        { key: "active-dashboards", label: "Active Dashboards" },
+        { key: "scheduled-reports", label: "Scheduled Reports" },
+        { key: "data-sources", label: "Data Sources" },
+      ],
+      "service-management": [
+        { key: "open-requests", label: "Open Requests" },
+        { key: "pending-bills", label: "Pending Bills" },
+        { key: "confirmed-services", label: "Confirmed Services" },
+      ],
     }),
     [],
   );

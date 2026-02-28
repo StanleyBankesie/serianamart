@@ -235,6 +235,9 @@ export const createItem = async (req, res, next) => {
     await ensureItemFlagColumns();
     const { companyId } = req.scope;
     const body = req.body || {};
+    const groupCol = (await hasColumn("inv_items", "group_id"))
+      ? "group_id"
+      : "item_group_id";
     const yn = (v, def = "N") => {
       if (v === undefined || v === null) return def;
       const s = String(v).toUpperCase();
@@ -284,7 +287,7 @@ export const createItem = async (req, res, next) => {
     }
     const result = await query(
       `
-      INSERT INTO inv_items (company_id, item_code, item_name, uom, item_type, barcode, cost_price, selling_price, currency_id, price_type_id, image_url, vat_on_purchase_id, vat_on_sales_id, purchase_account_id, sales_account_id, category_id, item_group_id, service_item, is_stockable, is_sellable, is_purchasable, is_active)
+      INSERT INTO inv_items (company_id, item_code, item_name, uom, item_type, barcode, cost_price, selling_price, currency_id, price_type_id, image_url, vat_on_purchase_id, vat_on_sales_id, purchase_account_id, sales_account_id, category_id, ${groupCol}, service_item, is_stockable, is_sellable, is_purchasable, is_active)
       VALUES (:companyId, :itemCode, :itemName, :uom, :itemType, :barcode, :costPrice, :sellingPrice, :currencyId, :priceTypeId, :imageUrl, :vatOnPurchaseId, :vatOnSalesId, :purchaseAccountId, :salesAccountId, :categoryId, :itemGroupId, :serviceItem, :isStockable, :isSellable, :isPurchasable, :isActive)
       `,
       {
@@ -323,6 +326,9 @@ export const updateItem = async (req, res, next) => {
     await ensureItemFlagColumns();
     const { companyId } = req.scope;
     const id = Number(req.params.id);
+    const groupCol = (await hasColumn("inv_items", "group_id"))
+      ? "group_id"
+      : "item_group_id";
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const body = req.body || {};
@@ -391,7 +397,7 @@ export const updateItem = async (req, res, next) => {
           purchase_account_id = :purchaseAccountId,
           sales_account_id = :salesAccountId,
           category_id = :categoryId,
-          item_group_id = :itemGroupId,
+          ${groupCol} = :itemGroupId,
           service_item = :serviceItem,
           is_stockable = :isStockable,
           is_sellable = :isSellable,

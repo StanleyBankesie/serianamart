@@ -11,9 +11,9 @@ import { api } from '../../../api/client.js';
 
 function BusinessIntelligenceLanding() {
   const [stats, setStats] = React.useState([
-    { icon: '📊', value: '15', label: 'Active Dashboards', change: '2 created this week', changeType: 'positive', path: '/business-intelligence/dashboards' },
-    { icon: '🧾', value: '8', label: 'Scheduled Reports', change: 'Running daily', changeType: 'neutral', path: '/business-intelligence/reports' },
-    { icon: '💾', value: 'Connected', label: 'Data Sources', change: 'All systems online', changeType: 'positive', path: '/business-intelligence/bi-reports' }
+    { rbac_key: 'active-dashboards', icon: '📊', value: '15', label: 'Active Dashboards', change: '2 created this week', changeType: 'positive', path: '/business-intelligence/dashboards' },
+    { rbac_key: 'scheduled-reports', icon: '🧾', value: '8', label: 'Scheduled Reports', change: 'Running daily', changeType: 'neutral', path: '/business-intelligence/reports' },
+    { rbac_key: 'data-sources', icon: '💾', value: 'Connected', label: 'Data Sources', change: 'All systems online', changeType: 'positive', path: '/business-intelligence/bi-reports' }
   ]);
 
   React.useEffect(() => {
@@ -98,7 +98,6 @@ export const businessIntelligenceFeatures = [
   { module_key: "business-intelligence", label: "New Report", path: "/business-intelligence/reports/new", type: "dashboard" },
   { module_key: "business-intelligence", label: "BI Reports", path: "/business-intelligence/bi-reports", type: "dashboard" },
 ];
-
 
 
 

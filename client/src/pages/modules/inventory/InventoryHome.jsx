@@ -68,6 +68,7 @@ function InventoryFeaturePage({ title, description }) {
 function InventoryHomeIndex() {
   const [stats, setStats] = React.useState([
     {
+      rbac_key: "items-tracked",
       // icon: "📦",
       value: "45",
       label: "Items Tracked",
@@ -76,6 +77,7 @@ function InventoryHomeIndex() {
       path: "/inventory/reports",
     },
     {
+      rbac_key: "pending-requisitions",
       // icon: "📝",
       value: "12",
       label: "Pending Requisitions",
@@ -84,6 +86,7 @@ function InventoryHomeIndex() {
       path: "/inventory/material-requisitions",
     },
     {
+      rbac_key: "incoming-transfers",
       // icon: "🚚",
       value: "8",
       label: "Incoming Transfers",

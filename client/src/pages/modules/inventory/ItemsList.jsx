@@ -446,6 +446,7 @@ export default function ItemsList() {
           item_type: r.preview.item_type || rowData.ITEM_TYPE,
           category_id: r.preview.category_id || null,
           item_group_id: r.preview.item_group_id || null,
+          group_id: r.preview.item_group_id || null,
           uom: rowData.BASE_UOM,
           barcode: r.preview.barcode || null,
           cost_price: Number(rowData.STANDARD_COST) || 0,

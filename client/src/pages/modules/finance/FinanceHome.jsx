@@ -9,6 +9,7 @@ import { api } from "../../../api/client.js";
 export default function FinanceHome() {
   const [stats, setStats] = React.useState([
     {
+      rbac_key: "cash-balance",
       icon: "💰",
       value: "₵245,000",
       label: "Cash Balance",
@@ -17,6 +18,7 @@ export default function FinanceHome() {
       path: "/finance/reports",
     },
     {
+      rbac_key: "pending-vouchers",
       icon: "🧾",
       value: "12",
       label: "Pending Vouchers",
@@ -25,6 +27,7 @@ export default function FinanceHome() {
       path: "/finance/journal-voucher",
     },
     {
+      rbac_key: "monthly-expenses",
       icon: "📉",
       value: "₵32,000",
       label: "Monthly Expenses",

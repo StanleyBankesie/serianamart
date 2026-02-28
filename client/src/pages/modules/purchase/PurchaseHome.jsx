@@ -80,6 +80,7 @@ function PurchaseHomeIndex() {
 
   const stats = [
     {
+      rbac_key: "total-purchases",
       icon: "🧾",
       value: loading ? "..." : fmt(overview?.totalPurchases || 0),
       label: "Total Purchases",
@@ -89,24 +90,28 @@ function PurchaseHomeIndex() {
       path: "/purchase/reports",
     },
     {
+      rbac_key: "active-purchase-orders",
       icon: "📦",
       value: loading ? "..." : String(overview?.activePurchaseOrders ?? 0),
       label: "Active Purchase Orders",
       path: "/purchase/purchase-orders-local",
     },
     {
+      rbac_key: "active-suppliers",
       icon: "🏭",
       value: loading ? "..." : String(overview?.activeSuppliers ?? 0),
       label: "Active Suppliers",
       path: "/purchase/suppliers",
     },
     {
+      rbac_key: "pending-approvals",
       icon: "⏳",
       value: loading ? "..." : String(overview?.pendingApprovals ?? 0),
       label: "Pending Approvals",
       path: "/administration/workflows/approvals",
     },
     {
+      rbac_key: "outstanding-payables",
       icon: "💳",
       value: loading ? "..." : fmt(overview?.outstandingPayables || 0),
       label: "Outstanding Payables",

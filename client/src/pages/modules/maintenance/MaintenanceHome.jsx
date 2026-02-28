@@ -13,9 +13,9 @@ import { api } from '../../../api/client.js';
 
 function MaintenanceLanding() {
   const [stats, setStats] = React.useState([
-    { icon: '🛠', value: '8', label: 'Open Work Orders', change: '2 critical', changeType: 'negative', path: '/maintenance/work-orders' },
-    { icon: '🗓', value: '4', label: 'Overdue PMs', change: 'Needs attention', changeType: 'negative', path: '/maintenance/pm-schedules' },
-    { icon: '🏷', value: '98%', label: 'Asset Health', change: '↑ 1% this month', changeType: 'positive', path: '/maintenance/assets' }
+    { rbac_key: 'open-work-orders', icon: '🛠', value: '8', label: 'Open Work Orders', change: '2 critical', changeType: 'negative', path: '/maintenance/work-orders' },
+    { rbac_key: 'overdue-pms', icon: '🗓', value: '4', label: 'Overdue PMs', change: 'Needs attention', changeType: 'negative', path: '/maintenance/pm-schedules' },
+    { rbac_key: 'asset-health', icon: '🏷', value: '98%', label: 'Asset Health', change: '↑ 1% this month', changeType: 'positive', path: '/maintenance/assets' }
   ]);
 
   React.useEffect(() => {
@@ -115,7 +115,6 @@ export const maintenanceFeatures = [
   { module_key: "maintenance", label: "New Schedule", path: "/maintenance/pm-schedules/new", type: "feature" },
   { module_key: "maintenance", label: "Maintenance Reports", path: "/maintenance/reports", type: "dashboard" },
 ];
-
 
 
 
