@@ -357,7 +357,7 @@ router.post("/messages", async (req, res, next) => {
       `SELECT user_id FROM chat_conversation_participants WHERE conversation_id = :cid AND user_id <> :me`,
       { cid, me },
     );
-    const others = participants
+    const otherIds = participants
       .map((r) => Number(r.user_id))
       .filter((n) => Number.isFinite(n));
     // If receiver not in room, set delivered later when they connect and send push
@@ -381,7 +381,7 @@ router.post("/messages", async (req, res, next) => {
         senderNameRows?.[0]?.username ||
         "New message";
       const preview = String(content || "").slice(0, 140);
-      for (const uid of others) {
+      for (const uid of otherIds) {
         try {
           await query(
             `

@@ -162,6 +162,76 @@ async function resolveAccountId(companyId, raw) {
   return Number(rows?.[0]?.id || 0) || null;
 }
 
+async function resolveOrCreateCategoryId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const existing =
+    (await query(
+      `
+      SELECT id
+      FROM inv_item_categories
+      WHERE company_id = :companyId
+        AND (UPPER(category_code) = :code OR UPPER(category_name) = :code)
+      LIMIT 1
+      `,
+      { companyId, code: v.toUpperCase() },
+    ).catch(() => [])) || [];
+  if (existing.length) return Number(existing[0].id) || null;
+  const code = v
+    .toUpperCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^A-Z0-9_]/g, "_")
+    .slice(0, 30);
+  const name = v.slice(0, 150);
+  try {
+    const ins = await query(
+      `
+      INSERT INTO inv_item_categories (company_id, category_code, category_name, is_active)
+      VALUES (:companyId, :code, :name, 1)
+      `,
+      { companyId, code, name },
+    );
+    return Number(ins.insertId) || null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveOrCreateGroupId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const existing =
+    (await query(
+      `
+      SELECT id
+      FROM inv_item_groups
+      WHERE company_id = :companyId
+        AND (UPPER(group_code) = :code OR UPPER(group_name) = :code)
+      LIMIT 1
+      `,
+      { companyId, code: v.toUpperCase() },
+    ).catch(() => [])) || [];
+  if (existing.length) return Number(existing[0].id) || null;
+  const code = v
+    .toUpperCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^A-Z0-9_]/g, "_")
+    .slice(0, 30);
+  const name = v.slice(0, 150);
+  try {
+    const ins = await query(
+      `
+      INSERT INTO inv_item_groups (company_id, group_code, group_name, is_active)
+      VALUES (:companyId, :code, :name, 1)
+      `,
+      { companyId, code, name },
+    );
+    return Number(ins.insertId) || null;
+  } catch {
+    return null;
+  }
+}
+
 export const listItems = async (req, res, next) => {
   try {
     await ensureItemFlagColumns();
@@ -381,12 +451,24 @@ export const createItem = async (req, res, next) => {
         (await resolveCategoryId(companyId, body.category_label)) ||
         (await resolveCategoryId(companyId, body.category_name)) ||
         (await resolveCategoryId(companyId, body.category_code));
+      if (!categoryId && (body.auto_create_missing || body.bulk_import)) {
+        categoryId =
+          (await resolveOrCreateCategoryId(companyId, body.category_label)) ||
+          (await resolveOrCreateCategoryId(companyId, body.category_name)) ||
+          (await resolveOrCreateCategoryId(companyId, body.category_code));
+      }
     }
     if (!itemGroupId) {
       itemGroupId =
         (await resolveGroupId(companyId, body.group_label)) ||
         (await resolveGroupId(companyId, body.group_name)) ||
         (await resolveGroupId(companyId, body.group_code));
+      if (!itemGroupId && (body.auto_create_missing || body.bulk_import)) {
+        itemGroupId =
+          (await resolveOrCreateGroupId(companyId, body.group_label)) ||
+          (await resolveOrCreateGroupId(companyId, body.group_name)) ||
+          (await resolveOrCreateGroupId(companyId, body.group_code));
+      }
     }
     // Fallbacks for finance-related IDs
     if (!currencyId) {

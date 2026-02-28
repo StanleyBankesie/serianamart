@@ -157,15 +157,98 @@ export default function ItemsList() {
     }
   };
 
+  function parseCsv(text) {
+    const rows = [];
+    let i = 0;
+    let field = "";
+    let inQuotes = false;
+    let row = [];
+    const pushField = () => {
+      row.push(field);
+      field = "";
+    };
+    const pushRow = () => {
+      // trim trailing CR
+      if (row.length) rows.push(row.map((s) => s.replace(/\r$/, "")));
+      row = [];
+    };
+    // Remove BOM if present
+    if (text.charCodeAt(0) === 0xfeff) {
+      text = text.slice(1);
+    }
+    while (i < text.length) {
+      const ch = text[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (text[i + 1] === '"') {
+            field += '"';
+            i += 2;
+            continue;
+          } else {
+            inQuotes = false;
+            i += 1;
+            continue;
+          }
+        } else {
+          field += ch;
+          i += 1;
+          continue;
+        }
+      } else {
+        if (ch === '"') {
+          inQuotes = true;
+          i += 1;
+          continue;
+        }
+        if (ch === ",") {
+          pushField();
+          i += 1;
+          continue;
+        }
+        if (ch === "\n") {
+          pushField();
+          pushRow();
+          i += 1;
+          continue;
+        }
+        if (ch === "\r") {
+          // handle CRLF
+          if (text[i + 1] === "\n") {
+            i += 2;
+          } else {
+            i += 1;
+          }
+          pushField();
+          pushRow();
+          continue;
+        }
+        field += ch;
+        i += 1;
+      }
+    }
+    // Final field/row
+    pushField();
+    pushRow();
+    // Drop any empty trailing rows
+    while (rows.length && rows[rows.length - 1].every((s) => s.trim() === "")) {
+      rows.pop();
+    }
+    return rows;
+  }
+
   const processImport = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = async (evt) => {
-      const text = evt.target.result;
-      const lines = text.split("\n");
-      const headers = lines[0].split(",").map((h) => h.trim());
+      const text = evt.target.result || "";
+      const rowsCsv = parseCsv(text);
+      if (!rowsCsv.length) {
+        toast.error("Empty CSV file");
+        return;
+      }
+      const headers = rowsCsv[0].map((h) => String(h || "").trim());
 
       // Basic validation of headers
       const requiredHeaders = ["ITEM_NAME*", "ITEM_TYPE*", "BASE_UOM*"];
@@ -294,16 +377,17 @@ export default function ItemsList() {
       // Do not block based on existing DB names; server will reject 409 per row.
       const existingNames = new Set(); // intentionally empty: allow server to decide
       const seenNames = new Set();
-      // Build preview rows with validation
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        const values = line.split(",").map((v) => v.trim());
-        if (values.length < headers.length) continue;
+      // Build preview rows with validation using parsed CSV
+      for (let i = 1; i < rowsCsv.length; i++) {
+        const values = rowsCsv[i].map((v) => String(v || "").trim());
+        if (values.length < headers.length) {
+          // pad values with empties to match headers length
+          for (let k = values.length; k < headers.length; k++) values.push("");
+        }
         const rowData = {};
         headers.forEach((h, idx) => {
           const key = h.replace("*", "");
-          rowData[key] = values[idx];
+          rowData[key] = values[idx] ?? "";
         });
         let nextItemCode = rowData.ITEM_CODE || "";
         const itemTypeRaw = String(rowData.ITEM_TYPE || "").toUpperCase();
@@ -431,6 +515,15 @@ export default function ItemsList() {
       let success = 0;
       let failed = 0;
       const errs = [];
+      // Build quick lookup of existing items by name for update fallback
+      const nameToId = new Map(
+        (Array.isArray(items) ? items : [])
+          .filter((it) => it && it.id && it.item_name)
+          .map((it) => [
+            String(it.item_name || "").toUpperCase(),
+            Number(it.id),
+          ]),
+      );
       for (const r of previewRows) {
         if (!r.valid) {
           failed++;
@@ -444,13 +537,29 @@ export default function ItemsList() {
             if (res?.data?.nextCode) nextItemCode = res.data.nextCode;
           } catch {}
         }
-        const payload = {
+        const basePayload = {
           item_code: nextItemCode,
           item_name: rowData.ITEM_NAME,
           item_type: r.preview.item_type || rowData.ITEM_TYPE,
           category_id: r.preview.category_id || null,
           item_group_id: r.preview.item_group_id || null,
           group_id: r.preview.item_group_id || null,
+          // server-side fallback hints
+          category_label: r.preview.category_label,
+          category_name: r.preview.category_name,
+          group_label: r.preview.group_label,
+          group_name: r.preview.group_name,
+          category_code: rowData.ITEM_CATEGORY_CODE || null,
+          group_code: rowData.ITEM_GROUP_CODE || null,
+          currency_code: rowData.CURRENCY_CODE || rowData.CURRENCY || null,
+          vat_on_purchase_code:
+            rowData.VAT_ON_PURCHASE || rowData.VAT_PURCHASE_CODE || null,
+          vat_on_sales_code:
+            rowData.VAT_ON_SALES || rowData.VAT_SALES_CODE || null,
+          purchase_account_code:
+            rowData.PURCHASE_ACCOUNT_CODE || rowData.PURCHASE_ACCOUNT || null,
+          sales_account_code:
+            rowData.SALES_ACCOUNT_CODE || rowData.SALES_ACCOUNT || null,
           category_label: r.preview.category_label,
           category_name: r.preview.category_name,
           group_label: r.preview.group_label,
@@ -523,15 +632,89 @@ export default function ItemsList() {
           max_stock_level: Number(rowData.MAX_STOCK_LEVEL) || 0,
           reorder_level: Number(rowData.REORDER_LEVEL) || 0,
           safety_stock: Number(rowData.SAFETY_STOCK) || 0,
+          // let server auto-create missing categories/groups when possible
+          bulk_import: true,
+          auto_create_missing: true,
         };
+        const payload = basePayload;
         try {
           await api.post("/inventory/items", payload);
           success++;
         } catch (err) {
+          const code = err?.response?.data?.code || "";
+          const status = err?.response?.status || 0;
+          if (
+            status === 409 &&
+            String(code).toUpperCase() === "DUPLICATE_ITEM_NAME"
+          ) {
+            // Fallback to update existing item by name
+            const key = String(payload.item_name || "").toUpperCase();
+            let itemId = nameToId.get(key);
+            if (!itemId) {
+              try {
+                const resAll = await api.get("/inventory/items");
+                const arr = Array.isArray(resAll.data?.items)
+                  ? resAll.data.items
+                  : [];
+                for (const it of arr) {
+                  const nm = String(it.item_name || "").toUpperCase();
+                  if (!nameToId.has(nm)) nameToId.set(nm, Number(it.id));
+                }
+                itemId = nameToId.get(key);
+              } catch {}
+            }
+            if (itemId) {
+              try {
+                await api.put(`/inventory/items/${itemId}`, payload);
+                success++;
+                continue;
+              } catch (e2) {
+                failed++;
+                errs.push(
+                  `Row ${r.index} (${payload.item_code || payload.item_name}): UPDATE FAILED - ${
+                    e2?.response?.data?.message || e2?.message
+                  }`,
+                );
+                continue;
+              }
+            }
+          } else if (
+            status === 400 &&
+            /item_code.*required/i.test(
+              String(err?.response?.data?.message || ""),
+            )
+          ) {
+            // Try regenerate item code once and retry
+            try {
+              const res = await api.get("/inventory/items/next-code");
+              if (res?.data?.nextCode) {
+                payload.item_code = res.data.nextCode;
+                await api.post("/inventory/items", payload);
+                success++;
+                continue;
+              }
+            } catch {}
+          } else {
+            const msg = String(
+              err?.response?.data?.message || err?.message || "",
+            );
+            if (/duplicate entry/i.test(msg)) {
+              try {
+                const res = await api.get("/inventory/items/next-code");
+                if (res?.data?.nextCode) {
+                  payload.item_code = res.data.nextCode;
+                  await api.post("/inventory/items", payload);
+                  success++;
+                  continue;
+                }
+              } catch {}
+            }
+          }
+          // If we reach here, record as failed
           failed++;
           errs.push(
             `Row ${r.index} (${payload.item_code || payload.item_name}): ${
-              err.response?.data?.message || err.message
+              err?.response?.data?.message || err?.message
             }`,
           );
         }
