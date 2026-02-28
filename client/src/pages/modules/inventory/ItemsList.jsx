@@ -17,6 +17,54 @@ export default function ItemsList() {
   const [currentPage, setCurrentPage] = useState(1);
   const [sort, setSort] = useState({ key: "item_code", asc: true });
   const fileInputRef = useRef(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewHeaders, setPreviewHeaders] = useState([]);
+  const [previewRows, setPreviewRows] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const normalizeBarcode = (v) => {
+    if (v == null) return "";
+    const s = String(v).trim();
+    if (!s) return "";
+    const m = /^([+-]?)(\d+(?:\.\d+)?)[eE]([+-]?\d+)$/.exec(s);
+    if (!m) return s;
+    const sign = m[1] || "";
+    let num = m[2];
+    const exp = parseInt(m[3], 10);
+    if (!Number.isFinite(exp)) return s;
+    if (num.includes(".")) {
+      const parts = num.split(".");
+      const intPart = parts[0];
+      const fracPart = parts[1];
+      if (exp >= 0) {
+        const move = Math.min(exp, fracPart.length);
+        const merged = intPart + fracPart.slice(0, move);
+        const rem = fracPart.slice(move);
+        const zeros =
+          exp > fracPart.length ? "0".repeat(exp - fracPart.length) : "";
+        num = merged + rem + zeros;
+      } else {
+        const k = -exp;
+        const pad = "0".repeat(k - intPart.length);
+        const left =
+          intPart.length > k ? intPart.slice(0, intPart.length - k) : "";
+        const right =
+          (intPart.length > k
+            ? intPart.slice(intPart.length - k)
+            : pad + intPart) + fracPart;
+        num = left + (left ? "" : "") + right;
+      }
+    } else {
+      if (exp >= 0) {
+        num = num + "0".repeat(exp);
+      } else {
+        const k = -exp;
+        const pad = "0".repeat(k);
+        num = "0." + pad + num;
+      }
+    }
+    num = num.replace(/^0+(?=\d)/, "");
+    return (sign === "-" ? "-" : "") + num;
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -129,26 +177,23 @@ export default function ItemsList() {
         return;
       }
 
-      let successCount = 0;
-      let failCount = 0;
-      const errors = [];
-
-      setLoading(true);
-
       // Build lookup maps for category/group/currency/tax/account codes -> IDs
       let categoryCodeToId = new Map();
       let groupCodeToId = new Map();
       let currencyCodeToId = new Map();
       let taxCodeToId = new Map();
       let accountCodeToId = new Map();
+      let itemTypeSet = new Set();
       try {
-        const [catRes, grpRes, curRes, taxRes, accRes] = await Promise.all([
-          api.get("/inventory/item-categories"),
-          api.get("/inventory/item-groups"),
-          api.get("/finance/currencies"),
-          api.get("/finance/tax-codes"),
-          api.get("/finance/accounts"),
-        ]);
+        const [catRes, grpRes, curRes, taxRes, accRes, typeRes] =
+          await Promise.all([
+            api.get("/inventory/item-categories"),
+            api.get("/inventory/item-groups"),
+            api.get("/finance/currencies"),
+            api.get("/finance/tax-codes"),
+            api.get("/finance/accounts"),
+            api.get("/inventory/item-types"),
+          ]);
         const cats = Array.isArray(catRes?.data?.items)
           ? catRes.data.items
           : [];
@@ -163,6 +208,9 @@ export default function ItemsList() {
           : [];
         const accounts = Array.isArray(accRes?.data?.items)
           ? accRes.data.items
+          : [];
+        const types = Array.isArray(typeRes?.data?.items)
+          ? typeRes.data.items
           : [];
         cats.forEach((c) => {
           const id = Number(c.id);
@@ -209,73 +257,127 @@ export default function ItemsList() {
             if (name) accountCodeToId.set(name, id);
           }
         });
+        types.forEach((t) => {
+          const code = String(
+            t.type_code || t.code || t.key || "",
+          ).toUpperCase();
+          const name = String(t.type_name || t.name || "").toUpperCase();
+          if (code) itemTypeSet.add(code);
+          if (name) itemTypeSet.add(name);
+        });
       } catch (_) {
         // proceed without maps; numeric IDs in CSV will still work via fallback below
       }
 
-      // Process rows sequentially to avoid server overload
+      const rows = [];
+      // Build preview rows with validation
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
-
         const values = line.split(",").map((v) => v.trim());
-        if (values.length < headers.length) continue; // Skip malformed lines
-
+        if (values.length < headers.length) continue;
         const rowData = {};
         headers.forEach((h, idx) => {
-          const key = h.replace("*", ""); // Remove required marker
+          const key = h.replace("*", "");
           rowData[key] = values[idx];
         });
+        let nextItemCode = rowData.ITEM_CODE || "";
+        const itemTypeRaw = String(rowData.ITEM_TYPE || "").toUpperCase();
+        const itemTypeValid =
+          itemTypeSet.size === 0 ? true : itemTypeSet.has(itemTypeRaw);
+        const barcodeExpanded = normalizeBarcode(rowData.BARCODE || "");
+        const categoryResolved =
+          (rowData.ITEM_CATEGORY &&
+            categoryCodeToId.get(
+              String(rowData.ITEM_CATEGORY).toUpperCase(),
+            )) ||
+          (rowData.ITEM_CATEGORY_CODE &&
+            categoryCodeToId.get(
+              String(rowData.ITEM_CATEGORY_CODE).toUpperCase(),
+            )) ||
+          rowData.ITEM_CATEGORY_ID ||
+          null;
+        const groupResolved =
+          (rowData.ITEM_GROUP &&
+            groupCodeToId.get(String(rowData.ITEM_GROUP).toUpperCase())) ||
+          (rowData.ITEM_GROUP_CODE &&
+            groupCodeToId.get(String(rowData.ITEM_GROUP_CODE).toUpperCase())) ||
+          rowData.ITEM_GROUP_ID ||
+          null;
+        const errorsRow = [];
+        if (!rowData.ITEM_NAME) errorsRow.push("Missing ITEM_NAME");
+        if (!itemTypeRaw) errorsRow.push("Missing ITEM_TYPE");
+        if (!itemTypeValid) errorsRow.push("Unknown ITEM_TYPE");
+        if (!rowData.BASE_UOM) errorsRow.push("Missing BASE_UOM");
+        if (rowData.ITEM_CATEGORY && !categoryResolved)
+          errorsRow.push("Unknown ITEM_CATEGORY");
+        if (rowData.ITEM_GROUP && !groupResolved)
+          errorsRow.push("Unknown ITEM_GROUP");
+        rows.push({
+          index: i + 1,
+          raw: rowData,
+          preview: {
+            item_code: nextItemCode,
+            item_name: rowData.ITEM_NAME,
+            item_type: itemTypeRaw,
+            category_id: categoryResolved,
+            item_group_id: groupResolved,
+            uom: rowData.BASE_UOM,
+            barcode: barcodeExpanded,
+          },
+          valid: errorsRow.length === 0,
+          errors: errorsRow,
+        });
+      }
+      setPreviewHeaders([
+        "Row",
+        "Item Code",
+        "Name",
+        "Type",
+        "Category",
+        "Group",
+        "UOM",
+        "Barcode",
+        "Status",
+      ]);
+      setPreviewRows(rows);
+      setPreviewOpen(true);
+      e.target.value = null;
+    };
 
-        // Resolve item code (auto-generate when missing)
+    reader.readAsText(file);
+  };
+
+  const confirmUpload = async () => {
+    try {
+      setUploading(true);
+      let success = 0;
+      let failed = 0;
+      const errs = [];
+      for (const r of previewRows) {
+        if (!r.valid) {
+          failed++;
+          continue;
+        }
+        const rowData = r.raw;
         let nextItemCode = rowData.ITEM_CODE;
         if (!nextItemCode) {
           try {
             const res = await api.get("/inventory/items/next-code");
-            if (res?.data?.nextCode) {
-              nextItemCode = res.data.nextCode;
-            }
-          } catch (_) {
-            // proceed without item code; server will validate
-          }
+            if (res?.data?.nextCode) nextItemCode = res.data.nextCode;
+          } catch {}
         }
-
-        // Map CSV fields to API payload
         const payload = {
           item_code: nextItemCode,
           item_name: rowData.ITEM_NAME,
           item_type: rowData.ITEM_TYPE,
-          category_id:
-            (rowData.ITEM_CATEGORY &&
-              categoryCodeToId.get(
-                String(rowData.ITEM_CATEGORY).toUpperCase(),
-              )) ||
-            (rowData.ITEM_CATEGORY_CODE &&
-              categoryCodeToId.get(
-                String(rowData.ITEM_CATEGORY_CODE).toUpperCase(),
-              )) ||
-            rowData.ITEM_CATEGORY_ID ||
-            null,
-          item_group_id:
-            (rowData.ITEM_GROUP &&
-              groupCodeToId.get(String(rowData.ITEM_GROUP).toUpperCase())) ||
-            (rowData.ITEM_GROUP_CODE &&
-              groupCodeToId.get(
-                String(rowData.ITEM_GROUP_CODE).toUpperCase(),
-              )) ||
-            rowData.ITEM_GROUP_ID ||
-            null,
+          category_id: r.preview.category_id || null,
+          item_group_id: r.preview.item_group_id || null,
           uom: rowData.BASE_UOM,
-          barcode: rowData.BARCODE || null,
+          barcode: r.preview.barcode || null,
           cost_price: Number(rowData.STANDARD_COST) || 0,
           selling_price: Number(rowData.SELLING_PRICE) || 0,
-          currency_id:
-            (rowData.CURRENCY_CODE &&
-              currencyCodeToId.get(
-                String(rowData.CURRENCY_CODE).toUpperCase(),
-              )) ||
-            rowData.CURRENCY_ID ||
-            null,
+          currency_id: null,
           description: rowData.DESCRIPTION,
           is_stockable: rowData.IS_STOCKABLE === "Y",
           is_sellable: rowData.IS_SELLABLE === "Y",
@@ -284,77 +386,40 @@ export default function ItemsList() {
           max_stock_level: Number(rowData.MAX_STOCK_LEVEL) || 0,
           reorder_level: Number(rowData.REORDER_LEVEL) || 0,
           safety_stock: Number(rowData.SAFETY_STOCK) || 0,
-          vat_on_purchase_id:
-            (rowData.VAT_PURCHASE_CODE &&
-              taxCodeToId.get(
-                String(rowData.VAT_PURCHASE_CODE).toUpperCase(),
-              )) ||
-            rowData.VAT_ON_PURCHASE_ID ||
-            null,
-          vat_on_sales_id:
-            (rowData.VAT_SALES_CODE &&
-              taxCodeToId.get(String(rowData.VAT_SALES_CODE).toUpperCase())) ||
-            rowData.VAT_ON_SALES_ID ||
-            null,
-          purchase_account_id:
-            (rowData.PURCHASE_ACCOUNT_CODE &&
-              accountCodeToId.get(
-                String(rowData.PURCHASE_ACCOUNT_CODE).toUpperCase(),
-              )) ||
-            rowData.PURCHASE_ACCOUNT_ID ||
-            null,
-          sales_account_id:
-            (rowData.SALES_ACCOUNT_CODE &&
-              accountCodeToId.get(
-                String(rowData.SALES_ACCOUNT_CODE).toUpperCase(),
-              )) ||
-            rowData.SALES_ACCOUNT_ID ||
-            null,
-          is_active: Object.prototype.hasOwnProperty.call(
-            rowData,
-            "ACTIVE_STATUS",
-          )
-            ? rowData.ACTIVE_STATUS === "Y"
-            : true,
         };
-
         try {
           await api.post("/inventory/items", payload);
-          successCount++;
+          success++;
         } catch (err) {
-          failCount++;
-          errors.push(
-            `Row ${i + 1} (${payload.item_code}): ${
+          failed++;
+          errs.push(
+            `Row ${r.index} (${payload.item_code || payload.item_name}): ${
               err.response?.data?.message || err.message
             }`,
           );
         }
       }
-
-      setLoading(false);
-      e.target.value = null; // Reset file input
-
-      if (successCount > 0) {
-        toast.success(`Successfully imported ${successCount} items`);
-        // Refresh list
-        api.get("/inventory/items").then((res) => {
-          setItems(Array.isArray(res.data?.items) ? res.data.items : []);
-        });
+      if (success > 0) {
+        toast.success(`Uploaded ${success} items`);
+        const res = await api.get("/inventory/items");
+        setItems(Array.isArray(res.data?.items) ? res.data.items : []);
       }
-
-      if (failCount > 0) {
-        toast.error(`Failed to import ${failCount} items`);
-        console.error("Import errors:", errors);
-        // Optionally show errors in UI or alert
-        alert(
-          "Import completed with errors:\n" +
-            errors.slice(0, 10).join("\n") +
-            (errors.length > 10 ? "\n..." : ""),
-        );
+      if (failed > 0) {
+        toast.error(`Skipped ${failed} invalid rows`);
+        if (errs.length) {
+          alert(
+            "Some rows failed:\n" +
+              errs.slice(0, 10).join("\n") +
+              (errs.length > 10 ? "\n..." : ""),
+          );
+        }
       }
-    };
-
-    reader.readAsText(file);
+    } finally {
+      setUploading(false);
+      setPreviewOpen(false);
+      setPreviewRows([]);
+      setPreviewHeaders([]);
+    }
   };
 
   const downloadTemplateCSV = async () => {
@@ -808,6 +873,104 @@ export default function ItemsList() {
           </div>
         </div>
       </div>
+      {previewOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40">
+          <div className="w-[96vw] max-w-[1100px] max-h-[85vh] bg-white rounded-xl shadow-erp-lg overflow-hidden border border-slate-200">
+            <div className="px-4 py-3 bg-brand text-white flex items-center justify-between">
+              <div>
+                <div className="text-lg font-bold">Bulk Upload Preview</div>
+                <div className="text-xs opacity-90">
+                  Review parsed rows. Only valid rows will be uploaded.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="text-white hover:text-slate-100 text-xl"
+                onClick={() => {
+                  setPreviewOpen(false);
+                  setPreviewRows([]);
+                  setPreviewHeaders([]);
+                }}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="overflow-auto" style={{ maxHeight: "55vh" }}>
+                <div className="min-w-[960px]">
+                  <table className="table w-full">
+                    <thead>
+                      <tr>
+                        {previewHeaders.map((h) => (
+                          <th key={h}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows.map((r) => (
+                        <tr
+                          key={r.index}
+                          className={r.valid ? "" : "bg-red-50"}
+                        >
+                          <td>{r.index}</td>
+                          <td>{r.preview.item_code || "-"}</td>
+                          <td>{r.preview.item_name || "-"}</td>
+                          <td>{r.preview.item_type || "-"}</td>
+                          <td>
+                            {r.preview.category_id
+                              ? String(r.preview.category_id)
+                              : "-"}
+                          </td>
+                          <td>
+                            {r.preview.item_group_id
+                              ? String(r.preview.item_group_id)
+                              : "-"}
+                          </td>
+                          <td>{r.preview.uom || "-"}</td>
+                          <td>{r.preview.barcode || "-"}</td>
+                          <td>
+                            {r.valid ? (
+                              <span className="text-green-700 font-medium">
+                                OK
+                              </span>
+                            ) : (
+                              <span className="text-red-700 text-sm">
+                                {r.errors.join("; ")}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    setPreviewOpen(false);
+                    setPreviewRows([]);
+                    setPreviewHeaders([]);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-success"
+                  onClick={confirmUpload}
+                  disabled={uploading}
+                >
+                  {uploading ? "Uploading..." : "Upload Valid Rows"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

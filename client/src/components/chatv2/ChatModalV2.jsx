@@ -2,33 +2,89 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import useSocket from "../../hooks/useSocket";
 
-function ConversationList({ users, onSearch, onPickUser }) {
+function ConversationList({
+  mode,
+  convos,
+  users,
+  onSearch,
+  onPickUser,
+  onPickConvo,
+  setMode,
+}) {
   return (
     <div className="w-64 border-r border-slate-200 dark:border-slate-800 p-2 overflow-auto">
       <div className="mb-2 space-y-2">
-        <input
-          className="input w-full"
-          placeholder="Search users or chats"
-          onChange={(e) => onSearch(e.target.value)}
-        />
-        <div className="max-h-64 overflow-auto border border-slate-200 rounded">
-          {(Array.isArray(users) ? users : []).map((u) => (
-            <button
-              key={u.id}
-              className="w-full px-3 py-2 text-left hover:bg-slate-100 flex items-center justify-between"
-              onClick={() => onPickUser(u)}
-              title={`Start chat with ${u.username}`}
-            >
-              <span className="font-medium text-sm">{u.username}</span>
-              <span
-                className={
-                  "ml-2 w-2 h-2 rounded-full " +
-                  (u.is_online ? "bg-green-500" : "bg-slate-400")
-                }
-              />
-            </button>
-          ))}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className={
+              "flex-1 px-2 py-1 rounded text-sm " +
+              (mode === "chats"
+                ? "bg-slate-900 text-white"
+                : "bg-slate-100 hover:bg-slate-200")
+            }
+            onClick={() => setMode("chats")}
+          >
+            Chats
+          </button>
+          <button
+            type="button"
+            className={
+              "flex-1 px-2 py-1 rounded text-sm " +
+              (mode === "contacts"
+                ? "bg-slate-900 text-white"
+                : "bg-slate-100 hover:bg-slate-200")
+            }
+            onClick={() => setMode("contacts")}
+          >
+            Contacts
+          </button>
         </div>
+        {mode === "contacts" ? (
+          <>
+            <input
+              className="input w-full"
+              placeholder="Search contacts"
+              onChange={(e) => onSearch(e.target.value)}
+            />
+            <div className="max-h-64 overflow-auto border border-slate-200 rounded">
+              {(Array.isArray(users) ? users : []).map((u) => (
+                <button
+                  key={u.id}
+                  className="w-full px-3 py-2 text-left hover:bg-slate-100 flex items-center justify-between"
+                  onClick={() => onPickUser(u)}
+                  title={`Start chat with ${u.username}`}
+                >
+                  <span className="font-medium text-sm">{u.username}</span>
+                  <span
+                    className={
+                      "ml-2 w-2 h-2 rounded-full " +
+                      (u.is_online ? "bg-green-500" : "bg-slate-400")
+                    }
+                  />
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="max-h-72 overflow-auto border border-slate-200 rounded">
+            {(Array.isArray(convos) ? convos : []).map((c) => (
+              <button
+                key={c.id}
+                className="w-full px-3 py-2 text-left hover:bg-slate-100 flex items-center justify-between"
+                onClick={() => onPickConvo(c)}
+                title={`Open chat with ${c.title || `#${c.id}`}`}
+              >
+                <span className="font-medium text-sm">
+                  {c.title || `Chat #${c.id}`}
+                </span>
+                <span className="text-[10px] text-slate-500">
+                  {c.last_time ? new Date(c.last_time).toLocaleTimeString() : ""}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -74,6 +130,7 @@ export default function ChatModalV2({ onClose }) {
   const [recipient, setRecipient] = useState(null); // {id, username, is_online}
   const fileRef = useRef(null);
   const socket = useSocket();
+  const [mode, setMode] = useState("chats");
 
   useEffect(() => {
     async function loadConvos() {
@@ -264,6 +321,7 @@ export default function ChatModalV2({ onClose }) {
         setMessages([]);
         setUserQuery("");
         setUserResults([]);
+        setMode("chats");
         return;
       }
       const res = await api.post("/chat2/conversations", {
@@ -282,16 +340,26 @@ export default function ChatModalV2({ onClose }) {
       setMessages([]);
       setUserQuery("");
       setUserResults([]);
+      setMode("chats");
     } catch {}
+  }
+  function openConversation(c) {
+    setActive(c);
+    setMessages([]);
+    setMode("chats");
   }
 
   return (
     <div className="fixed right-4 bottom-20 md:right-6 md:bottom-20 z-50">
       <div className="w-[880px] max-w-[95vw] h-[520px] rounded-xl shadow-erp-lg bg-white border border-slate-200 overflow-hidden flex">
         <ConversationList
+          mode={mode}
+          convos={convos}
           users={userResults.length > 0 ? userResults : allUsers}
           onSearch={setUserQuery}
           onPickUser={startChatWithUser}
+          onPickConvo={openConversation}
+          setMode={setMode}
         />
         <div className="flex-1 flex flex-col">
           <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">

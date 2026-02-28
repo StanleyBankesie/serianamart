@@ -51,8 +51,12 @@ export default function FloatingChatV2() {
         aria-label="Open chat"
         onClick={() => setOpen(true)}
         data-rbac-exempt="true"
-        className="fixed z-[9999] right-4 bottom-4 md:right-6 md:bottom-6 w-12 h-12 rounded-full shadow-xl text-white flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
-        style={{ backgroundColor: "#F59E0B" }}
+        className="fixed z-[9999] md:right-6 md:bottom-6 w-12 h-12 rounded-full shadow-xl text-white flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
+        style={{
+          backgroundColor: "#F59E0B",
+          right: 16,
+          bottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)",
+        }}
       >
         <svg
           width="26"
