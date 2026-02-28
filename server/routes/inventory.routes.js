@@ -1686,6 +1686,15 @@ router.post(
   inventoryController.createItem,
 );
 
+router.post(
+  "/items/bulk",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("INV.ITEMS.MANAGE"),
+  inventoryController.bulkUpsertItems,
+);
+
 router.put(
   "/items/:id",
   requireAuth,

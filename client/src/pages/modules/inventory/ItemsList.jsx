@@ -507,6 +507,83 @@ export default function ItemsList() {
   const confirmUpload = async () => {
     try {
       setUploading(true);
+      const payloadRows = previewRows
+        .filter((r) => r && r.valid)
+        .map((r) => {
+          const rowData = r.raw || {};
+          return {
+            item_code: rowData.ITEM_CODE || r.preview.item_code || "",
+            item_name: rowData.ITEM_NAME || "",
+            item_type: r.preview.item_type || rowData.ITEM_TYPE || "",
+            category_id: r.preview.category_id || null,
+            item_group_id: r.preview.item_group_id || null,
+            category_label: r.preview.category_label || "",
+            category_name: r.preview.category_name || "",
+            category_code: rowData.ITEM_CATEGORY_CODE || "",
+            group_label: r.preview.group_label || "",
+            group_name: r.preview.group_name || "",
+            group_code: rowData.ITEM_GROUP_CODE || "",
+            uom: rowData.BASE_UOM || "PCS",
+            barcode: r.preview.barcode || "",
+            cost_price: Number(rowData.STANDARD_COST) || 0,
+            selling_price: Number(rowData.SELLING_PRICE) || 0,
+            currency_code: rowData.CURRENCY_CODE || rowData.CURRENCY || "",
+            price_type: rowData.PRICE_TYPE || "",
+            price_type_name: rowData.PRICE_TYPE_NAME || "",
+            image_url: rowData.IMAGE_URL || rowData.IMAGE || "",
+            vat_on_purchase_code:
+              rowData.VAT_ON_PURCHASE || rowData.VAT_PURCHASE_CODE || "",
+            vat_on_sales_code:
+              rowData.VAT_ON_SALES || rowData.VAT_SALES_CODE || "",
+            purchase_account_code:
+              rowData.PURCHASE_ACCOUNT_CODE || rowData.PURCHASE_ACCOUNT || "",
+            sales_account_code:
+              rowData.SALES_ACCOUNT_CODE || rowData.SALES_ACCOUNT || "",
+            description: rowData.DESCRIPTION || "",
+            is_stockable: rowData.IS_STOCKABLE === "Y",
+            is_sellable: rowData.IS_SELLABLE === "Y",
+            is_purchasable: rowData.IS_PURCHASABLE === "Y",
+            min_stock_level: Number(rowData.MIN_STOCK_LEVEL) || 0,
+            max_stock_level: Number(rowData.MAX_STOCK_LEVEL) || 0,
+            reorder_level: Number(rowData.REORDER_LEVEL) || 0,
+            safety_stock: Number(rowData.SAFETY_STOCK) || 0,
+          };
+        });
+      if (payloadRows.length) {
+        const resp = await api.post(
+          "/inventory/items/bulk",
+          { rows: payloadRows, auto_create_missing: true },
+          { headers: { "x-skip-offline-queue": "1" } },
+        );
+        const inserted = Number(resp?.data?.inserted || 0);
+        const updated = Number(resp?.data?.updated || 0);
+        const failed = Number(resp?.data?.failed || 0);
+        if (inserted || updated) {
+          toast.success(`Uploaded ${inserted} new, updated ${updated}`);
+          const res = await api.get("/inventory/items");
+          setItems(Array.isArray(res.data?.items) ? res.data.items : []);
+        }
+        if (failed) {
+          toast.error(`Skipped ${failed} rows`);
+          const errs = Array.isArray(resp?.data?.errors)
+            ? resp.data.errors
+            : [];
+          if (errs.length) {
+            alert(
+              "Some rows failed:\n" +
+                errs
+                  .slice(0, 10)
+                  .map(
+                    (e) =>
+                      `Row ${e.index} (${e.item_name || "-"}) - ${e.message}`,
+                  )
+                  .join("\n") +
+                (errs.length > 10 ? "\n..." : ""),
+            );
+          }
+        }
+        return;
+      }
       let success = 0;
       let failed = 0;
       const errs = [];
@@ -629,7 +706,12 @@ export default function ItemsList() {
         };
         const payload = basePayload;
         try {
-          await api.post("/inventory/items", payload);
+          const resp = await api.post("/inventory/items", payload, {
+            headers: { "x-skip-offline-queue": "1" },
+          });
+          if (resp?.data?.offline) {
+            throw new Error("Offline queued");
+          }
           success++;
         } catch (err) {
           const code = err?.response?.data?.code || "";
@@ -677,10 +759,17 @@ export default function ItemsList() {
           ) {
             // Try regenerate item code once and retry
             try {
-              const res = await api.get("/inventory/items/next-code");
+              const res = await api.get("/inventory/items/next-code", {
+                headers: { "x-skip-offline-queue": "1" },
+              });
               if (res?.data?.nextCode) {
                 payload.item_code = res.data.nextCode;
-                await api.post("/inventory/items", payload);
+                const resp2 = await api.post("/inventory/items", payload, {
+                  headers: { "x-skip-offline-queue": "1" },
+                });
+                if (resp2?.data?.offline) {
+                  throw new Error("Offline queued");
+                }
                 success++;
                 continue;
               }
@@ -691,10 +780,17 @@ export default function ItemsList() {
             );
             if (/duplicate entry/i.test(msg)) {
               try {
-                const res = await api.get("/inventory/items/next-code");
+                const res = await api.get("/inventory/items/next-code", {
+                  headers: { "x-skip-offline-queue": "1" },
+                });
                 if (res?.data?.nextCode) {
                   payload.item_code = res.data.nextCode;
-                  await api.post("/inventory/items", payload);
+                  const resp3 = await api.post("/inventory/items", payload, {
+                    headers: { "x-skip-offline-queue": "1" },
+                  });
+                  if (resp3?.data?.offline) {
+                    throw new Error("Offline queued");
+                  }
                   success++;
                   continue;
                 }

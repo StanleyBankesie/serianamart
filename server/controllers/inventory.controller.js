@@ -46,6 +46,29 @@ async function ensureItemFlagColumns() {
       "ALTER TABLE inv_items ADD COLUMN item_group_id BIGINT UNSIGNED NULL",
     );
   }
+  if (!(await hasColumn("inv_items", "min_stock_level"))) {
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN min_stock_level DECIMAL(18,3) NOT NULL DEFAULT 0",
+    );
+  }
+  if (!(await hasColumn("inv_items", "max_stock_level"))) {
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN max_stock_level DECIMAL(18,3) NOT NULL DEFAULT 0",
+    );
+  }
+  if (!(await hasColumn("inv_items", "reorder_level"))) {
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN reorder_level DECIMAL(18,3) NOT NULL DEFAULT 0",
+    );
+  }
+  if (!(await hasColumn("inv_items", "safety_stock"))) {
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN safety_stock DECIMAL(18,3) NOT NULL DEFAULT 0",
+    );
+  }
+  if (!(await hasColumn("inv_items", "description"))) {
+    await query("ALTER TABLE inv_items ADD COLUMN description TEXT NULL");
+  }
 }
 
 async function resolveCategoryId(companyId, raw) {
@@ -678,6 +701,370 @@ export const updateItem = async (req, res, next) => {
     );
     if (!upd.affectedRows) throw httpError(404, "NOT_FOUND", "Item not found");
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const bulkUpsertItems = async (req, res, next) => {
+  try {
+    await ensureItemFlagColumns();
+    const { companyId } = req.scope;
+    const body = req.body || {};
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+    const autoCreate = !!body.auto_create_missing || !!body.bulk_import;
+    if (!rows.length)
+      return res.json({ inserted: 0, updated: 0, failed: 0, errors: [] });
+
+    const groupCol = (await hasColumn("inv_items", "group_id"))
+      ? "group_id"
+      : "item_group_id";
+    const yn = (v, def = "N") => {
+      if (v === undefined || v === null) return def;
+      const s = String(v).toUpperCase();
+      if (s === "Y") return "Y";
+      if (s === "N") return "N";
+      return Boolean(v) ? "Y" : "N";
+    };
+
+    let baseNextNum = null;
+    const needNextCode = rows.some(
+      (r) => !String(r.item_code || r.ITEM_CODE || "").trim(),
+    );
+    if (needNextCode) {
+      const rec = await query(
+        `
+        SELECT item_code
+        FROM inv_items
+        WHERE company_id = :companyId AND item_code REGEXP '^[0-9]+$'
+        ORDER BY CAST(item_code AS UNSIGNED) DESC
+        LIMIT 1
+        `,
+        { companyId },
+      );
+      baseNextNum = rec.length ? parseInt(rec[0].item_code, 10) + 1 : 1;
+    }
+    const usedCodes = new Set();
+
+    let inserted = 0;
+    let updated = 0;
+    let failed = 0;
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i] || {};
+      try {
+        const itemName = String(r.item_name || r.ITEM_NAME || "").trim();
+        if (!itemName) {
+          failed += 1;
+          errors.push({
+            index: i + 1,
+            item_name: "",
+            message: "Missing ITEM_NAME",
+          });
+          continue;
+        }
+        let itemCode = String(r.item_code || r.ITEM_CODE || "").trim();
+        if (!itemCode) {
+          if (baseNextNum == null) {
+            const rec2 = await query(
+              `
+              SELECT item_code
+              FROM inv_items
+              WHERE company_id = :companyId AND item_code REGEXP '^[0-9]+$'
+              ORDER BY CAST(item_code AS UNSIGNED) DESC
+              LIMIT 1
+              `,
+              { companyId },
+            );
+            baseNextNum = rec2.length ? parseInt(rec2[0].item_code, 10) + 1 : 1;
+          }
+          do {
+            itemCode = String(baseNextNum).padStart(6, "0");
+            baseNextNum += 1;
+          } while (usedCodes.has(itemCode));
+        }
+        usedCodes.add(itemCode);
+
+        const uom =
+          String(r.uom || r.UOM || r.BASE_UOM || "PCS").trim() || "PCS";
+        const itemType = r.item_type || r.ITEM_TYPE || null;
+        const barcode = r.barcode || r.BARCODE || null;
+        const costPrice = Number(
+          r.cost_price || r.COST_PRICE || r.STANDARD_COST || 0,
+        );
+        const sellingPrice = Number(r.selling_price || r.SELLING_PRICE || 0);
+        let currencyId = Number(r.currency_id || r.CURRENCY_ID || 0) || null;
+        let priceTypeId =
+          Number(r.price_type_id || r.PRICE_TYPE_ID || 0) || null;
+        const imageUrl = r.image_url || r.IMAGE_URL || r.IMAGE || null;
+        let vatOnPurchaseId =
+          Number(r.vat_on_purchase_id || r.VAT_ON_PURCHASE_ID || 0) || null;
+        let vatOnSalesId =
+          Number(r.vat_on_sales_id || r.VAT_ON_SALES_ID || 0) || null;
+        let purchaseAccountId =
+          Number(r.purchase_account_id || r.PURCHASE_ACCOUNT_ID || 0) || null;
+        let salesAccountId =
+          Number(r.sales_account_id || r.SALES_ACCOUNT_ID || 0) || null;
+        let categoryId = Number(r.category_id || r.CATEGORY_ID || 0) || null;
+        let itemGroupId =
+          Number(r.item_group_id || r.group_id || r.ITEM_GROUP_ID || 0) || null;
+
+        if (!categoryId) {
+          categoryId =
+            (await resolveCategoryId(
+              companyId,
+              r.category_label || r.CATEGORY_LABEL,
+            )) ||
+            (await resolveCategoryId(
+              companyId,
+              r.category_name || r.CATEGORY_NAME,
+            )) ||
+            (await resolveCategoryId(
+              companyId,
+              r.category_code || r.CATEGORY_CODE,
+            ));
+          if (!categoryId && autoCreate) {
+            categoryId =
+              (await resolveOrCreateCategoryId(
+                companyId,
+                r.category_label || r.CATEGORY_LABEL,
+              )) ||
+              (await resolveOrCreateCategoryId(
+                companyId,
+                r.category_name || r.CATEGORY_NAME,
+              )) ||
+              (await resolveOrCreateCategoryId(
+                companyId,
+                r.category_code || r.CATEGORY_CODE,
+              ));
+          }
+        }
+        if (!itemGroupId) {
+          itemGroupId =
+            (await resolveGroupId(companyId, r.group_label || r.GROUP_LABEL)) ||
+            (await resolveGroupId(companyId, r.group_name || r.GROUP_NAME)) ||
+            (await resolveGroupId(companyId, r.group_code || r.GROUP_CODE));
+          if (!itemGroupId && autoCreate) {
+            itemGroupId =
+              (await resolveOrCreateGroupId(
+                companyId,
+                r.group_label || r.GROUP_LABEL,
+              )) ||
+              (await resolveOrCreateGroupId(
+                companyId,
+                r.group_name || r.GROUP_NAME,
+              )) ||
+              (await resolveOrCreateGroupId(
+                companyId,
+                r.group_code || r.GROUP_CODE,
+              ));
+          }
+        }
+        if (!currencyId) {
+          currencyId =
+            (await resolveCurrencyId(
+              companyId,
+              r.currency_code || r.CURRENCY_CODE,
+            )) ||
+            (await resolveCurrencyId(
+              companyId,
+              r.currency_name || r.CURRENCY_NAME,
+            ));
+        }
+        if (!priceTypeId) {
+          priceTypeId =
+            (await resolvePriceTypeId(
+              companyId,
+              r.price_type ||
+                r.PRICE_TYPE ||
+                r.price_type_name ||
+                r.PRICE_TYPE_NAME,
+            )) || null;
+        }
+        if (!vatOnPurchaseId) {
+          vatOnPurchaseId =
+            (await resolveTaxCodeId(
+              companyId,
+              r.vat_on_purchase_code ||
+                r.VAT_ON_PURCHASE_CODE ||
+                r.vat_purchase ||
+                r.VAT_PURCHASE,
+            )) ||
+            (await resolveTaxCodeId(
+              companyId,
+              r.vat_on_purchase_name || r.VAT_ON_PURCHASE_NAME,
+            )) ||
+            null;
+        }
+        if (!vatOnSalesId) {
+          vatOnSalesId =
+            (await resolveTaxCodeId(
+              companyId,
+              r.vat_on_sales_code ||
+                r.VAT_ON_SALES_CODE ||
+                r.vat_sales ||
+                r.VAT_SALES,
+            )) ||
+            (await resolveTaxCodeId(
+              companyId,
+              r.vat_on_sales_name || r.VAT_ON_SALES_NAME,
+            )) ||
+            null;
+        }
+        if (!purchaseAccountId) {
+          purchaseAccountId =
+            (await resolveAccountId(
+              companyId,
+              r.purchase_account_code || r.PURCHASE_ACCOUNT_CODE,
+            )) ||
+            (await resolveAccountId(
+              companyId,
+              r.purchase_account_name || r.PURCHASE_ACCOUNT_NAME,
+            )) ||
+            (await resolveAccountId(
+              companyId,
+              r.purchase_account || r.PURCHASE_ACCOUNT,
+            )) ||
+            null;
+        }
+        if (!salesAccountId) {
+          salesAccountId =
+            (await resolveAccountId(
+              companyId,
+              r.sales_account_code || r.SALES_ACCOUNT_CODE,
+            )) ||
+            (await resolveAccountId(
+              companyId,
+              r.sales_account_name || r.SALES_ACCOUNT_NAME,
+            )) ||
+            (await resolveAccountId(
+              companyId,
+              r.sales_account || r.SALES_ACCOUNT,
+            )) ||
+            null;
+        }
+
+        const serviceItem = yn(r.service_item, "N");
+        const isStockable = yn(r.is_stockable, "N");
+        const isSellable = yn(r.is_sellable, "N");
+        const isPurchasable = yn(r.is_purchasable, "N");
+        const isActive =
+          r.is_active === undefined ? 1 : Number(Boolean(r.is_active));
+        const minStock = Number(r.min_stock_level || r.MIN_STOCK_LEVEL || 0);
+        const maxStock = Number(r.max_stock_level || r.MAX_STOCK_LEVEL || 0);
+        const reorderLevel = Number(r.reorder_level || r.REORDER_LEVEL || 0);
+        const safetyStock = Number(r.safety_stock || r.SAFETY_STOCK || 0);
+        const description = r.description || r.DESCRIPTION || null;
+
+        const exists = await query(
+          `SELECT id FROM inv_items WHERE company_id = :companyId AND UPPER(item_name) = UPPER(:itemName) LIMIT 1`,
+          { companyId, itemName },
+        );
+        if (exists.length) {
+          const id = Number(exists[0].id);
+          await query(
+            `
+            UPDATE inv_items
+            SET item_code = :itemCode,
+                item_name = :itemName,
+                uom = :uom,
+                item_type = :itemType,
+                barcode = :barcode,
+                cost_price = :costPrice,
+                selling_price = :sellingPrice,
+                currency_id = :currencyId,
+                price_type_id = :priceTypeId,
+                image_url = :imageUrl,
+                vat_on_purchase_id = :vatOnPurchaseId,
+                vat_on_sales_id = :vatOnSalesId,
+                purchase_account_id = :purchaseAccountId,
+                sales_account_id = :salesAccountId,
+                category_id = :categoryId,
+                ${groupCol} = :itemGroupId,
+                service_item = :serviceItem,
+                is_stockable = :isStockable,
+                is_sellable = :isSellable,
+                is_purchasable = :isPurchasable,
+                is_active = :isActive
+            WHERE id = :id AND company_id = :companyId
+            `,
+            {
+              id,
+              companyId,
+              itemCode,
+              itemName,
+              uom,
+              itemType,
+              barcode,
+              costPrice,
+              sellingPrice,
+              currencyId,
+              priceTypeId,
+              imageUrl,
+              vatOnPurchaseId,
+              vatOnSalesId,
+              purchaseAccountId,
+              salesAccountId,
+              categoryId,
+              itemGroupId,
+              serviceItem,
+              isStockable,
+              isSellable,
+              isPurchasable,
+              isActive,
+            },
+          );
+          updated += 1;
+        } else {
+          await query(
+            `
+            INSERT INTO inv_items (company_id, item_code, item_name, uom, item_type, barcode, cost_price, selling_price, currency_id, price_type_id, image_url, vat_on_purchase_id, vat_on_sales_id, purchase_account_id, sales_account_id, category_id, ${groupCol}, service_item, is_stockable, is_sellable, is_purchasable, is_active, min_stock_level, max_stock_level, reorder_level, safety_stock, description)
+            VALUES (:companyId, :itemCode, :itemName, :uom, :itemType, :barcode, :costPrice, :sellingPrice, :currencyId, :priceTypeId, :imageUrl, :vatOnPurchaseId, :vatOnSalesId, :purchaseAccountId, :salesAccountId, :categoryId, :itemGroupId, :serviceItem, :isStockable, :isSellable, :isPurchasable, :isActive, :minStock, :maxStock, :reorderLevel, :safetyStock, :description)
+            `,
+            {
+              companyId,
+              itemCode,
+              itemName,
+              uom,
+              itemType,
+              barcode,
+              costPrice,
+              sellingPrice,
+              currencyId,
+              priceTypeId,
+              imageUrl,
+              vatOnPurchaseId,
+              vatOnSalesId,
+              purchaseAccountId,
+              salesAccountId,
+              categoryId,
+              itemGroupId,
+              serviceItem,
+              isStockable,
+              isSellable,
+              isPurchasable,
+              isActive,
+              minStock,
+              maxStock,
+              reorderLevel,
+              safetyStock,
+              description,
+            },
+          );
+          inserted += 1;
+        }
+      } catch (e) {
+        failed += 1;
+        const msg = e?.message || "Upload failed";
+        errors.push({
+          index: i + 1,
+          item_name: String(rows[i]?.item_name || rows[i]?.ITEM_NAME || ""),
+          message: msg,
+        });
+      }
+    }
+    res.json({ inserted, updated, failed, errors });
   } catch (err) {
     next(err);
   }

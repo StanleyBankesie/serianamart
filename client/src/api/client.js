@@ -53,7 +53,11 @@ api.interceptors.request.use(
   async (config) => {
     const method = String(config.method || "get").toLowerCase();
     if (["post", "put", "patch", "delete"].includes(method)) {
-      if (!navigator.onLine) {
+      const skipOffline =
+        config?.headers?.["x-skip-offline-queue"] === "1" ||
+        config?.headers?.["x-skip-offline-queue"] === 1 ||
+        config?.headers?.["x-skip-offline-queue"] === true;
+      if (!navigator.onLine && !skipOffline) {
         const queued = await queueMutation({
           method,
           url: config.url,
