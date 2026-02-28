@@ -501,6 +501,7 @@ export default function ItemsList() {
   const confirmUpload = async () => {
     try {
       setUploading(true);
+      let shouldClosePreview = true;
       const payloadRows = previewRows
         .filter((r) => r) // attempt all rows; server decides validity
         .map((r) => {
@@ -566,6 +567,7 @@ export default function ItemsList() {
           const inserted = Number(resp?.data?.inserted || 0);
           const updated = Number(resp?.data?.updated || 0);
           const failed = Number(resp?.data?.failed || 0);
+          shouldClosePreview = failed === 0;
           if (inserted || updated) {
             toast.success(`Uploaded ${inserted} new, updated ${updated}`);
             const res = await api.get("/inventory/items");
@@ -830,6 +832,7 @@ export default function ItemsList() {
         setItems(Array.isArray(res.data?.items) ? res.data.items : []);
       }
       if (failed > 0) {
+        shouldClosePreview = false;
         toast.error(`Skipped ${failed} invalid rows`);
         if (errs.length) {
           alert(
@@ -841,9 +844,12 @@ export default function ItemsList() {
       }
     } finally {
       setUploading(false);
-      setPreviewOpen(false);
-      setPreviewRows([]);
-      setPreviewHeaders([]);
+      // Keep preview open if any row failed so user can review and re-submit
+      if (typeof shouldClosePreview === "undefined" || shouldClosePreview) {
+        setPreviewOpen(false);
+        setPreviewRows([]);
+        setPreviewHeaders([]);
+      }
     }
   };
 
