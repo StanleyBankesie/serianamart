@@ -177,7 +177,7 @@ async function resolveAccountId(companyId, raw) {
     SELECT id
     FROM fin_accounts
     WHERE company_id = :companyId
-      AND (code = :v OR UPPER(name) = UPPER(:v))
+      AND (UPPER(code) = UPPER(:v) OR UPPER(name) = UPPER(:v))
     LIMIT 1
     `,
     { companyId, v },
