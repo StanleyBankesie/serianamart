@@ -608,15 +608,13 @@ export default function ItemsList() {
           ]),
       );
       for (const r of previewRows) {
-        if (!r.valid) {
-          failed++;
-          continue;
-        }
         const rowData = r.raw;
         let nextItemCode = rowData.ITEM_CODE;
         if (!nextItemCode) {
           try {
-            const res = await api.get("/inventory/items/next-code");
+            const res = await api.get("/inventory/items/next-code", {
+              __skipOfflineQueue: true,
+            });
             if (res?.data?.nextCode) nextItemCode = res.data.nextCode;
           } catch {}
         }
@@ -736,7 +734,9 @@ export default function ItemsList() {
             let itemId = nameToId.get(key);
             if (!itemId) {
               try {
-                const resAll = await api.get("/inventory/items");
+                const resAll = await api.get("/inventory/items", {
+                  __skipOfflineQueue: true,
+                });
                 const arr = Array.isArray(resAll.data?.items)
                   ? resAll.data.items
                   : [];
@@ -749,7 +749,14 @@ export default function ItemsList() {
             }
             if (itemId) {
               try {
-                await api.put(`/inventory/items/${itemId}`, payload);
+                const up = await api.put(
+                  `/inventory/items/${itemId}`,
+                  payload,
+                  { __skipOfflineQueue: true },
+                );
+                if (up?.data?.offline) {
+                  throw new Error("Offline queued");
+                }
                 success++;
                 continue;
               } catch (e2) {
