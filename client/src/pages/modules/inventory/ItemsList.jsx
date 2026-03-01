@@ -672,24 +672,8 @@ export default function ItemsList() {
                   "",
               ).toUpperCase(),
             ) || null,
-          purchase_account_id:
-            accountCodeToId.get(
-              String(
-                rowData.PURCHASE_ACCOUNT_ID ||
-                  rowData.PURCHASE_ACCOUNT_CODE ||
-                  rowData.PURCHASE_ACCOUNT ||
-                  "",
-              ).toUpperCase(),
-            ) || null,
-          sales_account_id:
-            accountCodeToId.get(
-              String(
-                rowData.SALES_ACCOUNT_ID ||
-                  rowData.SALES_ACCOUNT_CODE ||
-                  rowData.SALES_ACCOUNT ||
-                  "",
-              ).toUpperCase(),
-            ) || null,
+          purchase_account_id: Number(rowData.PURCHASE_ACCOUNT_ID || 0) || null,
+          sales_account_id: Number(rowData.SALES_ACCOUNT_ID || 0) || null,
           description: rowData.DESCRIPTION,
           is_stockable: rowData.IS_STOCKABLE === "Y",
           is_sellable: rowData.IS_SELLABLE === "Y",
@@ -842,7 +826,7 @@ export default function ItemsList() {
 
   const downloadTemplateCSV = async () => {
     let taxCodes = [];
-    let accountCodes = [];
+    let accItems = [];
     try {
       const [taxRes, accRes] = await Promise.all([
         api.get("/finance/tax-codes"),
@@ -851,25 +835,32 @@ export default function ItemsList() {
       taxCodes = (Array.isArray(taxRes?.data?.items) ? taxRes.data.items : [])
         .map((t) => String(t.code || "").trim())
         .filter(Boolean);
-      accountCodes = (
-        Array.isArray(accRes?.data?.items) ? accRes.data.items : []
-      )
-        .map((a) => String(a.code || "").trim())
-        .filter(Boolean);
+      accItems = Array.isArray(accRes?.data?.items) ? accRes.data.items : [];
     } catch {
       // ignore; will fall back to placeholders below
     }
     const pick = (arr, idx = 0, fallback = "") =>
       String(arr?.[idx] || fallback);
-    const findByName = (arr, part) =>
-      String(arr?.find((c) => String(c).toUpperCase().includes(part)) || "");
+    const findAccIdByName = (arr, part) => {
+      const row = arr?.find((a) =>
+        String(a?.name || "")
+          .toUpperCase()
+          .includes(part),
+      );
+      return row ? Number(row.id) : null;
+    };
+    const pickAccId = (arr, idx = 0) => Number(arr?.[idx]?.id || 0) || null;
     const sampleVatPurchase = pick(taxCodes, 0, "VAT");
     const sampleVatSales = pick(taxCodes, 1, sampleVatPurchase);
-    let samplePurchaseAcc =
-      findByName(accountCodes, "PURCHASE") || pick(accountCodes, 0, "PURCHASE");
-    let sampleSalesAcc =
-      findByName(accountCodes, "SALES") ||
-      pick(accountCodes, 1, pick(accountCodes, 0, "SALES"));
+    let samplePurchaseAccId =
+      findAccIdByName(accItems, "PURCHASE") || pickAccId(accItems, 0);
+    let sampleSalesAccId =
+      findAccIdByName(accItems, "SALES") ||
+      pickAccId(accItems, 1) ||
+      pickAccId(accItems, 0);
+    // Force sample IDs as requested
+    samplePurchaseAccId = 36;
+    sampleSalesAccId = 1;
     const headers = [
       "ITEM_NAME*",
       "ITEM_TYPE*",
@@ -882,8 +873,8 @@ export default function ItemsList() {
       "CURRENCY_CODE",
       "VAT_PURCHASE_CODE",
       "VAT_SALES_CODE",
-      "PURCHASE_ACCOUNT_CODE",
-      "SALES_ACCOUNT_CODE",
+      "PURCHASE_ACCOUNT_ID",
+      "SALES_ACCOUNT_ID",
       "DESCRIPTION",
       "IS_STOCKABLE",
       "IS_SELLABLE",
@@ -905,8 +896,8 @@ export default function ItemsList() {
         "GHS",
         sampleVatPurchase,
         sampleVatSales,
-        samplePurchaseAcc,
-        sampleSalesAcc,
+        String(samplePurchaseAccId || ""),
+        String(sampleSalesAccId || ""),
         "Sample raw material",
         "Y",
         "Y",
@@ -927,8 +918,8 @@ export default function ItemsList() {
         "GHS",
         sampleVatPurchase,
         sampleVatSales,
-        samplePurchaseAcc,
-        sampleSalesAcc,
+        String(samplePurchaseAccId || ""),
+        String(sampleSalesAccId || ""),
         "Sample finished product",
         "Y",
         "Y",

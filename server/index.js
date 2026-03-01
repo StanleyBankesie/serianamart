@@ -328,8 +328,26 @@ if (process.env.NODE_ENV !== "test") {
             { companyId, branchId },
           );
           if (!items.length) continue;
+          // Filter recipients by notification preferences (low-stock)
+          await query(`
+            CREATE TABLE IF NOT EXISTS adm_notification_prefs (
+              user_id BIGINT UNSIGNED NOT NULL,
+              pref_key VARCHAR(100) NOT NULL,
+              push_enabled TINYINT(1) NOT NULL DEFAULT 0,
+              email_enabled TINYINT(1) NOT NULL DEFAULT 0,
+              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              PRIMARY KEY (user_id, pref_key),
+              INDEX idx_pref_key (pref_key)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+          `);
           const recipients = await query(
-            `SELECT id, email FROM adm_users WHERE is_active = 1 AND company_id = :companyId AND branch_id = :branchId AND email IS NOT NULL`,
+            `SELECT u.id, u.email, np.push_enabled, np.email_enabled
+             FROM adm_users u
+             JOIN adm_notification_prefs np ON np.user_id = u.id AND np.pref_key = 'low-stock'
+             WHERE u.is_active = 1 
+               AND u.company_id = :companyId 
+               AND u.branch_id = :branchId`,
             { companyId, branchId },
           );
           for (const u of recipients) {
@@ -366,7 +384,11 @@ if (process.env.NODE_ENV !== "test") {
               )
               .join("");
             const html = `<p>${count} items are at or below reorder levels.</p><table border="1" cellpadding="6" cellspacing="0"><thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>Reorder</th></tr></thead><tbody>${htmlRows}</tbody></table><p><a href="/inventory/alerts/low-stock">Open Alerts</a></p>`;
-            if (isMailerConfigured() && u.email) {
+            if (
+              Number(u?.email_enabled) === 1 &&
+              isMailerConfigured() &&
+              u.email
+            ) {
               try {
                 await sendMail({ to: u.email, subject, text, html });
               } catch (e) {
@@ -377,31 +399,33 @@ if (process.env.NODE_ENV !== "test") {
                 `[MOCK EMAIL] To: ${u.email || "(none)"} | Subject: ${subject}`,
               );
             }
-            await query(
-              `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
-               VALUES (:companyId, :userId, :title, :message, :link, 0)`,
-              {
-                companyId,
-                userId: u.id,
-                title: "Low Stock Alert",
-                message:
-                  count <= 5
-                    ? "Items are at or below reorder levels"
-                    : `${count} items are at or below reorder levels`,
-                link: "/inventory/alerts/low-stock",
-              },
-            );
-            try {
-              await sendPushToUser(u.id, {
-                title: "Low Stock Alert",
-                message:
-                  count <= 5
-                    ? "Items are at or below reorder levels"
-                    : `${count} items are at or below reorder levels`,
-                link: "/inventory/alerts/low-stock",
-                tag: "low-stock",
-              });
-            } catch {}
+            if (Number(u?.push_enabled) === 1) {
+              await query(
+                `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
+                 VALUES (:companyId, :userId, :title, :message, :link, 0)`,
+                {
+                  companyId,
+                  userId: u.id,
+                  title: "Low Stock Alert",
+                  message:
+                    count <= 5
+                      ? "Items are at or below reorder levels"
+                      : `${count} items are at or below reorder levels`,
+                  link: "/inventory/alerts/low-stock",
+                },
+              );
+              try {
+                await sendPushToUser(u.id, {
+                  title: "Low Stock Alert",
+                  message:
+                    count <= 5
+                      ? "Items are at or below reorder levels"
+                      : `${count} items are at or below reorder levels`,
+                  link: "/inventory/alerts/low-stock",
+                  tag: "low-stock",
+                });
+              } catch {}
+            }
           }
         }
       } catch (e) {

@@ -29,6 +29,9 @@ export default function UserPermissions() {
   const [availableModules, setAvailableModules] = useState([]);
   const [features, setFeatures] = useState([]);
   const [dashboards, setDashboards] = useState([]);
+  const [lowStockPush, setLowStockPush] = useState(false);
+  const [lowStockEmail, setLowStockEmail] = useState(false);
+  const [lowStockLoading, setLowStockLoading] = useState(false);
 
   useEffect(() => {
     async function loadUsers() {
@@ -244,6 +247,40 @@ export default function UserPermissions() {
         setActionSessionOverride(fk, "can_view", true);
       }
     } catch {}
+  }
+
+  useEffect(() => {
+    async function loadLowStockPref() {
+      if (!selectedUser) return;
+      try {
+        setLowStockLoading(true);
+        const res = await api.get(
+          `/access/notification-prefs?key=low-stock&user_id=${selectedUser}`,
+        );
+        const item = res?.data?.item || null;
+        setLowStockPush(Boolean(item?.push_enabled));
+        setLowStockEmail(Boolean(item?.email_enabled));
+      } catch {
+        setLowStockPush(false);
+        setLowStockEmail(false);
+      } finally {
+        setLowStockLoading(false);
+      }
+    }
+    loadLowStockPref();
+  }, [selectedUser]);
+
+  async function saveLowStockPref() {
+    if (!selectedUser) return;
+    try {
+      setLowStockLoading(true);
+      await api.put(`/access/notification-prefs/low-stock`, {
+        user_id: Number(selectedUser),
+        push_enabled: lowStockPush ? 1 : 0,
+        email_enabled: lowStockEmail ? 1 : 0,
+      });
+    } catch {}
+    setLowStockLoading(false);
   }
 
   async function save() {
@@ -661,6 +698,47 @@ export default function UserPermissions() {
             </div>
           ) : (
             <>
+              <div className="card">
+                <div className="card-body">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold">
+                        Low Stock Notifications
+                      </h3>
+                      <p className="text-sm text-slate-600">
+                        Choose how this user receives low stock alerts
+                      </p>
+                    </div>
+                    <button
+                      className="btn btn-success"
+                      disabled={lowStockLoading}
+                      onClick={saveLowStockPref}
+                    >
+                      {lowStockLoading ? "Saving…" : "Save Preference"}
+                    </button>
+                  </div>
+                  <div className="mt-3 flex items-center gap-6">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="checkbox"
+                        checked={lowStockPush}
+                        onChange={(e) => setLowStockPush(e.target.checked)}
+                      />
+                      <span>Push notification + app notification</span>
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="checkbox"
+                        checked={lowStockEmail}
+                        onChange={(e) => setLowStockEmail(e.target.checked)}
+                      />
+                      <span>Email notification</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="label">Select User</label>

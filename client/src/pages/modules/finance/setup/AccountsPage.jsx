@@ -406,23 +406,27 @@ export default function AccountsPage() {
                           <td>{a.is_active ? "Yes" : "No"}</td>
                           <td>
                             <div className="flex gap-2">
-                              {a.is_active ? (
-                                <button
-                                  className="btn btn-secondary"
-                                  disabled={loading}
-                                  onClick={() => handleToggleActive(a.id, 0)}
-                                >
-                                  Deactivate
-                                </button>
-                              ) : (
-                                <button
-                                  className="btn-success"
-                                  disabled={loading}
-                                  onClick={() => handleToggleActive(a.id, 1)}
-                                >
-                                  Activate
-                                </button>
-                              )}
+                              <button
+                                className="btn btn-secondary"
+                                disabled={loading}
+                                onClick={() => startEdit(a)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                className="btn-success"
+                                disabled={loading}
+                                onClick={() => handleToggleActive(a.id, 1)}
+                              >
+                                Activate
+                              </button>
+                              <button
+                                className="btn btn-secondary"
+                                disabled={loading}
+                                onClick={() => handleToggleActive(a.id, 0)}
+                              >
+                                Deactivate
+                              </button>
                             </div>
                           </td>
                         </>
