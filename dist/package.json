@@ -10,7 +10,8 @@
     "start": "node bootstrap.js",
     "db:init": "node scripts/init_db.js",
     "db:export": "node scripts/export_dump.js",
-    "db:drop-logo-columns": "node scripts/drop_company_logo_columns.js"
+    "db:drop-logo-columns": "node scripts/drop_company_logo_columns.js",
+    "db:doctor": "node scripts/db_doctor.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -38,7 +38,7 @@ async function nextReceiptNoTx(conn, companyId) {
     SELECT receipt_no
     FROM pos_sales
     WHERE company_id = :companyId
-      AND receipt_no REGEXP '^RCP-[0-9]{6}$'
+      AND receipt_no REGEXP '^POS-[0-9]{6}$'
     ORDER BY CAST(SUBSTRING(receipt_no, 5) AS UNSIGNED) DESC
     LIMIT 1
     FOR UPDATE
@@ -52,7 +52,7 @@ async function nextReceiptNoTx(conn, companyId) {
     const n = parseInt(numPart, 10);
     if (Number.isFinite(n)) nextNum = n + 1;
   }
-  return `RCP-${String(nextNum).padStart(6, "0")}`;
+  return `POS-${String(nextNum).padStart(6, "0")}`;
 }
 
 async function nextVoucherNoTx(conn, { companyId, voucherTypeId }) {
@@ -583,7 +583,7 @@ async function nextReceiptNo(companyId) {
     SELECT receipt_no
     FROM pos_sales
     WHERE company_id = :companyId
-      AND receipt_no REGEXP '^RCP-[0-9]{6}$'
+      AND receipt_no REGEXP '^POS-[0-9]{6}$'
     ORDER BY CAST(SUBSTRING(receipt_no, 5) AS UNSIGNED) DESC
     LIMIT 1
     `,
@@ -596,7 +596,7 @@ async function nextReceiptNo(companyId) {
     const n = parseInt(numPart, 10);
     if (Number.isFinite(n)) nextNum = n + 1;
   }
-  return `RCP-${String(nextNum).padStart(6, "0")}`;
+  return `POS-${String(nextNum).padStart(6, "0")}`;
 }
 
 async function nextSessionNo(companyId) {
@@ -658,6 +658,15 @@ router.get(
            AND MONTH(invoice_date) = MONTH(CURDATE())`,
         { companyId, branchId },
       );
+      const [monthAvg] = await query(
+        `SELECT COALESCE(AVG(total_amount), 0) AS avg_amt
+         FROM sal_invoices 
+         WHERE company_id = :companyId 
+           AND branch_id = :branchId 
+           AND YEAR(invoice_date) = YEAR(CURDATE()) 
+           AND MONTH(invoice_date) = MONTH(CURDATE())`,
+        { companyId, branchId },
+      );
       const [customers] = await query(
         `SELECT COUNT(*) AS count 
          FROM sal_customers 
@@ -666,7 +675,8 @@ router.get(
       );
       res.json({
         todaySales: Number(today?.total || 0),
-        averageOrder: Number(today?.avg_amt || 0),
+        // Average order amount for current month
+        averageOrder: Number(monthAvg?.avg_amt || 0),
         transactions: Number(today?.count || 0),
         monthlyRevenue: Number(month?.total || 0),
         totalCustomers: Number(customers?.count || 0),
@@ -1061,8 +1071,6 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  checkModuleAccess("pos"),
-  checkFeatureAction("pos", "view"),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;

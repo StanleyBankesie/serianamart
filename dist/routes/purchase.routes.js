@@ -836,14 +836,48 @@ async function postGrnAccrualTx(
   conn,
   { companyId, branchId, grnId, inventoryAccountRef, grnClearingAccountRef },
 ) {
+  async function resolveInventoryAccountIdAuto(conn, { companyId }) {
+    const [codeRows] = await conn.execute(
+      `SELECT id
+       FROM fin_accounts
+       WHERE company_id = :companyId
+         AND is_active = 1
+         AND is_postable = 1
+         AND code = '1200'
+       LIMIT 1`,
+      { companyId },
+    );
+    const codeAccId = Number(codeRows?.[0]?.id || 0) || 0;
+    if (codeAccId) return codeAccId;
+    const [accRows] = await conn.execute(
+      `SELECT a.id
+       FROM fin_accounts a
+       JOIN fin_account_groups g ON g.id = a.group_id
+       WHERE a.company_id = :companyId
+         AND a.is_active = 1
+         AND a.is_postable = 1
+         AND g.nature = 'ASSET'
+         AND (
+           LOWER(a.name) LIKE '%inventory%' OR
+           LOWER(a.name) LIKE '%stock%' OR
+           LOWER(a.name) LIKE '%merchandise%'
+         )
+       ORDER BY a.code ASC
+       LIMIT 1`,
+      { companyId },
+    );
+    return Number(accRows?.[0]?.id || 0) || 0;
+  }
   const [hdrRows] = await conn.execute(
     "SELECT grn_no, grn_type, po_id, supplier_id, port_clearance_id, clearing_id FROM inv_goods_receipt_notes WHERE company_id = :companyId AND branch_id = :branchId AND id = :id LIMIT 1",
     { companyId, branchId, id: grnId },
   );
   const hdr = hdrRows?.[0] || null;
   if (!hdr) throw httpError(404, "NOT_FOUND", "GRN not found");
-  if (!hdr.po_id)
+  const grnType = String(hdr.grn_type || "").toUpperCase();
+  if (!hdr.po_id && grnType !== "LOCAL") {
     throw httpError(400, "VALIDATION_ERROR", "GRN requires a referenced PO");
+  }
   const [detRows] = await conn.execute(
     "SELECT qty_accepted, unit_price, line_amount FROM inv_goods_receipt_note_details WHERE grn_id = :id",
     { id: grnId },
@@ -876,7 +910,20 @@ async function postGrnAccrualTx(
     companyId,
     accountRef: grnClearingAccountRef,
   });
-  if (!inventoryAccountId || !grnClearingAccountId) {
+  let resolvedInventoryId = inventoryAccountId;
+  if (!resolvedInventoryId) {
+    resolvedInventoryId = await resolveInventoryAccountIdAuto(conn, {
+      companyId,
+    });
+  }
+  let resolvedClearingId = grnClearingAccountId;
+  if (!resolvedClearingId) {
+    resolvedClearingId = await resolveGrnClearingAccountIdAuto(conn, {
+      companyId,
+      grnNo: String(hdr.grn_no || ""),
+    });
+  }
+  if (!resolvedInventoryId || !resolvedClearingId) {
     throw httpError(
       400,
       "VALIDATION_ERROR",
@@ -916,7 +963,7 @@ async function postGrnAccrualTx(
     {
       companyId,
       voucherId,
-      accountId: inventoryAccountId,
+      accountId: resolvedInventoryId,
       description: `GRN ${hdr.grn_no} inventory`,
       debit: inventoryValue,
       referenceNo: String(hdr.grn_no || ""),
@@ -930,7 +977,7 @@ async function postGrnAccrualTx(
     {
       companyId,
       voucherId,
-      accountId: grnClearingAccountId,
+      accountId: resolvedClearingId,
       description: `GRN ${hdr.grn_no} clearing`,
       credit: inventoryValue,
       referenceNo: String(hdr.grn_no || ""),
@@ -973,6 +1020,468 @@ router.get(
     "INV.SERVICE_CONFIRMATION.VIEW",
   ]),
   (req, res, next) => listServiceConfirmations(req, res, next),
+);
+
+router.get(
+  "/direct-purchases/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "PURCHASE.ORDER.MANAGE",
+    "PURCHASE.GRN.MANAGE",
+    "PURCHASE.BILL.MANAGE",
+  ]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      await ensureDirectPurchaseTables();
+      const [hdrRows] = await pool.execute(
+        `SELECT h.*, s.supplier_name
+           FROM pur_direct_purchase_hdr h
+           LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
+          WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+          LIMIT 1`,
+        { id, companyId, branchId },
+      );
+      const hdr = hdrRows?.[0] || null;
+      if (!hdr) throw httpError(404, "NOT_FOUND", "Direct purchase not found");
+      const [dtlRows] = await pool.execute(
+        `SELECT id, item_id, qty, uom, unit_price, discount_percent, tax_percent, line_total
+           FROM pur_direct_purchase_dtl
+          WHERE hdr_id = :id`,
+        { id },
+      );
+      res.json({
+        id: hdr.id,
+        dp_no: hdr.dp_no,
+        dp_date: hdr.dp_date,
+        supplier_id: hdr.supplier_id,
+        supplier_name: hdr.supplier_name,
+        warehouse_id: hdr.warehouse_id,
+        currency_id: hdr.currency_id,
+        exchange_rate: hdr.exchange_rate,
+        payment_terms: hdr.payment_terms,
+        remarks: hdr.remarks,
+        subtotal: hdr.subtotal,
+        discount_amount: hdr.discount_amount,
+        tax_amount: hdr.tax_amount,
+        net_amount: hdr.net_amount,
+        status: hdr.status,
+        grn_id: hdr.grn_id,
+        bill_id: hdr.bill_id,
+        details: Array.isArray(dtlRows) ? dtlRows : [],
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.put(
+  "/direct-purchases/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "PURCHASE.ORDER.MANAGE",
+    "PURCHASE.GRN.MANAGE",
+    "PURCHASE.BILL.MANAGE",
+  ]),
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const body = req.body || {};
+      const status = String(body.status || "DRAFT").toUpperCase();
+      function normalizeYmd(input) {
+        if (!input) return toYmd(new Date());
+        if (input instanceof Date && !Number.isNaN(input.getTime()))
+          return toYmd(input);
+        const s = String(input).trim();
+        const dateOnly = s.split("T")[0];
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return dateOnly;
+        const d = new Date(s);
+        if (!Number.isNaN(d.getTime())) return toYmd(d);
+        return toYmd(new Date());
+      }
+      const dpDateYmd = normalizeYmd(body.purchase_date);
+      const supplierId = toNumber(body.supplier_id);
+      const warehouseId = toNumber(body.warehouse_id);
+      const currencyId = toNumber(body.currency_id) || null;
+      const exchangeRate = Number(body.exchange_rate || 1) || 1;
+      const paymentTerms = toNumber(body.payment_terms) || null;
+      const remarks = body.remarks || null;
+      const details = Array.isArray(body.details) ? body.details : [];
+      if (!supplierId)
+        throw httpError(400, "VALIDATION_ERROR", "supplier_id required");
+      if (!warehouseId)
+        throw httpError(400, "VALIDATION_ERROR", "warehouse_id required");
+      if (!details.length)
+        throw httpError(400, "VALIDATION_ERROR", "details required");
+      await ensureDirectPurchaseTables();
+      const [hdrRows] = await conn.execute(
+        `SELECT id, dp_no, status, grn_id, bill_id
+           FROM pur_direct_purchase_hdr
+          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+          LIMIT 1`,
+        { id, companyId, branchId },
+      );
+      const hdr = hdrRows?.[0] || null;
+      if (!hdr) throw httpError(404, "NOT_FOUND", "Direct purchase not found");
+      if (String(hdr.status) === "POSTED")
+        throw httpError(400, "VALIDATION_ERROR", "Cannot edit POSTED document");
+
+      // Recompute totals
+      let subtotal = 0;
+      let totalDiscount = 0;
+      let totalTax = 0;
+      const cleanDetails = [];
+      for (const d of details) {
+        const itemId = toNumber(d.item_id);
+        const qty = Number(d.qty || 0);
+        const unitPrice = Number(d.unit_price || 0);
+        const discountPercent = Number(d.discount_percent || 0);
+        const taxPercent = Number(d.tax_percent || 0);
+        if (!itemId || !(qty > 0) || !(unitPrice >= 0)) continue;
+        const gross = qty * unitPrice;
+        const disc = Math.round(gross * discountPercent) / 100;
+        const base = Math.max(0, gross - disc);
+        const tax = Math.round(base * taxPercent) / 100;
+        const lineTotal = Math.round((base + tax) * 100) / 100;
+        subtotal += gross;
+        totalDiscount += disc;
+        totalTax += tax;
+        cleanDetails.push({
+          itemId,
+          qty,
+          unitPrice,
+          discountPercent,
+          taxPercent,
+          lineTotal,
+          uom: String(d.uom || "PCS"),
+        });
+      }
+      const netAmount =
+        Math.round((subtotal - totalDiscount + totalTax) * 100) / 100;
+
+      await conn.beginTransaction();
+      await conn.execute(
+        `UPDATE pur_direct_purchase_hdr
+            SET dp_date = :dpDate, supplier_id = :supplierId, warehouse_id = :warehouseId,
+                currency_id = :currencyId, exchange_rate = :exchangeRate, payment_terms = :paymentTerms,
+                remarks = :remarks, subtotal = :subtotal, discount_amount = :discountAmount,
+                tax_amount = :taxAmount, net_amount = :netAmount
+          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        {
+          dpDate: dpDateYmd,
+          supplierId,
+          warehouseId,
+          currencyId,
+          exchangeRate,
+          paymentTerms,
+          remarks,
+          subtotal,
+          discountAmount: totalDiscount,
+          taxAmount: totalTax,
+          netAmount,
+          id,
+          companyId,
+          branchId,
+        },
+      );
+      await conn.execute(
+        "DELETE FROM pur_direct_purchase_dtl WHERE hdr_id = :id",
+        { id },
+      );
+      for (const d of cleanDetails) {
+        await conn.execute(
+          `INSERT INTO pur_direct_purchase_dtl
+            (hdr_id, item_id, qty, uom, unit_price, discount_percent, tax_percent, line_total)
+           VALUES
+            (:hdrId, :itemId, :qty, :uom, :unitPrice, :discountPercent, :taxPercent, :lineTotal)`,
+          { hdrId: id, ...d },
+        );
+      }
+      if (status === "DRAFT") {
+        await conn.commit();
+        return res.json({
+          id,
+          dp_no: hdr.dp_no,
+          status: "DRAFT",
+          net_amount: netAmount,
+        });
+      }
+      // Post the updated DP (same as POST branch)
+      const grnNo = await nextSequentialNo(
+        "inv_goods_receipt_notes",
+        "grn_no",
+        "GRN",
+      );
+      const [grnHdr] = await conn.execute(
+        `INSERT INTO inv_goods_receipt_notes
+         (company_id, branch_id, grn_no, grn_date, grn_type, po_id, supplier_id, warehouse_id, status, remarks, created_by)
+         VALUES
+         (:companyId, :branchId, :grnNo, :grnDate, 'LOCAL', NULL, :supplierId, :warehouseId, 'APPROVED', :remarks, :createdBy)`,
+        {
+          companyId,
+          branchId,
+          grnNo,
+          grnDate: dpDateYmd,
+          supplierId,
+          warehouseId,
+          remarks,
+          createdBy: req.user?.sub || null,
+        },
+      );
+      const grnId = Number(grnHdr.insertId);
+      for (const d of cleanDetails) {
+        await conn.execute(
+          `INSERT INTO inv_goods_receipt_note_details
+           (grn_id, item_id, qty_ordered, qty_received, qty_accepted, qty_rejected, uom, unit_price, line_amount)
+           VALUES
+           (:grnId, :itemId, :qty, :qty, :qty, 0, :uom, :unitPrice, :lineTotal)`,
+          {
+            grnId,
+            itemId: d.itemId,
+            qty: d.qty,
+            uom: d.uom,
+            unitPrice: d.unitPrice,
+            lineTotal: d.lineTotal,
+          },
+        );
+        await conn.execute(
+          `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
+           VALUES (:companyId, :branchId, :warehouseId, :itemId, :qty)
+           ON DUPLICATE KEY UPDATE qty = qty + :qty`,
+          { companyId, branchId, warehouseId, itemId: d.itemId, qty: d.qty },
+        );
+      }
+      const { voucherId: grnVoucherId, voucherNo: grnVoucherNo } =
+        await postGrnAccrualTx(conn, {
+          companyId,
+          branchId,
+          grnId,
+          inventoryAccountRef: "1200",
+          grnClearingAccountRef: "2100",
+        });
+      const billNo = await nextSequentialNo("pur_bills", "bill_no", "PB");
+      const [billHdr] = await conn.execute(
+        `INSERT INTO pur_bills
+          (company_id, branch_id, bill_no, bill_date, supplier_id, po_id, grn_id, bill_type,
+           due_date, currency_id, exchange_rate, payment_terms,
+           total_amount, discount_amount, tax_amount, freight_charges, other_charges, net_amount,
+           status, created_by)
+         VALUES
+          (:companyId, :branchId, :billNo, :billDate, :supplierId, NULL, :grnId, 'LOCAL',
+           :dueDate, :currencyId, :exchangeRate, :paymentTerms,
+           :totalAmount, :discountAmount, :taxAmount, 0, 0, :netAmount,
+           'DRAFT', :createdBy)`,
+        {
+          companyId,
+          branchId,
+          billNo,
+          billDate: dpDateYmd,
+          supplierId,
+          grnId,
+          dueDate: null,
+          currencyId,
+          exchangeRate,
+          paymentTerms,
+          totalAmount: subtotal,
+          discountAmount: totalDiscount,
+          taxAmount: totalTax,
+          netAmount,
+          createdBy: req.user?.sub || null,
+        },
+      );
+      const billId = Number(billHdr.insertId);
+      for (const d of cleanDetails) {
+        await conn.execute(
+          `INSERT INTO pur_bill_details
+            (bill_id, item_id, uom_id, qty, unit_price, discount_percent, tax_amount, line_total)
+           VALUES
+            (:billId, :itemId, NULL, :qty, :unitPrice, :discountPercent, :taxAmount, :lineTotal)`,
+          {
+            billId,
+            itemId: d.itemId,
+            qty: d.qty,
+            unitPrice: d.unitPrice,
+            discountPercent: d.discountPercent,
+            taxAmount:
+              Math.round(
+                (d.lineTotal -
+                  d.qty * d.unitPrice +
+                  (d.discountPercent
+                    ? (d.qty * d.unitPrice * d.discountPercent) / 100
+                    : 0)) *
+                  100,
+              ) / 100,
+            lineTotal: d.lineTotal,
+          },
+        );
+      }
+      const rate = Number(exchangeRate || 1);
+      const goodsExclusive = Math.max(0, subtotal - totalDiscount);
+      const vatAmount = Math.max(0, totalTax);
+      const goodsBase = Math.round(goodsExclusive * rate * 100) / 100;
+      const vatBase = Math.round(vatAmount * rate * 100) / 100;
+      const [grnDetRows] = await conn.execute(
+        "SELECT SUM(qty_accepted * unit_price) AS goods_base FROM inv_goods_receipt_note_details WHERE grn_id = :grnId",
+        { grnId },
+      );
+      const grnGoodsBase =
+        Math.round(Number(grnDetRows?.[0]?.goods_base || 0) * 100) / 100;
+      const grnClearingAccountId = await resolveGrnClearingAccountIdAuto(conn, {
+        companyId,
+        grnNo,
+      });
+      let vatInputAccountId = 0;
+      if (vatBase > 0) {
+        vatInputAccountId = await resolveVatInputAccountIdAuto(conn, {
+          companyId,
+        });
+      }
+      const chargesBase = 0;
+      const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
+      const voucherTypeId = await ensureJournalVoucherTypeIdTx(conn, {
+        companyId,
+      });
+      const voucherNo = await nextVoucherNoTx(conn, {
+        companyId,
+        voucherTypeId,
+      });
+      const voucherDate = toYmd(new Date());
+      const apCredit =
+        Math.round((goodsBase + vatBase + chargesBase) * 100) / 100;
+      const totalDebit = grnGoodsBase + (vatBase > 0 ? vatBase : 0);
+      const totalCredit = apCredit;
+      const [vIns] = await conn.execute(
+        `INSERT INTO fin_vouchers
+          (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
+         VALUES
+          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
+        {
+          companyId,
+          branchId,
+          fiscalYearId,
+          voucherTypeId,
+          voucherNo,
+          voucherDate,
+          narration: `Purchase Bill ${billNo} posting`,
+          totalDebit,
+          totalCredit,
+          createdBy: req.user?.sub || null,
+          approvedBy: req.user?.sub || null,
+          postedBy: req.user?.sub || null,
+        },
+      );
+      const billVoucherId = Number(vIns?.insertId || 0) || 0;
+      let lineNo = 1;
+      await conn.execute(
+        `INSERT INTO fin_voucher_lines
+          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+         VALUES
+          (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
+        {
+          companyId,
+          voucherId: billVoucherId,
+          lineNo: lineNo++,
+          accountId: grnClearingAccountId,
+          description: `GRN ${grnNo} clearing`,
+          debit: grnGoodsBase,
+          referenceNo: billNo,
+        },
+      );
+      if (vatBase > 0 && vatInputAccountId) {
+        await conn.execute(
+          `INSERT INTO fin_voucher_lines
+            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+           VALUES
+            (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
+          {
+            companyId,
+            voucherId: billVoucherId,
+            lineNo: lineNo++,
+            accountId: vatInputAccountId,
+            description: `VAT input on ${billNo}`,
+            debit: vatBase,
+            referenceNo: billNo,
+          },
+        );
+      }
+      const [apRows] = await conn.execute(
+        `SELECT id
+         FROM fin_accounts
+         WHERE company_id = :companyId
+           AND is_active = 1
+           AND is_postable = 1
+           AND code = '2001'
+         LIMIT 1`,
+        { companyId },
+      );
+      const supplierAccId = Number(apRows?.[0]?.id || 0) || 0;
+      await conn.execute(
+        `INSERT INTO fin_voucher_lines
+          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+         VALUES
+          (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :referenceNo)`,
+        {
+          companyId,
+          voucherId: billVoucherId,
+          lineNo: lineNo++,
+          accountId: supplierAccId,
+          description: `AP for ${billNo}`,
+          credit: apCredit,
+          referenceNo: billNo,
+        },
+      );
+      await conn.execute(
+        "UPDATE pur_bills SET status = 'POSTED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
+        { id: billId, companyId, branchId },
+      );
+      await conn.execute(
+        `UPDATE pur_direct_purchase_hdr
+           SET status = 'POSTED',
+               grn_id = :grnId,
+               bill_id = :billId,
+               grn_voucher_id = :grnVoucherId,
+               bill_voucher_id = :billVoucherId,
+               approved_by = :userId,
+               posted_by = :userId
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        {
+          id,
+          companyId,
+          branchId,
+          grnId,
+          billId,
+          grnVoucherId,
+          billVoucherId,
+          userId: req.user?.sub || null,
+        },
+      );
+      await conn.commit();
+      res.json({
+        id,
+        dp_no: hdr.dp_no,
+        status: "POSTED",
+        grn_id: grnId,
+        bill_id: billId,
+      });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(err);
+    } finally {
+      conn.release();
+    }
+  },
 );
 
 router.get(
@@ -1151,6 +1660,51 @@ router.get(
         { companyId },
       );
       res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/direct-purchases",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "PURCHASE.ORDER.MANAGE",
+    "PURCHASE.GRN.MANAGE",
+    "PURCHASE.BILL.MANAGE",
+  ]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensureDirectPurchaseTables();
+      const items =
+        (await query(
+          `
+          SELECT 
+            h.id,
+            h.dp_no,
+            h.dp_date AS purchase_date,
+            h.supplier_id,
+            s.supplier_name,
+            h.net_amount AS grand_total,
+            h.grn_id,
+            g.grn_no,
+            h.bill_id,
+            b.bill_no
+          FROM pur_direct_purchase_hdr h
+          LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
+          LEFT JOIN inv_goods_receipt_notes g ON g.id = h.grn_id
+          LEFT JOIN pur_bills b ON b.id = h.bill_id
+         WHERE h.company_id = :companyId
+           AND h.branch_id = :branchId
+         ORDER BY h.dp_date DESC, h.id DESC
+          `,
+          { companyId, branchId },
+        ).catch(() => [])) || [];
+      res.json({ items: Array.isArray(items) ? items : [] });
     } catch (err) {
       next(err);
     }
@@ -1931,6 +2485,803 @@ async function ensurePortClearanceStatusEnum() {
     }
   }
 }
+
+// ===== PURCHASE REPORTS =====
+
+function toDateOnly(v) {
+  if (!v) return null;
+  const d = new Date(String(v));
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+router.get(
+  "/reports/import-order-tracking",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.RFQ.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const to = toDateOnly(req.query.to) || toDateOnly(new Date());
+      const from =
+        toDateOnly(req.query.from) ||
+        toDateOnly(new Date(new Date(to).setDate(new Date(to).getDate() - 30)));
+      await ensureShippingAdviceETDColumn();
+      await ensureShippingAdviceStatusEnum();
+      const rows = await query(
+        `
+        SELECT 
+          p.po_no,
+          s.supplier_name,
+          p.po_date AS order_date,
+          x.eta_date,
+          COALESCE(x.status, p.status) AS status,
+          p.total_amount AS total_value
+        FROM pur_orders p
+        JOIN pur_suppliers s ON s.id = p.supplier_id
+        LEFT JOIN (
+          SELECT sa.po_id,
+                 MAX(sa.id) AS latest_id,
+                 MAX(sa.eta_date) AS eta_date,
+                 MAX(sa.status) AS status
+          FROM pur_shipping_advices sa
+          WHERE sa.company_id = :companyId AND sa.branch_id = :branchId
+          GROUP BY sa.po_id
+        ) x ON x.po_id = p.id
+        WHERE p.company_id = :companyId
+          AND p.branch_id = :branchId
+          AND UPPER(p.po_type) = 'IMPORT'
+          AND p.po_date BETWEEN :from AND :to
+        ORDER BY p.po_date DESC, p.id DESC
+        `,
+        { companyId, branchId, from, to },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/local-order-tracking",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const to = toDateOnly(req.query.to) || toDateOnly(new Date());
+      const from =
+        toDateOnly(req.query.from) ||
+        toDateOnly(new Date(new Date(to).setDate(new Date(to).getDate() - 30)));
+      const rows = await query(
+        `
+        SELECT 
+          p.po_no,
+          s.supplier_name,
+          p.po_date AS order_date,
+          NULL AS expected_delivery,
+          p.status,
+          p.total_amount AS total_value
+        FROM pur_orders p
+        JOIN pur_suppliers s ON s.id = p.supplier_id
+        WHERE p.company_id = :companyId
+          AND p.branch_id = :branchId
+          AND UPPER(p.po_type) = 'LOCAL'
+          AND p.po_date BETWEEN :from AND :to
+        ORDER BY p.po_date DESC, p.id DESC
+        `,
+        { companyId, branchId, from, to },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/purchase-tracking",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "PURCHASE.ORDER.VIEW",
+    "PURCHASE.BILL.VIEW",
+    "PURCHASE.RFQ.VIEW",
+  ]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const to = toDateOnly(req.query.to) || toDateOnly(new Date());
+      const from =
+        toDateOnly(req.query.from) ||
+        toDateOnly(new Date(new Date(to).setDate(new Date(to).getDate() - 30)));
+      const rows = await query(
+        `
+        SELECT stage, ref_no, supplier_name, txn_date, status, total_value
+        FROM (
+          SELECT 'PO' AS stage,
+                 p.po_no AS ref_no,
+                 s.supplier_name,
+                 p.po_date AS txn_date,
+                 p.status,
+                 p.total_amount AS total_value
+            FROM pur_orders p
+            JOIN pur_suppliers s ON s.id = p.supplier_id
+           WHERE p.company_id = :companyId
+             AND p.branch_id = :branchId
+             AND p.po_date BETWEEN :from AND :to
+          UNION ALL
+          SELECT 'GRN' AS stage,
+                 g.grn_no AS ref_no,
+                 s.supplier_name,
+                 g.grn_date AS txn_date,
+                 g.status,
+                 COALESCE(SUM(d.qty_accepted * d.unit_price), 0) AS total_value
+            FROM inv_goods_receipt_notes g
+            JOIN inv_goods_receipt_note_details d ON d.grn_id = g.id
+            JOIN pur_suppliers s ON s.id = g.supplier_id
+           WHERE g.company_id = :companyId
+             AND g.branch_id = :branchId
+             AND g.grn_date BETWEEN :from AND :to
+           GROUP BY g.id
+          UNION ALL
+          SELECT 'BILL' AS stage,
+                 b.bill_no AS ref_no,
+                 s.supplier_name,
+                 b.bill_date AS txn_date,
+                 b.status,
+                 b.net_amount AS total_value
+            FROM pur_bills b
+            JOIN pur_suppliers s ON s.id = b.supplier_id
+           WHERE b.company_id = :companyId
+             AND b.branch_id = :branchId
+             AND b.bill_date BETWEEN :from AND :to
+        ) x
+        ORDER BY txn_date ASC
+        `,
+        { companyId, branchId, from, to },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/supplier-quotation-analysis",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.RFQ.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const to = toDateOnly(req.query.to) || toDateOnly(new Date());
+      const from =
+        toDateOnly(req.query.from) ||
+        toDateOnly(new Date(new Date(to).setDate(new Date(to).getDate() - 30)));
+      const rows = await query(
+        `
+        SELECT 
+          q.quotation_no,
+          q.quotation_date,
+          s.supplier_name,
+          COALESCE(SUM(d.line_total), 0) AS total_amount,
+          COUNT(DISTINCT d.item_id) AS items_count
+        FROM pur_supplier_quotations q
+        JOIN pur_suppliers s ON s.id = q.supplier_id
+        LEFT JOIN pur_supplier_quotation_details d ON d.quotation_id = q.id
+        WHERE q.company_id = :companyId
+          AND q.branch_id = :branchId
+          AND q.quotation_date BETWEEN :from AND :to
+        GROUP BY q.id
+        ORDER BY q.quotation_date DESC, q.id DESC
+        `,
+        { companyId, branchId, from, to },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/pending-grn-to-bill-local",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.BILL.VIEW", "PURCHASE.GRN.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT g.grn_no,
+               g.grn_date,
+               s.supplier_name,
+               COALESCE(SUM(d.qty_accepted * d.unit_price), 0) AS grn_value
+        FROM inv_goods_receipt_notes g
+        JOIN inv_goods_receipt_note_details d ON d.grn_id = g.id
+        JOIN pur_suppliers s ON s.id = g.supplier_id
+        LEFT JOIN pur_bills b ON b.grn_id = g.id
+        WHERE g.company_id = :companyId
+          AND g.branch_id = :branchId
+          AND g.grn_type = 'LOCAL'
+          AND b.id IS NULL
+        GROUP BY g.id
+        ORDER BY g.grn_date DESC, g.id DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/pending-grn-to-bill-import",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.BILL.VIEW", "PURCHASE.GRN.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT g.grn_no,
+               g.grn_date,
+               s.supplier_name,
+               COALESCE(SUM(d.qty_accepted * d.unit_price), 0) AS grn_value
+        FROM inv_goods_receipt_notes g
+        JOIN inv_goods_receipt_note_details d ON d.grn_id = g.id
+        JOIN pur_suppliers s ON s.id = g.supplier_id
+        LEFT JOIN pur_bills b ON b.grn_id = g.id
+        WHERE g.company_id = :companyId
+          AND g.branch_id = :branchId
+          AND g.grn_type = 'IMPORT'
+          AND b.id IS NULL
+        GROUP BY g.id
+        ORDER BY g.grn_date DESC, g.id DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/import-order-list",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const to = toDateOnly(req.query.to) || toDateOnly(new Date());
+      const from =
+        toDateOnly(req.query.from) ||
+        toDateOnly(new Date(new Date(to).setDate(new Date(to).getDate() - 30)));
+      const rows = await query(
+        `
+        SELECT p.po_no,
+               p.po_date,
+               s.supplier_name,
+               p.status,
+               p.total_amount
+          FROM pur_orders p
+          JOIN pur_suppliers s ON s.id = p.supplier_id
+         WHERE p.company_id = :companyId
+           AND p.branch_id = :branchId
+           AND UPPER(p.po_type) = 'IMPORT'
+           AND p.po_date BETWEEN :from AND :to
+         ORDER BY p.po_date DESC, p.id DESC
+        `,
+        { companyId, branchId, from, to },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/pending-shipments",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensureShippingAdviceETDColumn();
+      await ensureShippingAdviceStatusEnum();
+      const rows = await query(
+        `
+        SELECT sa.id,
+               p.po_no,
+               s.supplier_name,
+               sa.advice_date,
+               sa.etd_date,
+               sa.eta_date,
+               sa.status
+          FROM pur_shipping_advices sa
+          JOIN pur_orders p ON p.id = sa.po_id
+          JOIN pur_suppliers s ON s.id = sa.supplier_id
+         WHERE sa.company_id = :companyId
+           AND sa.branch_id = :branchId
+           AND sa.status IN ('IN_TRANSIT','ARRIVED')
+         ORDER BY sa.advice_date DESC, sa.id DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/purchase-register",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.BILL.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const to = toDateOnly(req.query.to) || toDateOnly(new Date());
+      const from =
+        toDateOnly(req.query.from) ||
+        toDateOnly(new Date(new Date(to).setDate(new Date(to).getDate() - 30)));
+      const rows = await query(
+        `
+        SELECT b.bill_no,
+               b.bill_date,
+               s.supplier_name,
+               b.bill_type,
+               b.net_amount,
+               b.status
+          FROM pur_bills b
+          JOIN pur_suppliers s ON s.id = b.supplier_id
+         WHERE b.company_id = :companyId
+           AND b.branch_id = :branchId
+           AND b.status IN ('POSTED','DRAFT','APPROVED')
+           AND b.bill_date BETWEEN :from AND :to
+         ORDER BY b.bill_date DESC, b.id DESC
+        `,
+        { companyId, branchId, from, to },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ===== ADDITIONAL PURCHASE REPORTS =====
+
+router.get(
+  "/reports/department-analysis",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.BILL.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          COALESCE(NULLIF(u.department,''), 'N/A') AS department,
+          COALESCE(SUM(p.total_amount), 0) AS total_purchases,
+          (SELECT COUNT(*) FROM pur_bills b WHERE b.company_id = :companyId AND b.branch_id = :branchId) AS total_bills,
+          (SELECT COUNT(*) FROM pur_orders x WHERE x.company_id = :companyId AND x.branch_id = :branchId AND x.status IN ('DRAFT','PENDING_APPROVAL','APPROVED')) AS pending_orders,
+          SUM(CASE WHEN UPPER(p.po_type) = 'IMPORT' THEN p.total_amount ELSE 0 END) AS import_total,
+          SUM(CASE WHEN UPPER(p.po_type) = 'LOCAL' THEN p.total_amount ELSE 0 END) AS local_total
+        FROM pur_orders p
+        LEFT JOIN adm_users u ON u.id = p.created_by
+        WHERE p.company_id = :companyId AND p.branch_id = :branchId
+        GROUP BY COALESCE(NULLIF(u.department,''), 'N/A')
+        ORDER BY department ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/import-cost-breakdown",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.BILL.VIEW", "PURCHASE.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          b.bill_no,
+          b.bill_date,
+          s.supplier_name,
+          COALESCE(p.po_no, NULL) AS po_no,
+          COALESCE(p.total_amount, 0) AS po_value,
+          COALESCE(b.freight_charges, 0) AS freight,
+          0 AS insurance,
+          0 AS port_charges,
+          0 AS clearance_fees,
+          COALESCE(b.tax_amount, 0) AS duties,
+          (COALESCE(b.net_amount, 0) + COALESCE(b.freight_charges,0) + COALESCE(b.other_charges,0) + COALESCE(b.tax_amount,0)) AS total_landed_cost
+        FROM pur_bills b
+        LEFT JOIN pur_orders p ON p.id = b.po_id
+        LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
+        WHERE b.company_id = :companyId AND b.branch_id = :branchId AND b.bill_type = 'IMPORT'
+        ORDER BY b.bill_date DESC, b.id DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/lead-time-analysis",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          p.po_no,
+          p.po_date,
+          COALESCE(q.quotation_date, NULL) AS rfq_or_quote_date,
+          COALESCE(sa.advice_date, NULL) AS shipment_date,
+          COALESCE(pc.clearance_date, NULL) AS clearance_date,
+          COALESCE(g.grn_date, NULL) AS grn_date
+        FROM pur_orders p
+        LEFT JOIN pur_supplier_quotations q ON q.id = p.quotation_id AND q.company_id = p.company_id
+        LEFT JOIN pur_shipping_advices sa ON sa.po_id = p.id AND sa.company_id = p.company_id
+        LEFT JOIN pur_port_clearances pc ON pc.po_id = p.id AND pc.company_id = p.company_id
+        LEFT JOIN inv_goods_receipt_notes g ON g.po_id = p.id AND g.company_id = p.company_id
+        WHERE p.company_id = :companyId AND p.branch_id = :branchId
+        ORDER BY p.po_date DESC, p.id DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      // Compute lead times in days
+      const items = (rows || []).map((r) => {
+        const d = (a, b) => {
+          if (!a || !b) return null;
+          const aa = new Date(String(a));
+          const bb = new Date(String(b));
+          if (Number.isNaN(aa.getTime()) || Number.isNaN(bb.getTime()))
+            return null;
+          return Math.max(0, Math.round((bb - aa) / (1000 * 60 * 60 * 24)));
+        };
+        return {
+          po_no: r.po_no,
+          rfq_to_po: d(r.rfq_or_quote_date, r.po_date),
+          po_to_shipment: d(r.po_date, r.shipment_date),
+          shipment_to_clearance: d(r.shipment_date, r.clearance_date),
+          clearance_to_grn: d(r.clearance_date, r.grn_date),
+        };
+      });
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/cancelled-purchase-orders",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT p.po_no,
+               s.supplier_name AS supplier,
+               p.remarks AS cancel_reason,
+               u.username AS cancelled_by,
+               p.updated_at AS date
+        FROM pur_orders p
+        LEFT JOIN pur_suppliers s ON s.id = p.supplier_id
+        LEFT JOIN adm_users u ON u.id = p.updated_by
+        WHERE p.company_id = :companyId AND p.branch_id = :branchId
+          AND UPPER(p.status) IN ('CANCELLED','REJECTED')
+        ORDER BY p.updated_at DESC, p.id DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/purchase-returns-analysis",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.RFQ.VIEW"]),
+  async (req, res, next) => {
+    try {
+      await ensurePurchaseReturnTables();
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          r.return_no,
+          r.return_date,
+          s.supplier_name,
+          it.item_name AS item,
+          d.qty_returned AS return_qty,
+          (d.qty_returned * d.unit_price) AS return_value,
+          d.reason_code AS reason
+        FROM pur_returns r
+        JOIN pur_return_details d ON d.return_id = r.id
+        LEFT JOIN pur_suppliers s ON s.id = r.supplier_id
+        LEFT JOIN inv_items it ON it.id = d.item_id
+        WHERE r.company_id = :companyId AND r.branch_id = :branchId
+        ORDER BY r.return_date DESC, r.id DESC, d.id ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/item-purchase-history",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.BILL.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          it.item_name,
+          s.supplier_name,
+          p.po_no,
+          p.po_date AS purchase_date,
+          d.qty AS quantity,
+          d.unit_price,
+          d.line_total AS total_cost
+        FROM pur_orders p
+        JOIN pur_order_details d ON d.po_id = p.id
+        LEFT JOIN inv_items it ON it.id = d.item_id
+        LEFT JOIN pur_suppliers s ON s.id = p.supplier_id
+        WHERE p.company_id = :companyId AND p.branch_id = :branchId
+        ORDER BY p.po_date DESC, p.id DESC, d.id ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/price-variance",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.BILL.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT t.item_name, t.supplier_name, t.current_price, t.last_price,
+               CASE 
+                 WHEN t.last_price IS NULL OR t.last_price = 0 THEN NULL
+                 ELSE ROUND(((t.current_price - t.last_price) * 100) / t.last_price, 2)
+               END AS variance_percent
+        FROM (
+          SELECT 
+            it.item_name,
+            s.supplier_name,
+            MAX(CASE WHEN rn = 1 THEN d.unit_price END) AS current_price,
+            MAX(CASE WHEN rn = 2 THEN d.unit_price END) AS last_price
+          FROM (
+            SELECT d.*, i.bill_date,
+                   ROW_NUMBER() OVER (PARTITION BY d.item_id ORDER BY i.bill_date DESC, i.id DESC) AS rn
+            FROM pur_bill_details d
+            JOIN pur_bills i ON i.id = d.bill_id
+            WHERE i.company_id = :companyId AND i.branch_id = :branchId
+          ) d
+          LEFT JOIN inv_items it ON it.id = d.item_id
+          LEFT JOIN pur_bills bi ON bi.id = d.bill_id
+          LEFT JOIN pur_suppliers s ON s.id = bi.supplier_id
+          GROUP BY it.item_name, s.supplier_name
+        ) t
+        ORDER BY t.item_name ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/supplier-performance",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.BILL.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          s.supplier_name,
+          COALESCE(o.total_pos, 0) AS total_pos_issued,
+          COALESCE(o.total_value, 0) AS total_purchase_value,
+          COALESCE(otd.on_time_pct, 0) AS on_time_delivery_percent,
+          COALESCE(otd.avg_delay_days, 0) AS avg_delivery_delay_days,
+          COALESCE(ret.return_rate, 0) AS return_rate_percent
+        FROM pur_suppliers s
+        LEFT JOIN (
+          SELECT supplier_id, COUNT(*) AS total_pos, SUM(total_amount) AS total_value
+          FROM pur_orders
+          WHERE company_id = :companyId AND branch_id = :branchId
+          GROUP BY supplier_id
+        ) o ON o.supplier_id = s.id
+        LEFT JOIN (
+          SELECT 
+            p.supplier_id,
+            ROUND(AVG(GREATEST(DATEDIFF(g.grn_date, p.delivery_date), 0)), 2) AS avg_delay_days,
+            ROUND(AVG(CASE WHEN g.grn_date IS NOT NULL AND p.delivery_date IS NOT NULL AND g.grn_date <= p.delivery_date THEN 100 ELSE 0 END), 2) AS on_time_pct
+          FROM pur_orders p
+          LEFT JOIN inv_goods_receipt_notes g ON g.po_id = p.id AND g.company_id = p.company_id
+          WHERE p.company_id = :companyId AND p.branch_id = :branchId
+          GROUP BY p.supplier_id
+        ) otd ON otd.supplier_id = s.id
+        LEFT JOIN (
+          SELECT r.supplier_id, 
+                 CASE WHEN SUM(bi.net_amount) = 0 THEN 0
+                      ELSE ROUND(SUM(d.qty_returned * d.unit_price) * 100 / SUM(bi.net_amount), 2) END AS return_rate
+          FROM pur_returns r
+          LEFT JOIN pur_return_details d ON d.return_id = r.id
+          LEFT JOIN pur_bills bi ON bi.supplier_id = r.supplier_id AND bi.company_id = r.company_id
+          WHERE r.company_id = :companyId AND r.branch_id = :branchId
+          GROUP BY r.supplier_id
+        ) ret ON ret.supplier_id = s.id
+        WHERE s.company_id = :companyId
+        ORDER BY total_purchase_value DESC, s.supplier_name ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/supplier-outstanding-payables",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.BILL.VIEW", "FIN.AP.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          s.supplier_name,
+          b.bill_no,
+          b.bill_date,
+          b.due_date,
+          b.net_amount AS total_amount,
+          0 AS paid_amount,
+          b.net_amount AS balance,
+          CASE 
+            WHEN b.due_date IS NULL THEN 'N/A'
+            WHEN DATEDIFF(CURDATE(), b.due_date) <= 30 THEN '0-30'
+            WHEN DATEDIFF(CURDATE(), b.due_date) <= 60 THEN '31-60'
+            WHEN DATEDIFF(CURDATE(), b.due_date) <= 90 THEN '61-90'
+            ELSE '90+'
+          END AS aging
+        FROM pur_bills b
+        LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
+        WHERE b.company_id = :companyId AND b.branch_id = :branchId
+          AND b.status = 'POSTED'
+        ORDER BY s.supplier_name ASC, b.bill_date ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/purchase-aging",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.BILL.VIEW", "FIN.AP.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          s.supplier_name,
+          b.bill_no,
+          b.bill_date,
+          b.due_date,
+          b.net_amount AS amount,
+          CASE WHEN DATEDIFF(CURDATE(), b.due_date) BETWEEN 0 AND 30 THEN b.net_amount ELSE 0 END AS d0_30,
+          CASE WHEN DATEDIFF(CURDATE(), b.due_date) BETWEEN 31 AND 60 THEN b.net_amount ELSE 0 END AS d31_60,
+          CASE WHEN DATEDIFF(CURDATE(), b.due_date) BETWEEN 61 AND 90 THEN b.net_amount ELSE 0 END AS d61_90,
+          CASE WHEN DATEDIFF(CURDATE(), b.due_date) > 90 THEN b.net_amount ELSE 0 END AS d90_plus
+        FROM pur_bills b
+        LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
+        WHERE b.company_id = :companyId AND b.branch_id = :branchId
+          AND b.status = 'POSTED'
+        ORDER BY s.supplier_name ASC, b.bill_date ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // --- SUPPLIERS ---
 
@@ -3944,9 +5295,23 @@ router.get(
       const { status } = req.query;
       let sql = `
         SELECT p.id, p.po_no, p.po_date, p.supplier_id, s.supplier_name, 
-               p.total_amount, p.status, p.po_type
+               p.total_amount, p.status, p.po_type,
+               u.username AS forwarded_to_username
         FROM pur_orders p
         JOIN pur_suppliers s ON s.id = p.supplier_id
+        LEFT JOIN (
+          SELECT t.document_id, t.assigned_to_user_id
+          FROM adm_document_workflows t
+          JOIN (
+            SELECT document_id, MAX(id) AS max_id
+            FROM adm_document_workflows
+            WHERE company_id = :companyId
+              AND status = 'PENDING'
+              AND (document_type = 'PURCHASE_ORDER' OR document_type = 'Purchase Order' OR document_type LIKE 'PURCHASE_ORDER:%')
+            GROUP BY document_id
+          ) m ON m.max_id = t.id
+        ) x ON x.document_id = p.id
+        LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
         WHERE p.company_id = :companyId AND p.branch_id = :branchId
       `;
       if (status) sql += " AND p.status = :status";
@@ -4825,6 +6190,9 @@ router.post(
         const firstWf = wfDefs[0];
         if (Number(firstWf.is_active) === 0) {
           behavior = firstWf.default_behavior || null;
+          if (!behavior) {
+            behavior = "AUTO_APPROVE";
+          }
         }
       }
       if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
@@ -5054,6 +6422,7 @@ router.get(
                  ELSE 'PARTIALLY_PAID'
                END AS payment_status,
                b.grn_id,
+               g.grn_no,
                b.due_date,
                b.currency_id,
                b.exchange_rate,
@@ -5064,6 +6433,7 @@ router.get(
         FROM pur_bills b
         JOIN pur_suppliers s ON s.id = b.supplier_id
         LEFT JOIN pur_orders p ON p.id = b.po_id
+        LEFT JOIN inv_goods_receipt_notes g ON g.id = b.grn_id
         WHERE b.company_id = :companyId AND b.branch_id = :branchId
           AND (:billType IS NULL OR b.bill_type = :billType)
         ORDER BY b.bill_date DESC, b.id DESC
@@ -5489,4 +6859,916 @@ router.put(
   },
 );
 
+router.get(
+  "/analytics/overview",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const userId = req.user?.sub;
+
+      const purchaseRows = await query(
+        `
+        SELECT COUNT(*) AS count,
+               COALESCE(SUM(total_amount), 0) AS total
+        FROM pur_orders
+        WHERE company_id = :companyId
+          AND branch_id = :branchId
+          AND po_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        `,
+        { companyId, branchId },
+      );
+      const totalPurchases = Number(purchaseRows?.[0]?.total || 0);
+      const totalPurchaseOrders = Number(purchaseRows?.[0]?.count || 0);
+
+      const activePoRows = await query(
+        `
+        SELECT COUNT(*) AS count
+        FROM pur_orders
+        WHERE company_id = :companyId
+          AND branch_id = :branchId
+          AND status NOT IN ('RECEIVED', 'CANCELLED', 'CLOSED', 'REJECTED')
+        `,
+        { companyId, branchId },
+      );
+      const activePurchaseOrders = Number(activePoRows?.[0]?.count || 0);
+
+      const supplierRows = await query(
+        `
+        SELECT COUNT(*) AS count
+        FROM pur_suppliers
+        WHERE company_id = :companyId
+          AND is_active = 1
+        `,
+        { companyId },
+      );
+      const activeSuppliers = Number(supplierRows?.[0]?.count || 0);
+
+      const pendingRows = await query(
+        `
+        SELECT COUNT(*) AS count
+        FROM adm_document_workflows dw
+        WHERE dw.company_id = :companyId
+          AND dw.status = 'PENDING'
+          AND dw.assigned_to_user_id = :userId
+          AND (
+            dw.document_type = 'PURCHASE_ORDER'
+            OR dw.document_type = 'Purchase Order'
+            OR dw.document_type LIKE 'PURCHASE_ORDER:%'
+          )
+        `,
+        { companyId, userId },
+      );
+      const pendingApprovals = Number(pendingRows?.[0]?.count || 0);
+
+      const payableRows = await query(
+        `
+        SELECT COALESCE(
+                 SUM(GREATEST(COALESCE(net_amount, 0) - COALESCE(amount_paid, 0), 0)),
+                 0
+               ) AS total
+        FROM pur_bills
+        WHERE company_id = :companyId
+          AND branch_id = :branchId
+          AND status = 'POSTED'
+          AND COALESCE(amount_paid, 0) < COALESCE(net_amount, 0)
+        `,
+        { companyId, branchId },
+      );
+      const outstandingPayables = Number(payableRows?.[0]?.total || 0);
+
+      res.json({
+        totalPurchases,
+        totalPurchaseOrders,
+        activePurchaseOrders,
+        activeSuppliers,
+        pendingApprovals,
+        outstandingPayables,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Purchase Dashboard Metrics: cards + monthly trend + top suppliers
+router.get(
+  "/dashboard/metrics",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const top = Math.max(1, Math.min(50, Number(req.query.top || 10)));
+      const now = new Date();
+      const qFrom = req.query.from ? new Date(String(req.query.from)) : null;
+      const qTo = req.query.to ? new Date(String(req.query.to)) : null;
+      const to = qTo && !Number.isNaN(qTo.getTime()) ? qTo : now;
+      // Default from: fiscal year start if available; fallback to Jan 1
+      const fyRows =
+        (await query(
+          `SELECT start_date
+             FROM fin_fiscal_years
+            WHERE company_id = :companyId
+            ORDER BY start_date DESC
+            LIMIT 1`,
+          { companyId },
+        ).catch(() => [])) || [];
+      const fromDefault =
+        fyRows?.[0]?.start_date || new Date(now.getFullYear(), 0, 1);
+      const from =
+        qFrom && !Number.isNaN(qFrom.getTime()) ? qFrom : fromDefault;
+      const weekStart = new Date(to);
+      weekStart.setDate(to.getDate() - ((to.getDay() + 6) % 7)); // Monday as start
+      const monthStart = new Date(to.getFullYear(), to.getMonth(), 1);
+      const asDateStr = (d) =>
+        typeof d === "string" ? d : d.toISOString().slice(0, 10);
+
+      // Cards: Orders (POs) and Purchases (Bills)
+      async function sumOrdersBetween(a, b) {
+        const rows = await query(
+          `SELECT COALESCE(SUM(p.total_amount),0) AS amt
+             FROM pur_orders p
+            WHERE p.company_id = :companyId
+              AND p.branch_id = :branchId
+              AND p.po_date BETWEEN :from AND :to`,
+          { companyId, branchId, from: asDateStr(a), to: asDateStr(b) },
+        ).catch(() => []);
+        return Number(rows?.[0]?.amt || 0);
+      }
+      async function sumPurchasesBetween(a, b) {
+        const rows = await query(
+          `SELECT COALESCE(SUM(b.net_amount),0) AS amt
+             FROM pur_bills b
+            WHERE b.company_id = :companyId
+              AND b.branch_id = :branchId
+              AND b.bill_date BETWEEN :from AND :to`,
+          { companyId, branchId, from: asDateStr(a), to: asDateStr(b) },
+        ).catch(() => []);
+        return Number(rows?.[0]?.amt || 0);
+      }
+      const cards = {
+        ytd_po_value: await sumOrdersBetween(from, to),
+        mtd_po_value: await sumOrdersBetween(monthStart, to),
+        wtd_po_value: await sumOrdersBetween(weekStart, to),
+        ytd_purchase_value: await sumPurchasesBetween(from, to),
+        mtd_purchase_value: await sumPurchasesBetween(monthStart, to),
+        wtd_purchase_value: await sumPurchasesBetween(weekStart, to),
+      };
+
+      // Monthly trend between from..to
+      const trendRows = await query(
+        `
+        SELECT ym, 
+               COALESCE(SUM(order_total),0) AS order_total,
+               COALESCE(SUM(purchase_total),0) AS purchase_total
+        FROM (
+          SELECT DATE_FORMAT(p.po_date, '%Y-%m-01') AS ym, SUM(p.total_amount) AS order_total, 0 AS purchase_total
+            FROM pur_orders p
+           WHERE p.company_id = :companyId
+             AND p.branch_id = :branchId
+             AND p.po_date BETWEEN :from AND :to
+           GROUP BY DATE_FORMAT(p.po_date, '%Y-%m-01')
+          UNION ALL
+          SELECT DATE_FORMAT(b.bill_date, '%Y-%m-01') AS ym, 0 AS order_total, SUM(b.net_amount) AS purchase_total
+            FROM pur_bills b
+           WHERE b.company_id = :companyId
+             AND b.branch_id = :branchId
+             AND b.bill_date BETWEEN :from AND :to
+           GROUP BY DATE_FORMAT(b.bill_date, '%Y-%m-01')
+        ) x
+        GROUP BY ym
+        ORDER BY ym ASC
+        `,
+        { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+      ).catch(() => []);
+      const monthWiseTrend = trendRows.map((r) => ({
+        label: r.ym?.slice(0, 7) || "",
+        a: Number(r.order_total || 0),
+        b: Number(r.purchase_total || 0),
+      }));
+
+      // Top suppliers by purchases within range
+      const topLimit = Number.isFinite(top)
+        ? Math.max(1, Math.min(50, top))
+        : 10;
+      const topSupplierRows = await query(
+        `
+        SELECT s.supplier_name AS label, COALESCE(SUM(b.net_amount),0) AS value
+          FROM pur_bills b
+          JOIN pur_suppliers s ON s.id = b.supplier_id
+         WHERE b.company_id = :companyId
+           AND b.branch_id = :branchId
+           AND b.bill_date BETWEEN :from AND :to
+         GROUP BY s.supplier_name
+         ORDER BY value DESC
+         LIMIT ${topLimit}
+        `,
+        {
+          companyId,
+          branchId,
+          from: asDateStr(from),
+          to: asDateStr(to),
+        },
+      ).catch(() => []);
+
+      res.json({
+        cards,
+        month_wise_trend: monthWiseTrend,
+        top_suppliers: topSupplierRows,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Service Management Dashboard Metrics
+router.get(
+  "/service/dashboard/metrics",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const top = Math.max(1, Math.min(50, Number(req.query.top || 10)));
+      const qFrom = req.query.from ? new Date(String(req.query.from)) : null;
+      const qTo = req.query.to ? new Date(String(req.query.to)) : null;
+      const to = qTo && !Number.isNaN(qTo.getTime()) ? qTo : new Date();
+      const fromDefault = new Date(to.getFullYear(), 0, 1);
+      const from =
+        qFrom && !Number.isNaN(qFrom.getTime()) ? qFrom : fromDefault;
+      const weekStart = new Date(to);
+      weekStart.setDate(to.getDate() - ((to.getDay() + 6) % 7));
+      const monthStart = new Date(to.getFullYear(), to.getMonth(), 1);
+      const asDateStr = (d) =>
+        typeof d === "string" ? d : d.toISOString().slice(0, 10);
+
+      async function sumCount(sql, params) {
+        const rows = await query(sql, params).catch(() => []);
+        return Number(rows?.[0]?.c || 0);
+      }
+      async function sumAmount(sql, params) {
+        const rows = await query(sql, params).catch(() => []);
+        return Number(rows?.[0]?.amt || 0);
+      }
+
+      // Cards
+      const cards = {
+        ytd_requests: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_requests
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND request_date BETWEEN :from AND :to`,
+          { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+        ),
+        mtd_requests: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_requests
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND request_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(monthStart),
+            to: asDateStr(to),
+          },
+        ),
+        wtd_requests: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_requests
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND request_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(weekStart),
+            to: asDateStr(to),
+          },
+        ),
+        ytd_orders: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_orders
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND order_date BETWEEN :from AND :to`,
+          { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+        ),
+        mtd_orders: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_orders
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND order_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(monthStart),
+            to: asDateStr(to),
+          },
+        ),
+        wtd_orders: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_orders
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND order_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(weekStart),
+            to: asDateStr(to),
+          },
+        ),
+        ytd_executions: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_executions
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND execution_date BETWEEN :from AND :to`,
+          { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+        ),
+        mtd_executions: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_executions
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND execution_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(monthStart),
+            to: asDateStr(to),
+          },
+        ),
+        wtd_executions: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_executions
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND execution_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(weekStart),
+            to: asDateStr(to),
+          },
+        ),
+        ytd_confirmations: await sumCount(
+          `SELECT COUNT(*) AS c FROM inv_service_confirmations
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND sc_date BETWEEN :from AND :to`,
+          { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+        ),
+        mtd_confirmations: await sumCount(
+          `SELECT COUNT(*) AS c FROM inv_service_confirmations
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND sc_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(monthStart),
+            to: asDateStr(to),
+          },
+        ),
+        wtd_confirmations: await sumCount(
+          `SELECT COUNT(*) AS c FROM inv_service_confirmations
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND sc_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(weekStart),
+            to: asDateStr(to),
+          },
+        ),
+        ytd_service_bill_value: await sumAmount(
+          `SELECT COALESCE(SUM(total_amount),0) AS amt
+             FROM pur_service_bills
+            WHERE company_id = :companyId AND branch_id = :branchId
+              AND bill_date BETWEEN :from AND :to`,
+          { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+        ),
+        mtd_service_bill_value: await sumAmount(
+          `SELECT COALESCE(SUM(total_amount),0) AS amt
+             FROM pur_service_bills
+            WHERE company_id = :companyId AND branch_id = :branchId
+              AND bill_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(monthStart),
+            to: asDateStr(to),
+          },
+        ),
+      };
+
+      // Month-wise trend (orders vs executions vs confirmations)
+      const trendRows = await query(
+        `
+        SELECT ym,
+               COALESCE(SUM(orders),0) AS orders,
+               COALESCE(SUM(executions),0) AS executions,
+               COALESCE(SUM(confirmations),0) AS confirmations
+        FROM (
+          SELECT DATE_FORMAT(order_date, '%Y-%m-01') AS ym, COUNT(*) AS orders, 0 AS executions, 0 AS confirmations
+            FROM pur_service_orders
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND order_date BETWEEN :from AND :to
+           GROUP BY DATE_FORMAT(order_date, '%Y-%m-01')
+          UNION ALL
+          SELECT DATE_FORMAT(execution_date, '%Y-%m-01') AS ym, 0 AS orders, COUNT(*) AS executions, 0 AS confirmations
+            FROM pur_service_executions
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND execution_date BETWEEN :from AND :to
+           GROUP BY DATE_FORMAT(execution_date, '%Y-%m-01')
+          UNION ALL
+          SELECT DATE_FORMAT(sc_date, '%Y-%m-01') AS ym, 0 AS orders, 0 AS executions, COUNT(*) AS confirmations
+            FROM inv_service_confirmations
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND sc_date BETWEEN :from AND :to
+           GROUP BY DATE_FORMAT(sc_date, '%Y-%m-01')
+        ) x
+        GROUP BY ym
+        ORDER BY ym ASC
+        `,
+        { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+      ).catch(() => []);
+      const monthWiseTrend = trendRows.map((r) => ({
+        label: r.ym?.slice(0, 7) || "",
+        orders: Number(r.orders || 0),
+        executions: Number(r.executions || 0),
+        confirmations: Number(r.confirmations || 0),
+      }));
+
+      // Top service categories (from orders)
+      const topCategories = await query(
+        `
+        SELECT COALESCE(service_category,'UNSPECIFIED') AS label, COUNT(*) AS value
+          FROM pur_service_orders
+         WHERE company_id = :companyId AND branch_id = :branchId
+           AND order_date BETWEEN :from AND :to
+         GROUP BY COALESCE(service_category,'UNSPECIFIED')
+         ORDER BY value DESC
+         LIMIT ${top}
+        `,
+        { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+      ).catch(() => []);
+
+      res.json({
+        cards,
+        month_wise_trend: monthWiseTrend,
+        top_categories: topCategories,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 export default router;
+// Direct Purchase
+async function ensureDirectPurchaseTables() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pur_direct_purchase_hdr (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      dp_no VARCHAR(50) NOT NULL,
+      dp_date DATE NOT NULL,
+      supplier_id BIGINT UNSIGNED NOT NULL,
+      warehouse_id BIGINT UNSIGNED NULL,
+      currency_id BIGINT UNSIGNED NULL,
+      exchange_rate DECIMAL(18,6) NOT NULL DEFAULT 1,
+      payment_terms INT NULL,
+      remarks VARCHAR(255) NULL,
+      subtotal DECIMAL(18,2) NOT NULL DEFAULT 0,
+      discount_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
+      tax_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
+      net_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
+      status ENUM('DRAFT','POSTED','CANCELLED') NOT NULL DEFAULT 'DRAFT',
+      grn_id BIGINT UNSIGNED NULL,
+      bill_id BIGINT UNSIGNED NULL,
+      grn_voucher_id BIGINT UNSIGNED NULL,
+      bill_voucher_id BIGINT UNSIGNED NULL,
+      created_by BIGINT UNSIGNED NULL,
+      approved_by BIGINT UNSIGNED NULL,
+      posted_by BIGINT UNSIGNED NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_dp_scope_no (company_id, branch_id, dp_no),
+      KEY idx_dp_scope (company_id, branch_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pur_direct_purchase_dtl (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      hdr_id BIGINT UNSIGNED NOT NULL,
+      item_id BIGINT UNSIGNED NOT NULL,
+      qty DECIMAL(18,3) NOT NULL,
+      uom VARCHAR(20) DEFAULT 'PCS',
+      unit_price DECIMAL(18,2) NOT NULL,
+      discount_percent DECIMAL(9,3) DEFAULT 0,
+      tax_percent DECIMAL(9,3) DEFAULT 0,
+      line_total DECIMAL(18,2) NOT NULL,
+      PRIMARY KEY (id),
+      KEY idx_dp_dtl_hdr (hdr_id),
+      KEY idx_dp_dtl_item (item_id),
+      CONSTRAINT fk_dp_dtl_hdr FOREIGN KEY (hdr_id) REFERENCES pur_direct_purchase_hdr(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+router.post(
+  "/direct-purchases",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "PURCHASE.ORDER.MANAGE",
+    "PURCHASE.GRN.MANAGE",
+    "PURCHASE.BILL.MANAGE",
+  ]),
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId } = req.scope;
+      const body = req.body || {};
+      const status = String(body.status || "DRAFT").toUpperCase();
+      const supplierId = toNumber(body.supplier_id);
+      const warehouseId = toNumber(body.warehouse_id);
+      function normalizeYmd(input) {
+        if (!input) return toYmd(new Date());
+        if (input instanceof Date && !Number.isNaN(input.getTime()))
+          return toYmd(input);
+        const s = String(input).trim();
+        const dateOnly = s.split("T")[0];
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return dateOnly;
+        const d = new Date(s);
+        if (!Number.isNaN(d.getTime())) return toYmd(d);
+        return toYmd(new Date());
+      }
+      const dpDateYmd = normalizeYmd(body.purchase_date);
+      const currencyId = toNumber(body.currency_id) || null;
+      const exchangeRate = Number(body.exchange_rate || 1) || 1;
+      const paymentTerms = toNumber(body.payment_terms) || null;
+      const remarks = body.remarks || null;
+      const details = Array.isArray(body.details) ? body.details : [];
+      if (!supplierId)
+        throw httpError(400, "VALIDATION_ERROR", "supplier_id required");
+      if (!warehouseId)
+        throw httpError(400, "VALIDATION_ERROR", "warehouse_id required");
+      if (!details.length)
+        throw httpError(400, "VALIDATION_ERROR", "details required");
+      await ensureDirectPurchaseTables();
+      await ensureGrnUomConversionColumns();
+      await ensureUnitConversionsTable();
+      const dpNo =
+        body.dp_no ||
+        (await nextSequentialNo("pur_direct_purchase_hdr", "dp_no", "DP"));
+
+      let subtotal = 0;
+      let totalDiscount = 0;
+      let totalTax = 0;
+      const cleanDetails = [];
+      for (const d of details) {
+        const itemId = toNumber(d.item_id);
+        const qty = Number(d.qty || 0);
+        const unitPrice = Number(d.unit_price || 0);
+        const discountPercent = Number(d.discount_percent || 0);
+        const taxPercent = Number(d.tax_percent || 0);
+        if (!itemId || !(qty > 0) || !(unitPrice >= 0)) continue;
+        const gross = qty * unitPrice;
+        const disc = Math.round(gross * discountPercent) / 100;
+        const base = Math.max(0, gross - disc);
+        const tax = Math.round(base * taxPercent) / 100;
+        const lineTotal = Math.round((base + tax) * 100) / 100;
+        subtotal += gross;
+        totalDiscount += disc;
+        totalTax += tax;
+        cleanDetails.push({
+          itemId,
+          qty,
+          unitPrice,
+          discountPercent,
+          taxPercent,
+          lineTotal,
+          uom: String(d.uom || "PCS"),
+        });
+      }
+      const netAmount =
+        Math.round((subtotal - totalDiscount + totalTax) * 100) / 100;
+
+      await conn.beginTransaction();
+      const [hdrIns] = await conn.execute(
+        `INSERT INTO pur_direct_purchase_hdr
+         (company_id, branch_id, dp_no, dp_date, supplier_id, warehouse_id, currency_id, exchange_rate, payment_terms, remarks, subtotal, discount_amount, tax_amount, net_amount, status, created_by)
+         VALUES
+         (:companyId, :branchId, :dpNo, :dpDate, :supplierId, :warehouseId, :currencyId, :exchangeRate, :paymentTerms, :remarks, :subtotal, :discountAmount, :taxAmount, :netAmount, 'DRAFT', :createdBy)`,
+        {
+          companyId,
+          branchId,
+          dpNo,
+          dpDate: dpDateYmd,
+          supplierId,
+          warehouseId,
+          currencyId,
+          exchangeRate,
+          paymentTerms,
+          remarks,
+          subtotal,
+          discountAmount: totalDiscount,
+          taxAmount: totalTax,
+          netAmount,
+          createdBy: req.user?.sub || null,
+        },
+      );
+      const dpId = Number(hdrIns.insertId);
+      for (const d of cleanDetails) {
+        await conn.execute(
+          `INSERT INTO pur_direct_purchase_dtl
+           (hdr_id, item_id, qty, uom, unit_price, discount_percent, tax_percent, line_total)
+           VALUES
+           (:hdrId, :itemId, :qty, :uom, :unitPrice, :discountPercent, :taxPercent, :lineTotal)`,
+          { hdrId: dpId, ...d },
+        );
+      }
+
+      if (status === "DRAFT") {
+        await conn.commit();
+        return res.status(201).json({
+          id: dpId,
+          dp_no: dpNo,
+          status: "DRAFT",
+          net_amount: netAmount,
+        });
+      }
+
+      const grnNo = await nextSequentialNo(
+        "inv_goods_receipt_notes",
+        "grn_no",
+        "GRN",
+      );
+      const [grnHdr] = await conn.execute(
+        `INSERT INTO inv_goods_receipt_notes
+         (company_id, branch_id, grn_no, grn_date, grn_type, po_id, supplier_id, warehouse_id, status, remarks, created_by)
+         VALUES
+         (:companyId, :branchId, :grnNo, :grnDate, 'LOCAL', NULL, :supplierId, :warehouseId, 'APPROVED', :remarks, :createdBy)`,
+        {
+          companyId,
+          branchId,
+          grnNo,
+          grnDate: dpDateYmd,
+          supplierId,
+          warehouseId,
+          remarks,
+          createdBy: req.user?.sub || null,
+        },
+      );
+      const grnId = Number(grnHdr.insertId);
+      for (const d of cleanDetails) {
+        await conn.execute(
+          `INSERT INTO inv_goods_receipt_note_details
+           (grn_id, item_id, qty_ordered, qty_received, qty_accepted, qty_rejected, uom, unit_price, line_amount)
+           VALUES
+           (:grnId, :itemId, :qty, :qty, :qty, 0, :uom, :unitPrice, :lineTotal)`,
+          {
+            grnId,
+            itemId: d.itemId,
+            qty: d.qty,
+            uom: d.uom,
+            unitPrice: d.unitPrice,
+            lineTotal: d.lineTotal,
+          },
+        );
+        await conn.execute(
+          `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
+           VALUES (:companyId, :branchId, :warehouseId, :itemId, :qty)
+           ON DUPLICATE KEY UPDATE qty = qty + :qty`,
+          {
+            companyId,
+            branchId,
+            warehouseId,
+            itemId: d.itemId,
+            qty: d.qty,
+          },
+        );
+      }
+      const { voucherId: grnVoucherId, voucherNo: grnVoucherNo } =
+        await postGrnAccrualTx(conn, {
+          companyId,
+          branchId,
+          grnId,
+          inventoryAccountRef: "1200",
+          grnClearingAccountRef: "2100",
+        });
+
+      const billNo = await nextSequentialNo("pur_bills", "bill_no", "PB");
+      const [billHdr] = await conn.execute(
+        `INSERT INTO pur_bills
+          (company_id, branch_id, bill_no, bill_date, supplier_id, po_id, grn_id, bill_type,
+           due_date, currency_id, exchange_rate, payment_terms,
+           total_amount, discount_amount, tax_amount, freight_charges, other_charges, net_amount,
+           status, created_by)
+         VALUES
+          (:companyId, :branchId, :billNo, :billDate, :supplierId, NULL, :grnId, 'LOCAL',
+           :dueDate, :currencyId, :exchangeRate, :paymentTerms,
+           :totalAmount, :discountAmount, :taxAmount, 0, 0, :netAmount,
+           'DRAFT', :createdBy)`,
+        {
+          companyId,
+          branchId,
+          billNo,
+          billDate: dpDateYmd,
+          supplierId,
+          grnId,
+          dueDate: null,
+          currencyId,
+          exchangeRate,
+          paymentTerms,
+          totalAmount: subtotal,
+          discountAmount: totalDiscount,
+          taxAmount: totalTax,
+          netAmount,
+          createdBy: req.user?.sub || null,
+        },
+      );
+      const billId = Number(billHdr.insertId);
+      for (const d of cleanDetails) {
+        await conn.execute(
+          `INSERT INTO pur_bill_details
+            (bill_id, item_id, uom_id, qty, unit_price, discount_percent, tax_amount, line_total)
+           VALUES
+            (:billId, :itemId, NULL, :qty, :unitPrice, :discountPercent, :taxAmount, :lineTotal)`,
+          {
+            billId,
+            itemId: d.itemId,
+            qty: d.qty,
+            unitPrice: d.unitPrice,
+            discountPercent: d.discountPercent,
+            taxAmount:
+              Math.round(
+                (d.lineTotal -
+                  d.qty * d.unitPrice +
+                  (d.discountPercent
+                    ? (d.qty * d.unitPrice * d.discountPercent) / 100
+                    : 0)) *
+                  100,
+              ) / 100,
+            lineTotal: d.lineTotal,
+          },
+        );
+      }
+
+      const rate = Number(exchangeRate || 1);
+      const goodsExclusive = Math.max(0, subtotal - totalDiscount);
+      const vatAmount = Math.max(0, totalTax);
+      const goodsBase = Math.round(goodsExclusive * rate * 100) / 100;
+      const vatBase = Math.round(vatAmount * rate * 100) / 100;
+      const [grnDetRows] = await conn.execute(
+        "SELECT SUM(qty_accepted * unit_price) AS goods_base FROM inv_goods_receipt_note_details WHERE grn_id = :grnId",
+        { grnId },
+      );
+      const grnGoodsBase =
+        Math.round(Number(grnDetRows?.[0]?.goods_base || 0) * 100) / 100;
+      const grnClearingAccountId = await resolveGrnClearingAccountIdAuto(conn, {
+        companyId,
+        grnNo,
+      });
+      let vatInputAccountId = 0;
+      if (vatBase > 0) {
+        vatInputAccountId = await resolveVatInputAccountIdAuto(conn, {
+          companyId,
+        });
+      }
+      let expenseAccountId = 0;
+      const chargesBase = 0;
+      const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
+      const voucherTypeId = await ensureJournalVoucherTypeIdTx(conn, {
+        companyId,
+      });
+      const voucherNo = await nextVoucherNoTx(conn, {
+        companyId,
+        voucherTypeId,
+      });
+      const voucherDate = toYmd(new Date());
+      const apCredit =
+        Math.round((goodsBase + vatBase + chargesBase) * 100) / 100;
+      const totalDebit = grnGoodsBase + (vatBase > 0 ? vatBase : 0);
+      const totalCredit = apCredit;
+      const [vIns] = await conn.execute(
+        `INSERT INTO fin_vouchers
+          (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
+         VALUES
+          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
+        {
+          companyId,
+          branchId,
+          fiscalYearId,
+          voucherTypeId,
+          voucherNo,
+          voucherDate,
+          narration: `Purchase Bill ${billNo} posting`,
+          totalDebit,
+          totalCredit,
+          createdBy: req.user?.sub || null,
+          approvedBy: req.user?.sub || null,
+          postedBy: req.user?.sub || null,
+        },
+      );
+      const billVoucherId = Number(vIns?.insertId || 0) || 0;
+      let lineNo = 1;
+      await conn.execute(
+        `INSERT INTO fin_voucher_lines
+          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+         VALUES
+          (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
+        {
+          companyId,
+          voucherId: billVoucherId,
+          lineNo: lineNo++,
+          accountId: grnClearingAccountId,
+          description: `GRN ${grnNo} clearing`,
+          debit: grnGoodsBase,
+          referenceNo: billNo,
+        },
+      );
+      if (vatBase > 0 && vatInputAccountId) {
+        await conn.execute(
+          `INSERT INTO fin_voucher_lines
+            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+           VALUES
+            (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
+          {
+            companyId,
+            voucherId: billVoucherId,
+            lineNo: lineNo++,
+            accountId: vatInputAccountId,
+            description: `VAT input on ${billNo}`,
+            debit: vatBase,
+            referenceNo: billNo,
+          },
+        );
+      }
+      const [apRows] = await conn.execute(
+        `SELECT id
+         FROM fin_accounts
+         WHERE company_id = :companyId
+           AND is_active = 1
+           AND is_postable = 1
+           AND code = '2001'
+         LIMIT 1`,
+        { companyId },
+      );
+      const supplierAccId = Number(apRows?.[0]?.id || 0) || 0;
+      await conn.execute(
+        `INSERT INTO fin_voucher_lines
+          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+         VALUES
+          (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :referenceNo)`,
+        {
+          companyId,
+          voucherId: billVoucherId,
+          lineNo: lineNo++,
+          accountId: supplierAccId,
+          description: `AP for ${billNo}`,
+          credit: apCredit,
+          referenceNo: billNo,
+        },
+      );
+      await conn.execute(
+        "UPDATE pur_bills SET status = 'POSTED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
+        { id: billId, companyId, branchId },
+      );
+
+      await conn.execute(
+        `UPDATE pur_direct_purchase_hdr
+           SET status = 'POSTED',
+               grn_id = :grnId,
+               bill_id = :billId,
+               grn_voucher_id = :grnVoucherId,
+               bill_voucher_id = :billVoucherId,
+               approved_by = :userId,
+               posted_by = :userId
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        {
+          id: dpId,
+          companyId,
+          branchId,
+          grnId,
+          billId,
+          grnVoucherId,
+          billVoucherId,
+          userId: req.user?.sub || null,
+        },
+      );
+      await conn.commit();
+      res.status(201).json({
+        id: dpId,
+        dp_no: dpNo,
+        status: "POSTED",
+        grn_id: grnId,
+        bill_id: billId,
+        grn_voucher_id: grnVoucherId,
+        bill_voucher_id: billVoucherId,
+        net_amount: netAmount,
+      });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(err);
+    } finally {
+      conn.release();
+    }
+  },
+);

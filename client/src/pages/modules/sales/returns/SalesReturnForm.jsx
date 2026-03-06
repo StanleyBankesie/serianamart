@@ -337,7 +337,7 @@ export default function SalesReturnForm() {
         items: normalizedItems,
       };
       await api.post("/sales/returns", payload);
-      navigate("/inventory/sales-returns");
+      navigate("/inventory/sales-returns", { state: { refresh: true } });
     } catch (e2) {
       setError(e2?.response?.data?.message || "Failed to save sales return");
     } finally {

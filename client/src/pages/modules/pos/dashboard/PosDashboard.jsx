@@ -1,6 +1,29 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../../../api/client.js";
+import ChartPie from "@/components/charts/ChartPie.jsx";
+
+function shade(c, pct) {
+  const n = c.replace("#", "");
+  const num = parseInt(
+    n.length === 3
+      ? n
+          .split("")
+          .map((x) => x + x)
+          .join("")
+      : n,
+    16,
+  );
+  const r = (num >> 16) & 0xff;
+  const g = (num >> 8) & 0xff;
+  const b = num & 0xff;
+  const t = pct < 0 ? 0 : 255;
+  const p = Math.abs(pct);
+  const nr = Math.round((t - r) * p + r);
+  const ng = Math.round((t - g) * p + g);
+  const nb = Math.round((t - b) * p + b);
+  return `rgb(${nr},${ng},${nb})`;
+}
 
 function BarChart({
   data,
@@ -32,7 +55,9 @@ function BarChart({
               className="w-8 rounded-t"
               style={{
                 height: `${Math.max(4, b.h)}px`,
-                backgroundColor: color,
+                backgroundImage: `linear-gradient(${shade(color, 0.35)}, ${color})`,
+                boxShadow:
+                  "inset 0 2px 4px rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.15), 3px -3px 0 rgba(0,0,0,0.08)",
               }}
               title={`${b.label} • ${formatY ? formatY(b.value) : b.value.toLocaleString()}`}
             />
@@ -105,69 +130,19 @@ function LineChart({
   );
 }
 
-function PieChart({ data, size = 160, label }) {
-  const total = data.reduce((sum, d) => sum + Number(d.value || 0), 0);
-  const r = size / 2;
-  const cx = r;
-  const cy = r;
-  let acc = 0;
-  const slices = data.map((d, idx) => {
-    const v = Number(d.value || 0);
-    const frac = total ? v / total : 0;
-    const start = acc * 2 * Math.PI;
-    const end = (acc + frac) * 2 * Math.PI;
-    acc += frac;
-    const x1 = cx + r * Math.cos(start);
-    const y1 = cy + r * Math.sin(start);
-    const x2 = cx + r * Math.cos(end);
-    const y2 = cy + r * Math.sin(end);
-    const largeArc = end - start > Math.PI ? 1 : 0;
-    const colors = [
-      "#0e3646",
-      "#0f6b83",
-      "#12a3bf",
-      "#5cc2d4",
-      "#9bd9e2",
-      "#cfeef1",
-      "#fcd34d",
-      "#fb7185",
-    ];
-    const fill = colors[idx % colors.length];
-    return {
-      d: `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`,
-      fill,
-      label: d.label,
-      value: v,
-    };
-  });
+function PieChart({ data, label }) {
   return (
-    <div className="flex items-center gap-3">
-      <svg width={size} height={size}>
-        {slices.map((s, idx) => (
-          <path key={idx} d={s.d} fill={s.fill} />
-        ))}
-      </svg>
+    <div className="flex items-start gap-4">
+      <div className="min-w-[240px] w-[240px] h-[240px]">
+        <ChartPie data={data} donut />
+      </div>
       <div className="text-xs space-y-1">
         {label ? (
           <div className="font-semibold text-slate-600 mb-1">{label}</div>
         ) : null}
         {data.map((d, idx) => (
           <div key={idx} className="flex items-center gap-2">
-            <span
-              className="inline-block w-3 h-3 rounded"
-              style={{
-                backgroundColor: [
-                  "#0e3646",
-                  "#0f6b83",
-                  "#12a3bf",
-                  "#5cc2d4",
-                  "#9bd9e2",
-                  "#cfeef1",
-                  "#fcd34d",
-                  "#fb7185",
-                ][idx % 8],
-              }}
-            />
+            <span className="inline-block w-3 h-3 rounded" />
             <span className="flex-1">{d.label}</span>
             <span className="font-semibold">
               {Number(d.value || 0).toLocaleString()}
@@ -207,7 +182,9 @@ function GroupedBarChart({
                     style={{
                       width: 10,
                       height: `${Math.max(4, h)}px`,
-                      backgroundColor: s.color,
+                      backgroundImage: `linear-gradient(${shade(s.color, 0.35)}, ${s.color})`,
+                      boxShadow:
+                        "inset 0 2px 4px rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.15), 2px -2px 0 rgba(0,0,0,0.08)",
                     }}
                     title={`${s.label} @ ${cat} • ${formatY ? formatY(val) : val.toLocaleString()}`}
                   />
@@ -628,6 +605,25 @@ export default function PosDashboard() {
               formatY={fmtCurrency}
               color="#2563eb"
               areaColor="rgba(37,99,235,0.2)"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1">
+        <div className="card">
+          <div className="card-header bg-slate-50 rounded-t-lg">
+            <div className="font-semibold">Busy Sales Hours (Today)</div>
+            <div className="text-xs text-slate-500">Area emphasis by hour</div>
+          </div>
+          <div className="card-body">
+            <LineChart
+              points={hourlyPoints}
+              xLabel="Hour"
+              yLabel="Sales (GH₵)"
+              formatY={fmtCurrency}
+              color="#22c55e"
+              areaColor="rgba(34,197,94,0.25)"
             />
           </div>
         </div>

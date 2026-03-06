@@ -2486,6 +2486,803 @@ async function ensurePortClearanceStatusEnum() {
   }
 }
 
+// ===== PURCHASE REPORTS =====
+
+function toDateOnly(v) {
+  if (!v) return null;
+  const d = new Date(String(v));
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+router.get(
+  "/reports/import-order-tracking",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.RFQ.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const to = toDateOnly(req.query.to) || toDateOnly(new Date());
+      const from =
+        toDateOnly(req.query.from) ||
+        toDateOnly(new Date(new Date(to).setDate(new Date(to).getDate() - 30)));
+      await ensureShippingAdviceETDColumn();
+      await ensureShippingAdviceStatusEnum();
+      const rows = await query(
+        `
+        SELECT 
+          p.po_no,
+          s.supplier_name,
+          p.po_date AS order_date,
+          x.eta_date,
+          COALESCE(x.status, p.status) AS status,
+          p.total_amount AS total_value
+        FROM pur_orders p
+        JOIN pur_suppliers s ON s.id = p.supplier_id
+        LEFT JOIN (
+          SELECT sa.po_id,
+                 MAX(sa.id) AS latest_id,
+                 MAX(sa.eta_date) AS eta_date,
+                 MAX(sa.status) AS status
+          FROM pur_shipping_advices sa
+          WHERE sa.company_id = :companyId AND sa.branch_id = :branchId
+          GROUP BY sa.po_id
+        ) x ON x.po_id = p.id
+        WHERE p.company_id = :companyId
+          AND p.branch_id = :branchId
+          AND UPPER(p.po_type) = 'IMPORT'
+          AND p.po_date BETWEEN :from AND :to
+        ORDER BY p.po_date DESC, p.id DESC
+        `,
+        { companyId, branchId, from, to },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/local-order-tracking",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const to = toDateOnly(req.query.to) || toDateOnly(new Date());
+      const from =
+        toDateOnly(req.query.from) ||
+        toDateOnly(new Date(new Date(to).setDate(new Date(to).getDate() - 30)));
+      const rows = await query(
+        `
+        SELECT 
+          p.po_no,
+          s.supplier_name,
+          p.po_date AS order_date,
+          NULL AS expected_delivery,
+          p.status,
+          p.total_amount AS total_value
+        FROM pur_orders p
+        JOIN pur_suppliers s ON s.id = p.supplier_id
+        WHERE p.company_id = :companyId
+          AND p.branch_id = :branchId
+          AND UPPER(p.po_type) = 'LOCAL'
+          AND p.po_date BETWEEN :from AND :to
+        ORDER BY p.po_date DESC, p.id DESC
+        `,
+        { companyId, branchId, from, to },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/purchase-tracking",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "PURCHASE.ORDER.VIEW",
+    "PURCHASE.BILL.VIEW",
+    "PURCHASE.RFQ.VIEW",
+  ]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const to = toDateOnly(req.query.to) || toDateOnly(new Date());
+      const from =
+        toDateOnly(req.query.from) ||
+        toDateOnly(new Date(new Date(to).setDate(new Date(to).getDate() - 30)));
+      const rows = await query(
+        `
+        SELECT stage, ref_no, supplier_name, txn_date, status, total_value
+        FROM (
+          SELECT 'PO' AS stage,
+                 p.po_no AS ref_no,
+                 s.supplier_name,
+                 p.po_date AS txn_date,
+                 p.status,
+                 p.total_amount AS total_value
+            FROM pur_orders p
+            JOIN pur_suppliers s ON s.id = p.supplier_id
+           WHERE p.company_id = :companyId
+             AND p.branch_id = :branchId
+             AND p.po_date BETWEEN :from AND :to
+          UNION ALL
+          SELECT 'GRN' AS stage,
+                 g.grn_no AS ref_no,
+                 s.supplier_name,
+                 g.grn_date AS txn_date,
+                 g.status,
+                 COALESCE(SUM(d.qty_accepted * d.unit_price), 0) AS total_value
+            FROM inv_goods_receipt_notes g
+            JOIN inv_goods_receipt_note_details d ON d.grn_id = g.id
+            JOIN pur_suppliers s ON s.id = g.supplier_id
+           WHERE g.company_id = :companyId
+             AND g.branch_id = :branchId
+             AND g.grn_date BETWEEN :from AND :to
+           GROUP BY g.id
+          UNION ALL
+          SELECT 'BILL' AS stage,
+                 b.bill_no AS ref_no,
+                 s.supplier_name,
+                 b.bill_date AS txn_date,
+                 b.status,
+                 b.net_amount AS total_value
+            FROM pur_bills b
+            JOIN pur_suppliers s ON s.id = b.supplier_id
+           WHERE b.company_id = :companyId
+             AND b.branch_id = :branchId
+             AND b.bill_date BETWEEN :from AND :to
+        ) x
+        ORDER BY txn_date ASC
+        `,
+        { companyId, branchId, from, to },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/supplier-quotation-analysis",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.RFQ.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const to = toDateOnly(req.query.to) || toDateOnly(new Date());
+      const from =
+        toDateOnly(req.query.from) ||
+        toDateOnly(new Date(new Date(to).setDate(new Date(to).getDate() - 30)));
+      const rows = await query(
+        `
+        SELECT 
+          q.quotation_no,
+          q.quotation_date,
+          s.supplier_name,
+          COALESCE(SUM(d.line_total), 0) AS total_amount,
+          COUNT(DISTINCT d.item_id) AS items_count
+        FROM pur_supplier_quotations q
+        JOIN pur_suppliers s ON s.id = q.supplier_id
+        LEFT JOIN pur_supplier_quotation_details d ON d.quotation_id = q.id
+        WHERE q.company_id = :companyId
+          AND q.branch_id = :branchId
+          AND q.quotation_date BETWEEN :from AND :to
+        GROUP BY q.id
+        ORDER BY q.quotation_date DESC, q.id DESC
+        `,
+        { companyId, branchId, from, to },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/pending-grn-to-bill-local",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.BILL.VIEW", "PURCHASE.GRN.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT g.grn_no,
+               g.grn_date,
+               s.supplier_name,
+               COALESCE(SUM(d.qty_accepted * d.unit_price), 0) AS grn_value
+        FROM inv_goods_receipt_notes g
+        JOIN inv_goods_receipt_note_details d ON d.grn_id = g.id
+        JOIN pur_suppliers s ON s.id = g.supplier_id
+        LEFT JOIN pur_bills b ON b.grn_id = g.id
+        WHERE g.company_id = :companyId
+          AND g.branch_id = :branchId
+          AND g.grn_type = 'LOCAL'
+          AND b.id IS NULL
+        GROUP BY g.id
+        ORDER BY g.grn_date DESC, g.id DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/pending-grn-to-bill-import",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.BILL.VIEW", "PURCHASE.GRN.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT g.grn_no,
+               g.grn_date,
+               s.supplier_name,
+               COALESCE(SUM(d.qty_accepted * d.unit_price), 0) AS grn_value
+        FROM inv_goods_receipt_notes g
+        JOIN inv_goods_receipt_note_details d ON d.grn_id = g.id
+        JOIN pur_suppliers s ON s.id = g.supplier_id
+        LEFT JOIN pur_bills b ON b.grn_id = g.id
+        WHERE g.company_id = :companyId
+          AND g.branch_id = :branchId
+          AND g.grn_type = 'IMPORT'
+          AND b.id IS NULL
+        GROUP BY g.id
+        ORDER BY g.grn_date DESC, g.id DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/import-order-list",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const to = toDateOnly(req.query.to) || toDateOnly(new Date());
+      const from =
+        toDateOnly(req.query.from) ||
+        toDateOnly(new Date(new Date(to).setDate(new Date(to).getDate() - 30)));
+      const rows = await query(
+        `
+        SELECT p.po_no,
+               p.po_date,
+               s.supplier_name,
+               p.status,
+               p.total_amount
+          FROM pur_orders p
+          JOIN pur_suppliers s ON s.id = p.supplier_id
+         WHERE p.company_id = :companyId
+           AND p.branch_id = :branchId
+           AND UPPER(p.po_type) = 'IMPORT'
+           AND p.po_date BETWEEN :from AND :to
+         ORDER BY p.po_date DESC, p.id DESC
+        `,
+        { companyId, branchId, from, to },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/pending-shipments",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensureShippingAdviceETDColumn();
+      await ensureShippingAdviceStatusEnum();
+      const rows = await query(
+        `
+        SELECT sa.id,
+               p.po_no,
+               s.supplier_name,
+               sa.advice_date,
+               sa.etd_date,
+               sa.eta_date,
+               sa.status
+          FROM pur_shipping_advices sa
+          JOIN pur_orders p ON p.id = sa.po_id
+          JOIN pur_suppliers s ON s.id = sa.supplier_id
+         WHERE sa.company_id = :companyId
+           AND sa.branch_id = :branchId
+           AND sa.status IN ('IN_TRANSIT','ARRIVED')
+         ORDER BY sa.advice_date DESC, sa.id DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/purchase-register",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.BILL.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const to = toDateOnly(req.query.to) || toDateOnly(new Date());
+      const from =
+        toDateOnly(req.query.from) ||
+        toDateOnly(new Date(new Date(to).setDate(new Date(to).getDate() - 30)));
+      const rows = await query(
+        `
+        SELECT b.bill_no,
+               b.bill_date,
+               s.supplier_name,
+               b.bill_type,
+               b.net_amount,
+               b.status
+          FROM pur_bills b
+          JOIN pur_suppliers s ON s.id = b.supplier_id
+         WHERE b.company_id = :companyId
+           AND b.branch_id = :branchId
+           AND b.status IN ('POSTED','DRAFT','APPROVED')
+           AND b.bill_date BETWEEN :from AND :to
+         ORDER BY b.bill_date DESC, b.id DESC
+        `,
+        { companyId, branchId, from, to },
+      ).catch(() => []);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ===== ADDITIONAL PURCHASE REPORTS =====
+
+router.get(
+  "/reports/department-analysis",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.BILL.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          COALESCE(NULLIF(u.department,''), 'N/A') AS department,
+          COALESCE(SUM(p.total_amount), 0) AS total_purchases,
+          (SELECT COUNT(*) FROM pur_bills b WHERE b.company_id = :companyId AND b.branch_id = :branchId) AS total_bills,
+          (SELECT COUNT(*) FROM pur_orders x WHERE x.company_id = :companyId AND x.branch_id = :branchId AND x.status IN ('DRAFT','PENDING_APPROVAL','APPROVED')) AS pending_orders,
+          SUM(CASE WHEN UPPER(p.po_type) = 'IMPORT' THEN p.total_amount ELSE 0 END) AS import_total,
+          SUM(CASE WHEN UPPER(p.po_type) = 'LOCAL' THEN p.total_amount ELSE 0 END) AS local_total
+        FROM pur_orders p
+        LEFT JOIN adm_users u ON u.id = p.created_by
+        WHERE p.company_id = :companyId AND p.branch_id = :branchId
+        GROUP BY COALESCE(NULLIF(u.department,''), 'N/A')
+        ORDER BY department ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/import-cost-breakdown",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.BILL.VIEW", "PURCHASE.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          b.bill_no,
+          b.bill_date,
+          s.supplier_name,
+          COALESCE(p.po_no, NULL) AS po_no,
+          COALESCE(p.total_amount, 0) AS po_value,
+          COALESCE(b.freight_charges, 0) AS freight,
+          0 AS insurance,
+          0 AS port_charges,
+          0 AS clearance_fees,
+          COALESCE(b.tax_amount, 0) AS duties,
+          (COALESCE(b.net_amount, 0) + COALESCE(b.freight_charges,0) + COALESCE(b.other_charges,0) + COALESCE(b.tax_amount,0)) AS total_landed_cost
+        FROM pur_bills b
+        LEFT JOIN pur_orders p ON p.id = b.po_id
+        LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
+        WHERE b.company_id = :companyId AND b.branch_id = :branchId AND b.bill_type = 'IMPORT'
+        ORDER BY b.bill_date DESC, b.id DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/lead-time-analysis",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          p.po_no,
+          p.po_date,
+          COALESCE(q.quotation_date, NULL) AS rfq_or_quote_date,
+          COALESCE(sa.advice_date, NULL) AS shipment_date,
+          COALESCE(pc.clearance_date, NULL) AS clearance_date,
+          COALESCE(g.grn_date, NULL) AS grn_date
+        FROM pur_orders p
+        LEFT JOIN pur_supplier_quotations q ON q.id = p.quotation_id AND q.company_id = p.company_id
+        LEFT JOIN pur_shipping_advices sa ON sa.po_id = p.id AND sa.company_id = p.company_id
+        LEFT JOIN pur_port_clearances pc ON pc.po_id = p.id AND pc.company_id = p.company_id
+        LEFT JOIN inv_goods_receipt_notes g ON g.po_id = p.id AND g.company_id = p.company_id
+        WHERE p.company_id = :companyId AND p.branch_id = :branchId
+        ORDER BY p.po_date DESC, p.id DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      // Compute lead times in days
+      const items = (rows || []).map((r) => {
+        const d = (a, b) => {
+          if (!a || !b) return null;
+          const aa = new Date(String(a));
+          const bb = new Date(String(b));
+          if (Number.isNaN(aa.getTime()) || Number.isNaN(bb.getTime()))
+            return null;
+          return Math.max(0, Math.round((bb - aa) / (1000 * 60 * 60 * 24)));
+        };
+        return {
+          po_no: r.po_no,
+          rfq_to_po: d(r.rfq_or_quote_date, r.po_date),
+          po_to_shipment: d(r.po_date, r.shipment_date),
+          shipment_to_clearance: d(r.shipment_date, r.clearance_date),
+          clearance_to_grn: d(r.clearance_date, r.grn_date),
+        };
+      });
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/cancelled-purchase-orders",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT p.po_no,
+               s.supplier_name AS supplier,
+               p.remarks AS cancel_reason,
+               u.username AS cancelled_by,
+               p.updated_at AS date
+        FROM pur_orders p
+        LEFT JOIN pur_suppliers s ON s.id = p.supplier_id
+        LEFT JOIN adm_users u ON u.id = p.updated_by
+        WHERE p.company_id = :companyId AND p.branch_id = :branchId
+          AND UPPER(p.status) IN ('CANCELLED','REJECTED')
+        ORDER BY p.updated_at DESC, p.id DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/purchase-returns-analysis",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.RFQ.VIEW"]),
+  async (req, res, next) => {
+    try {
+      await ensurePurchaseReturnTables();
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          r.return_no,
+          r.return_date,
+          s.supplier_name,
+          it.item_name AS item,
+          d.qty_returned AS return_qty,
+          (d.qty_returned * d.unit_price) AS return_value,
+          d.reason_code AS reason
+        FROM pur_returns r
+        JOIN pur_return_details d ON d.return_id = r.id
+        LEFT JOIN pur_suppliers s ON s.id = r.supplier_id
+        LEFT JOIN inv_items it ON it.id = d.item_id
+        WHERE r.company_id = :companyId AND r.branch_id = :branchId
+        ORDER BY r.return_date DESC, r.id DESC, d.id ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/item-purchase-history",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.BILL.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          it.item_name,
+          s.supplier_name,
+          p.po_no,
+          p.po_date AS purchase_date,
+          d.qty AS quantity,
+          d.unit_price,
+          d.line_total AS total_cost
+        FROM pur_orders p
+        JOIN pur_order_details d ON d.po_id = p.id
+        LEFT JOIN inv_items it ON it.id = d.item_id
+        LEFT JOIN pur_suppliers s ON s.id = p.supplier_id
+        WHERE p.company_id = :companyId AND p.branch_id = :branchId
+        ORDER BY p.po_date DESC, p.id DESC, d.id ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/price-variance",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.BILL.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT t.item_name, t.supplier_name, t.current_price, t.last_price,
+               CASE 
+                 WHEN t.last_price IS NULL OR t.last_price = 0 THEN NULL
+                 ELSE ROUND(((t.current_price - t.last_price) * 100) / t.last_price, 2)
+               END AS variance_percent
+        FROM (
+          SELECT 
+            it.item_name,
+            s.supplier_name,
+            MAX(CASE WHEN rn = 1 THEN d.unit_price END) AS current_price,
+            MAX(CASE WHEN rn = 2 THEN d.unit_price END) AS last_price
+          FROM (
+            SELECT d.*, i.bill_date,
+                   ROW_NUMBER() OVER (PARTITION BY d.item_id ORDER BY i.bill_date DESC, i.id DESC) AS rn
+            FROM pur_bill_details d
+            JOIN pur_bills i ON i.id = d.bill_id
+            WHERE i.company_id = :companyId AND i.branch_id = :branchId
+          ) d
+          LEFT JOIN inv_items it ON it.id = d.item_id
+          LEFT JOIN pur_bills bi ON bi.id = d.bill_id
+          LEFT JOIN pur_suppliers s ON s.id = bi.supplier_id
+          GROUP BY it.item_name, s.supplier_name
+        ) t
+        ORDER BY t.item_name ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/supplier-performance",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.BILL.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          s.supplier_name,
+          COALESCE(o.total_pos, 0) AS total_pos_issued,
+          COALESCE(o.total_value, 0) AS total_purchase_value,
+          COALESCE(otd.on_time_pct, 0) AS on_time_delivery_percent,
+          COALESCE(otd.avg_delay_days, 0) AS avg_delivery_delay_days,
+          COALESCE(ret.return_rate, 0) AS return_rate_percent
+        FROM pur_suppliers s
+        LEFT JOIN (
+          SELECT supplier_id, COUNT(*) AS total_pos, SUM(total_amount) AS total_value
+          FROM pur_orders
+          WHERE company_id = :companyId AND branch_id = :branchId
+          GROUP BY supplier_id
+        ) o ON o.supplier_id = s.id
+        LEFT JOIN (
+          SELECT 
+            p.supplier_id,
+            ROUND(AVG(GREATEST(DATEDIFF(g.grn_date, p.delivery_date), 0)), 2) AS avg_delay_days,
+            ROUND(AVG(CASE WHEN g.grn_date IS NOT NULL AND p.delivery_date IS NOT NULL AND g.grn_date <= p.delivery_date THEN 100 ELSE 0 END), 2) AS on_time_pct
+          FROM pur_orders p
+          LEFT JOIN inv_goods_receipt_notes g ON g.po_id = p.id AND g.company_id = p.company_id
+          WHERE p.company_id = :companyId AND p.branch_id = :branchId
+          GROUP BY p.supplier_id
+        ) otd ON otd.supplier_id = s.id
+        LEFT JOIN (
+          SELECT r.supplier_id, 
+                 CASE WHEN SUM(bi.net_amount) = 0 THEN 0
+                      ELSE ROUND(SUM(d.qty_returned * d.unit_price) * 100 / SUM(bi.net_amount), 2) END AS return_rate
+          FROM pur_returns r
+          LEFT JOIN pur_return_details d ON d.return_id = r.id
+          LEFT JOIN pur_bills bi ON bi.supplier_id = r.supplier_id AND bi.company_id = r.company_id
+          WHERE r.company_id = :companyId AND r.branch_id = :branchId
+          GROUP BY r.supplier_id
+        ) ret ON ret.supplier_id = s.id
+        WHERE s.company_id = :companyId
+        ORDER BY total_purchase_value DESC, s.supplier_name ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/supplier-outstanding-payables",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.BILL.VIEW", "FIN.AP.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          s.supplier_name,
+          b.bill_no,
+          b.bill_date,
+          b.due_date,
+          b.net_amount AS total_amount,
+          0 AS paid_amount,
+          b.net_amount AS balance,
+          CASE 
+            WHEN b.due_date IS NULL THEN 'N/A'
+            WHEN DATEDIFF(CURDATE(), b.due_date) <= 30 THEN '0-30'
+            WHEN DATEDIFF(CURDATE(), b.due_date) <= 60 THEN '31-60'
+            WHEN DATEDIFF(CURDATE(), b.due_date) <= 90 THEN '61-90'
+            ELSE '90+'
+          END AS aging
+        FROM pur_bills b
+        LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
+        WHERE b.company_id = :companyId AND b.branch_id = :branchId
+          AND b.status = 'POSTED'
+        ORDER BY s.supplier_name ASC, b.bill_date ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/purchase-aging",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.BILL.VIEW", "FIN.AP.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          s.supplier_name,
+          b.bill_no,
+          b.bill_date,
+          b.due_date,
+          b.net_amount AS amount,
+          CASE WHEN DATEDIFF(CURDATE(), b.due_date) BETWEEN 0 AND 30 THEN b.net_amount ELSE 0 END AS d0_30,
+          CASE WHEN DATEDIFF(CURDATE(), b.due_date) BETWEEN 31 AND 60 THEN b.net_amount ELSE 0 END AS d31_60,
+          CASE WHEN DATEDIFF(CURDATE(), b.due_date) BETWEEN 61 AND 90 THEN b.net_amount ELSE 0 END AS d61_90,
+          CASE WHEN DATEDIFF(CURDATE(), b.due_date) > 90 THEN b.net_amount ELSE 0 END AS d90_plus
+        FROM pur_bills b
+        LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
+        WHERE b.company_id = :companyId AND b.branch_id = :branchId
+          AND b.status = 'POSTED'
+        ORDER BY s.supplier_name ASC, b.bill_date ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // --- SUPPLIERS ---
 
 router.get(
@@ -4498,9 +5295,23 @@ router.get(
       const { status } = req.query;
       let sql = `
         SELECT p.id, p.po_no, p.po_date, p.supplier_id, s.supplier_name, 
-               p.total_amount, p.status, p.po_type
+               p.total_amount, p.status, p.po_type,
+               u.username AS forwarded_to_username
         FROM pur_orders p
         JOIN pur_suppliers s ON s.id = p.supplier_id
+        LEFT JOIN (
+          SELECT t.document_id, t.assigned_to_user_id
+          FROM adm_document_workflows t
+          JOIN (
+            SELECT document_id, MAX(id) AS max_id
+            FROM adm_document_workflows
+            WHERE company_id = :companyId
+              AND status = 'PENDING'
+              AND (document_type = 'PURCHASE_ORDER' OR document_type = 'Purchase Order' OR document_type LIKE 'PURCHASE_ORDER:%')
+            GROUP BY document_id
+          ) m ON m.max_id = t.id
+        ) x ON x.document_id = p.id
+        LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
         WHERE p.company_id = :companyId AND p.branch_id = :branchId
       `;
       if (status) sql += " AND p.status = :status";
@@ -6135,6 +6946,368 @@ router.get(
         activeSuppliers,
         pendingApprovals,
         outstandingPayables,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Purchase Dashboard Metrics: cards + monthly trend + top suppliers
+router.get(
+  "/dashboard/metrics",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const top = Math.max(1, Math.min(50, Number(req.query.top || 10)));
+      const now = new Date();
+      const qFrom = req.query.from ? new Date(String(req.query.from)) : null;
+      const qTo = req.query.to ? new Date(String(req.query.to)) : null;
+      const to = qTo && !Number.isNaN(qTo.getTime()) ? qTo : now;
+      // Default from: fiscal year start if available; fallback to Jan 1
+      const fyRows =
+        (await query(
+          `SELECT start_date
+             FROM fin_fiscal_years
+            WHERE company_id = :companyId
+            ORDER BY start_date DESC
+            LIMIT 1`,
+          { companyId },
+        ).catch(() => [])) || [];
+      const fromDefault =
+        fyRows?.[0]?.start_date || new Date(now.getFullYear(), 0, 1);
+      const from =
+        qFrom && !Number.isNaN(qFrom.getTime()) ? qFrom : fromDefault;
+      const weekStart = new Date(to);
+      weekStart.setDate(to.getDate() - ((to.getDay() + 6) % 7)); // Monday as start
+      const monthStart = new Date(to.getFullYear(), to.getMonth(), 1);
+      const asDateStr = (d) =>
+        typeof d === "string" ? d : d.toISOString().slice(0, 10);
+
+      // Cards: Orders (POs) and Purchases (Bills)
+      async function sumOrdersBetween(a, b) {
+        const rows = await query(
+          `SELECT COALESCE(SUM(p.total_amount),0) AS amt
+             FROM pur_orders p
+            WHERE p.company_id = :companyId
+              AND p.branch_id = :branchId
+              AND p.po_date BETWEEN :from AND :to`,
+          { companyId, branchId, from: asDateStr(a), to: asDateStr(b) },
+        ).catch(() => []);
+        return Number(rows?.[0]?.amt || 0);
+      }
+      async function sumPurchasesBetween(a, b) {
+        const rows = await query(
+          `SELECT COALESCE(SUM(b.net_amount),0) AS amt
+             FROM pur_bills b
+            WHERE b.company_id = :companyId
+              AND b.branch_id = :branchId
+              AND b.bill_date BETWEEN :from AND :to`,
+          { companyId, branchId, from: asDateStr(a), to: asDateStr(b) },
+        ).catch(() => []);
+        return Number(rows?.[0]?.amt || 0);
+      }
+      const cards = {
+        ytd_po_value: await sumOrdersBetween(from, to),
+        mtd_po_value: await sumOrdersBetween(monthStart, to),
+        wtd_po_value: await sumOrdersBetween(weekStart, to),
+        ytd_purchase_value: await sumPurchasesBetween(from, to),
+        mtd_purchase_value: await sumPurchasesBetween(monthStart, to),
+        wtd_purchase_value: await sumPurchasesBetween(weekStart, to),
+      };
+
+      // Monthly trend between from..to
+      const trendRows = await query(
+        `
+        SELECT ym, 
+               COALESCE(SUM(order_total),0) AS order_total,
+               COALESCE(SUM(purchase_total),0) AS purchase_total
+        FROM (
+          SELECT DATE_FORMAT(p.po_date, '%Y-%m-01') AS ym, SUM(p.total_amount) AS order_total, 0 AS purchase_total
+            FROM pur_orders p
+           WHERE p.company_id = :companyId
+             AND p.branch_id = :branchId
+             AND p.po_date BETWEEN :from AND :to
+           GROUP BY DATE_FORMAT(p.po_date, '%Y-%m-01')
+          UNION ALL
+          SELECT DATE_FORMAT(b.bill_date, '%Y-%m-01') AS ym, 0 AS order_total, SUM(b.net_amount) AS purchase_total
+            FROM pur_bills b
+           WHERE b.company_id = :companyId
+             AND b.branch_id = :branchId
+             AND b.bill_date BETWEEN :from AND :to
+           GROUP BY DATE_FORMAT(b.bill_date, '%Y-%m-01')
+        ) x
+        GROUP BY ym
+        ORDER BY ym ASC
+        `,
+        { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+      ).catch(() => []);
+      const monthWiseTrend = trendRows.map((r) => ({
+        label: r.ym?.slice(0, 7) || "",
+        a: Number(r.order_total || 0),
+        b: Number(r.purchase_total || 0),
+      }));
+
+      // Top suppliers by purchases within range
+      const topLimit = Number.isFinite(top)
+        ? Math.max(1, Math.min(50, top))
+        : 10;
+      const topSupplierRows = await query(
+        `
+        SELECT s.supplier_name AS label, COALESCE(SUM(b.net_amount),0) AS value
+          FROM pur_bills b
+          JOIN pur_suppliers s ON s.id = b.supplier_id
+         WHERE b.company_id = :companyId
+           AND b.branch_id = :branchId
+           AND b.bill_date BETWEEN :from AND :to
+         GROUP BY s.supplier_name
+         ORDER BY value DESC
+         LIMIT ${topLimit}
+        `,
+        {
+          companyId,
+          branchId,
+          from: asDateStr(from),
+          to: asDateStr(to),
+        },
+      ).catch(() => []);
+
+      res.json({
+        cards,
+        month_wise_trend: monthWiseTrend,
+        top_suppliers: topSupplierRows,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Service Management Dashboard Metrics
+router.get(
+  "/service/dashboard/metrics",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const top = Math.max(1, Math.min(50, Number(req.query.top || 10)));
+      const qFrom = req.query.from ? new Date(String(req.query.from)) : null;
+      const qTo = req.query.to ? new Date(String(req.query.to)) : null;
+      const to = qTo && !Number.isNaN(qTo.getTime()) ? qTo : new Date();
+      const fromDefault = new Date(to.getFullYear(), 0, 1);
+      const from =
+        qFrom && !Number.isNaN(qFrom.getTime()) ? qFrom : fromDefault;
+      const weekStart = new Date(to);
+      weekStart.setDate(to.getDate() - ((to.getDay() + 6) % 7));
+      const monthStart = new Date(to.getFullYear(), to.getMonth(), 1);
+      const asDateStr = (d) =>
+        typeof d === "string" ? d : d.toISOString().slice(0, 10);
+
+      async function sumCount(sql, params) {
+        const rows = await query(sql, params).catch(() => []);
+        return Number(rows?.[0]?.c || 0);
+      }
+      async function sumAmount(sql, params) {
+        const rows = await query(sql, params).catch(() => []);
+        return Number(rows?.[0]?.amt || 0);
+      }
+
+      // Cards
+      const cards = {
+        ytd_requests: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_requests
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND request_date BETWEEN :from AND :to`,
+          { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+        ),
+        mtd_requests: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_requests
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND request_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(monthStart),
+            to: asDateStr(to),
+          },
+        ),
+        wtd_requests: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_requests
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND request_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(weekStart),
+            to: asDateStr(to),
+          },
+        ),
+        ytd_orders: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_orders
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND order_date BETWEEN :from AND :to`,
+          { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+        ),
+        mtd_orders: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_orders
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND order_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(monthStart),
+            to: asDateStr(to),
+          },
+        ),
+        wtd_orders: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_orders
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND order_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(weekStart),
+            to: asDateStr(to),
+          },
+        ),
+        ytd_executions: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_executions
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND execution_date BETWEEN :from AND :to`,
+          { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+        ),
+        mtd_executions: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_executions
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND execution_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(monthStart),
+            to: asDateStr(to),
+          },
+        ),
+        wtd_executions: await sumCount(
+          `SELECT COUNT(*) AS c FROM pur_service_executions
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND execution_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(weekStart),
+            to: asDateStr(to),
+          },
+        ),
+        ytd_confirmations: await sumCount(
+          `SELECT COUNT(*) AS c FROM inv_service_confirmations
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND sc_date BETWEEN :from AND :to`,
+          { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+        ),
+        mtd_confirmations: await sumCount(
+          `SELECT COUNT(*) AS c FROM inv_service_confirmations
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND sc_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(monthStart),
+            to: asDateStr(to),
+          },
+        ),
+        wtd_confirmations: await sumCount(
+          `SELECT COUNT(*) AS c FROM inv_service_confirmations
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND sc_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(weekStart),
+            to: asDateStr(to),
+          },
+        ),
+        ytd_service_bill_value: await sumAmount(
+          `SELECT COALESCE(SUM(total_amount),0) AS amt
+             FROM pur_service_bills
+            WHERE company_id = :companyId AND branch_id = :branchId
+              AND bill_date BETWEEN :from AND :to`,
+          { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+        ),
+        mtd_service_bill_value: await sumAmount(
+          `SELECT COALESCE(SUM(total_amount),0) AS amt
+             FROM pur_service_bills
+            WHERE company_id = :companyId AND branch_id = :branchId
+              AND bill_date BETWEEN :from AND :to`,
+          {
+            companyId,
+            branchId,
+            from: asDateStr(monthStart),
+            to: asDateStr(to),
+          },
+        ),
+      };
+
+      // Month-wise trend (orders vs executions vs confirmations)
+      const trendRows = await query(
+        `
+        SELECT ym,
+               COALESCE(SUM(orders),0) AS orders,
+               COALESCE(SUM(executions),0) AS executions,
+               COALESCE(SUM(confirmations),0) AS confirmations
+        FROM (
+          SELECT DATE_FORMAT(order_date, '%Y-%m-01') AS ym, COUNT(*) AS orders, 0 AS executions, 0 AS confirmations
+            FROM pur_service_orders
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND order_date BETWEEN :from AND :to
+           GROUP BY DATE_FORMAT(order_date, '%Y-%m-01')
+          UNION ALL
+          SELECT DATE_FORMAT(execution_date, '%Y-%m-01') AS ym, 0 AS orders, COUNT(*) AS executions, 0 AS confirmations
+            FROM pur_service_executions
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND execution_date BETWEEN :from AND :to
+           GROUP BY DATE_FORMAT(execution_date, '%Y-%m-01')
+          UNION ALL
+          SELECT DATE_FORMAT(sc_date, '%Y-%m-01') AS ym, 0 AS orders, 0 AS executions, COUNT(*) AS confirmations
+            FROM inv_service_confirmations
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND sc_date BETWEEN :from AND :to
+           GROUP BY DATE_FORMAT(sc_date, '%Y-%m-01')
+        ) x
+        GROUP BY ym
+        ORDER BY ym ASC
+        `,
+        { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+      ).catch(() => []);
+      const monthWiseTrend = trendRows.map((r) => ({
+        label: r.ym?.slice(0, 7) || "",
+        orders: Number(r.orders || 0),
+        executions: Number(r.executions || 0),
+        confirmations: Number(r.confirmations || 0),
+      }));
+
+      // Top service categories (from orders)
+      const topCategories = await query(
+        `
+        SELECT COALESCE(service_category,'UNSPECIFIED') AS label, COUNT(*) AS value
+          FROM pur_service_orders
+         WHERE company_id = :companyId AND branch_id = :branchId
+           AND order_date BETWEEN :from AND :to
+         GROUP BY COALESCE(service_category,'UNSPECIFIED')
+         ORDER BY value DESC
+         LIMIT ${top}
+        `,
+        { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+      ).catch(() => []);
+
+      res.json({
+        cards,
+        month_wise_trend: monthWiseTrend,
+        top_categories: topCategories,
       });
     } catch (err) {
       next(err);

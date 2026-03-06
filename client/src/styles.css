@@ -166,6 +166,26 @@
     background-color: #e3f2fd !important;
     cursor: not-allowed !important;
   }
+
+  /* Global discount guard (fallback) */
+  body.discount-guard-disabled input[name="discount_percent"],
+  body.discount-guard-disabled input[name="discount"],
+  body.discount-guard-disabled input[placeholder="Disc %"],
+  body.discount-guard-disabled input[placeholder*="Discount"],
+  body.discount-guard-disabled .discount-guard .input,
+  body.discount-guard-disabled .discount-guard input,
+  body.discount-guard-disabled .discount-guard select,
+  body.discount-guard-disabled .discount-guard textarea {
+    background-color: #e3f2fd !important;
+    cursor: not-allowed !important;
+    pointer-events: none !important;
+  }
+  body.discount-guard-disabled [data-discount-guard],
+  body.discount-guard-disabled [data-discount-guard].input {
+    background-color: #e3f2fd !important;
+    cursor: not-allowed !important;
+    pointer-events: none !important;
+  }
 }
 
 @layer utilities {

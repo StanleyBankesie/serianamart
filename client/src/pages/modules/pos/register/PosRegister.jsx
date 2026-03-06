@@ -36,8 +36,12 @@ export default function PosRegister() {
   const { user } = useAuth();
   const { canPerformAction } = usePermission();
   const [now, setNow] = useState(new Date());
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
+  const [dateTo, setDateTo] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
   const [statusFilter, setStatusFilter] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("");
   const [searchTerm, setSearchTerm] = useState("");

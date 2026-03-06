@@ -11,16 +11,30 @@ export const getUserRole = async (req, res, next) => {
   try {
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    const items = await query(
-      `
-      SELECT r.id, r.company_id, r.name, r.code, r.is_active
-      FROM adm_user_roles ur
-      JOIN adm_roles r ON r.id = ur.role_id
-      WHERE ur.user_id = :id AND r.is_active = 1
-      ORDER BY r.name ASC
-      `,
-      { id },
-    );
+    let items = [];
+    try {
+      items = await query(
+        `
+        SELECT r.id, r.company_id, r.name, r.code, r.is_active
+        FROM adm_user_roles ur
+        JOIN adm_roles r ON r.id = ur.role_id
+        WHERE ur.user_id = :id AND r.is_active = 1
+        ORDER BY r.name ASC
+        `,
+        { id },
+      );
+    } catch (err) {
+      items = await query(
+        `
+        SELECT r.id, r.company_id, r.name, r.code, r.is_active
+        FROM adm_users u
+        JOIN adm_roles r ON r.id = u.role_id
+        WHERE u.id = :id
+        LIMIT 1
+        `,
+        { id },
+      );
+    }
     res.json({ success: true, message: "User roles fetched", data: { items } });
   } catch (err) {
     next(err);

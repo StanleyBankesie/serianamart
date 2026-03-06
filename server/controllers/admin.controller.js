@@ -246,6 +246,97 @@ export const getDashboardStats = async (req, res, next) => {
   }
 };
 
+export const getExceptionalPermissionsForUser = async (req, res, next) => {
+  try {
+    await ensureExceptionalPermissionsTable();
+    const userId = toNumber(req.params.id);
+    if (!userId) {
+      throw httpError(400, "VALIDATION_ERROR", "Invalid user id");
+    }
+    const items = await query(
+      `SELECT id, user_id, permission_code, effect, is_active, effective_from, effective_to, approved_by, exception_type
+       FROM adm_exceptional_permissions
+       WHERE user_id = :userId
+       ORDER BY permission_code`,
+      { userId },
+    );
+    res.json({
+      success: true,
+      message: "User exceptional permissions fetched",
+      data: { items },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const bulkUpsertExceptionalPermissionsForUser = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    await ensureExceptionalPermissionsTable();
+    const userId = toNumber(req.params.id);
+    if (!userId) {
+      throw httpError(400, "VALIDATION_ERROR", "Invalid user id");
+    }
+    const { permissions } = req.body || {};
+    if (!Array.isArray(permissions)) {
+      throw httpError(400, "VALIDATION_ERROR", "permissions array required");
+    }
+    for (const p of permissions) {
+      const code = String(p?.permission_code || "").trim();
+      if (!code) continue;
+      const effect =
+        String(p?.effect || "ALLOW").toUpperCase() === "DENY"
+          ? "DENY"
+          : "ALLOW";
+      const is_active =
+        p?.is_active === undefined
+          ? effect === "ALLOW"
+            ? 1
+            : 0
+          : Number(Boolean(p.is_active));
+      const reason = p?.reason ? String(p.reason) : null;
+      const exception_type = p?.exception_type
+        ? String(p.exception_type)
+        : "STANDARD";
+      const rows = await query(
+        `SELECT id FROM adm_exceptional_permissions 
+         WHERE user_id = :userId AND permission_code = :code 
+         LIMIT 1`,
+        { userId, code },
+      );
+      if (rows.length) {
+        await query(
+          `UPDATE adm_exceptional_permissions
+           SET effect = :effect, is_active = :is_active, reason = :reason, exception_type = :exception_type
+           WHERE id = :id`,
+          {
+            id: rows[0].id,
+            effect,
+            is_active,
+            reason,
+            exception_type,
+          },
+        );
+      } else {
+        await query(
+          `INSERT INTO adm_exceptional_permissions
+             (user_id, permission_code, effect, reason, is_active, exception_type)
+           VALUES
+             (:userId, :code, :effect, :reason, :is_active, :exception_type)`,
+          { userId, code, effect, reason, is_active, exception_type },
+        );
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const listExceptionalPermissions = async (req, res, next) => {
   try {
     await ensureExceptionalPermissionsTable();

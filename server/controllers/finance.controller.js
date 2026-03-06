@@ -23,7 +23,7 @@ async function nextVoucherNo({ companyId, voucherTypeId }) {
     if (!vt) throw httpError(404, "NOT_FOUND", "Voucher type not found");
     const up = String(vt.code).toUpperCase();
     const seq =
-      up === "PV" || up === "CV" || up === "RV"
+      up === "PV" || up === "CV" || up === "RV" || up === "JV"
         ? String(vt.next_number).padStart(6, "0")
         : String(vt.next_number);
     const voucherNo = `${vt.prefix}-${seq}`;
@@ -283,34 +283,43 @@ export const submitVoucher = async (req, res, next) => {
     const isPV = typeCode === "PV";
     const isRV = typeCode === "RV";
     const isCV = typeCode === "CV";
+    const isJV = typeCode === "JV";
     const docTypePrimary = isRV
       ? "RECEIPT_VOUCHER"
       : isPV
         ? "PAYMENT_VOUCHER"
         : isCV
           ? "CONTRA_VOUCHER"
-          : "VOUCHER";
+          : isJV
+            ? "JOURNAL_VOUCHER"
+            : "VOUCHER";
     const titleName = isRV
       ? "Receipt Voucher"
       : isPV
         ? "Payment Voucher"
         : isCV
           ? "Contra Voucher"
-          : "Voucher";
+          : isJV
+            ? "Journal Voucher"
+            : "Voucher";
     const docRouteBase = isRV
       ? "/finance/receipt-voucher"
       : isPV
         ? "/finance/payment-voucher"
         : isCV
           ? "/finance/contra-voucher"
-          : null;
+          : isJV
+            ? "/finance/journal-voucher"
+            : null;
     const typeSynonyms = isRV
       ? ["RECEIPT_VOUCHER", "Receipt Voucher", "RV"]
       : isPV
         ? ["PAYMENT_VOUCHER", "Payment Voucher", "PV"]
         : isCV
           ? ["CONTRA_VOUCHER", "Contra Voucher", "CV"]
-          : ["VOUCHER", "Voucher", typeCode];
+          : isJV
+            ? ["JOURNAL_VOUCHER", "Journal Voucher", "JV"]
+            : ["VOUCHER", "Voucher", typeCode];
     const wfByRoute =
       docRouteBase != null
         ? await query(
@@ -1091,6 +1100,55 @@ export const upsertOpeningBalance = async (req, res, next) => {
   }
 };
 
+export const bulkUpsertOpeningBalances = async (req, res, next) => {
+  const conn = await pool.getConnection();
+  try {
+    const companyId = req.scope.companyId;
+    const branchId = req.scope.branchId || null;
+    const { fiscalYearId, items } = req.body || {};
+    if (!fiscalYearId || !Array.isArray(items))
+      throw httpError(
+        400,
+        "VALIDATION_ERROR",
+        "fiscalYearId and items[] are required",
+      );
+    await conn.beginTransaction();
+    let affected = 0;
+    for (const it of items) {
+      const accountId = Number(it?.accountId);
+      const openingDebit = Number(it?.openingDebit || 0);
+      const openingCredit = Number(it?.openingCredit || 0);
+      if (!Number.isFinite(accountId) || accountId <= 0) continue;
+      await conn.execute(
+        `INSERT INTO fin_account_opening_balances
+           (company_id, fiscal_year_id, account_id, branch_id, opening_debit, opening_credit)
+         VALUES
+           (:companyId, :fiscalYearId, :accountId, :branchId, :openingDebit, :openingCredit)
+         ON DUPLICATE KEY UPDATE
+           opening_debit = VALUES(opening_debit),
+           opening_credit = VALUES(opening_credit)`,
+        {
+          companyId,
+          fiscalYearId: Number(fiscalYearId),
+          accountId,
+          branchId,
+          openingDebit,
+          openingCredit,
+        },
+      );
+      affected++;
+    }
+    await conn.commit();
+    res.status(200).json({ upserted: affected });
+  } catch (e) {
+    try {
+      await conn.rollback();
+    } catch {}
+    next(e);
+  } finally {
+    conn.release();
+  }
+};
 export const getAccountGroupsTree = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;

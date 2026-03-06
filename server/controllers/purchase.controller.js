@@ -1188,10 +1188,24 @@ export const listServiceRequests = async (req, res, next) => {
     const { companyId, branchId } = req.scope;
     const rows = await query(
       `
-      SELECT id, request_no, request_date, requester_full_name, service_type, priority, status
-      FROM pur_service_requests
-      WHERE company_id = :companyId AND branch_id = :branchId
-      ORDER BY request_date DESC, id DESC
+      SELECT r.id, r.request_no, r.request_date, r.requester_full_name, r.service_type, r.priority, r.status,
+             u.username AS forwarded_to_username
+      FROM pur_service_requests r
+      LEFT JOIN (
+        SELECT t.document_id, t.assigned_to_user_id
+        FROM adm_document_workflows t
+        JOIN (
+          SELECT document_id, MAX(id) AS max_id
+          FROM adm_document_workflows
+          WHERE company_id = :companyId
+            AND status = 'PENDING'
+            AND (document_type = 'SERVICE_REQUEST' OR document_type = 'Service Request')
+          GROUP BY document_id
+        ) m ON m.max_id = t.id
+      ) x ON x.document_id = r.id
+      LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
+      WHERE r.company_id = :companyId AND r.branch_id = :branchId
+      ORDER BY r.request_date DESC, r.id DESC
       `,
       { companyId, branchId },
     );

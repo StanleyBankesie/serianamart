@@ -10,6 +10,8 @@ import {
   createExceptionalPermission,
   getMe,
   getDashboardStats,
+  getExceptionalPermissionsForUser,
+  bulkUpsertExceptionalPermissionsForUser,
 } from "../controllers/admin.controller.js";
 
 import {
@@ -796,6 +798,11 @@ async function ensurePagesSeed() {
     { module: "Finance", name: "Tax Codes", path: "/finance/tax-codes" },
     { module: "Finance", name: "Currencies", path: "/finance/currencies" },
     { module: "Finance", name: "Fiscal Years", path: "/finance/fiscal-years" },
+    {
+      module: "Finance",
+      name: "Opening Balances",
+      path: "/finance/opening-balances",
+    },
     {
       module: "Finance",
       name: "Journal Entry",
@@ -1628,6 +1635,26 @@ router.get(
   "/users/:id/feature-permissions",
   requireAuth,
   getUserFeaturePermissionsList,
+);
+
+// ===== Exceptional Permissions (User-scoped) =====
+router.get(
+  "/users/:id/exceptional-permissions",
+  requireAuth,
+  getExceptionalPermissionsForUser,
+);
+router.put(
+  "/users/:id/exceptional-permissions",
+  requireAuth,
+  bulkUpsertExceptionalPermissionsForUser,
+);
+
+// Global exceptional permissions list/detail
+router.get("/exceptional-permissions", requireAuth, listExceptionalPermissions);
+router.get(
+  "/exceptional-permissions/:id",
+  requireAuth,
+  getExceptionalPermissionById,
 );
 
 // Page-level permissions snapshot for current user on a given path

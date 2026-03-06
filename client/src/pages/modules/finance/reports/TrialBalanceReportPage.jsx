@@ -8,6 +8,8 @@ import jsPDF from "jspdf";
 export default function TrialBalanceReportPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [groupId, setGroupId] = useState("");
+  const [groups, setGroups] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -15,7 +17,11 @@ export default function TrialBalanceReportPage() {
     try {
       setLoading(true);
       const res = await api.get("/finance/reports/trial-balance", {
-        params: { from: from || null, to: to || null },
+        params: {
+          from: from || null,
+          to: to || null,
+          groupId: groupId ? Number(groupId) : null,
+        },
       });
       setItems(res.data?.items || []);
     } catch (e) {
@@ -25,10 +31,25 @@ export default function TrialBalanceReportPage() {
     }
   }
 
+  async function loadGroups() {
+    try {
+      const res = await api.get("/finance/account-groups", {
+        params: { active: 1 },
+      });
+      setGroups(res.data?.items || []);
+    } catch {
+      setGroups([]);
+    }
+  }
+
+  useEffect(() => {
+    loadGroups().then(run);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [from, to, groupId]);
 
   const totals = items.reduce(
     (acc, r) => {
@@ -69,7 +90,7 @@ export default function TrialBalanceReportPage() {
 
       <div className="card">
         <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
             <div>
               <label className="label">From</label>
               <input
@@ -88,26 +109,22 @@ export default function TrialBalanceReportPage() {
                 onChange={(e) => setTo(e.target.value)}
               />
             </div>
+            <div>
+              <label className="label">Account Group</label>
+              <select
+                className="input"
+                value={groupId}
+                onChange={(e) => setGroupId(e.target.value)}
+              >
+                <option value="">All Groups</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="md:col-span-2 flex items-end gap-2">
-              <button
-                type="button"
-                className="btn-success"
-                onClick={run}
-                disabled={loading}
-              >
-                {loading ? "Running..." : "Run Report"}
-              </button>
-              <button
-                type="button"
-                className="btn-success"
-                onClick={() => {
-                  setFrom("");
-                  setTo("");
-                }}
-                disabled={loading}
-              >
-                Clear
-              </button>
               <button
                 type="button"
                 className="btn-secondary"
@@ -243,6 +260,9 @@ export default function TrialBalanceReportPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
+                  <th>Account Type</th>
+                  <th>Account Category</th>
+                  <th>Account Subcategory</th>
                   <th>Account</th>
                   <th className="text-right">Opening Dr</th>
                   <th className="text-right">Opening Cr</th>
@@ -255,6 +275,9 @@ export default function TrialBalanceReportPage() {
               <tbody>
                 {items.map((r) => (
                   <tr key={r.account_id}>
+                    <td>{r.account_type || "-"}</td>
+                    <td>{r.account_category || "-"}</td>
+                    <td>{r.account_subcategory || "-"}</td>
                     <td>
                       <div className="font-medium">{r.account_code}</div>
                       <div className="text-sm">{r.account_name}</div>

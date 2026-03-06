@@ -583,6 +583,9 @@ router.post(
         const firstWf = wfDefs[0];
         if (Number(firstWf.is_active) === 0) {
           behavior = firstWf.default_behavior || null;
+          if (!behavior) {
+            behavior = "AUTO_APPROVE";
+          }
         }
       }
       if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
@@ -1413,9 +1416,27 @@ router.get(
 
       const items = await query(
         `SELECT v.id, v.voucher_no, v.voucher_date, v.narration, v.total_debit, v.total_credit, v.status,
-                vt.code AS voucher_type_code, vt.name AS voucher_type_name
+                vt.code AS voucher_type_code, vt.name AS voucher_type_name,
+                u.username AS forwarded_to_username
            FROM fin_vouchers v
            JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id
+           LEFT JOIN (
+             SELECT t.document_id, t.assigned_to_user_id
+             FROM adm_document_workflows t
+             JOIN (
+               SELECT document_id, MAX(id) AS max_id
+               FROM adm_document_workflows
+               WHERE company_id = :companyId
+                 AND status = 'PENDING'
+                 AND (
+                   document_type IN ('PAYMENT_VOUCHER','RECEIPT_VOUCHER','CONTRA_VOUCHER') OR
+                   document_type IN ('Payment Voucher','Receipt Voucher','Contra Voucher') OR
+                   document_type IN ('PV','RV','CV')
+                 )
+               GROUP BY document_id
+             ) m ON m.max_id = t.id
+           ) x ON x.document_id = v.id
+           LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
           WHERE v.company_id = :companyId
             AND v.branch_id = :branchId
             AND (:voucherTypeCode IS NULL OR vt.code = :voucherTypeCode)
@@ -3555,6 +3576,780 @@ router.get(
           outflow: totalOutflow,
           net: totalInflow - totalOutflow,
         },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/payment-due",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("FIN.VOUCHER.VIEW"),
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      const branchId = req.scope.branchId;
+      const from = req.query.from ? String(req.query.from) : null;
+      const to = req.query.to ? String(req.query.to) : null;
+      const items =
+        (await query(
+          `SELECT 
+              b.id,
+              b.due_date,
+              b.bill_no AS ref_no,
+              s.supplier_name AS party_name,
+              COALESCE(b.net_amount,0) AS amount,
+              (COALESCE(b.net_amount,0) - COALESCE(b.amount_paid,0)) AS outstanding,
+              COALESCE(b.payment_status,'UNPAID') AS status
+           FROM pur_bills b
+           LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
+          WHERE b.company_id = :companyId
+            AND b.branch_id = :branchId
+            AND (:from IS NULL OR b.due_date >= :from)
+            AND (:to IS NULL OR b.due_date <= :to)
+            AND (COALESCE(b.net_amount,0) - COALESCE(b.amount_paid,0)) > 0
+          ORDER BY b.due_date ASC, b.bill_no ASC`,
+          { companyId, branchId, from, to },
+        ).catch(() => [])) || [];
+      res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/customer-outstanding",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("FIN.VOUCHER.VIEW"),
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      const branchId = req.scope.branchId;
+      const asOf = req.query.asOf ? String(req.query.asOf) : null;
+      const items =
+        (await query(
+          `SELECT 
+              i.id,
+              c.customer_name,
+              i.invoice_no,
+              i.invoice_date,
+              NULL AS due_date,
+              COALESCE(i.total_amount,0) AS amount,
+              (COALESCE(i.total_amount,0) - COALESCE(i.balance_amount,0)) AS received,
+              COALESCE(i.balance_amount,0) AS outstanding
+           FROM sal_invoices i
+           LEFT JOIN sal_customers c ON c.id = i.customer_id
+          WHERE i.company_id = :companyId
+            AND i.branch_id = :branchId
+            AND (:asOf IS NULL OR i.invoice_date <= :asOf)
+            AND COALESCE(i.balance_amount,0) > 0
+          ORDER BY c.customer_name ASC, i.invoice_date ASC, i.id ASC`,
+          { companyId, branchId, asOf },
+        ).catch(() => [])) || [];
+      res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/supplier-outstanding",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("FIN.VOUCHER.VIEW"),
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      const branchId = req.scope.branchId;
+      const asOf = req.query.asOf ? String(req.query.asOf) : null;
+      const items =
+        (await query(
+          `SELECT 
+              b.id,
+              s.supplier_name,
+              b.bill_no,
+              b.bill_date,
+              b.due_date,
+              COALESCE(b.net_amount,0) AS amount,
+              COALESCE(b.amount_paid,0) AS paid,
+              (COALESCE(b.net_amount,0) - COALESCE(b.amount_paid,0)) AS outstanding
+           FROM pur_bills b
+           LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
+          WHERE b.company_id = :companyId
+            AND b.branch_id = :branchId
+            AND (:asOf IS NULL OR b.bill_date <= :asOf)
+            AND (COALESCE(b.net_amount,0) - COALESCE(b.amount_paid,0)) > 0
+          ORDER BY s.supplier_name ASC, b.bill_date ASC, b.id ASC`,
+          { companyId, branchId, asOf },
+        ).catch(() => [])) || [];
+      res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/debtors-ledger",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("FIN.VOUCHER.VIEW"),
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      const branchId = req.scope.branchId;
+      const from = req.query.from ? String(req.query.from) : null;
+      const to = req.query.to ? String(req.query.to) : null;
+      const items =
+        (await query(
+          `SELECT 
+              v.voucher_date AS txn_date,
+              v.voucher_no AS doc_no,
+              COALESCE(l.description,'') AS description,
+              COALESCE(l.debit,0) AS debit,
+              COALESCE(l.credit,0) AS credit
+           FROM fin_voucher_lines l
+           JOIN fin_vouchers v ON v.id = l.voucher_id
+           JOIN fin_accounts a ON a.id = l.account_id
+           JOIN fin_account_groups g ON g.id = a.group_id
+          WHERE v.company_id = :companyId
+            AND v.branch_id = :branchId
+            AND (g.code = 'DEBTORS' OR g.name = 'Debtors')
+            AND (:from IS NULL OR v.voucher_date >= :from)
+            AND (:to IS NULL OR v.voucher_date <= :to)
+          ORDER BY v.voucher_date ASC, v.id ASC, l.line_no ASC`,
+          { companyId, branchId, from, to },
+        ).catch(() => [])) || [];
+      res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/creditors-ledger",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("FIN.VOUCHER.VIEW"),
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      const branchId = req.scope.branchId;
+      const from = req.query.from ? String(req.query.from) : null;
+      const to = req.query.to ? String(req.query.to) : null;
+      const items =
+        (await query(
+          `SELECT 
+              v.voucher_date AS txn_date,
+              v.voucher_no AS doc_no,
+              COALESCE(l.description,'') AS description,
+              COALESCE(l.debit,0) AS debit,
+              COALESCE(l.credit,0) AS credit
+           FROM fin_voucher_lines l
+           JOIN fin_vouchers v ON v.id = l.voucher_id
+           JOIN fin_accounts a ON a.id = l.account_id
+           JOIN fin_account_groups g ON g.id = a.group_id
+          WHERE v.company_id = :companyId
+            AND v.branch_id = :branchId
+            AND (g.code = 'CREDITORS' OR g.name = 'Creditors')
+            AND (:from IS NULL OR v.voucher_date >= :from)
+            AND (:to IS NULL OR v.voucher_date <= :to)
+          ORDER BY v.voucher_date ASC, v.id ASC, l.line_no ASC`,
+          { companyId, branchId, from, to },
+        ).catch(() => [])) || [];
+      res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/audit-trail",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("FIN.VOUCHER.VIEW"),
+  async (req, res, next) => {
+    try {
+      const from = req.query.from ? new Date(String(req.query.from)) : null;
+      const to = req.query.to ? new Date(String(req.query.to)) : null;
+      const params = {};
+      const clauses = [];
+      if (from) {
+        clauses.push("s.event_time >= :from");
+        params.from = from;
+      }
+      if (to) {
+        clauses.push("s.event_time < DATE_ADD(:to, INTERVAL 1 DAY)");
+        params.to = to;
+      }
+      const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+      const items =
+        (await query(
+          `
+          SELECT 
+            s.id,
+            s.event_time AS action_time,
+            COALESCE(u.username, '') AS user_name,
+            COALESCE(s.action,'') AS action,
+            COALESCE(s.module_name,'') AS entity,
+            COALESCE(s.ref_no,'') AS ref_no,
+            COALESCE(s.message,'') AS details
+          FROM adm_system_logs s
+          LEFT JOIN adm_users u ON u.id = s.user_id
+          ${where}
+          ORDER BY s.event_time DESC
+          LIMIT 500
+          `,
+          params,
+        ).catch(() => [])) || [];
+      res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/ratio-analysis",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("FIN.VOUCHER.VIEW"),
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      const branchId = req.scope.branchId;
+      const from = req.query.from ? String(req.query.from) : null;
+      const to = req.query.to ? String(req.query.to) : null;
+      const plRows =
+        (await query(
+          `SELECT g.nature,
+                  COALESCE(SUM(l.debit),0) AS debit, 
+                  COALESCE(SUM(l.credit),0) AS credit
+             FROM fin_accounts a
+             JOIN fin_account_groups g ON g.id = a.group_id
+        LEFT JOIN fin_voucher_lines l ON l.account_id = a.id
+        LEFT JOIN fin_vouchers v ON v.id = l.voucher_id
+            WHERE a.company_id = :companyId
+              AND a.is_postable = 1
+              AND (v.id IS NULL OR (v.company_id = :companyId AND v.branch_id = :branchId))
+              AND (:from IS NULL OR v.voucher_date >= :from)
+              AND (:to IS NULL OR v.voucher_date <= :to)
+            GROUP BY g.nature
+            HAVING g.nature IN ('INCOME','EXPENSE')`,
+          { companyId, branchId, from, to },
+        ).catch(() => [])) || [];
+      let totalIncome = 0;
+      let totalExpense = 0;
+      for (const r of plRows) {
+        if (String(r.nature) === "INCOME") {
+          totalIncome += Number(r.credit || 0) - Number(r.debit || 0);
+        } else if (String(r.nature) === "EXPENSE") {
+          totalExpense += Number(r.debit || 0) - Number(r.credit || 0);
+        }
+      }
+      const bsRows =
+        (await query(
+          `SELECT g.nature,
+                  a.id AS account_id,
+                  COALESCE(ob.opening_debit,0) - COALESCE(ob.opening_credit,0) AS ob,
+                  COALESCE(mov.mov,0) AS mov
+             FROM fin_accounts a
+             JOIN fin_account_groups g ON g.id = a.group_id
+        LEFT JOIN fin_account_opening_balances ob
+               ON ob.company_id = a.company_id
+              AND ob.account_id = a.id
+        LEFT JOIN (
+                  SELECT l.account_id, COALESCE(SUM(l.debit) - SUM(l.credit),0) AS mov
+                    FROM fin_voucher_lines l
+                    JOIN fin_vouchers v ON v.id = l.voucher_id
+                   WHERE v.company_id = :companyId
+                     AND v.branch_id = :branchId
+                     AND (:to IS NULL OR v.voucher_date <= :to)
+                   GROUP BY l.account_id
+                 ) mov ON mov.account_id = a.id
+            WHERE a.company_id = :companyId
+              AND a.is_postable = 1`,
+          { companyId, branchId, to },
+        ).catch(() => [])) || [];
+      let totalAssets = 0;
+      let totalLiabilities = 0;
+      let totalEquity = 0;
+      for (const r of bsRows) {
+        const closing = Number(r.ob || 0) + Number(r.mov || 0);
+        if (String(r.nature) === "ASSET") {
+          totalAssets += closing;
+        } else if (String(r.nature) === "LIABILITY") {
+          totalLiabilities += -closing;
+        } else if (String(r.nature) === "EQUITY") {
+          totalEquity += -closing;
+        }
+      }
+      const netProfit = totalIncome - totalExpense;
+      const items = [];
+      const safeDiv = (a, b) => {
+        const x = Number(a || 0);
+        const y = Number(b || 0);
+        if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(y) < 1e-9)
+          return 0;
+        return x / y;
+      };
+      items.push({
+        key: "net_profit_margin",
+        name: "Net Profit Margin",
+        value: safeDiv(netProfit, totalIncome),
+        notes: "Net Profit / Total Income",
+      });
+      items.push({
+        key: "assets_to_liabilities",
+        name: "Assets to Liabilities",
+        value: safeDiv(totalAssets, totalLiabilities),
+        notes: "Total Assets / Total Liabilities",
+      });
+      items.push({
+        key: "debt_to_equity",
+        name: "Debt to Equity",
+        value: safeDiv(totalLiabilities, totalEquity),
+        notes: "Total Liabilities / Total Equity",
+      });
+      items.push({
+        key: "return_on_equity",
+        name: "Return on Equity",
+        value: safeDiv(netProfit, totalEquity),
+        notes: "Net Profit / Total Equity",
+      });
+      res.json({ items });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// Dashboard metrics: YTD cards + AR/AP monthly trend
+router.get(
+  "/dashboard/metrics",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("FIN.VOUCHER.VIEW"),
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      const branchId = req.scope.branchId;
+      const [fyRow] =
+        (await query(
+          `SELECT id, start_date
+             FROM fin_fiscal_years
+            WHERE company_id = :companyId
+            ORDER BY start_date DESC
+            LIMIT 1`,
+          { companyId },
+        ).catch(() => [])) || [];
+      const now = new Date();
+      const fromDefault =
+        fyRow?.start_date || new Date(now.getFullYear(), 0, 1);
+      const qFrom = req.query.from ? new Date(String(req.query.from)) : null;
+      const qTo = req.query.to ? new Date(String(req.query.to)) : null;
+      const from =
+        qFrom && !Number.isNaN(qFrom.getTime()) ? qFrom : fromDefault;
+      const to = qTo && !Number.isNaN(qTo.getTime()) ? qTo : now;
+      async function sumMovementsForAccounts(accIds) {
+        if (!accIds || !accIds.length) return 0;
+        const rows = (await query(
+          `SELECT COALESCE(SUM(l.debit),0) AS debit, COALESCE(SUM(l.credit),0) AS credit
+               FROM fin_voucher_lines l
+               JOIN fin_vouchers v ON v.id = l.voucher_id
+              WHERE v.company_id = :companyId
+                AND v.branch_id = :branchId
+                AND v.voucher_date BETWEEN :from AND :to
+                AND l.account_id IN (${accIds
+                  .map((_, i) => `:a${i}`)
+                  .join(",")})`,
+          accIds.reduce((p, id, i) => Object.assign(p, { [`a${i}`]: id }), {
+            companyId,
+            branchId,
+            from,
+            to,
+          }),
+        ).catch(() => [])) || [{ debit: 0, credit: 0 }];
+        const d = Number(rows?.[0]?.debit || 0);
+        const c = Number(rows?.[0]?.credit || 0);
+        return d - c;
+      }
+      const bankAccRows =
+        (await query(
+          `SELECT b.gl_account_id AS id
+             FROM fin_bank_accounts b
+            WHERE b.company_id = :companyId AND b.branch_id = :branchId`,
+          { companyId, branchId },
+        ).catch(() => [])) || [];
+      const bankAccIds = bankAccRows
+        .map((r) => Number(r.id))
+        .filter((n) => Number.isFinite(n));
+      const ytdBank = await sumMovementsForAccounts(bankAccIds);
+      const cashAccRows =
+        (await query(
+          `SELECT a.id
+             FROM fin_accounts a
+             JOIN fin_account_groups g ON g.id = a.group_id
+            WHERE a.company_id = :companyId
+              AND g.nature = 'ASSET'
+              AND (LOWER(a.name) LIKE '%cash%' OR LOWER(a.code) LIKE 'cash%')`,
+          { companyId },
+        ).catch(() => [])) || [];
+      const cashAccIds = cashAccRows
+        .map((r) => Number(r.id))
+        .filter((n) => Number.isFinite(n));
+      const ytdCash = await sumMovementsForAccounts(cashAccIds);
+      const expAccRows =
+        (await query(
+          `SELECT a.id 
+             FROM fin_accounts a 
+             JOIN fin_account_groups g ON g.id = a.group_id
+            WHERE a.company_id = :companyId AND g.nature = 'EXPENSE'`,
+          { companyId },
+        ).catch(() => [])) || [];
+      const expIds = expAccRows
+        .map((r) => Number(r.id))
+        .filter((n) => Number.isFinite(n));
+      const ytdIndirectExpenses = await sumMovementsForAccounts(expIds);
+      const incAccRows =
+        (await query(
+          `SELECT a.id 
+             FROM fin_accounts a 
+             JOIN fin_account_groups g ON g.id = a.group_id
+            WHERE a.company_id = :companyId AND g.nature = 'INCOME'`,
+          { companyId },
+        ).catch(() => [])) || [];
+      const incIds = incAccRows
+        .map((r) => Number(r.id))
+        .filter((n) => Number.isFinite(n));
+      const ytdSales = (await sumMovementsForAccounts(incIds)) * -1;
+      const arAccRows =
+        (await query(
+          `SELECT a.id
+             FROM fin_accounts a
+             JOIN fin_account_groups g ON g.id = a.group_id
+            WHERE a.company_id = :companyId
+              AND (LOWER(g.name) LIKE '%debtor%' OR LOWER(g.name) LIKE '%receiv%')`,
+          { companyId },
+        ).catch(() => [])) || [];
+      const apAccRows =
+        (await query(
+          `SELECT a.id
+             FROM fin_accounts a
+             JOIN fin_account_groups g ON g.id = a.group_id
+            WHERE a.company_id = :companyId
+              AND (LOWER(g.name) LIKE '%creditor%' OR LOWER(g.name) LIKE '%payabl%')`,
+          { companyId },
+        ).catch(() => [])) || [];
+      async function monthlyTrendFor(accIds) {
+        if (!accIds || !accIds.length) return [];
+        const rows =
+          (await query(
+            `SELECT DATE_FORMAT(v.voucher_date, '%Y-%m') AS ym,
+                    COALESCE(SUM(l.debit),0) - COALESCE(SUM(l.credit),0) AS mov
+               FROM fin_voucher_lines l
+               JOIN fin_vouchers v ON v.id = l.voucher_id
+              WHERE v.company_id = :companyId
+                AND v.branch_id = :branchId
+                AND v.voucher_date BETWEEN :from AND :to
+                AND l.account_id IN (${accIds
+                  .map((_, i) => `:m${i}`)
+                  .join(",")})
+              GROUP BY ym
+              ORDER BY ym`,
+            accIds.reduce((p, id, i) => Object.assign(p, { [`m${i}`]: id }), {
+              companyId,
+              branchId,
+              from,
+              to,
+            }),
+          ).catch(() => [])) || [];
+        return rows.map((r) => ({
+          ym: r.ym,
+          value: Number(r.mov || 0),
+        }));
+      }
+      // Prefer transactional trends from invoices/bills (db-agnostic of group names)
+      const arTrendRows =
+        (await query(
+          `SELECT DATE_FORMAT(i.invoice_date, '%Y-%m') AS ym,
+                  COALESCE(SUM(i.balance_amount),0) AS val
+             FROM sal_invoices i
+            WHERE i.company_id = :companyId
+              AND i.branch_id = :branchId
+              AND i.invoice_date BETWEEN :from AND :to
+            GROUP BY ym
+            ORDER BY ym`,
+          { companyId, branchId, from, to },
+        ).catch(() => [])) || [];
+      const apTrendRows =
+        (await query(
+          `SELECT DATE_FORMAT(b.bill_date, '%Y-%m') AS ym,
+                  COALESCE(SUM(COALESCE(b.net_amount,0) - COALESCE(b.amount_paid,0)),0) AS val
+             FROM pur_bills b
+            WHERE b.company_id = :companyId
+              AND b.branch_id = :branchId
+              AND b.bill_date BETWEEN :from AND :to
+            GROUP BY ym
+            ORDER BY ym`,
+          { companyId, branchId, from, to },
+        ).catch(() => [])) || [];
+      const arTrend = arTrendRows.map((r) => ({
+        ym: r.ym,
+        value: Number(r.val || 0),
+      }));
+      const apTrend = apTrendRows.map((r) => ({
+        ym: r.ym,
+        value: Number(r.val || 0),
+      }));
+      // Receivables/Payables breakdown from transactions
+      const recvRows =
+        (await query(
+          `SELECT 
+              UPPER(COALESCE(c.customer_type,'OTHER')) AS customer_type,
+              COALESCE(SUM(i.balance_amount),0) AS outstanding
+           FROM sal_invoices i
+           LEFT JOIN sal_customers c
+             ON c.id = i.customer_id AND c.company_id = i.company_id
+          WHERE i.company_id = :companyId
+            AND i.branch_id = :branchId
+            AND i.invoice_date BETWEEN :from AND :to
+          GROUP BY UPPER(COALESCE(c.customer_type,'OTHER'))`,
+          { companyId, branchId, from, to },
+        ).catch(() => [])) || [];
+      const payRows =
+        (await query(
+          `SELECT 
+              UPPER(COALESCE(s.supplier_type, b.bill_type, 'OTHER')) AS supplier_type,
+              COALESCE(SUM(COALESCE(b.net_amount,0) - COALESCE(b.amount_paid,0)),0) AS outstanding
+           FROM pur_bills b
+           LEFT JOIN pur_suppliers s
+             ON s.id = b.supplier_id AND s.company_id = b.company_id
+          WHERE b.company_id = :companyId
+            AND b.branch_id = :branchId
+            AND b.bill_date BETWEEN :from AND :to
+          GROUP BY UPPER(COALESCE(s.supplier_type, b.bill_type, 'OTHER'))`,
+          { companyId, branchId, from, to },
+        ).catch(() => [])) || [];
+      function bucketReceivable(row) {
+        const t = String(row.customer_type || "").toUpperCase();
+        return t.includes("TRADE") ? "Trade Debtors" : "Debtors";
+      }
+      function bucketPayable(row) {
+        const t = String(row.supplier_type || "").toUpperCase();
+        if (t.includes("IMPORT") || t.includes("TAX") || t.includes("DUTY"))
+          return "Duties and Taxes";
+        if (t.includes("TRADE")) return "Trade Creditors";
+        if (t.includes("LOCAL")) return "Creditors";
+        return "Other Creditors";
+      }
+      const arBreakdownMap = new Map();
+      for (const r of recvRows) {
+        const k = bucketReceivable(r);
+        arBreakdownMap.set(
+          k,
+          (arBreakdownMap.get(k) || 0) + Number(r.outstanding || 0),
+        );
+      }
+      const apBreakdownMap = new Map();
+      for (const r of payRows) {
+        const k = bucketPayable(r);
+        apBreakdownMap.set(
+          k,
+          (apBreakdownMap.get(k) || 0) + Number(r.outstanding || 0),
+        );
+      }
+      const arBreakdown = Array.from(arBreakdownMap.entries()).map(
+        ([label, value]) => ({
+          label,
+          value,
+        }),
+      );
+      const apBreakdown = Array.from(apBreakdownMap.entries()).map(
+        ([label, value]) => ({
+          label,
+          value,
+        }),
+      );
+      // Bank/Cash trend line (monthly net)
+      async function monthlyNetFor(accIds) {
+        if (!accIds || !accIds.length) return [];
+        const rows =
+          (await query(
+            `SELECT DATE_FORMAT(v.voucher_date, '%Y-%m') AS ym,
+                    COALESCE(SUM(l.debit),0) - COALESCE(SUM(l.credit),0) AS net
+               FROM fin_voucher_lines l
+               JOIN fin_vouchers v ON v.id = l.voucher_id
+              WHERE v.company_id = :companyId
+                AND v.branch_id = :branchId
+                AND v.voucher_date BETWEEN :from AND :to
+                AND l.account_id IN (${bankAccIds.map((_, i) => `:bn${i}`).join(",")})
+              GROUP BY ym
+              ORDER BY ym`,
+            bankAccIds.reduce(
+              (p, id, i) => Object.assign(p, { [`bn${i}`]: id }),
+              { companyId, branchId, from, to },
+            ),
+          ).catch(() => [])) || [];
+        return rows.map((r) => ({ ym: r.ym, value: Number(r.net || 0) }));
+      }
+      const bankTrend = await monthlyNetFor(bankAccIds);
+      async function monthlyNetForCash(accIds) {
+        if (!accIds || !accIds.length) return [];
+        const rows =
+          (await query(
+            `SELECT DATE_FORMAT(v.voucher_date, '%Y-%m') AS ym,
+                    COALESCE(SUM(l.debit),0) - COALESCE(SUM(l.credit),0) AS net
+               FROM fin_voucher_lines l
+               JOIN fin_vouchers v ON v.id = l.voucher_id
+              WHERE v.company_id = :companyId
+                AND v.branch_id = :branchId
+                AND v.voucher_date BETWEEN :from AND :to
+                AND l.account_id IN (${cashAccIds.map((_, i) => `:cn${i}`).join(",")})
+              GROUP BY ym
+              ORDER BY ym`,
+            cashAccIds.reduce(
+              (p, id, i) => Object.assign(p, { [`cn${i}`]: id }),
+              { companyId, branchId, from, to },
+            ),
+          ).catch(() => [])) || [];
+        return rows.map((r) => ({ ym: r.ym, value: Number(r.net || 0) }));
+      }
+      const cashTrend = await monthlyNetForCash(cashAccIds);
+      // Inflow vs Outflow (bank accounts) monthly
+      async function monthlyInflowOutflowFor(accIds) {
+        if (!accIds || !accIds.length) return [];
+        const rows =
+          (await query(
+            `SELECT DATE_FORMAT(v.voucher_date, '%Y-%m') AS ym,
+                    COALESCE(SUM(l.debit),0) AS inflow,
+                    COALESCE(SUM(l.credit),0) AS outflow
+               FROM fin_voucher_lines l
+               JOIN fin_vouchers v ON v.id = l.voucher_id
+              WHERE v.company_id = :companyId
+                AND v.branch_id = :branchId
+                AND v.voucher_date BETWEEN :from AND :to
+                AND l.account_id IN (${accIds.map((_, i) => `:io${i}`).join(",")})
+              GROUP BY ym
+              ORDER BY ym`,
+            accIds.reduce((p, id, i) => Object.assign(p, { [`io${i}`]: id }), {
+              companyId,
+              branchId,
+              from,
+              to,
+            }),
+          ).catch(() => [])) || [];
+        return rows.map((r) => ({
+          ym: r.ym,
+          inflow: Number(r.inflow || 0),
+          outflow: Number(r.outflow || 0),
+        }));
+      }
+      const cashflowTrend = await monthlyInflowOutflowFor(bankAccIds);
+      // Income vs Expense monthly
+      const incMonthly =
+        (await query(
+          `SELECT DATE_FORMAT(v.voucher_date, '%Y-%m') AS ym,
+                  COALESCE(SUM(l.credit),0) - COALESCE(SUM(l.debit),0) AS income
+             FROM fin_voucher_lines l
+             JOIN fin_vouchers v ON v.id = l.voucher_id
+             JOIN fin_accounts a ON a.id = l.account_id
+             JOIN fin_account_groups g ON g.id = a.group_id
+            WHERE v.company_id = :companyId
+              AND v.branch_id = :branchId
+              AND v.voucher_date BETWEEN :from AND :to
+              AND g.nature = 'INCOME'
+            GROUP BY ym
+            ORDER BY ym`,
+          { companyId, branchId, from, to },
+        ).catch(() => [])) || [];
+      const expMonthly =
+        (await query(
+          `SELECT DATE_FORMAT(v.voucher_date, '%Y-%m') AS ym,
+                  COALESCE(SUM(l.debit),0) - COALESCE(SUM(l.credit),0) AS expense
+             FROM fin_voucher_lines l
+             JOIN fin_vouchers v ON v.id = l.voucher_id
+             JOIN fin_accounts a ON a.id = l.account_id
+             JOIN fin_account_groups g ON g.id = a.group_id
+            WHERE v.company_id = :companyId
+              AND v.branch_id = :branchId
+              AND v.voucher_date BETWEEN :from AND :to
+              AND g.nature = 'EXPENSE'
+            GROUP BY ym
+            ORDER BY ym`,
+          { companyId, branchId, from, to },
+        ).catch(() => [])) || [];
+      const incomeExpenseTrend = [];
+      const idx = new Map();
+      for (const r of incMonthly) {
+        const ym = r.ym;
+        idx.set(ym, { ym, income: Number(r.income || 0), expense: 0 });
+      }
+      for (const r of expMonthly) {
+        const ym = r.ym;
+        const cur = idx.get(ym) || { ym, income: 0, expense: 0 };
+        cur.expense = Number(r.expense || 0);
+        idx.set(ym, cur);
+      }
+      for (const v of idx.values()) incomeExpenseTrend.push(v);
+      // YTD Customers (Debtors) and Suppliers (Creditors) from transactions
+      const [arYtdRow] = (await query(
+        `SELECT COALESCE(SUM(i.balance_amount),0) AS ar
+             FROM sal_invoices i
+            WHERE i.company_id = :companyId
+              AND i.branch_id = :branchId
+              AND i.invoice_date BETWEEN :from AND :to`,
+        { companyId, branchId, from, to },
+      ).catch(() => [])) || [{ ar: 0 }];
+      const [apYtdRow] = (await query(
+        `SELECT COALESCE(SUM(COALESCE(b.net_amount,0) - COALESCE(b.amount_paid,0)),0) AS ap
+             FROM pur_bills b
+            WHERE b.company_id = :companyId
+              AND b.branch_id = :branchId
+              AND b.bill_date BETWEEN :from AND :to`,
+        { companyId, branchId, from, to },
+      ).catch(() => [])) || [{ ap: 0 }];
+      const ytdDebtors = Math.abs(Number(arYtdRow?.ar || 0));
+      const ytdDebtorsSide = "DR";
+      const ytdCreditors = Math.abs(Number(apYtdRow?.ap || 0));
+      const ytdCreditorsSide = "CR";
+      res.json({
+        ytd: {
+          bank_total: ytdBank,
+          cash_in_hand: ytdCash,
+          indirect_expenses: ytdIndirectExpenses,
+          sales: ytdSales,
+          debtors: ytdDebtors,
+          debtors_side: ytdDebtorsSide,
+          creditors: ytdCreditors,
+          creditors_side: ytdCreditorsSide,
+        },
+        ar_trend: arTrend,
+        ap_trend: apTrend,
+        ar_breakdown: arBreakdown,
+        ap_breakdown: apBreakdown,
+        bank_trend: bankTrend,
+        cash_trend: cashTrend,
+        cashflow_trend: cashflowTrend,
+        income_expense_trend: incomeExpenseTrend,
+        from,
+        to,
       });
     } catch (e) {
       next(e);

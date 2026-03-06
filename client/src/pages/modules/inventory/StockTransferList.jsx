@@ -2,10 +2,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
-import { usePermission } from "../../../auth/PermissionContext.jsx";
+import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
 
 export default function StockTransferList() {
-  const { canPerformAction } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [transfers, setTransfers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -24,7 +23,7 @@ export default function StockTransferList() {
       .catch((e) => {
         if (!mounted) return;
         setError(
-          e?.response?.data?.message || "Failed to load stock transfers"
+          e?.response?.data?.message || "Failed to load stock transfers",
         );
       })
       .finally(() => {
@@ -60,7 +59,8 @@ export default function StockTransferList() {
     <div className="space-y-6">
       <div className="card">
         <div className="card-header bg-brand text-white rounded-t-lg">
-          <div className="flex justify-between items-center text-white"><div>
+          <div className="flex justify-between items-center text-white">
+            <div>
               <h1 className="text-2xl font-bold dark:text-brand-300">
                 Stock Transfers
               </h1>
@@ -136,22 +136,18 @@ export default function StockTransferList() {
                       </span>
                     </td>
                     <td>
-                      {canPerformAction("inventory:stock-transfers", "view") && (
-                        <Link
-                          to={`/inventory/stock-transfers/${transfer.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                      )}
-                      {canPerformAction("inventory:stock-transfers", "edit") && (
-                        <Link
-                          to={`/inventory/stock-transfers/${transfer.id}?mode=edit`}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                        >
-                          Edit
-                        </Link>
-                      )}
+                      <Link
+                        to={`/inventory/stock-transfers/${transfer.id}?mode=view`}
+                        className="text-brand hover:text-brand-700 text-sm font-medium"
+                      >
+                        View
+                      </Link>
+                      <Link
+                        to={`/inventory/stock-transfers/${transfer.id}?mode=edit`}
+                        className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                      >
+                        Edit
+                      </Link>
                     </td>
                   </tr>
                 ))}
@@ -160,13 +156,10 @@ export default function StockTransferList() {
           </div>
         </div>
       </div>
+      <FloatingCreateButton
+        to="/inventory/stock-transfers/new"
+        title="New Transfer"
+      />
     </div>
   );
 }
-
-
-
-
-
-
-

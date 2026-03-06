@@ -1,9 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { toast } from "react-toastify";
 
 import { api } from "api/client";
+import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
+import ReverseApprovalButton from "../../../components/ReverseApprovalButton.jsx";
 
 export default function ReturnToStoresList() {
+  const location = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -44,6 +48,71 @@ export default function ReturnToStoresList() {
     return () => {
       mounted = false;
     };
+  }, []);
+  useEffect(() => {
+    const ref = location.state?.highlightRef;
+    const hid = location.state?.highlightId;
+    const refresh = location.state?.refresh;
+    if (!ref && !hid && !refresh) return;
+    let cancelled = false;
+    async function ensureVisible() {
+      const start = Date.now();
+      while (!cancelled && Date.now() - start < 5000) {
+        try {
+          const res = await api.get("/inventory/return-to-stores");
+          const arr = Array.isArray(res.data?.items) ? res.data.items : [];
+          setDocs(arr);
+          let hit = false;
+          if (ref) {
+            hit = arr.some(
+              (d) =>
+                String(d.rts_no || "").toLowerCase() ===
+                String(ref).toLowerCase(),
+            );
+          } else if (hid) {
+            hit = arr.some((d) => Number(d.id) === Number(hid));
+          } else {
+            hit = arr.length > 0;
+          }
+          if (hit) break;
+        } catch {}
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    }
+    ensureVisible();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    location.state?.highlightRef,
+    location.state?.highlightId,
+    location.state?.refresh,
+  ]);
+  useEffect(() => {
+    function onWorkflowStatus(e) {
+      try {
+        const d = e.detail || {};
+        const id = Number(d.documentId || d.document_id);
+        const status = String(d.status || "").toUpperCase();
+        if (!id || !status) return;
+        setDocs((prev) =>
+          prev.map((g) =>
+            Number(g.id) === id
+              ? {
+                  ...g,
+                  status,
+                  ...(status === "DRAFT"
+                    ? { forwarded_to_username: null }
+                    : {}),
+                }
+              : g,
+          ),
+        );
+      } catch {}
+    }
+    window.addEventListener("omni.workflow.status", onWorkflowStatus);
+    return () =>
+      window.removeEventListener("omni.workflow.status", onWorkflowStatus);
   }, []);
 
   const getStatusBadge = (status) => {
@@ -218,6 +287,44 @@ export default function ReturnToStoresList() {
     if (!selectedDoc) return;
     setSubmittingForward(true);
     setWfError("");
+    // Optimistic update
+    let optimisticApprover = null;
+    try {
+      const first =
+        Array.isArray(workflowSteps) && workflowSteps.length
+          ? workflowSteps[0]
+          : null;
+      const opts = first
+        ? Array.isArray(first.approvers) && first.approvers.length
+          ? first.approvers.map((u) => ({ id: u.id, name: u.username }))
+          : first.approver_user_id
+            ? [
+                {
+                  id: first.approver_user_id,
+                  name: first.approver_name || String(first.approver_user_id),
+                },
+              ]
+            : []
+        : [];
+      if (targetApproverId && opts.length) {
+        const hit = opts.find((u) => Number(u.id) === Number(targetApproverId));
+        optimisticApprover = hit ? hit.name : null;
+      }
+    } catch {}
+    setDocs((prev) =>
+      prev.map((r) =>
+        r.id === selectedDoc.id
+          ? {
+              ...r,
+              status: "PENDING_APPROVAL",
+              forwarded_to_username:
+                optimisticApprover || r.forwarded_to_username || "Approver",
+            }
+          : r,
+      ),
+    );
+    setShowForwardModal(false);
+    setSelectedDoc(null);
     try {
       const res = await api.post(
         `/inventory/return-to-stores/${selectedDoc.id}/submit`,
@@ -228,13 +335,49 @@ export default function ReturnToStoresList() {
         },
       );
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
+      let approverName = null;
+      try {
+        const first =
+          Array.isArray(workflowSteps) && workflowSteps.length
+            ? workflowSteps[0]
+            : null;
+        const opts = first
+          ? Array.isArray(first.approvers) && first.approvers.length
+            ? first.approvers.map((u) => ({
+                id: u.id,
+                name: u.username,
+              }))
+            : first.approver_user_id
+              ? [
+                  {
+                    id: first.approver_user_id,
+                    name: first.approver_name || String(first.approver_user_id),
+                  },
+                ]
+              : []
+          : [];
+        if (targetApproverId && opts.length) {
+          const hit = opts.find(
+            (u) => Number(u.id) === Number(targetApproverId),
+          );
+          approverName = hit ? hit.name : null;
+        }
+      } catch {}
       setDocs((prev) =>
         prev.map((r) =>
-          r.id === selectedDoc.id ? { ...r, status: newStatus } : r,
+          r.id === selectedDoc.id
+            ? {
+                ...r,
+                status: newStatus,
+                forwarded_to_username:
+                  approverName || r.forwarded_to_username || "Approver",
+              }
+            : r,
         ),
       );
-      setShowForwardModal(false);
-      setSelectedDoc(null);
+      try {
+        toast.success("Return to Stores forwarded for approval");
+      } catch {}
     } catch (e) {
       setWfError(
         e?.response?.data?.message || "Failed to forward for approval",
@@ -498,8 +641,31 @@ export default function ReturnToStoresList() {
                         </svg>
                       </Link>
                       {d.status === "APPROVED" ? (
-                        <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                          Approved
+                        <>
+                          <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
+                            Approved
+                          </span>
+                          <ReverseApprovalButton
+                            docType="RETURN_TO_STORES"
+                            docId={d.id}
+                            onDone={() =>
+                              setDocs((prev) =>
+                                prev.map((x) =>
+                                  x.id === d.id
+                                    ? {
+                                        ...x,
+                                        status: "REVERSED",
+                                        forwarded_to_username: null,
+                                      }
+                                    : x,
+                                ),
+                              )
+                            }
+                          />
+                        </>
+                      ) : d.forwarded_to_username ? (
+                        <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
+                          Forwarded to {d.forwarded_to_username}
                         </span>
                       ) : (
                         <button
@@ -682,6 +848,11 @@ export default function ReturnToStoresList() {
           </div>
         </div>
       )}
+      <FloatingCreateButton
+        to="/inventory/return-to-stores/new"
+        title="New Return"
+        className="btn-primary bg-[#2E7D9F] hover:bg-[#24637e] inline-flex rounded-full w-12 h-12 shadow-erp-lg items-center justify-center text-xl"
+      />
     </div>
   );
 }

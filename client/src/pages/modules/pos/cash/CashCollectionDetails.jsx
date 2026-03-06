@@ -36,8 +36,12 @@ export default function CashCollectionDetails() {
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState("ALL");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
+  const [toDate, setToDate] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
   const [searchNo, setSearchNo] = useState("");
   const [collector, setCollector] = useState("ALL");
   const [actionLoadingId, setActionLoadingId] = useState(null);
@@ -634,6 +638,15 @@ export default function CashCollectionDetails() {
           <p className="text-sm mt-1">
             List of all invoices from POS sales with collection summary
           </p>
+        </div>
+        <div className="flex items-center">
+          <Link
+            to="/pos/day-management"
+            className="btn-danger px-4 py-2 rounded"
+            style={{ display: "inline-block" }}
+          >
+            Close Day
+          </Link>
         </div>
       </div>
 

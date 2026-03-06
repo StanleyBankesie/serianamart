@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 import { api } from "../../../api/client";
+import { toast } from "react-toastify";
 import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 export default function MaterialRequisitionList() {
+  const location = useLocation();
+  const { canReverseApproval } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
 
   const [loading, setLoading] = useState(false);
@@ -20,7 +23,6 @@ export default function MaterialRequisitionList() {
   const [workflowSteps, setWorkflowSteps] = useState([]);
   const [submittingForward, setSubmittingForward] = useState(false);
   const [workflowsCache, setWorkflowsCache] = useState(null);
-  const { canPerformAction } = usePermission();
   const [targetApproverId, setTargetApproverId] = useState(null);
 
   useEffect(() => {
@@ -48,6 +50,71 @@ export default function MaterialRequisitionList() {
     return () => {
       mounted = false;
     };
+  }, []);
+  useEffect(() => {
+    const ref = location.state?.highlightRef;
+    const hid = location.state?.highlightId;
+    const refresh = location.state?.refresh;
+    if (!ref && !hid && !refresh) return;
+    let cancelled = false;
+    async function ensureVisible() {
+      const start = Date.now();
+      while (!cancelled && Date.now() - start < 5000) {
+        try {
+          const res = await api.get("/inventory/material-requisitions");
+          const arr = Array.isArray(res.data?.items) ? res.data.items : [];
+          setRequisitions(arr);
+          let hit = false;
+          if (ref) {
+            hit = arr.some(
+              (r) =>
+                String(r.requisition_no || "").toLowerCase() ===
+                String(ref).toLowerCase(),
+            );
+          } else if (hid) {
+            hit = arr.some((r) => Number(r.id) === Number(hid));
+          } else {
+            hit = arr.length > 0;
+          }
+          if (hit) break;
+        } catch {}
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    }
+    ensureVisible();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    location.state?.highlightRef,
+    location.state?.highlightId,
+    location.state?.refresh,
+  ]);
+  useEffect(() => {
+    function onWorkflowStatus(e) {
+      try {
+        const d = e.detail || {};
+        const id = Number(d.documentId || d.document_id);
+        const status = String(d.status || "").toUpperCase();
+        if (!id || !status) return;
+        setRequisitions((prev) =>
+          prev.map((r) =>
+            Number(r.id) === id
+              ? {
+                  ...r,
+                  status,
+                  ...(status === "DRAFT"
+                    ? { forwarded_to_username: null }
+                    : {}),
+                }
+              : r,
+          ),
+        );
+      } catch {}
+    }
+    window.addEventListener("omni.workflow.status", onWorkflowStatus);
+    return () =>
+      window.removeEventListener("omni.workflow.status", onWorkflowStatus);
   }, []);
 
   const getStatusBadge = (status) => {
@@ -231,6 +298,44 @@ export default function MaterialRequisitionList() {
     if (!selectedReq) return;
     setSubmittingForward(true);
     setWfError("");
+    // Optimistic UI update
+    let optimisticApprover = null;
+    try {
+      const first =
+        Array.isArray(workflowSteps) && workflowSteps.length
+          ? workflowSteps[0]
+          : null;
+      const opts = first
+        ? Array.isArray(first.approvers) && first.approvers.length
+          ? first.approvers.map((u) => ({ id: u.id, name: u.username }))
+          : first.approver_user_id
+            ? [
+                {
+                  id: first.approver_user_id,
+                  name: first.approver_name || String(first.approver_user_id),
+                },
+              ]
+            : []
+        : [];
+      if (targetApproverId && opts.length) {
+        const hit = opts.find((u) => Number(u.id) === Number(targetApproverId));
+        optimisticApprover = hit ? hit.name : null;
+      }
+    } catch {}
+    setRequisitions((prev) =>
+      prev.map((r) =>
+        r.id === selectedReq.id
+          ? {
+              ...r,
+              status: "PENDING_APPROVAL",
+              forwarded_to_username:
+                optimisticApprover || r.forwarded_to_username || "Approver",
+            }
+          : r,
+      ),
+    );
+    setShowForwardModal(false);
+    setSelectedReq(null);
     try {
       const res = await api.post(
         `/inventory/material-requisitions/${selectedReq.id}/submit`,
@@ -241,13 +346,49 @@ export default function MaterialRequisitionList() {
         },
       );
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
+      let approverName = null;
+      try {
+        const first =
+          Array.isArray(workflowSteps) && workflowSteps.length
+            ? workflowSteps[0]
+            : null;
+        const opts = first
+          ? Array.isArray(first.approvers) && first.approvers.length
+            ? first.approvers.map((u) => ({
+                id: u.id,
+                name: u.username,
+              }))
+            : first.approver_user_id
+              ? [
+                  {
+                    id: first.approver_user_id,
+                    name: first.approver_name || String(first.approver_user_id),
+                  },
+                ]
+              : []
+          : [];
+        if (targetApproverId && opts.length) {
+          const hit = opts.find(
+            (u) => Number(u.id) === Number(targetApproverId),
+          );
+          approverName = hit ? hit.name : null;
+        }
+      } catch {}
       setRequisitions((prev) =>
         prev.map((r) =>
-          r.id === selectedReq.id ? { ...r, status: newStatus } : r,
+          r.id === selectedReq.id
+            ? {
+                ...r,
+                status: newStatus,
+                forwarded_to_username:
+                  approverName || r.forwarded_to_username || "Approver",
+              }
+            : r,
         ),
       );
-      setShowForwardModal(false);
-      setSelectedReq(null);
+      try {
+        toast.success("Material requisition forwarded for approval");
+      } catch {}
     } catch (e) {
       setWfError(
         e?.response?.data?.message || "Failed to forward for approval",
@@ -327,15 +468,14 @@ export default function MaterialRequisitionList() {
                       </span>
                     </td>
                     <td>
-                      {canPerformAction("inventory:material-requisitions", "view") && (
-                        <Link
-                          to={`/inventory/material-requisitions/${req.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                      )}
-                      {canPerformAction("inventory:material-requisitions", "edit") && (
+                      <Link
+                        to={`/inventory/material-requisitions/${req.id}?mode=view`}
+                        className="text-brand hover:text-brand-700 text-sm font-medium"
+                      >
+                        View
+                      </Link>
+                      {String(req.status || "").toUpperCase() !==
+                        "APPROVED" && (
                         <Link
                           to={`/inventory/material-requisitions/${req.id}?mode=edit`}
                           className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
@@ -344,8 +484,52 @@ export default function MaterialRequisitionList() {
                         </Link>
                       )}
                       {req.status === "APPROVED" ? (
-                        <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                          Approved
+                        <>
+                          <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
+                            Approved
+                          </span>
+                          {canReverseApproval() ? (
+                            <button
+                              type="button"
+                              className="ml-2 text-indigo-700 hover:text-indigo-800 text-sm font-medium"
+                              onClick={async () => {
+                                try {
+                                  await api.post(
+                                    "/workflows/reverse-by-document",
+                                    {
+                                      document_type: "MATERIAL_REQUISITION",
+                                      document_id: req.id,
+                                    },
+                                  );
+                                  toast.success(
+                                    "Approval reversed and document returned",
+                                  );
+                                  setRequisitions((prev) =>
+                                    prev.map((x) =>
+                                      x.id === req.id
+                                        ? {
+                                            ...x,
+                                            status: "REVERSED",
+                                            forwarded_to_username: null,
+                                          }
+                                        : x,
+                                    ),
+                                  );
+                                } catch (e) {
+                                  toast.error(
+                                    e?.response?.data?.message ||
+                                      "Reverse approval failed",
+                                  );
+                                }
+                              }}
+                            >
+                              Reverse Approval
+                            </button>
+                          ) : null}
+                        </>
+                      ) : req.forwarded_to_username ? (
+                        <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
+                          Forwarded to {req.forwarded_to_username}
                         </span>
                       ) : (
                         <button

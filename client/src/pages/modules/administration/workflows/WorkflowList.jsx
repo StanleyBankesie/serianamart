@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import api from "../../../../api/client";
-import { Trash2, Edit, Plus } from "lucide-react";
+import { Edit, Plus } from "lucide-react";
 
 const WorkflowList = () => {
   const [workflows, setWorkflows] = useState([]);
@@ -123,12 +123,7 @@ const WorkflowList = () => {
                     >
                       <Edit size={18} />
                     </button>
-                    <button
-                      onClick={() => handleDelete(wf.id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                    {/* Delete action removed per requirement */}
                   </td>
                 </tr>
               ))

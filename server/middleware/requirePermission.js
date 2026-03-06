@@ -7,8 +7,11 @@ function mapPermissionKeyToModuleAndAction(key) {
   const moduleMap = {
     ADMIN: "administration",
     SALES: "sales",
+    SAL: "sales",
     INVENTORY: "inventory",
+    INV: "inventory",
     PURCHASE: "purchase",
+    PUR: "purchase",
     FIN: "finance",
     HR: "human-resources",
     POS: "pos",

@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 import { api } from "api/client";
-import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { toast } from "react-toastify";
+import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
 
 export default function PurchaseOrdersImportList() {
+  const location = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
 
@@ -35,14 +37,14 @@ export default function PurchaseOrdersImportList() {
         const all = Array.isArray(res.data?.items) ? res.data.items : [];
         setPurchaseOrders(
           all.filter(
-            (po) => String(po.po_type || "").toUpperCase() === "IMPORT"
-          )
+            (po) => String(po.po_type || "").toUpperCase() === "IMPORT",
+          ),
         );
       })
       .catch((e) => {
         if (!mounted) return;
         setError(
-          e?.response?.data?.message || "Failed to load purchase orders"
+          e?.response?.data?.message || "Failed to load purchase orders",
         );
       })
       .finally(() => {
@@ -53,6 +55,74 @@ export default function PurchaseOrdersImportList() {
     return () => {
       mounted = false;
     };
+  }, []);
+  useEffect(() => {
+    const ref = location.state?.highlightRef;
+    const hid = location.state?.highlightId;
+    const refresh = location.state?.refresh;
+    if (!ref && !hid && !refresh) return;
+    let cancelled = false;
+    async function ensureVisible() {
+      const start = Date.now();
+      while (!cancelled && Date.now() - start < 5000) {
+        try {
+          const res = await api.get("/purchase/orders");
+          const all = Array.isArray(res.data?.items) ? res.data.items : [];
+          const imports = all.filter(
+            (po) => String(po.po_type || "").toUpperCase() === "IMPORT",
+          );
+          setPurchaseOrders(imports);
+          let hit = false;
+          if (ref) {
+            hit = imports.some(
+              (po) =>
+                String(po.po_no || "").toLowerCase() ===
+                String(ref).toLowerCase(),
+            );
+          } else if (hid) {
+            hit = imports.some((po) => Number(po.id) === Number(hid));
+          } else {
+            hit = imports.length > 0;
+          }
+          if (hit) break;
+        } catch {}
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    }
+    ensureVisible();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    location.state?.highlightRef,
+    location.state?.highlightId,
+    location.state?.refresh,
+  ]);
+  useEffect(() => {
+    function onWorkflowStatus(e) {
+      try {
+        const d = e.detail || {};
+        const id = Number(d.documentId || d.document_id);
+        const status = String(d.status || "").toUpperCase();
+        if (!id || !status) return;
+        setPurchaseOrders((prev) =>
+          prev.map((po) =>
+            Number(po.id) === id
+              ? {
+                  ...po,
+                  status,
+                  ...(status === "DRAFT"
+                    ? { forwarded_to_username: null }
+                    : {}),
+                }
+              : po,
+          ),
+        );
+      } catch {}
+    }
+    window.addEventListener("omni.workflow.status", onWorkflowStatus);
+    return () =>
+      window.removeEventListener("omni.workflow.status", onWorkflowStatus);
   }, []);
 
   const getStatusBadge = (status) => {
@@ -118,12 +188,12 @@ export default function PurchaseOrdersImportList() {
         .replace(/\s+/g, "_");
     const chosen =
       workflowsCache.find(
-        (w) => Number(w.is_active) === 1 && String(w.document_route) === route
+        (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
       ) ||
       workflowsCache.find(
         (w) =>
           Number(w.is_active) === 1 &&
-          normalize(w.document_type) === "PURCHASE_ORDER"
+          normalize(w.document_type) === "PURCHASE_ORDER",
       ) ||
       null;
     setCandidateWorkflow(chosen || null);
@@ -145,7 +215,7 @@ export default function PurchaseOrdersImportList() {
               stepOrder: first.step_order,
               approvalLimit: first.approval_limit,
             }
-          : null
+          : null,
       );
       if (first) {
         const defaultTarget =
@@ -158,7 +228,7 @@ export default function PurchaseOrdersImportList() {
       }
     } catch (e) {
       setWfError(
-        e?.response?.data?.message || "Failed to load workflow details"
+        e?.response?.data?.message || "Failed to load workflow details",
       );
     } finally {
       setWfLoading(false);
@@ -180,12 +250,12 @@ export default function PurchaseOrdersImportList() {
         .replace(/\s+/g, "_");
     const chosen =
       items.find(
-        (w) => Number(w.is_active) === 1 && String(w.document_route) === route
+        (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
       ) ||
       items.find(
         (w) =>
           Number(w.is_active) === 1 &&
-          normalize(w.document_type) === "PURCHASE_ORDER"
+          normalize(w.document_type) === "PURCHASE_ORDER",
       ) ||
       null;
     setCandidateWorkflow(chosen || null);
@@ -207,11 +277,11 @@ export default function PurchaseOrdersImportList() {
               stepOrder: first.step_order,
               approvalLimit: first.approval_limit,
             }
-          : null
+          : null,
       );
     } catch (e) {
       setWfError(
-        e?.response?.data?.message || "Failed to load workflow details"
+        e?.response?.data?.message || "Failed to load workflow details",
       );
     } finally {
       setWfLoading(false);
@@ -222,6 +292,46 @@ export default function PurchaseOrdersImportList() {
     if (!selectedDoc) return;
     setSubmittingForward(true);
     setWfError("");
+    // Optimistic UI update before API
+    let optimisticApprover = null;
+    try {
+      const first =
+        Array.isArray(workflowSteps) && workflowSteps.length
+          ? workflowSteps[0]
+          : null;
+      const options = first
+        ? Array.isArray(first.approvers) && first.approvers.length
+          ? first.approvers.map((u) => ({ id: u.id, name: u.username }))
+          : first.approver_user_id
+            ? [
+                {
+                  id: first.approver_user_id,
+                  name: first.approver_name || String(first.approver_user_id),
+                },
+              ]
+            : []
+        : [];
+      if (targetApproverId && options.length) {
+        const hit = options.find(
+          (u) => Number(u.id) === Number(targetApproverId),
+        );
+        optimisticApprover = hit ? hit.name : null;
+      }
+    } catch {}
+    setPurchaseOrders((prev) =>
+      prev.map((r) =>
+        r.id === selectedDoc.id
+          ? {
+              ...r,
+              status: "PENDING_APPROVAL",
+              forwarded_to_username:
+                optimisticApprover || r.forwarded_to_username || "Approver",
+            }
+          : r,
+      ),
+    );
+    setShowForwardModal(false);
+    setSelectedDoc(null);
     try {
       const res = await api.post(`/purchase/orders/${selectedDoc.id}/submit`, {
         amount: selectedDoc?.total_amount ?? null,
@@ -229,16 +339,52 @@ export default function PurchaseOrdersImportList() {
         target_user_id: targetApproverId || null,
       });
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
+      let approverName = null;
+      try {
+        const first =
+          Array.isArray(workflowSteps) && workflowSteps.length
+            ? workflowSteps[0]
+            : null;
+        const opts = first
+          ? Array.isArray(first.approvers) && first.approvers.length
+            ? first.approvers.map((u) => ({
+                id: u.id,
+                name: u.username,
+              }))
+            : first.approver_user_id
+              ? [
+                  {
+                    id: first.approver_user_id,
+                    name: first.approver_name || String(first.approver_user_id),
+                  },
+                ]
+              : []
+          : [];
+        if (targetApproverId && opts.length) {
+          const hit = opts.find(
+            (u) => Number(u.id) === Number(targetApproverId),
+          );
+          approverName = hit ? hit.name : null;
+        }
+      } catch {}
       setPurchaseOrders((prev) =>
         prev.map((r) =>
-          r.id === selectedDoc.id ? { ...r, status: newStatus } : r
-        )
+          r.id === selectedDoc.id
+            ? {
+                ...r,
+                status: newStatus,
+                forwarded_to_username:
+                  approverName || r.forwarded_to_username || "Approver",
+              }
+            : r,
+        ),
       );
-      setShowForwardModal(false);
-      setSelectedDoc(null);
+      try {
+        toast.success("Purchase order forwarded for approval");
+      } catch {}
     } catch (e) {
       setWfError(
-        e?.response?.data?.message || "Failed to forward for approval"
+        e?.response?.data?.message || "Failed to forward for approval",
       );
     } finally {
       setSubmittingForward(false);
@@ -339,7 +485,11 @@ export default function PurchaseOrdersImportList() {
                 filteredOrders.map((po) => (
                   <tr key={po.id}>
                     <td className="font-medium">{po.po_no}</td>
-                    <td>{po.po_date ? new Date(po.po_date).toLocaleDateString() : ""}</td>
+                    <td>
+                      {po.po_date
+                        ? new Date(po.po_date).toLocaleDateString()
+                        : ""}
+                    </td>
                     <td>{po.supplier_name}</td>
                     <td className="text-right font-medium">
                       {Number(po.total_amount || 0).toLocaleString("en-US", {
@@ -353,7 +503,10 @@ export default function PurchaseOrdersImportList() {
                     </td>
                     <td>
                       <div className="flex gap-2">
-                        {canPerformAction("purchase:purchase-orders-import", "view") && (
+                        {canPerformAction(
+                          "purchase:purchase-orders-import",
+                          "view",
+                        ) && (
                           <Link
                             to={`/purchase/purchase-orders-import/${po.id}`}
                             className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
@@ -361,7 +514,11 @@ export default function PurchaseOrdersImportList() {
                             View
                           </Link>
                         )}
-                        {po.status === "DRAFT" && canPerformAction("purchase:purchase-orders-import", "edit") ? (
+                        {po.status === "DRAFT" &&
+                        canPerformAction(
+                          "purchase:purchase-orders-import",
+                          "edit",
+                        ) ? (
                           <Link
                             to={`/purchase/purchase-orders-import/${po.id}?mode=edit`}
                             className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
@@ -370,10 +527,34 @@ export default function PurchaseOrdersImportList() {
                           </Link>
                         ) : null}
                         {po.status === "APPROVED" ? (
-                          <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                            Approved
+                          <>
+                            <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
+                              Approved
+                            </span>
+                            <ReverseApprovalButton
+                              docType="PURCHASE_ORDER"
+                              docId={po.id}
+                              onDone={() =>
+                                setPurchaseOrders((prev) =>
+                                  prev.map((x) =>
+                                    x.id === po.id
+                                      ? {
+                                          ...x,
+                                          status: "REVERSED",
+                                          forwarded_to_username: null,
+                                        }
+                                      : x,
+                                  ),
+                                )
+                              }
+                            />
+                          </>
+                        ) : po.forwarded_to_username ? (
+                          <span className="text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
+                            Forwarded to {po.forwarded_to_username}
                           </span>
-                        ) : (po.status === "DRAFT" || po.status === "RETURNED") ? (
+                        ) : po.status === "DRAFT" ||
+                          po.status === "RETURNED" ? (
                           <button
                             type="button"
                             onClick={() => openForwardModal(po)}
@@ -461,15 +642,15 @@ export default function PurchaseOrdersImportList() {
                           name: u.username,
                         }))
                       : first.approver_user_id
-                      ? [
-                          {
-                            id: first.approver_user_id,
-                            name:
-                              first.approver_name ||
-                              String(first.approver_user_id),
-                          },
-                        ]
-                      : []
+                        ? [
+                            {
+                              id: first.approver_user_id,
+                              name:
+                                first.approver_name ||
+                                String(first.approver_user_id),
+                            },
+                          ]
+                        : []
                     : [];
                   return opts.length > 0 ? (
                     <div className="mt-1">
@@ -478,7 +659,7 @@ export default function PurchaseOrdersImportList() {
                         value={targetApproverId || ""}
                         onChange={(e) =>
                           setTargetApproverId(
-                            e.target.value ? Number(e.target.value) : null
+                            e.target.value ? Number(e.target.value) : null,
                           )
                         }
                       >
@@ -496,7 +677,7 @@ export default function PurchaseOrdersImportList() {
                             }${
                               firstApprover.approvalLimit != null
                                 ? ` • Limit: ${Number(
-                                    firstApprover.approvalLimit
+                                    firstApprover.approvalLimit,
                                   ).toLocaleString()}`
                                 : ""
                             }`

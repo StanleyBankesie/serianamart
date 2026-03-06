@@ -32,13 +32,12 @@ import SalesTrackingReportPage from "./reports/SalesTrackingReportPage.jsx";
 const ActionButton = ({ label, path, type, featureKey, action }) => {
   const { canPerformAction } = usePermission();
   const hasPermission = canPerformAction(featureKey, action);
-  
+
   if (!hasPermission) return null;
-  
-  const baseClasses = type === "primary" 
-    ? "btn btn-primary btn-sm" 
-    : "btn btn-outline btn-sm";
-    
+
+  const baseClasses =
+    type === "primary" ? "btn btn-primary btn-sm" : "btn btn-outline btn-sm";
+
   return (
     <Link to={path} className={baseClasses}>
       {label}
@@ -49,31 +48,58 @@ const ActionButton = ({ label, path, type, featureKey, action }) => {
 const SalesModuleHome = () => {
   const [stats, setStats] = React.useState([
     {
-      rbac_key: "total-sales",
-      icon: "💰",
-      value: "GHS 5.2M",
-      label: "Total Sales (YTD)",
-      change: "↑ 21.5% from last year",
-      changeType: "positive",
-      path: "/sales/reports",
+      rbac_key: "sales-this-month",
+      icon: "🟢",
+      value: "GHS 0",
+      label: "Total Sales This Month",
+      change: "",
+      changeType: "neutral",
+      path: "/sales/reports/invoice-summary",
     },
     {
-      rbac_key: "open-orders",
-      icon: "🛒",
-      value: "45",
-      label: "Open Orders",
-      change: "5 new today",
-      changeType: "positive",
-      path: "/sales/sales-orders",
+      rbac_key: "open-quotations",
+      icon: "🔵",
+      value: "0",
+      label: "Open Quotations",
+      change: "",
+      changeType: "neutral",
+      path: "/sales/reports/quotation-summary",
     },
     {
       rbac_key: "pending-deliveries",
-      icon: "🚚",
-      value: "12",
+      icon: "🟠",
+      value: "0",
       label: "Pending Deliveries",
-      change: "2 delayed",
-      changeType: "negative",
-      path: "/sales/delivery",
+      change: "",
+      changeType: "neutral",
+      path: "/sales/reports/delivery-register",
+    },
+    {
+      rbac_key: "overdue-invoices",
+      icon: "🔴",
+      value: "0",
+      label: "Overdue Invoices",
+      change: "",
+      changeType: "neutral",
+      path: "/sales/reports/ar-aging",
+    },
+    {
+      rbac_key: "total-revenue",
+      icon: "💰",
+      value: "GHS 0",
+      label: "Total Revenue",
+      change: "",
+      changeType: "neutral",
+      path: "/sales/reports/invoice-summary",
+    },
+    {
+      rbac_key: "sales-growth",
+      icon: "📈",
+      value: "0%",
+      label: "Sales Growth %",
+      change: "",
+      changeType: "neutral",
+      path: "/sales/reports/monthly-sales-trend",
     },
   ]);
 
@@ -81,22 +107,97 @@ const SalesModuleHome = () => {
     let mounted = true;
     async function load() {
       try {
-        const resp = await api.get("/bi/dashboards");
-        const total = Number(resp?.data?.summary?.sales?.total || 0);
-        const openOrders = Number(resp?.data?.summary?.sales?.open_orders || 0);
-        const pendingDeliveries = Number(
-          resp?.data?.summary?.sales?.pending_deliveries || 0,
+        const now = new Date();
+        const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const to = now.toISOString().slice(0, 10);
+        const from = firstOfMonth.toISOString().slice(0, 10);
+        const [dash, invoices, openQuotes, deliveries, prevMonthInvoices] =
+          await Promise.all([
+            api.get("/bi/dashboards").catch(() => ({ data: {} })),
+            api
+              .get("/sales/reports/invoice-summary", {
+                params: { from, to },
+              })
+              .catch(() => ({ data: {} })),
+            api
+              .get("/sales/reports/quotation-summary", {
+                params: { status: "OPEN" },
+              })
+              .catch(() => ({ data: {} })),
+            api.get("/sales/reports/delivery-register").catch(() => ({
+              data: {},
+            })),
+            (async () => {
+              const prevFrom = new Date(
+                now.getFullYear(),
+                now.getMonth() - 1,
+                1,
+              )
+                .toISOString()
+                .slice(0, 10);
+              const prevTo = new Date(now.getFullYear(), now.getMonth(), 0)
+                .toISOString()
+                .slice(0, 10);
+              return api
+                .get("/sales/reports/invoice-summary", {
+                  params: { from: prevFrom, to: prevTo },
+                })
+                .catch(() => ({ data: {} }));
+            })(),
+          ]);
+        const invoiceItems = Array.isArray(invoices?.data?.items)
+          ? invoices.data.items
+          : [];
+        const totalThisMonth = invoiceItems.reduce(
+          (a, r) => a + Number(r.total_amount || 0),
+          0,
         );
+        const totalRevenue =
+          Number(dash?.data?.summary?.sales?.total || 0) || totalThisMonth;
+        const openQuotationsCount = Array.isArray(openQuotes?.data?.items)
+          ? openQuotes.data.items.length
+          : 0;
+        const pendingDelivs = Array.isArray(deliveries?.data?.items)
+          ? deliveries.data.items.filter(
+              (d) => String(d.status || "").toUpperCase() !== "DELIVERED",
+            ).length
+          : 0;
+        const overdueInvoices = invoiceItems.filter((r) => {
+          const dt = r.invoice_date ? new Date(r.invoice_date) : null;
+          const overdue =
+            dt &&
+            (now - dt) / (1000 * 60 * 60 * 24) > 30 &&
+            Number(r.balance_amount || 0) > 0;
+          return overdue;
+        }).length;
+        const prevItems = Array.isArray(prevMonthInvoices?.data?.items)
+          ? prevMonthInvoices.data.items
+          : [];
+        const totalPrevMonth = prevItems.reduce(
+          (a, r) => a + Number(r.total_amount || 0),
+          0,
+        );
+        const growth =
+          totalPrevMonth > 0
+            ? Math.round(
+                ((totalThisMonth - totalPrevMonth) * 100) / totalPrevMonth,
+              )
+            : 0;
         if (mounted) {
           setStats((prev) => {
             const next = [...prev];
             next[0] = {
               ...next[0],
-              value: `GHS ${Number(total).toLocaleString()}`,
-              label: "Total Sales (Last 30 Days)",
+              value: `GHS ${totalThisMonth.toLocaleString()}`,
             };
-            next[1] = { ...next[1], value: String(openOrders) };
-            next[2] = { ...next[2], value: String(pendingDeliveries) };
+            next[1] = { ...next[1], value: String(openQuotationsCount) };
+            next[2] = { ...next[2], value: String(pendingDelivs) };
+            next[3] = { ...next[3], value: String(overdueInvoices) };
+            next[4] = {
+              ...next[4],
+              value: `GHS ${totalRevenue.toLocaleString()}`,
+            };
+            next[5] = { ...next[5], value: `${growth}%` };
             return next;
           });
         }
@@ -119,8 +220,22 @@ const SalesModuleHome = () => {
           description: "Create and manage customer quotations",
           icon: "📋",
           actions: [
-            <ActionButton key="view" label="View" path="/sales/quotations" type="outline" featureKey="sales:quotations" action="view" />,
-            <ActionButton key="new" label="New" path="/sales/quotations/new" type="primary" featureKey="sales:quotations" action="create" />,
+            <ActionButton
+              key="view"
+              label="View"
+              path="/sales/quotations"
+              type="outline"
+              featureKey="sales:quotations"
+              action="view"
+            />,
+            <ActionButton
+              key="new"
+              label="New"
+              path="/sales/quotations/new"
+              type="primary"
+              featureKey="sales:quotations"
+              action="create"
+            />,
           ],
         },
         {
@@ -129,8 +244,22 @@ const SalesModuleHome = () => {
           description: "Process customer orders and track fulfillment",
           icon: "🛒",
           actions: [
-            <ActionButton key="view" label="View" path="/sales/sales-orders" type="outline" featureKey="sales:sales-orders" action="view" />,
-            <ActionButton key="new" label="New" path="/sales/sales-orders/new" type="primary" featureKey="sales:sales-orders" action="create" />,
+            <ActionButton
+              key="view"
+              label="View"
+              path="/sales/sales-orders"
+              type="outline"
+              featureKey="sales:sales-orders"
+              action="view"
+            />,
+            <ActionButton
+              key="new"
+              label="New"
+              path="/sales/sales-orders/new"
+              type="primary"
+              featureKey="sales:sales-orders"
+              action="create"
+            />,
           ],
         },
         {
@@ -139,8 +268,22 @@ const SalesModuleHome = () => {
           description: "Generate and manage sales invoices",
           icon: "🧾",
           actions: [
-            <ActionButton key="view" label="View" path="/sales/invoices" type="outline" featureKey="sales:invoices" action="view" />,
-            <ActionButton key="new" label="New" path="/sales/invoices/new" type="primary" featureKey="sales:invoices" action="create" />,
+            <ActionButton
+              key="view"
+              label="View"
+              path="/sales/invoices"
+              type="outline"
+              featureKey="sales:invoices"
+              action="view"
+            />,
+            <ActionButton
+              key="new"
+              label="New"
+              path="/sales/invoices/new"
+              type="primary"
+              featureKey="sales:invoices"
+              action="create"
+            />,
           ],
         },
         {
@@ -149,8 +292,22 @@ const SalesModuleHome = () => {
           description: "Track product deliveries to customers",
           icon: "🚚",
           actions: [
-            <ActionButton key="view" label="View" path="/sales/delivery" type="outline" featureKey="sales:delivery" action="view" />,
-            <ActionButton key="new" label="New" path="/sales/delivery/new" type="primary" featureKey="sales:delivery" action="create" />,
+            <ActionButton
+              key="view"
+              label="View"
+              path="/sales/delivery"
+              type="outline"
+              featureKey="sales:delivery"
+              action="view"
+            />,
+            <ActionButton
+              key="new"
+              label="New"
+              path="/sales/delivery/new"
+              type="primary"
+              featureKey="sales:delivery"
+              action="create"
+            />,
           ],
         },
       ],
@@ -192,8 +349,22 @@ const SalesModuleHome = () => {
           description: "Manage customer information and credit limits",
           icon: "👥",
           actions: [
-            <ActionButton key="view" label="View" path="/sales/customers" type="outline" featureKey="sales:customers" action="view" />,
-            <ActionButton key="add" label="Add" path="/sales/customers/new" type="primary" featureKey="sales:customers" action="create" />,
+            <ActionButton
+              key="view"
+              label="View"
+              path="/sales/customers"
+              type="outline"
+              featureKey="sales:customers"
+              action="view"
+            />,
+            <ActionButton
+              key="add"
+              label="Add"
+              path="/sales/customers/new"
+              type="primary"
+              featureKey="sales:customers"
+              action="create"
+            />,
           ],
         },
         {
@@ -210,15 +381,6 @@ const SalesModuleHome = () => {
     {
       title: "Analytics & Reports",
       items: [
-        {
-          title: "Sales Reports",
-          path: "/sales/reports",
-          description: "View sales analytics and reports",
-          icon: "📊",
-          actions: [
-            { label: "View Reports", path: "/sales/reports", type: "primary" },
-          ],
-        },
         {
           title: "Sales Register",
           path: "/sales/reports/sales-register",
@@ -255,6 +417,78 @@ const SalesModuleHome = () => {
           description: "Track quotations → orders → deliveries → invoices",
           icon: "🔎",
         },
+        {
+          title: "Quotation Summary",
+          path: "/sales/reports/quotation-summary",
+          description: "Track quotes",
+          icon: "📋",
+        },
+        {
+          title: "Quotation Conversion",
+          path: "/sales/reports/quotation-conversion",
+          description: "Sales effectiveness",
+          icon: "✅",
+        },
+        {
+          title: "Sales Order Status",
+          path: "/sales/reports/sales-order-status",
+          description: "Monitor active orders",
+          icon: "📦",
+        },
+        {
+          title: "Invoice Summary",
+          path: "/sales/reports/invoice-summary",
+          description: "Revenue tracking",
+          icon: "🧾",
+        },
+        {
+          title: "A/R Aging",
+          path: "/sales/reports/ar-aging",
+          description: "Overdue payments",
+          icon: "⏱️",
+        },
+        {
+          title: "Revenue by Customer",
+          path: "/sales/reports/revenue-by-customer",
+          description: "Top customers",
+          icon: "👥",
+        },
+        {
+          title: "Revenue by Product",
+          path: "/sales/reports/revenue-by-product",
+          description: "Best sellers",
+          icon: "📦",
+        },
+        {
+          title: "Discount Utilization",
+          path: "/sales/reports/discount-utilization",
+          description: "Discount control",
+          icon: "🏷️",
+        },
+        {
+          title: "Price List",
+          path: "/sales/reports/price-list",
+          description: "Monitor pricing",
+          icon: "💰",
+        },
+        {
+          title: "Monthly Sales Trend",
+          path: "/sales/reports/monthly-sales-trend",
+          description: "Executive overview",
+          icon: "📈",
+        },
+        {
+          title: "Customer Order History",
+          path: "/sales/reports/customer-order-history",
+          description: "Per-customer timeline",
+          icon: "🗂️",
+        },
+        {
+          title: "Cancelled / Rejected Orders",
+          path: "/sales/reports/cancelled-orders",
+          description: "Identify revenue loss",
+          icon: "🛑",
+        },
       ],
     },
   ];
@@ -264,6 +498,9 @@ const SalesModuleHome = () => {
       title="Sales Module"
       description="Customer orders, quotations, invoicing, and sales analytics"
       stats={stats}
+      headerActions={[
+        { label: "Dashboard", path: "/sales/dashboard", icon: "📊" },
+      ]}
       sections={sections}
       features={salesFeatures}
     />
@@ -274,6 +511,16 @@ export default function SalesHome() {
   return (
     <Routes>
       <Route path="/" element={<SalesModuleHome />} />
+      <Route
+        path="/dashboard"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(() => import("./SalesDashboardPage.jsx")),
+            )}
+          </React.Suspense>
+        }
+      />
       <Route path="/quotations" element={<QuotationList />} />
       <Route path="/quotations/new" element={<QuotationForm />} />
       <Route path="/quotations/:id" element={<QuotationForm />} />
@@ -293,10 +540,155 @@ export default function SalesHome() {
       <Route path="/customers" element={<CustomerList />} />
       <Route path="/customers/new" element={<CustomerForm />} />
       <Route path="/customers/:id" element={<CustomerForm />} />
-      <Route path="/bulk-upload" element={<BulkCustomerUpload />} />
-      <Route path="/reports" element={<SalesReports />} />
+      {/* Bulk Upload removed */}
+      {/* Additional sales report routes */}
+      <Route
+        path="/reports/quotation-summary"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/QuotationSummaryReportPage.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="/reports/quotation-conversion"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/QuotationConversionReportPage.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="/reports/sales-order-status"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/SalesOrderStatusReportPage.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="/reports/invoice-summary"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/InvoiceSummaryReportPage.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="/reports/ar-aging"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/AccountsReceivableAgingReportPage.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="/reports/revenue-by-customer"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/RevenueByCustomerReportPage.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="/reports/revenue-by-product"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/RevenueByProductReportPage.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="/reports/discount-utilization"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/DiscountUtilizationReportPage.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="/reports/price-list"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(() => import("./reports/PriceListReportPage.jsx")),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="/reports/monthly-sales-trend"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/MonthlySalesTrendReportPage.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="/reports/customer-order-history"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/CustomerOrderHistoryReportPage.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="/reports/cancelled-orders"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/CancelledOrdersReportPage.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
       <Route path="/reports/sales-return" element={<SalesReturnReportPage />} />
-      <Route path="/reports/sales-register" element={<SalesRegisterReportPage />} />
+      <Route
+        path="/reports/sales-register"
+        element={<SalesRegisterReportPage />}
+      />
       <Route
         path="/reports/delivery-register"
         element={<DeliveryRegisterReportPage />}
@@ -309,7 +701,10 @@ export default function SalesHome() {
         path="/reports/sales-profitability"
         element={<SalesProfitabilityReportPage />}
       />
-      <Route path="/reports/sales-tracking" element={<SalesTrackingReportPage />} />
+      <Route
+        path="/reports/sales-tracking"
+        element={<SalesTrackingReportPage />}
+      />
       <Route path="/returns" element={<SalesReturnList />} />
     </Routes>
   );
@@ -356,12 +751,6 @@ export const salesFeatures = [
     module_key: "sales",
     label: "Customer Setup",
     path: "/sales/customers",
-    type: "feature",
-  },
-  {
-    module_key: "sales",
-    label: "Bulk Upload",
-    path: "/sales/bulk-upload",
     type: "feature",
   },
   {

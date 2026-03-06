@@ -16,23 +16,23 @@ async function verifySocialFeedSetup() {
 
     // Check posts table
     console.log("📌 Checking 'posts' table...");
-    const postsTable = await connection.query(
-      `SHOW COLUMNS FROM posts`
-    ).catch(() => null);
-    
+    const postsTable = await connection
+      .query(`SHOW COLUMNS FROM posts`)
+      .catch(() => null);
+
     if (!postsTable) {
       console.log("❌ posts table not found");
       return false;
     }
     console.log("✅ posts table exists with columns:");
-    postsTable.forEach(col => console.log(`   - ${col.Field} (${col.Type})`));
+    postsTable.forEach((col) => console.log(`   - ${col.Field} (${col.Type})`));
 
     // Check post_likes table
     console.log("\n💬 Checking 'post_likes' table...");
-    const likesTable = await connection.query(
-      `SHOW COLUMNS FROM post_likes`
-    ).catch(() => null);
-    
+    const likesTable = await connection
+      .query(`SHOW COLUMNS FROM post_likes`)
+      .catch(() => null);
+
     if (!likesTable) {
       console.log("❌ post_likes table not found");
       return false;
@@ -41,10 +41,10 @@ async function verifySocialFeedSetup() {
 
     // Check post_comments table
     console.log("\n💭 Checking 'post_comments' table...");
-    const commentsTable = await connection.query(
-      `SHOW COLUMNS FROM post_comments`
-    ).catch(() => null);
-    
+    const commentsTable = await connection
+      .query(`SHOW COLUMNS FROM post_comments`)
+      .catch(() => null);
+
     if (!commentsTable) {
       console.log("❌ post_comments table not found");
       return false;
@@ -53,10 +53,10 @@ async function verifySocialFeedSetup() {
 
     // Check post_selected_users table
     console.log("\n👥 Checking 'post_selected_users' table...");
-    const selectedTable = await connection.query(
-      `SHOW COLUMNS FROM post_selected_users`
-    ).catch(() => null);
-    
+    const selectedTable = await connection
+      .query(`SHOW COLUMNS FROM post_selected_users`)
+      .catch(() => null);
+
     if (!selectedTable) {
       console.log("❌ post_selected_users table not found");
       return false;
@@ -65,12 +65,10 @@ async function verifySocialFeedSetup() {
 
     // Check indexes
     console.log("\n🔑 Checking indexes...");
-    const indexes = await connection.query(
-      `SHOW INDEX FROM posts`
-    );
+    const indexes = await connection.query(`SHOW INDEX FROM posts`);
     console.log(`✅ Found ${indexes.length} indexes on posts table`);
-    indexes.forEach(idx => {
-      if (idx.Key_name !== 'PRIMARY') {
+    indexes.forEach((idx) => {
+      if (idx.Key_name !== "PRIMARY") {
         console.log(`   - ${idx.Key_name}`);
       }
     });
@@ -78,29 +76,33 @@ async function verifySocialFeedSetup() {
     // Check unique constraints
     console.log("\n🔒 Checking constraints...");
     const likeConstraints = await connection.query(
-      `SHOW INDEX FROM post_likes WHERE Key_name != 'PRIMARY'`
+      `SHOW INDEX FROM post_likes WHERE Key_name != 'PRIMARY'`,
     );
-    console.log(`✅ post_likes constraints: ${likeConstraints.length > 0 ? 'OK' : 'Missing'}`);
+    console.log(
+      `✅ post_likes constraints: ${likeConstraints.length > 0 ? "OK" : "Missing"}`,
+    );
 
     const selectedConstraints = await connection.query(
-      `SHOW INDEX FROM post_selected_users WHERE Key_name != 'PRIMARY'`
+      `SHOW INDEX FROM post_selected_users WHERE Key_name != 'PRIMARY'`,
     );
-    console.log(`✅ post_selected_users constraints: ${selectedConstraints.length > 0 ? 'OK' : 'Missing'}`);
+    console.log(
+      `✅ post_selected_users constraints: ${selectedConstraints.length > 0 ? "OK" : "Missing"}`,
+    );
 
     // Count existing posts
     console.log("\n📊 Current data:");
     const postCount = await connection.query(
-      `SELECT COUNT(*) as count FROM posts`
+      `SELECT COUNT(*) as count FROM posts`,
     );
     console.log(`   Posts: ${postCount[0].count}`);
 
     const likeCount = await connection.query(
-      `SELECT COUNT(*) as count FROM post_likes`
+      `SELECT COUNT(*) as count FROM post_likes`,
     );
     console.log(`   Likes: ${likeCount[0].count}`);
 
     const commentCount = await connection.query(
-      `SELECT COUNT(*) as count FROM post_comments`
+      `SELECT COUNT(*) as count FROM post_comments`,
     );
     console.log(`   Comments: ${commentCount[0].count}`);
 

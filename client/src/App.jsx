@@ -23,38 +23,41 @@ export default function App() {
   const base = (import.meta.env.BASE_URL || "/").replace(/\/+$/, "");
   const basename = base.startsWith("/") ? base : "/";
   return (
-    <BrowserRouter basename={basename} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <BrowserRouter
+      basename={basename}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
       <Provider store={store}>
         <ThemeProvider>
           <AuthProvider>
             <PermissionProvider>
-            <ToastContainer position="top-right" theme="dark" />
-            <Notifications />
-            <Routes>
-              <Route path="/login" element={<LoginPage />} />
-              <Route
-                path="/forgot-password"
-                element={<ForgotPasswordRequest />}
-              />
-              <Route path="/reset-password" element={<ResetPasswordPage />} />
-              <Route
-                path="/select-branch"
-                element={
-                  <ProtectedRoute>
-                    <BranchSelectionPage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/*"
-                element={
-                  <ProtectedRoute>
-                    <AppShell />
-                  </ProtectedRoute>
-                }
-              />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+              <ToastContainer position="top-right" theme="dark" />
+              <Notifications />
+              <Routes>
+                <Route path="/login" element={<LoginPage />} />
+                <Route
+                  path="/forgot-password"
+                  element={<ForgotPasswordRequest />}
+                />
+                <Route path="/reset-password" element={<ResetPasswordPage />} />
+                <Route
+                  path="/select-branch"
+                  element={
+                    <ProtectedRoute>
+                      <BranchSelectionPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/*"
+                  element={
+                    <ProtectedRoute>
+                      <AppShell />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
             </PermissionProvider>
           </AuthProvider>
         </ThemeProvider>

@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { usePermission } from "../../../auth/PermissionContext.jsx";
+import { Link, useLocation } from "react-router-dom";
 import { api } from "api/client";
+import { toast } from "react-toastify";
+import ReverseApprovalButton from "../../../components/ReverseApprovalButton.jsx";
+import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
 
 export default function StockAdjustmentList() {
-  const { canPerformAction } = usePermission();
+  const location = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [adjustments, setAdjustments] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -46,6 +48,71 @@ export default function StockAdjustmentList() {
     return () => {
       mounted = false;
     };
+  }, []);
+  useEffect(() => {
+    const ref = location.state?.highlightRef;
+    const hid = location.state?.highlightId;
+    const refresh = location.state?.refresh;
+    if (!ref && !hid && !refresh) return;
+    let cancelled = false;
+    async function ensureVisible() {
+      const start = Date.now();
+      while (!cancelled && Date.now() - start < 5000) {
+        try {
+          const res = await api.get("/inventory/stock-adjustments");
+          const arr = Array.isArray(res.data?.items) ? res.data.items : [];
+          setAdjustments(arr);
+          let hit = false;
+          if (ref) {
+            hit = arr.some(
+              (a) =>
+                String(a.adjustment_no || "").toLowerCase() ===
+                String(ref).toLowerCase(),
+            );
+          } else if (hid) {
+            hit = arr.some((a) => Number(a.id) === Number(hid));
+          } else {
+            hit = arr.length > 0;
+          }
+          if (hit) break;
+        } catch {}
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    }
+    ensureVisible();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    location.state?.highlightRef,
+    location.state?.highlightId,
+    location.state?.refresh,
+  ]);
+  useEffect(() => {
+    function onWorkflowStatus(e) {
+      try {
+        const d = e.detail || {};
+        const id = Number(d.documentId || d.document_id);
+        const status = String(d.status || "").toUpperCase();
+        if (!id || !status) return;
+        setAdjustments((prev) =>
+          prev.map((r) =>
+            Number(r.id) === id
+              ? {
+                  ...r,
+                  status,
+                  ...(status === "DRAFT"
+                    ? { forwarded_to_username: null }
+                    : {}),
+                }
+              : r,
+          ),
+        );
+      } catch {}
+    }
+    window.addEventListener("omni.workflow.status", onWorkflowStatus);
+    return () =>
+      window.removeEventListener("omni.workflow.status", onWorkflowStatus);
   }, []);
 
   const getStatusBadge = (status) => {
@@ -237,6 +304,44 @@ export default function StockAdjustmentList() {
     if (!selectedDoc) return;
     setSubmittingForward(true);
     setWfError("");
+    // Optimistic update
+    let optimisticApprover = null;
+    try {
+      const first =
+        Array.isArray(workflowSteps) && workflowSteps.length
+          ? workflowSteps[0]
+          : null;
+      const opts = first
+        ? Array.isArray(first.approvers) && first.approvers.length
+          ? first.approvers.map((u) => ({ id: u.id, name: u.username }))
+          : first.approver_user_id
+            ? [
+                {
+                  id: first.approver_user_id,
+                  name: first.approver_name || String(first.approver_user_id),
+                },
+              ]
+            : []
+        : [];
+      if (targetApproverId && opts.length) {
+        const hit = opts.find((u) => Number(u.id) === Number(targetApproverId));
+        optimisticApprover = hit ? hit.name : null;
+      }
+    } catch {}
+    setAdjustments((prev) =>
+      prev.map((r) =>
+        r.id === selectedDoc.id
+          ? {
+              ...r,
+              status: "PENDING_APPROVAL",
+              forwarded_to_username:
+                optimisticApprover || r.forwarded_to_username || "Approver",
+            }
+          : r,
+      ),
+    );
+    setShowForwardModal(false);
+    setSelectedDoc(null);
     try {
       const res = await api.post(
         `/inventory/stock-adjustments/${selectedDoc.id}/submit`,
@@ -247,13 +352,49 @@ export default function StockAdjustmentList() {
         },
       );
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
+      let approverName = null;
+      try {
+        const first =
+          Array.isArray(workflowSteps) && workflowSteps.length
+            ? workflowSteps[0]
+            : null;
+        const opts = first
+          ? Array.isArray(first.approvers) && first.approvers.length
+            ? first.approvers.map((u) => ({
+                id: u.id,
+                name: u.username,
+              }))
+            : first.approver_user_id
+              ? [
+                  {
+                    id: first.approver_user_id,
+                    name: first.approver_name || String(first.approver_user_id),
+                  },
+                ]
+              : []
+          : [];
+        if (targetApproverId && opts.length) {
+          const hit = opts.find(
+            (u) => Number(u.id) === Number(targetApproverId),
+          );
+          approverName = hit ? hit.name : null;
+        }
+      } catch {}
       setAdjustments((prev) =>
         prev.map((r) =>
-          r.id === selectedDoc.id ? { ...r, status: newStatus } : r,
+          r.id === selectedDoc.id
+            ? {
+                ...r,
+                status: newStatus,
+                forwarded_to_username:
+                  approverName || r.forwarded_to_username || "Approver",
+              }
+            : r,
         ),
       );
-      setShowForwardModal(false);
-      setSelectedDoc(null);
+      try {
+        toast.success("Stock adjustment forwarded for approval");
+      } catch {}
     } catch (e) {
       setWfError(
         e?.response?.data?.message || "Failed to forward for approval",
@@ -354,15 +495,15 @@ export default function StockAdjustmentList() {
                     </td>
                     <td>
                       <div className="flex gap-2 items-center">
-                        {canPerformAction("inventory:stock-adjustment", "view") && (
-                          <Link
-                            to={`/inventory/stock-adjustments/${adj.id}?mode=view`}
-                            className="text-brand hover:text-brand-700 text-sm font-medium"
-                          >
-                            View
-                          </Link>
-                        )}
-                        {canPerformAction("inventory:stock-adjustment", "edit") && (
+                        <Link
+                          to={`/inventory/stock-adjustments/${adj.id}?mode=view`}
+                          className="text-brand hover:text-brand-700 text-sm font-medium"
+                        >
+                          View
+                        </Link>
+                        {!["APPROVED", "POSTED"].includes(
+                          String(adj.status || "").toUpperCase(),
+                        ) && (
                           <Link
                             to={`/inventory/stock-adjustments/${adj.id}?mode=edit`}
                             className="text-blue-600 hover:text-blue-700 text-sm font-medium"
@@ -371,8 +512,31 @@ export default function StockAdjustmentList() {
                           </Link>
                         )}
                         {adj.status === "APPROVED" ? (
-                          <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                            Approved
+                          <>
+                            <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
+                              Approved
+                            </span>
+                            <ReverseApprovalButton
+                              docType="STOCK_ADJUSTMENT"
+                              docId={adj.id}
+                              onDone={() =>
+                                setAdjustments((prev) =>
+                                  prev.map((x) =>
+                                    x.id === adj.id
+                                      ? {
+                                          ...x,
+                                          status: "REVERSED",
+                                          forwarded_to_username: null,
+                                        }
+                                      : x,
+                                  ),
+                                )
+                              }
+                            />
+                          </>
+                        ) : adj.forwarded_to_username ? (
+                          <span className="text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
+                            Forwarded to {adj.forwarded_to_username}
                           </span>
                         ) : adj.status === "DRAFT" ||
                           adj.status === "RETURNED" ? (
@@ -526,6 +690,10 @@ export default function StockAdjustmentList() {
           </div>
         </div>
       )}
+      <FloatingCreateButton
+        to="/inventory/stock-adjustments/new"
+        title="New Adjustment"
+      />
     </div>
   );
 }

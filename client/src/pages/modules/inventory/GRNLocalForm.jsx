@@ -634,7 +634,7 @@ export default function GRNLocalForm() {
         await api.put(`/inventory/grn/${id}`, payload);
       }
 
-      navigate("/inventory/grn-local");
+      navigate("/inventory/grn-local", { state: { refresh: true } });
     } catch (e2) {
       setError(
         e2?.response?.data?.message || e2?.message || "Failed to save GRN",

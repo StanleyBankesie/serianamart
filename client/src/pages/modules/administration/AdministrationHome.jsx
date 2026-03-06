@@ -14,13 +14,13 @@ import CompanyList from "./companies/CompanyList.jsx";
 import CompanyForm from "./companies/CompanyForm.jsx";
 import BranchList from "./branches/BranchList.jsx";
 import BranchForm from "./branches/BranchForm.jsx";
-import ReportsPage from "./reports/ReportsPage.jsx";
 import SystemLogBookPage from "./reports/SystemLogBookPage.jsx";
 import UserLoginActivityReportPage from "./reports/UserLoginActivityReportPage.jsx";
 import SettingsPage from "./SettingsPage.jsx";
 import DocumentTemplatesPage from "./templates/DocumentTemplatesPage.jsx";
 import RoleManagement from "./access-control/RoleManagementNew.jsx";
 import UserOverrides from "./access-control/UserOverrides.jsx";
+import ExceptionalPermissionsList from "./access-control/ExceptionalPermissionsList.jsx";
 import UserPermissions from "./access-control/UserPermissionsNew.jsx";
 
 function AdministrationLanding() {
@@ -265,29 +265,7 @@ function AdministrationLanding() {
           path: "/administration/workflows/approvals",
           icon: "📝",
         },
-        {
-          title: "Reports",
-          description: "View user activity, audit logs, and system reports",
-          path: "/administration/reports",
-          icon: "📊",
-          actions: [
-            {
-              label: "View Logs",
-              path: "/administration/reports",
-              type: "primary",
-            },
-            {
-              label: "System Log Book",
-              path: "/administration/reports/system-log-book",
-              type: "outline",
-            },
-            {
-              label: "User Login Activity",
-              path: "/administration/reports/user-login-activity",
-              type: "outline",
-            },
-          ],
-        },
+
         {
           title: "System Log Book Report",
           description: "Audit logs and system activity",
@@ -339,7 +317,6 @@ export default function AdministrationHome() {
       <Route path="/branches" element={<BranchList />} />
       <Route path="/branches/new" element={<BranchForm />} />
       <Route path="/branches/:id" element={<BranchForm />} />
-      <Route path="/reports" element={<ReportsPage />} />
       <Route path="/reports/system-log-book" element={<SystemLogBookPage />} />
       <Route
         path="/reports/user-login-activity"
@@ -354,6 +331,10 @@ export default function AdministrationHome() {
         element={<UserPermissions />}
       />
       <Route path="/access/user-overrides" element={<UserOverrides />} />
+      <Route
+        path="/exceptional-permissions"
+        element={<ExceptionalPermissionsList />}
+      />
     </Routes>
   );
 }
@@ -429,12 +410,6 @@ export const administrationFeatures = [
     module_key: "administration",
     label: "User Login Activity Report",
     path: "/administration/reports/user-login-activity",
-    type: "dashboard",
-  },
-  {
-    module_key: "administration",
-    label: "Reports",
-    path: "/administration/reports",
     type: "dashboard",
   },
 ];

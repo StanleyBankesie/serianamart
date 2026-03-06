@@ -7,6 +7,29 @@ export default function FloatingChat() {
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const socket = useSocket();
+  function playChatTone() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext || null;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "triangle";
+      o.frequency.setValueAtTime(880, ctx.currentTime);
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.05, ctx.currentTime + 0.01);
+      o.connect(g).connect(ctx.destination);
+      o.start();
+      setTimeout(() => {
+        o.frequency.setValueAtTime(660, ctx.currentTime);
+      }, 150);
+      setTimeout(() => {
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.01);
+        o.stop();
+        ctx.close();
+      }, 700);
+    } catch {}
+  }
 
   const loadUnread = async () => {
     try {
@@ -20,8 +43,33 @@ export default function FloatingChat() {
     loadUnread();
   }, []);
   useEffect(() => {
+    function onOpenFromPush() {
+      try {
+        setOpen(true);
+      } catch {}
+    }
+    window.addEventListener("omni.chat.open", onOpenFromPush);
+    return () => window.removeEventListener("omni.chat.open", onOpenFromPush);
+  }, []);
+  useEffect(() => {
+    function onRefresh() {
+      loadUnread();
+    }
+    window.addEventListener("omni.chat.unread.refresh", onRefresh);
+    return () =>
+      window.removeEventListener("omni.chat.unread.refresh", onRefresh);
+  }, []);
+  useEffect(() => {
     if (!socket) return;
-    const onReceive = () => loadUnread();
+    const onReceive = () => {
+      loadUnread();
+      try {
+        const hidden =
+          typeof document !== "undefined" &&
+          document.visibilityState !== "visible";
+        if (!open || hidden) playChatTone();
+      } catch {}
+    };
     socket.on("receive_message", onReceive);
     socket.on("message_delivered", onReceive);
     socket.on("message_read", onReceive);
@@ -72,4 +120,3 @@ export default function FloatingChat() {
     </>
   );
 }
-

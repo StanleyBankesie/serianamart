@@ -34,6 +34,7 @@ export const PermissionProvider = ({ children }) => {
   const [modules, setModules] = useState(new Set());
   const [permissions, setPermissions] = useState([]);
   const [roleFeatures, setRoleFeatures] = useState(new Set());
+  const [exceptionalPerms, setExceptionalPerms] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [sessionOverrides, setSessionOverrides] = useState(() => new Map());
@@ -175,6 +176,39 @@ export const PermissionProvider = ({ children }) => {
       setRoleFeatures(
         new Set(feats.map((f) => String(f || "").trim()).filter(Boolean)),
       );
+      try {
+        const exRes = await api
+          .get(`/admin/users/${userId}/exceptional-permissions`)
+          .catch(() => ({ data: { data: { items: [] } } }));
+        const rows = Array.isArray(exRes?.data?.data?.items)
+          ? exRes.data.data.items
+          : Array.isArray(exRes?.data?.items)
+            ? exRes.data.items
+            : [];
+        const byCode = new Map();
+        for (const it of rows) {
+          const code = String(it?.permission_code || "")
+            .toUpperCase()
+            .trim();
+          if (!code) continue;
+          const active = Number(it?.is_active) === 1;
+          const isAllow =
+            String(it?.effect || "ALLOW").toUpperCase() === "ALLOW";
+          const isDeny = String(it?.effect || "ALLOW").toUpperCase() === "DENY";
+          const cur = byCode.get(code) || { allow: false, deny: false };
+          if (active && isAllow) cur.allow = true;
+          if (active && isDeny) cur.deny = true;
+          byCode.set(code, cur);
+        }
+        const set = new Set(
+          Array.from(byCode.entries())
+            .filter(([_, v]) => v.allow && !v.deny)
+            .map(([k]) => k),
+        );
+        setExceptionalPerms(set);
+      } catch {
+        setExceptionalPerms(new Set());
+      }
       try {
         window.dispatchEvent(new Event("rbac:updated"));
       } catch {}
@@ -584,6 +618,71 @@ export const PermissionProvider = ({ children }) => {
   useEffect(() => {
     loadDashboardPermissions();
   }, [user?.id]);
+  useEffect(() => {
+    try {
+      if (typeof document !== "undefined" && document.body) {
+        if (exceptionalPerms.has("SALES.DISCOUNT.ALLOW")) {
+          document.body.classList.remove("discount-guard-disabled");
+        } else {
+          document.body.classList.add("discount-guard-disabled");
+        }
+        const guards = [
+          'input[name="discount_percent"]',
+          'input[name="discount"]',
+          'input[placeholder="Disc %"]',
+          'input[placeholder*="Discount"]',
+          ".discount-guard input",
+          ".discount-guard select",
+          ".discount-guard textarea",
+        ];
+        const all = document.querySelectorAll(guards.join(","));
+        if (!exceptionalPerms.has("SALES.DISCOUNT.ALLOW")) {
+          all.forEach((el) => {
+            try {
+              if (!el.hasAttribute("data-discount-guard")) {
+                el.setAttribute("data-discount-guard", "1");
+              }
+              el.setAttribute("disabled", "true");
+            } catch {}
+          });
+        } else {
+          all.forEach((el) => {
+            try {
+              if (el.getAttribute("data-discount-guard") === "1") {
+                el.removeAttribute("disabled");
+                el.removeAttribute("data-discount-guard");
+              }
+            } catch {}
+          });
+        }
+        let obs;
+        try {
+          if (typeof MutationObserver !== "undefined") {
+            const applyGuard = () => {
+              if (exceptionalPerms.has("SALES.DISCOUNT.ALLOW")) return;
+              const nodes = document.querySelectorAll(guards.join(","));
+              nodes.forEach((el) => {
+                try {
+                  if (!el.hasAttribute("data-discount-guard")) {
+                    el.setAttribute("data-discount-guard", "1");
+                  }
+                  el.setAttribute("disabled", "true");
+                } catch {}
+              });
+            };
+            obs = new MutationObserver(() => applyGuard());
+            obs.observe(document.body, { childList: true, subtree: true });
+            applyGuard();
+          }
+        } catch {}
+        return () => {
+          try {
+            if (obs && typeof obs.disconnect === "function") obs.disconnect();
+          } catch {}
+        };
+      }
+    } catch {}
+  }, [exceptionalPerms]);
 
   useEffect(() => {
     function onChanged() {
@@ -597,6 +696,7 @@ export const PermissionProvider = ({ children }) => {
     modules,
     permissions,
     roleFeatures,
+    exceptionalPerms,
     loading,
     error,
     isModuleEnabled,
@@ -673,6 +773,15 @@ export const PermissionProvider = ({ children }) => {
         window.dispatchEvent(new Event("rbac:updated"));
       } catch {}
     },
+    hasExceptional: (code) => {
+      const c = String(code || "")
+        .toUpperCase()
+        .trim();
+      if (!c) return false;
+      return exceptionalPerms.has(c);
+    },
+    canReverseApproval: () => exceptionalPerms.has("WORKFLOW.APPROVAL.REVERSE"),
+    canEditDiscount: () => exceptionalPerms.has("SALES.DISCOUNT.ALLOW"),
   };
 
   return (

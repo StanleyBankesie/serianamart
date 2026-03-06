@@ -19,6 +19,7 @@ import projectsRoutes from "./routes/projects.routes.js";
 import productionRoutes from "./routes/production.routes.js";
 import posRoutes from "./routes/pos.routes.js";
 import biRoutes from "./routes/bi.routes.js";
+import serviceMgmtRoutes from "./routes/service-management.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
 import workflowRoutes from "./routes/workflow.routes.js";
 import healthRoutes from "./routes/health.route.js";
@@ -35,6 +36,7 @@ import socialFeedRoutes from "./routes/social-feed.routes.js";
 import accessRoutes from "./routes/access.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
 import { initializeSocket } from "./utils/socket.js";
+import { ensureExceptionalPermissionsTable } from "./utils/dbUtils.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -135,6 +137,7 @@ app.use("/api/projects", projectsRoutes);
 app.use("/api/production", productionRoutes);
 app.use("/api/pos", posRoutes);
 app.use("/api/bi", biRoutes);
+app.use("/api/service-management", serviceMgmtRoutes);
 app.use("/api/", healthRoutes);
 app.use("/api", authRoutes);
 app.use("/api/push", pushRoutes);
@@ -262,6 +265,9 @@ if (process.env.NODE_ENV !== "test") {
       try {
         await query("SELECT 1");
         console.log("Database connectivity: ok");
+        try {
+          await ensureExceptionalPermissionsTable();
+        } catch {}
         const admin = await query(
           "SELECT id, is_active FROM adm_users WHERE username = :u LIMIT 1",
           { u: "admin" },

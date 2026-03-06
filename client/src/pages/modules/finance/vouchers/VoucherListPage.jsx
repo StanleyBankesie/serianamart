@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 
 import { api } from "api/client";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
 
 function StatusBadge({ status }) {
   const cls =
@@ -22,6 +23,7 @@ function StatusBadge({ status }) {
 
 export default function VoucherListPage({ voucherTypeCode, title }) {
   const { canPerformAction } = usePermission();
+  const location = useLocation();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -29,6 +31,9 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
   const isPV = String(voucherTypeCode).toUpperCase() === "PV";
   const isRV = String(voucherTypeCode).toUpperCase() === "RV";
   const isCV = String(voucherTypeCode).toUpperCase() === "CV";
+  const isSV = String(voucherTypeCode).toUpperCase() === "SV";
+  const isPUV = String(voucherTypeCode).toUpperCase() === "PUV";
+  const isJV = String(voucherTypeCode).toUpperCase() === "JV";
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [selectedVoucher, setSelectedVoucher] = useState(null);
   const [wfLoading, setWfLoading] = useState(false);
@@ -101,10 +106,96 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
   }
 
   useEffect(() => {
-    load();
-    if (isCV) loadAccounts();
+    let cancelled = false;
+    async function init() {
+      try {
+        // Trigger a one-time tax-split backfill for SV/PUV lists
+        if (isSV || isPUV) {
+          await api
+            .post("/finance/vouchers/backfill/tax-split")
+            .catch(() => null);
+        }
+      } finally {
+        if (!cancelled) {
+          load();
+          if (isCV) loadAccounts();
+        }
+      }
+    }
+    init();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [voucherTypeCode]);
+  useEffect(() => {
+    const ref = location.state?.highlightRef;
+    const hid = location.state?.highlightId;
+    const refresh = location.state?.refresh;
+    if (!ref && !hid && !refresh) return;
+    let cancelled = false;
+    async function ensureVisible() {
+      const start = Date.now();
+      while (!cancelled && Date.now() - start < 5000) {
+        try {
+          const res = await api.get("/finance/vouchers", {
+            params: { voucherTypeCode },
+          });
+          const arr = Array.isArray(res.data?.items) ? res.data.items : [];
+          setItems(arr);
+          let hit = false;
+          if (ref) {
+            hit = arr.some(
+              (v) =>
+                String(v.voucher_no || "").toLowerCase() ===
+                String(ref).toLowerCase(),
+            );
+          } else if (hid) {
+            hit = arr.some((v) => Number(v.id) === Number(hid));
+          } else {
+            hit = true;
+          }
+          if (hit) break;
+        } catch {}
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    }
+    ensureVisible();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    location.state?.highlightRef,
+    location.state?.highlightId,
+    location.state?.refresh,
+    voucherTypeCode,
+  ]);
+  useEffect(() => {
+    function onWorkflowStatus(e) {
+      try {
+        const d = e.detail || {};
+        const id = Number(d.documentId || d.document_id);
+        const status = String(d.status || "").toUpperCase();
+        if (!id || !status) return;
+        setItems((prev) =>
+          prev.map((x) =>
+            Number(x.id) === id
+              ? {
+                  ...x,
+                  status,
+                  ...(status === "DRAFT"
+                    ? { forwarded_to_username: null }
+                    : {}),
+                }
+              : x,
+          ),
+        );
+      } catch {}
+    }
+    window.addEventListener("omni.workflow.status", onWorkflowStatus);
+    return () =>
+      window.removeEventListener("omni.workflow.status", onWorkflowStatus);
+  }, []);
   useEffect(() => {
     let mounted = true;
     async function fetchCompanyInfo() {
@@ -402,6 +493,88 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
     </div>
     `;
   }
+  function renderJournalVoucherHtml(data) {
+    const c = data.company || {};
+    const v = data.voucher || {};
+    const items = Array.isArray(data.items) ? data.items : [];
+    return `
+    <div class="vh">
+      <div class="vh-header">
+        <div class="vh-logo">${c.logoHtml || ""}</div>
+        <div class="vh-company">
+          <div class="name">${escapeHtml(c.name || "")}</div>
+          <div>${escapeHtml(c.addressLine1 || "")}</div>
+          <div>${escapeHtml(c.addressLine2 || "")}</div>
+          <div>Telephone: ${escapeHtml(c.phone || "")}</div>
+          <div>Email: ${escapeHtml(c.email || "")}</div>
+          <div>${escapeHtml(c.website || "")}</div>
+          <div>TIN: ${escapeHtml(c.taxId || "")} &nbsp; Reg: ${escapeHtml(c.registrationNo || "")}</div>
+        </div>
+      </div>
+      <div class="vh-titlebar">
+        <div class="line"></div>
+        <div class="title">* Journal Voucher *</div>
+        <div class="line"></div>
+      </div>
+      <table class="vh-details">
+        <tr>
+          <td style="width:50%;vertical-align:top;border-right:1px solid #cbd5e1;">
+            <table style="width:100%;">
+              <tr><td class="label-wide">Voucher No</td><td>:</td><td>${escapeHtml(v.voucher_no || "")}</td></tr>
+              <tr><td class="label-wide">Date/Time</td><td>:</td><td>${escapeHtml(v.voucher_date ? new Date(v.voucher_date).toLocaleString() : "")}</td></tr>
+            </table>
+          </td>
+          <td style="width:50%;vertical-align:top;">
+            <div style="padding:8px;">
+              <div class="label">Narration</div>
+              <div>${escapeHtml(v.narration || "")}</div>
+            </div>
+          </td>
+        </tr>
+      </table>
+      <table class="vh-items">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Description</th>
+            <th class="right" style="width:16%;">Debit</th>
+            <th class="right" style="width:16%;">Credit</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items
+            .map(
+              (it) => `
+            <tr>
+              <td>${escapeHtml([it.account_code, it.account_name].filter(Boolean).join(" - "))}</td>
+              <td>${escapeHtml(it.description || "")}</td>
+              <td class="right">${escapeHtml(Number(it.debit || 0).toFixed(2))}</td>
+              <td class="right">${escapeHtml(Number(it.credit || 0).toFixed(2))}</td>
+            </tr>
+          `,
+            )
+            .join("")}
+          <tr>
+            <td colspan="2" class="right"><strong>Totals</strong></td>
+            <td class="right"><strong>${escapeHtml(
+              Number(
+                items.reduce((s, it) => s + Number(it.debit || 0), 0),
+              ).toFixed(2),
+            )}</strong></td>
+            <td class="right"><strong>${escapeHtml(
+              Number(
+                items.reduce((s, it) => s + Number(it.credit || 0), 0),
+              ).toFixed(2),
+            )}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="vh-footer" style="margin-top:10px;text-align:center;">
+        <div></div>
+      </div>
+    </div>
+    `;
+  }
   function buildReceiptVoucherTemplateDataFromApi(voucher, lines) {
     const logoUrl = String(companyInfo.logoUrl || "").trim();
     const logoHtml = logoUrl
@@ -516,19 +689,62 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
       },
     };
   }
+  function buildJournalVoucherTemplateDataFromApi(voucher, lines) {
+    const logoUrl = String(companyInfo.logoUrl || "").trim();
+    const logoHtml = logoUrl
+      ? `<img src="${logoUrl}" alt="${escapeHtml(
+          companyInfo.name || "Company",
+        )}" style="max-height:80px;object-fit:contain;" />`
+      : "";
+    return {
+      company: {
+        name: companyInfo.name || "",
+        addressLine1: companyInfo.address || "",
+        addressLine2: [companyInfo.city, companyInfo.state, companyInfo.country]
+          .filter(Boolean)
+          .join(" • "),
+        phone: companyInfo.phone || "",
+        website: companyInfo.website || "",
+        taxId: companyInfo.taxId || "",
+        registrationNo: companyInfo.registrationNo || "",
+        logoUrl,
+        logoHtml,
+      },
+      voucher: {
+        id: voucher.id,
+        voucher_no: String(voucher.voucher_no || ""),
+        voucher_date: voucher.voucher_date || "",
+        narration: voucher.narration || "",
+        total_debit: Number(voucher.total_debit || 0),
+        total_credit: Number(voucher.total_credit || 0),
+        type_code: voucher.voucher_type_code || "JV",
+        type_name: voucher.voucher_type_name || "Journal Voucher",
+      },
+      items: (Array.isArray(lines) ? lines : []).map((l) => ({
+        account_code: l.account_code,
+        account_name: l.account_name,
+        description: l.description,
+        debit: Number(l.debit || 0),
+        credit: Number(l.credit || 0),
+      })),
+    };
+  }
   async function printVoucher(id) {
     try {
       const res = await api.get(`/finance/vouchers/${id}`);
       const v = res.data?.voucher || {};
       const lines = Array.isArray(res.data?.lines) ? res.data.lines : [];
-      const body =
-        isRV
-          ? renderReceiptVoucherHtml(
-              buildReceiptVoucherTemplateDataFromApi(v, lines),
+      const body = isRV
+        ? renderReceiptVoucherHtml(
+            buildReceiptVoucherTemplateDataFromApi(v, lines),
+          )
+        : isPV
+          ? renderPaymentVoucherHtml(
+              buildPaymentVoucherTemplateDataFromApi(v, lines),
             )
-          : isPV
-            ? renderPaymentVoucherHtml(
-                buildPaymentVoucherTemplateDataFromApi(v, lines),
+          : isJV
+            ? renderJournalVoucherHtml(
+                buildJournalVoucherTemplateDataFromApi(v, lines),
               )
             : "";
       const html = wrapDoc(body);
@@ -540,7 +756,8 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
       iframe.style.height = "0";
       iframe.style.border = "0";
       document.body.appendChild(iframe);
-      const doc = iframe.contentWindow?.document || iframe.contentDocument || null;
+      const doc =
+        iframe.contentWindow?.document || iframe.contentDocument || null;
       if (!doc) {
         document.body.removeChild(iframe);
         window.print();
@@ -567,14 +784,17 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
       const res = await api.get(`/finance/vouchers/${id}`);
       const v = res.data?.voucher || {};
       const lines = Array.isArray(res.data?.lines) ? res.data.lines : [];
-      const body =
-        isRV
-          ? renderReceiptVoucherHtml(
-              buildReceiptVoucherTemplateDataFromApi(v, lines),
+      const body = isRV
+        ? renderReceiptVoucherHtml(
+            buildReceiptVoucherTemplateDataFromApi(v, lines),
+          )
+        : isPV
+          ? renderPaymentVoucherHtml(
+              buildPaymentVoucherTemplateDataFromApi(v, lines),
             )
-          : isPV
-            ? renderPaymentVoucherHtml(
-                buildPaymentVoucherTemplateDataFromApi(v, lines),
+          : isJV
+            ? renderJournalVoucherHtml(
+                buildJournalVoucherTemplateDataFromApi(v, lines),
               )
             : "";
       if (!body) return;
@@ -606,7 +826,13 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
           if (rendered < imgHeight) pdf.addPage();
         }
         const fname =
-          (isRV ? "ReceiptVoucher_" : isPV ? "PaymentVoucher_" : "Voucher_") +
+          (isRV
+            ? "ReceiptVoucher_"
+            : isPV
+              ? "PaymentVoucher_"
+              : isJV
+                ? "JournalVoucher_"
+                : "Voucher_") +
           (String(v.voucher_no || "").replaceAll(" ", "_") ||
             new Date().toISOString().slice(0, 10)) +
           ".pdf";
@@ -661,12 +887,16 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
       ? "/finance/payment-voucher"
       : isRV
         ? "/finance/receipt-voucher"
-        : "/finance/contra-voucher";
+        : isCV
+          ? "/finance/contra-voucher"
+          : "/finance/journal-voucher";
     const synonyms = isPV
       ? ["PAYMENT_VOUCHER", "Payment Voucher", "PV"]
       : isRV
         ? ["RECEIPT_VOUCHER", "Receipt Voucher", "RV"]
-        : ["CONTRA_VOUCHER", "Contra Voucher", "CV"];
+        : isCV
+          ? ["CONTRA_VOUCHER", "Contra Voucher", "CV"]
+          : ["JOURNAL_VOUCHER", "Journal Voucher", "JV"];
     const normalize = (s) =>
       String(s || "")
         .trim()
@@ -738,12 +968,16 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
       ? "/finance/payment-voucher"
       : isRV
         ? "/finance/receipt-voucher"
-        : "/finance/contra-voucher";
+        : isCV
+          ? "/finance/contra-voucher"
+          : "/finance/journal-voucher";
     const synonyms = isPV
       ? ["PAYMENT_VOUCHER", "Payment Voucher", "PV"]
       : isRV
         ? ["RECEIPT_VOUCHER", "Receipt Voucher", "RV"]
-        : ["CONTRA_VOUCHER", "Contra Voucher", "CV"];
+        : isCV
+          ? ["CONTRA_VOUCHER", "Contra Voucher", "CV"]
+          : ["JOURNAL_VOUCHER", "Journal Voucher", "JV"];
     const normalize = (s) =>
       String(s || "")
         .trim()
@@ -807,6 +1041,44 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
     if (!selectedVoucher) return;
     setSubmittingForward(true);
     setWfError("");
+    // Optimistic update
+    let optimisticApprover = null;
+    try {
+      const first =
+        Array.isArray(workflowSteps) && workflowSteps.length
+          ? workflowSteps[0]
+          : null;
+      const opts = first
+        ? Array.isArray(first.approvers) && first.approvers.length
+          ? first.approvers.map((u) => ({ id: u.id, name: u.username }))
+          : first.approver_user_id
+            ? [
+                {
+                  id: first.approver_user_id,
+                  name: first.approver_name || String(first.approver_user_id),
+                },
+              ]
+            : []
+        : [];
+      if (targetApproverId && opts.length) {
+        const hit = opts.find((u) => Number(u.id) === Number(targetApproverId));
+        optimisticApprover = hit ? hit.name : null;
+      }
+    } catch {}
+    setItems((prev) =>
+      prev.map((x) =>
+        x.id === selectedVoucher.id
+          ? {
+              ...x,
+              status: "PENDING_APPROVAL",
+              forwarded_to_username:
+                optimisticApprover || x.forwarded_to_username || "Approver",
+            }
+          : x,
+      ),
+    );
+    setShowForwardModal(false);
+    setSelectedVoucher(null);
     try {
       const amount =
         selectedVoucher.total_debit === undefined ||
@@ -825,13 +1097,49 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
         },
       );
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
+      let approverName = null;
+      try {
+        const first =
+          Array.isArray(workflowSteps) && workflowSteps.length
+            ? workflowSteps[0]
+            : null;
+        const opts = first
+          ? Array.isArray(first.approvers) && first.approvers.length
+            ? first.approvers.map((u) => ({
+                id: u.id,
+                name: u.username,
+              }))
+            : first.approver_user_id
+              ? [
+                  {
+                    id: first.approver_user_id,
+                    name: first.approver_name || String(first.approver_user_id),
+                  },
+                ]
+              : []
+          : [];
+        if (targetApproverId && opts.length) {
+          const hit = opts.find(
+            (u) => Number(u.id) === Number(targetApproverId),
+          );
+          approverName = hit ? hit.name : null;
+        }
+      } catch {}
       setItems((prev) =>
         prev.map((x) =>
-          x.id === selectedVoucher.id ? { ...x, status: newStatus } : x,
+          x.id === selectedVoucher.id
+            ? {
+                ...x,
+                status: newStatus,
+                forwarded_to_username:
+                  approverName || x.forwarded_to_username || "Approver",
+              }
+            : x,
         ),
       );
-      setShowForwardModal(false);
-      setSelectedVoucher(null);
+      try {
+        toast.success("Voucher forwarded for approval");
+      } catch {}
     } catch (e) {
       setWfError(
         e?.response?.data?.message || "Failed to forward for approval",
@@ -942,21 +1250,18 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                               View
                             </Link>
                           )}
-                          {canPerformAction("finance:vouchers", "edit") && (
-                            <Link
-                              to={`/finance/${basePath}/${v.id}?mode=edit`}
-                              className="text-blue-600 hover:text-blue-700 font-medium text-sm"
-                              style={{
-                                display:
-                                  (isPV || isRV) && v.status === "APPROVED"
-                                    ? "none"
-                                    : "inline",
-                              }}
-                            >
-                              Edit
-                            </Link>
-                          )}
-                          {(isPV || isRV) && (
+                          {canPerformAction("finance:vouchers", "edit") &&
+                            !["APPROVED", "POSTED"].includes(
+                              String(v.status || "").toUpperCase(),
+                            ) && (
+                              <Link
+                                to={`/finance/${basePath}/${v.id}?mode=edit`}
+                                className="text-blue-600 hover:text-blue-700 font-medium text-sm"
+                              >
+                                Edit
+                              </Link>
+                            )}
+                          {(isPV || isRV || isJV) && (
                             <>
                               <button
                                 type="button"
@@ -974,10 +1279,42 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                               </button>
                             </>
                           )}
-                          {(isPV || isRV || isCV) &&
+                          {(isPV || isRV || isCV || isJV) &&
                             (v.status === "APPROVED" ? (
-                              <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                                Approved
+                              <>
+                                <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
+                                  Approved
+                                </span>
+                                <ReverseApprovalButton
+                                  docType={
+                                    isPV
+                                      ? "PAYMENT_VOUCHER"
+                                      : isRV
+                                        ? "RECEIPT_VOUCHER"
+                                        : isCV
+                                          ? "CONTRA_VOUCHER"
+                                          : "JOURNAL_VOUCHER"
+                                  }
+                                  docId={v.id}
+                                  className="ml-2 text-indigo-700 hover:text-indigo-800 text-xs font-medium"
+                                  onDone={() =>
+                                    setItems((prev) =>
+                                      prev.map((x) =>
+                                        x.id === v.id
+                                          ? {
+                                              ...x,
+                                              status: "REVERSED",
+                                              forwarded_to_username: null,
+                                            }
+                                          : x,
+                                      ),
+                                    )
+                                  }
+                                />
+                              </>
+                            ) : v.forwarded_to_username ? (
+                              <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
+                                Forwarded to {v.forwarded_to_username}
                               </span>
                             ) : (
                               <button
@@ -995,7 +1332,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                                 Forward for Approval
                               </button>
                             ))}
-                          {!isPV && !isRV && !isCV && (
+                          {!isPV && !isRV && !isCV && !isJV && (
                             <button
                               type="button"
                               className="text-red-600 hover:text-red-700 font-medium text-sm"

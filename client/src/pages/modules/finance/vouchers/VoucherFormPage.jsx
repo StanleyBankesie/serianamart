@@ -1533,7 +1533,38 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         toast.success(res.data?.message || "Updated voucher");
       } else {
         const res = await api.post("/finance/vouchers", payload);
+        const newId = Number(res?.data?.id || 0) || null;
+        const newRef = String(res?.data?.voucherNo || "") || null;
         toast.success(`Created ${res.data?.voucherNo || "voucher"}`);
+        navigate(
+          `/finance/${
+            voucherTypeCode === "JV"
+              ? "journal-voucher"
+              : voucherTypeCode === "PV"
+                ? "payment-voucher"
+                : voucherTypeCode === "RV"
+                  ? "receipt-voucher"
+                  : voucherTypeCode === "CV"
+                    ? "contra-voucher"
+                    : voucherTypeCode === "SV"
+                      ? "sales-voucher"
+                      : voucherTypeCode === "PUV"
+                        ? "purchase-voucher"
+                        : voucherTypeCode === "DN"
+                          ? "debit-note"
+                          : voucherTypeCode === "CN"
+                            ? "credit-note"
+                            : "journal-voucher"
+          }`,
+          {
+            state: {
+              refresh: true,
+              highlightId: newId,
+              highlightRef: newRef,
+            },
+          },
+        );
+        return;
       }
       navigate(
         `/finance/${
@@ -1555,6 +1586,16 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                           ? "credit-note"
                           : "journal-voucher"
         }`,
+        {
+          state: {
+            refresh: true,
+            highlightId: id ? Number(id) : undefined,
+            highlightRef:
+              voucherNoPreview && String(voucherNoPreview).trim()
+                ? String(voucherNoPreview)
+                : undefined,
+          },
+        },
       );
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to create voucher");
@@ -1606,18 +1647,27 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                               ? null
                               : Number(totals?.grand || 0);
                           let chosen = null;
+                          const targetRoute = isJV
+                            ? "/finance/journal-voucher"
+                            : "/finance/receipt-voucher";
                           const byRoute = items.filter(
                             (w) =>
-                              String(w.document_route || "") ===
-                              "/finance/receipt-voucher",
+                              String(w.document_route || "") === targetRoute,
                           );
-                          const byType = items.filter((w) =>
-                            [
-                              "RECEIPT_VOUCHER",
-                              "Receipt Voucher",
-                              "RV",
-                            ].includes(String(w.document_type || "")),
-                          );
+                          const byType = items.filter((w) => {
+                            const t = String(w.document_type || "");
+                            return isJV
+                              ? [
+                                  "JOURNAL_VOUCHER",
+                                  "Journal Voucher",
+                                  "JV",
+                                ].includes(t)
+                              : [
+                                  "RECEIPT_VOUCHER",
+                                  "Receipt Voucher",
+                                  "RV",
+                                ].includes(t);
+                          });
                           const list = [...byRoute, ...byType];
                           for (const wf of list) {
                             if (chosen) break;
@@ -1712,7 +1762,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           <div className="card">
             <div className="card-body space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {!(isPV || isRV) && (
+                {!(isPV || isRV) && !isJV && (
                   <div>
                     <label className="label">Voucher Type</label>
                     <input
@@ -1722,23 +1772,25 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     />
                   </div>
                 )}
-                <div>
-                  <label className="label">Voucher No</label>
-                  <input
-                    className="input"
-                    value={
-                      voucherNoPreview ||
-                      (isJV
-                        ? "JV-000001"
-                        : isCN
-                          ? "CN-000001"
-                          : isDN
-                            ? "DN-000001"
-                            : "")
-                    }
-                    disabled
-                  />
-                </div>
+                {!isJV && (
+                  <div>
+                    <label className="label">Voucher No</label>
+                    <input
+                      className="input"
+                      value={
+                        voucherNoPreview ||
+                        (isJV
+                          ? "JV-000001"
+                          : isCN
+                            ? "CN-000001"
+                            : isDN
+                              ? "DN-000001"
+                              : "")
+                      }
+                      disabled
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="label">Voucher Date *</label>
                   <input
@@ -1750,7 +1802,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     disabled={readOnly}
                   />
                 </div>
-                {!(isPV || isRV) && (
+                {!(isPV || isRV) && !isJV && (
                   <div>
                     <label className="label">Fiscal Year *</label>
                     <select
@@ -4845,18 +4897,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           <div className="card">
             <div className="card-body space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="label">Voucher Type</label>
-                  <input className="input" value="Contra Voucher" disabled />
-                </div>
-                <div>
-                  <label className="label">Voucher No</label>
-                  <input
-                    className="input"
-                    value={voucherNoPreview || "CV-000001"}
-                    disabled
-                  />
-                </div>
                 <div>
                   <label className="label">Voucher Date *</label>
                   <input

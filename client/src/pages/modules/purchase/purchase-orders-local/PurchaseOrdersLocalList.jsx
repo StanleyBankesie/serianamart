@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { toast } from "react-toastify";
+import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
 
 export default function PurchaseOrdersLocalList() {
+  const location = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
 
@@ -52,6 +55,74 @@ export default function PurchaseOrdersLocalList() {
     return () => {
       mounted = false;
     };
+  }, []);
+  useEffect(() => {
+    const ref = location.state?.highlightRef;
+    const hid = location.state?.highlightId;
+    const refresh = location.state?.refresh;
+    if (!ref && !hid && !refresh) return;
+    let cancelled = false;
+    async function ensureVisible() {
+      const start = Date.now();
+      while (!cancelled && Date.now() - start < 5000) {
+        try {
+          const res = await api.get("/purchase/orders");
+          const all = Array.isArray(res.data?.items) ? res.data.items : [];
+          const locals = all.filter(
+            (po) => String(po.po_type || "").toUpperCase() === "LOCAL",
+          );
+          setPurchaseOrders(locals);
+          let hit = false;
+          if (ref) {
+            hit = locals.some(
+              (po) =>
+                String(po.po_no || "").toLowerCase() ===
+                String(ref).toLowerCase(),
+            );
+          } else if (hid) {
+            hit = locals.some((po) => Number(po.id) === Number(hid));
+          } else {
+            hit = locals.length > 0;
+          }
+          if (hit) break;
+        } catch {}
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    }
+    ensureVisible();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    location.state?.highlightRef,
+    location.state?.highlightId,
+    location.state?.refresh,
+  ]);
+  useEffect(() => {
+    function onWorkflowStatus(e) {
+      try {
+        const d = e.detail || {};
+        const id = Number(d.documentId || d.document_id);
+        const status = String(d.status || "").toUpperCase();
+        if (!id || !status) return;
+        setPurchaseOrders((prev) =>
+          prev.map((po) =>
+            Number(po.id) === id
+              ? {
+                  ...po,
+                  status,
+                  ...(status === "DRAFT"
+                    ? { forwarded_to_username: null }
+                    : {}),
+                }
+              : po,
+          ),
+        );
+      } catch {}
+    }
+    window.addEventListener("omni.workflow.status", onWorkflowStatus);
+    return () =>
+      window.removeEventListener("omni.workflow.status", onWorkflowStatus);
   }, []);
 
   const getStatusBadge = (status) => {
@@ -259,6 +330,42 @@ export default function PurchaseOrdersLocalList() {
     }
     setSubmittingForward(true);
     setWfError("");
+    // Optimistic UI update: set row to PENDING_APPROVAL and show 'Forwarded to {username}'
+    let optimisticApprover = null;
+    try {
+      const options = first
+        ? Array.isArray(first.approvers) && first.approvers.length
+          ? first.approvers.map((u) => ({ id: u.id, name: u.username }))
+          : first.approver_user_id
+            ? [
+                {
+                  id: first.approver_user_id,
+                  name: first.approver_name || String(first.approver_user_id),
+                },
+              ]
+            : []
+        : [];
+      if (targetApproverId && options.length) {
+        const hit = options.find(
+          (u) => Number(u.id) === Number(targetApproverId),
+        );
+        optimisticApprover = hit ? hit.name : null;
+      }
+    } catch {}
+    setPurchaseOrders((prev) =>
+      prev.map((po) =>
+        po.id === selectedPO.id
+          ? {
+              ...po,
+              status: "PENDING_APPROVAL",
+              forwarded_to_username:
+                optimisticApprover || po.forwarded_to_username || "Approver",
+            }
+          : po,
+      ),
+    );
+    setShowForwardModal(false);
+    setSelectedPO(null);
     try {
       const res = await api.post(`/purchase/orders/${selectedPO.id}/submit`, {
         amount:
@@ -270,13 +377,48 @@ export default function PurchaseOrdersLocalList() {
         target_user_id: targetApproverId || null,
       });
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
+      let approverName = null;
+      try {
+        const firstStep = first;
+        const options = firstStep
+          ? Array.isArray(firstStep.approvers) && firstStep.approvers.length
+            ? firstStep.approvers.map((u) => ({
+                id: u.id,
+                name: u.username,
+              }))
+            : firstStep.approver_user_id
+              ? [
+                  {
+                    id: firstStep.approver_user_id,
+                    name:
+                      firstStep.approver_name ||
+                      String(firstStep.approver_user_id),
+                  },
+                ]
+              : []
+          : [];
+        if (targetApproverId && options.length) {
+          const hit = options.find(
+            (u) => Number(u.id) === Number(targetApproverId),
+          );
+          approverName = hit ? hit.name : null;
+        }
+      } catch {}
       setPurchaseOrders((prev) =>
         prev.map((po) =>
-          po.id === selectedPO.id ? { ...po, status: newStatus } : po,
+          po.id === selectedPO.id
+            ? {
+                ...po,
+                status: newStatus,
+                forwarded_to_username:
+                  approverName || po.forwarded_to_username || "Approver",
+              }
+            : po,
         ),
       );
-      setShowForwardModal(false);
-      setSelectedPO(null);
+      try {
+        toast.success("Purchase order forwarded for approval");
+      } catch {}
     } catch (e) {
       setWfError(
         e?.response?.data?.message || "Failed to forward for approval",
@@ -399,7 +541,10 @@ export default function PurchaseOrdersLocalList() {
                     </td>
                     <td>
                       <div className="flex gap-2">
-                        {canPerformAction("purchase:purchase-orders-local", "view") && (
+                        {canPerformAction(
+                          "purchase:purchase-orders-local",
+                          "view",
+                        ) && (
                           <Link
                             to={`/purchase/purchase-orders-local/${po.id}`}
                             className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
@@ -407,17 +552,45 @@ export default function PurchaseOrdersLocalList() {
                             View
                           </Link>
                         )}
-                        {po.status === "DRAFT" && canPerformAction("purchase:purchase-orders-local", "edit") && (
-                          <Link
-                            to={`/purchase/purchase-orders-local/${po.id}/edit`}
-                            className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
-                          >
-                            Edit
-                          </Link>
-                        )}
+                        {po.status === "DRAFT" &&
+                          canPerformAction(
+                            "purchase:purchase-orders-local",
+                            "edit",
+                          ) && (
+                            <Link
+                              to={`/purchase/purchase-orders-local/${po.id}/edit`}
+                              className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
+                            >
+                              Edit
+                            </Link>
+                          )}
                         {po.status === "APPROVED" ? (
-                          <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                            Approved
+                          <>
+                            <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
+                              Approved
+                            </span>
+                            {/* Reverse Approval button shown globally across modules for authorized users */}
+                            <ReverseApprovalButton
+                              docType="PURCHASE_ORDER"
+                              docId={po.id}
+                              onDone={() =>
+                                setPurchaseOrders((prev) =>
+                                  prev.map((x) =>
+                                    x.id === po.id
+                                      ? {
+                                          ...x,
+                                          status: "REVERSED",
+                                          forwarded_to_username: null,
+                                        }
+                                      : x,
+                                  ),
+                                )
+                              }
+                            />
+                          </>
+                        ) : po.forwarded_to_username ? (
+                          <span className="text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
+                            Forwarded to {po.forwarded_to_username}
                           </span>
                         ) : po.status === "DRAFT" ||
                           po.status === "RETURNED" ? (

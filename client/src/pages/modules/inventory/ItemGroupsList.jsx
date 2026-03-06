@@ -2,10 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
-import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 export default function ItemGroupsList() {
-  const { canPerformAction } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);

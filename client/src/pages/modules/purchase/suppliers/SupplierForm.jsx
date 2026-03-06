@@ -2,12 +2,15 @@ import React, { useEffect, useState, useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
+import { useDispatch } from "react-redux";
+import { setRefresh } from "../../../../store/ui/refreshSlice.js";
 
 export default function SupplierForm() {
   const { id } = useParams();
   const navigate = useNavigate();
   const isNew = !id || id === "new";
   const fileInputRef = useRef(null);
+  const dispatch = useDispatch();
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -65,7 +68,8 @@ export default function SupplierForm() {
           payment_terms: s.payment_terms || "",
           is_active: Boolean(s.is_active),
           supplier_type: s.supplier_type || prev.supplier_type || "LOCAL",
-          service_contractor: String(s.service_contractor || "").toUpperCase() === "Y",
+          service_contractor:
+            String(s.service_contractor || "").toUpperCase() === "Y",
         }));
       })
       .catch((e) => {
@@ -194,13 +198,36 @@ export default function SupplierForm() {
       };
 
       if (isNew) {
-        await api.post("/purchase/suppliers", payload);
+        const res = await api.post("/purchase/suppliers", payload);
+        const createdId = res?.data?.id || res?.data?.item?.id || null;
+        dispatch(setRefresh({ key: "suppliers", id: createdId || null }));
+        navigate("/purchase/suppliers", {
+          state: {
+            afterSave: {
+              entity: "suppliers",
+              id: createdId || null,
+              ts: Date.now(),
+            },
+          },
+          replace: true,
+        });
       } else {
-        await api.put(`/purchase/suppliers/${id}`, payload);
+        const res = await api.put(`/purchase/suppliers/${id}`, payload);
+        const updatedId = res?.data?.id || res?.data?.item?.id || id;
+        dispatch(setRefresh({ key: "suppliers", id: updatedId || null }));
+        navigate("/purchase/suppliers", {
+          state: {
+            afterSave: {
+              entity: "suppliers",
+              id: updatedId || null,
+              ts: Date.now(),
+            },
+          },
+          replace: true,
+        });
       }
       setSuccess("Supplier saved successfully!");
       toast.success("Supplier saved successfully");
-      navigate("/purchase/suppliers");
     } catch (e2) {
       setError(e2?.response?.data?.message || "Failed to save supplier");
     } finally {
@@ -493,7 +520,10 @@ export default function SupplierForm() {
                     checked={formData.service_contractor}
                     onChange={handleChange}
                   />
-                  <label htmlFor="svc_contractor" className="text-sm font-semibold text-slate-800">
+                  <label
+                    htmlFor="svc_contractor"
+                    className="text-sm font-semibold text-slate-800"
+                  >
                     Service Contractor
                   </label>
                 </div>

@@ -479,6 +479,9 @@ export const submitVoucher = async (req, res, next) => {
       const firstWf = wfDefs[0];
       if (Number(firstWf.is_active) === 0) {
         behavior = firstWf.default_behavior || null;
+        if (!behavior) {
+          behavior = "AUTO_APPROVE";
+        }
       }
     }
     if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {

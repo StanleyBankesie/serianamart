@@ -154,6 +154,77 @@ function ServiceManagementLanding() {
         },
       ],
     },
+    {
+      title: "Reports",
+      items: [
+        {
+          title: "Service Request Summary",
+          description: "Monitor incoming service demand",
+          path: "/service-management/reports/service-request-summary",
+          icon: "📥",
+        },
+        {
+          title: "Service Order Status",
+          description: "Track service order progress",
+          path: "/service-management/reports/service-order-status",
+          icon: "📋",
+        },
+        {
+          title: "Execution Performance",
+          description: "Measure technician productivity",
+          path: "/service-management/reports/execution-performance",
+          icon: "⚙️",
+        },
+        {
+          title: "SLA Compliance",
+          description: "Monitor SLA performance",
+          path: "/service-management/reports/sla-compliance",
+          icon: "⏱️",
+        },
+        {
+          title: "Service Revenue",
+          description: "Financial performance tracking",
+          path: "/service-management/reports/service-revenue",
+          icon: "💵",
+        },
+        {
+          title: "Outstanding Service Bills",
+          description: "Accounts receivable tracking",
+          path: "/service-management/reports/outstanding-bills",
+          icon: "📑",
+        },
+        {
+          title: "Service Confirmation",
+          description: "Confirm customer acceptance",
+          path: "/service-management/reports/service-confirmation",
+          icon: "✅",
+        },
+        {
+          title: "Technician Utilization",
+          description: "Workforce efficiency",
+          path: "/service-management/reports/technician-utilization",
+          icon: "👷",
+        },
+        {
+          title: "Service Cost Analysis",
+          description: "Profitability per job",
+          path: "/service-management/reports/service-cost-analysis",
+          icon: "📊",
+        },
+        {
+          title: "Repeat Service Requests",
+          description: "Identify recurring issues",
+          path: "/service-management/reports/repeat-requests",
+          icon: "🔁",
+        },
+        {
+          title: "Service Type Performance",
+          description: "Which services generate most revenue",
+          path: "/service-management/reports/service-type-performance",
+          icon: "🏷️",
+        },
+      ],
+    },
   ];
 
   return (
@@ -161,6 +232,13 @@ function ServiceManagementLanding() {
       title="Service Management"
       description="End-to-end service request, confirmation, and billing"
       stats={stats}
+      headerActions={[
+        {
+          label: "Dashboard",
+          path: "/service-management/dashboard",
+          icon: "📊",
+        },
+      ]}
       sections={sections}
       features={serviceManagementFeatures}
     />
@@ -171,24 +249,161 @@ export default function ServiceManagementHome() {
   return (
     <Routes>
       <Route path="/" element={<ServiceManagementLanding />} />
+      <Route
+        path="dashboard"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(() => import("./ServiceDashboardPage.jsx")),
+            )}
+          </React.Suspense>
+        }
+      />
       <Route path="service-requests" element={<ServiceRequestsList />} />
       <Route path="service-requests/new" element={<ServiceRequestForm />} />
       <Route path="service-orders" element={<ServiceOrdersList />} />
       <Route path="service-orders/new" element={<ServiceOrderForm />} />
       <Route path="service-orders/:id" element={<ServiceOrderForm />} />
       <Route path="service-executions" element={<ServiceExecutionsList />} />
-      <Route
-        path="service-executions/:id"
-        element={<ServiceExecutionView />}
-      />
+      <Route path="service-executions/:id" element={<ServiceExecutionView />} />
       <Route path="service-execution" element={<ServiceExecutionForm />} />
-      <Route path="service-confirmation" element={<ServiceConfirmationsList />} />
+      <Route
+        path="service-confirmation"
+        element={<ServiceConfirmationsList />}
+      />
       <Route
         path="service-confirmation/:id"
         element={<ServiceConfirmationForm />}
       />
       <Route path="service-bills" element={<ServiceBillsList />} />
-      <Route path="setup" element={<ServiceParametersPage />}
+      <Route path="setup" element={<ServiceParametersPage />} />
+      <Route
+        path="reports/service-request-summary"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/ServiceRequestSummaryReport.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="reports/service-order-status"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/ServiceOrderStatusReport.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="reports/execution-performance"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/ServiceExecutionPerformanceReport.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="reports/sla-compliance"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(() => import("./reports/SLAComplianceReport.jsx")),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="reports/service-revenue"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(() => import("./reports/ServiceRevenueReport.jsx")),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="reports/outstanding-bills"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/OutstandingServiceBillsReport.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="reports/service-confirmation"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/ServiceConfirmationReport.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="reports/technician-utilization"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/TechnicianUtilizationReport.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="reports/service-cost-analysis"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/ServiceCostAnalysisReport.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="reports/repeat-requests"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/RepeatServiceRequestReport.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="reports/service-type-performance"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/ServiceTypePerformanceReport.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
       />
     </Routes>
   );

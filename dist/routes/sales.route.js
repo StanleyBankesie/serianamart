@@ -4,6 +4,7 @@ import {
   requireCompanyScope,
   requireBranchScope,
 } from "../middleware/auth.js";
+import { checkModuleAccess } from "../middleware/access.js";
 import {
   requirePermission,
   requireAnyPermission,
@@ -12,8 +13,17 @@ import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { ensureSalesOrderColumns } from "../utils/dbUtils.js";
 import { requireIdParam } from "../controllers/finance.controller.js";
+import { isMailerConfigured, sendMail } from "../utils/mailer.js";
 
 const router = express.Router();
+
+// Enforce module-level access for all Sales endpoints
+router.use(
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  checkModuleAccess("sales"),
+);
 
 async function hasColumn(tableName, columnName) {
   const rows = await query(
@@ -27,6 +37,34 @@ async function hasColumn(tableName, columnName) {
     { tableName, columnName },
   );
   return Number(rows?.[0]?.c || 0) > 0;
+}
+async function ensureQuotationTables() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS sal_quotations (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      quotation_no VARCHAR(50) NOT NULL,
+      quotation_date DATE NOT NULL,
+      customer_id BIGINT UNSIGNED NULL,
+      customer_name VARCHAR(255) NULL,
+      valid_until DATE NULL,
+      total_amount DECIMAL(18,2) DEFAULT 0,
+      status VARCHAR(30) DEFAULT 'DRAFT',
+      price_type ENUM('WHOLESALE','RETAIL') DEFAULT 'RETAIL',
+      payment_type ENUM('CASH','CHEQUE','CREDIT') DEFAULT 'CASH',
+      currency_id BIGINT UNSIGNED DEFAULT 4,
+      exchange_rate DECIMAL(18,6) DEFAULT 1,
+      warehouse_id BIGINT UNSIGNED NULL,
+      remarks TEXT NULL,
+      created_by BIGINT UNSIGNED NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_quotation_scope_no (company_id, branch_id, quotation_no),
+      KEY idx_quotation_scope (company_id, branch_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `).catch(() => null);
 }
 async function ensureInvoiceTables() {
   await query(`
@@ -1075,6 +1113,7 @@ router.get(
   requireAnyPermission(["SAL.ORDER.VIEW", "SAL.INVOICE.VIEW"]),
   async (req, res, next) => {
     try {
+      await ensureQuotationTables();
       const companyId = req.scope.companyId;
       const branchId = req.scope.branchId;
       const items = await query(
@@ -1113,6 +1152,7 @@ router.get(
   requireAnyPermission(["SAL.ORDER.VIEW", "SAL.INVOICE.VIEW"]),
   async (req, res, next) => {
     try {
+      await ensureQuotationTables();
       const { companyId, branchId } = req.scope;
       const rows = await query(
         `
@@ -1152,10 +1192,36 @@ router.get(
       const companyId = req.scope.companyId;
       const branchId = req.scope.branchId;
       const items = await query(
-        `SELECT id, order_no, order_date, customer_id, status, total_amount
-           FROM sal_orders
-          WHERE company_id = :companyId AND branch_id = :branchId
-          ORDER BY order_date DESC, id DESC`,
+        `
+        SELECT 
+          o.id, 
+          o.order_no, 
+          o.order_date, 
+          o.customer_id, 
+          o.status, 
+          o.total_amount,
+          u.username AS forwarded_to_username
+        FROM sal_orders o
+        LEFT JOIN (
+          SELECT t.document_id, t.assigned_to_user_id
+          FROM adm_document_workflows t
+          JOIN (
+            SELECT document_id, MAX(id) AS max_id
+            FROM adm_document_workflows
+            WHERE company_id = :companyId
+              AND status = 'PENDING'
+              AND (
+                document_type = 'SALES_ORDER' OR 
+                document_type = 'Sales Order' OR
+                document_type LIKE 'SALES_ORDER:%'
+              )
+            GROUP BY document_id
+          ) m ON m.max_id = t.id
+        ) x ON x.document_id = o.id
+        LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
+        WHERE o.company_id = :companyId AND o.branch_id = :branchId
+        ORDER BY o.order_date DESC, o.id DESC
+        `,
         { companyId, branchId },
       ).catch(() => []);
       res.json({ items: Array.isArray(items) ? items : [] });
@@ -1476,7 +1542,7 @@ router.post(
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [existing] = await query(
         `
-        SELECT id, status 
+        SELECT id, status, total_amount 
         FROM sal_orders
         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
         LIMIT 1
@@ -1484,6 +1550,182 @@ router.post(
         { id, companyId, branchId },
       ).catch(() => []);
       if (!existing) throw httpError(404, "NOT_FOUND", "Order not found");
+
+      const amount =
+        req.body?.amount == null
+          ? existing.total_amount == null
+            ? null
+            : Number(existing.total_amount || 0)
+          : Number(req.body.amount || 0);
+      const explicitWorkflowId =
+        req.body?.workflow_id == null ? null : Number(req.body.workflow_id);
+      const targetUserId =
+        req.body?.target_user_id == null
+          ? null
+          : Number(req.body.target_user_id);
+
+      // Resolve active workflow
+      let activeWf = null;
+      if (explicitWorkflowId) {
+        const rows = await query(
+          `SELECT * FROM adm_workflows WHERE id = :id AND company_id = :companyId AND is_active = 1 LIMIT 1`,
+          { id: explicitWorkflowId, companyId },
+        ).catch(() => []);
+        if (rows.length) activeWf = rows[0];
+      }
+      if (!activeWf) {
+        const wfs = await query(
+          `SELECT * 
+           FROM adm_workflows 
+           WHERE company_id = :companyId 
+             AND is_active = 1 
+             AND (document_route = '/sales/sales-orders' OR UPPER(document_type) IN ('SALES_ORDER','SALES ORDER','SALES_ORDER:LOCAL','SALES_ORDER:IMPORT')) 
+           ORDER BY id ASC`,
+          { companyId },
+        ).catch(() => []);
+        for (const wf of wfs) {
+          if (amount === null) {
+            activeWf = wf;
+            break;
+          }
+          const minOk =
+            wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
+          const maxOk =
+            wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
+          if (minOk && maxOk) {
+            activeWf = wf;
+            break;
+          }
+        }
+      }
+
+      // Fallback: create a simple default workflow if not defined yet and a target approver is provided
+      if (!activeWf && Number.isFinite(targetUserId) && targetUserId > 0) {
+        try {
+          await query(
+            `INSERT INTO adm_workflows (company_id, workflow_code, workflow_name, module_key, document_type, document_route, is_active)
+             VALUES (:companyId, 'WF-SO-DEFAULT', 'Default SO Approval', 'sales', 'SALES_ORDER', '/sales/sales-orders', 1)
+             ON DUPLICATE KEY UPDATE is_active = VALUES(is_active)`,
+            { companyId },
+          );
+        } catch {}
+        const wfRows = await query(
+          `SELECT * FROM adm_workflows 
+           WHERE company_id = :companyId 
+             AND module_key = 'sales' 
+             AND (document_type = 'SALES_ORDER' OR document_type = 'Sales Order') 
+             AND workflow_name = 'Default SO Approval'
+           ORDER BY id ASC LIMIT 1`,
+          { companyId },
+        ).catch(() => []);
+        if (wfRows.length) {
+          const wfId = wfRows[0].id;
+          try {
+            await query(
+              `INSERT INTO adm_workflow_steps (workflow_id, step_order, step_name, approver_user_id, approver_role_id, min_amount, max_amount, approval_limit, is_mandatory)
+               VALUES (:wfId, 1, 'Approval', :uid, NULL, NULL, NULL, NULL, 1)
+               ON DUPLICATE KEY UPDATE approver_user_id = VALUES(approver_user_id)`,
+              { wfId, uid: targetUserId },
+            );
+          } catch {}
+          try {
+            await query(
+              `INSERT INTO adm_workflow_step_approvers (workflow_id, step_order, approver_user_id, approval_limit)
+               VALUES (:wfId, 1, :uid, NULL)
+               ON DUPLICATE KEY UPDATE approval_limit = VALUES(approval_limit)`,
+              { wfId, uid: targetUserId },
+            );
+          } catch {}
+          activeWf = wfRows[0];
+        }
+      }
+
+      // If a workflow is defined, create/advance document workflow and assign
+      if (activeWf) {
+        const steps = await query(
+          `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+          { wf: activeWf.id },
+        );
+        if (!steps.length)
+          throw httpError(400, "BAD_REQUEST", "Workflow has no steps");
+        const first = steps[0];
+        if (!first.approver_user_id) {
+          throw httpError(
+            400,
+            "BAD_REQUEST",
+            "Workflow step 1 has no approver_user_id configured",
+          );
+        }
+        const allowedUsers = await query(
+          `SELECT approver_user_id 
+             FROM adm_workflow_step_approvers 
+             WHERE workflow_id = :wf AND step_order = :ord`,
+          { wf: activeWf.id, ord: first.step_order },
+        );
+        const allowedSet = new Set(
+          allowedUsers.map((r) => Number(r.approver_user_id)),
+        );
+        let assignedToUserId = Number(first.approver_user_id);
+        if (
+          targetUserId != null &&
+          Number.isFinite(targetUserId) &&
+          allowedSet.has(Number(targetUserId))
+        ) {
+          assignedToUserId = Number(targetUserId);
+        } else if (allowedUsers.length > 0) {
+          assignedToUserId = Number(allowedUsers[0].approver_user_id);
+        }
+
+        const dwRes = await query(
+          `
+          INSERT INTO adm_document_workflows
+            (company_id, workflow_id, document_id, document_type, amount, current_step_order, status, assigned_to_user_id)
+          VALUES
+            (:companyId, :workflowId, :documentId, 'SALES_ORDER', :amount, :stepOrder, 'PENDING', :assignedTo)
+          `,
+          {
+            companyId,
+            workflowId: activeWf.id,
+            documentId: id,
+            amount: amount === null ? null : Number(amount),
+            stepOrder: first.step_order,
+            assignedTo: assignedToUserId,
+          },
+        );
+        const instanceId = dwRes.insertId;
+        await query(
+          `
+          INSERT INTO adm_workflow_tasks
+            (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
+          VALUES
+            (:companyId, :workflowId, :dwId, :documentId, 'SALES_ORDER', :stepOrder, :assignedTo, 'PENDING')
+          `,
+          {
+            companyId,
+            workflowId: activeWf.id,
+            dwId: instanceId,
+            documentId: id,
+            stepOrder: first.step_order,
+            assignedTo: assignedToUserId,
+          },
+        );
+        await query(
+          `
+          INSERT INTO adm_workflow_logs
+            (document_workflow_id, step_order, action, actor_user_id, comments)
+          VALUES
+            (:dwId, :stepOrder, 'SUBMIT', :actor, :comments)
+          `,
+          {
+            dwId: instanceId,
+            stepOrder: first.step_order,
+            actor: req.user.sub,
+            comments: "",
+          },
+        );
+      }
+
+      // Update header status for UI
       const nextStatus = "SUBMITTED";
       await query(
         `
@@ -1527,12 +1769,32 @@ router.get(
            i.payment_type,
            i.warehouse_id,
            i.sales_order_id,
-           i.remarks
+           i.remarks,
+           MAX(it.vat_on_sales_id) AS tax_code_id
          FROM sal_invoices i
          LEFT JOIN sal_customers c
            ON c.id = i.customer_id AND c.company_id = i.company_id
+         LEFT JOIN sal_invoice_details d
+           ON d.invoice_id = i.id
+         LEFT JOIN inv_items it
+           ON it.id = d.item_id AND it.company_id = i.company_id
          WHERE i.company_id = :companyId AND i.branch_id = :branchId
            ${customerId ? "AND i.customer_id = :customerId" : ""}
+         GROUP BY
+           i.id,
+           i.invoice_no,
+           i.invoice_date,
+           i.customer_id,
+           c.customer_name,
+           i.payment_status,
+           i.status,
+           i.net_amount,
+           i.balance_amount,
+           i.price_type,
+           i.payment_type,
+           i.warehouse_id,
+           i.sales_order_id,
+           i.remarks
          ORDER BY i.invoice_date DESC, i.id DESC`,
         { companyId, branchId, customerId },
       ).catch(() => []);
@@ -1645,6 +1907,295 @@ router.get(
       }
       const nextNo = `INV${String(nextNum).padStart(6, "0")}`;
       res.json({ nextNo });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/dashboard/metrics",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const topProductsLimit = Math.max(
+        1,
+        Math.min(50, Number(req.query.topProducts || req.query.top || 10)),
+      );
+      const topCustomersLimit = Math.max(
+        1,
+        Math.min(50, Number(req.query.topCustomers || req.query.top || 10)),
+      );
+      const [fyRow] =
+        (await query(
+          `SELECT id, start_date FROM fin_fiscal_years WHERE company_id = :companyId ORDER BY start_date DESC LIMIT 1`,
+          { companyId },
+        ).catch(() => [])) || [];
+      const now = new Date();
+      const today = req.query.to ? new Date(String(req.query.to)) : now;
+      const fromFyDefault =
+        fyRow?.start_date || new Date(today.getFullYear(), 0, 1);
+      const fromFy = req.query.from
+        ? new Date(String(req.query.from))
+        : fromFyDefault;
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+      const day = today.getDay();
+      const diffToMonday = (day + 6) % 7;
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - diffToMonday);
+      function toDateStr(d) {
+        return typeof d === "string" ? d : d.toISOString().slice(0, 10);
+      }
+      const [ytdRow] = (await query(
+        `SELECT COALESCE(SUM(i.net_amount),0) AS v
+             FROM sal_invoices i
+            WHERE i.company_id = :companyId
+              AND i.branch_id = :branchId
+              AND i.invoice_date BETWEEN :from AND :to`,
+        { companyId, branchId, from: toDateStr(fromFy), to: toDateStr(today) },
+      ).catch(() => [])) || [{ v: 0 }];
+      const [mtdRow] = (await query(
+        `SELECT COALESCE(SUM(i.net_amount),0) AS v
+             FROM sal_invoices i
+            WHERE i.company_id = :companyId
+              AND i.branch_id = :branchId
+              AND i.invoice_date BETWEEN :from AND :to`,
+        {
+          companyId,
+          branchId,
+          from: toDateStr(monthStart),
+          to: toDateStr(today),
+        },
+      ).catch(() => [])) || [{ v: 0 }];
+      const [wtdRow] = (await query(
+        `SELECT COALESCE(SUM(i.net_amount),0) AS v
+             FROM sal_invoices i
+            WHERE i.company_id = :companyId
+              AND i.branch_id = :branchId
+              AND i.invoice_date BETWEEN :from AND :to`,
+        {
+          companyId,
+          branchId,
+          from: toDateStr(weekStart),
+          to: toDateStr(today),
+        },
+      ).catch(() => [])) || [{ v: 0 }];
+      const [todayRow] = (await query(
+        `SELECT COALESCE(SUM(i.net_amount),0) AS v
+             FROM sal_invoices i
+            WHERE i.company_id = :companyId
+              AND i.branch_id = :branchId
+              AND DATE(i.invoice_date) = :d`,
+        { companyId, branchId, d: toDateStr(today) },
+      ).catch(() => [])) || [{ v: 0 }];
+      async function grossBetween(from, to) {
+        const rows = (await query(
+          `SELECT COALESCE(SUM(d.quantity * (d.unit_price * (1 - d.discount_percent/100)) - d.quantity * it.cost_price),0) AS gp
+               FROM sal_invoice_details d
+               JOIN sal_invoices i ON i.id = d.invoice_id
+               LEFT JOIN inv_items it ON it.id = d.item_id AND it.company_id = i.company_id
+              WHERE i.company_id = :companyId
+                AND i.branch_id = :branchId
+                AND i.invoice_date BETWEEN :from AND :to`,
+          { companyId, branchId, from: toDateStr(from), to: toDateStr(to) },
+        ).catch(() => [])) || [{ gp: 0 }];
+        return Number(rows?.[0]?.gp || 0);
+      }
+      const ytdGP = await grossBetween(fromFy, today);
+      const mtdGP = await grossBetween(monthStart, today);
+      const wtdGP = await grossBetween(weekStart, today);
+      const todayGP = await grossBetween(today, today);
+      const topProducts =
+        (await query(
+          `SELECT it.item_name AS label,
+                  COALESCE(SUM(d.quantity * (d.unit_price * (1 - d.discount_percent/100))),0) AS value
+             FROM sal_invoice_details d
+             JOIN sal_invoices i ON i.id = d.invoice_id
+             LEFT JOIN inv_items it ON it.id = d.item_id AND it.company_id = i.company_id
+            WHERE i.company_id = :companyId
+              AND i.branch_id = :branchId
+              AND i.invoice_date BETWEEN :from AND :to
+            GROUP BY it.item_name
+            ORDER BY value DESC
+            LIMIT ${topProductsLimit}`,
+          {
+            companyId,
+            branchId,
+            from: toDateStr(fromFy),
+            to: toDateStr(today),
+          },
+        ).catch(() => [])) || [];
+      const topCustomers =
+        (await query(
+          `SELECT COALESCE(c.customer_name,'Unknown') AS label,
+                  COALESCE(SUM(i.net_amount),0) AS value
+             FROM sal_invoices i
+             LEFT JOIN sal_customers c ON c.id = i.customer_id AND c.company_id = i.company_id
+            WHERE i.company_id = :companyId
+              AND i.branch_id = :branchId
+              AND i.invoice_date BETWEEN :from AND :to
+            GROUP BY COALESCE(c.customer_name,'Unknown')
+            ORDER BY value DESC
+            LIMIT ${topCustomersLimit}`,
+          {
+            companyId,
+            branchId,
+            from: toDateStr(fromFy),
+            to: toDateStr(today),
+          },
+        ).catch(() => [])) || [];
+      const groupColRes =
+        (await query(
+          `SELECT COUNT(*) AS c
+             FROM information_schema.columns
+            WHERE table_schema = DATABASE()
+              AND table_name = 'inv_items'
+              AND column_name = 'group_id'`,
+        ).catch(() => [])) || [];
+      const hasGroupId = Number(groupColRes?.[0]?.c || 0) > 0;
+      const productGroupPie =
+        (await query(
+          `SELECT COALESCE(g.group_name,'Unassigned') AS label,
+                  COALESCE(SUM(d.quantity * (d.unit_price * (1 - d.discount_percent/100))),0) AS value
+             FROM sal_invoice_details d
+             JOIN sal_invoices i ON i.id = d.invoice_id
+             LEFT JOIN inv_items it ON it.id = d.item_id AND it.company_id = i.company_id
+             LEFT JOIN inv_item_groups g ON g.id = it.${hasGroupId ? "group_id" : "item_group_id"}
+            WHERE i.company_id = :companyId
+              AND i.branch_id = :branchId
+              AND i.invoice_date BETWEEN :from AND :to
+            GROUP BY COALESCE(g.group_name,'Unassigned')
+            ORDER BY value DESC`,
+          {
+            companyId,
+            branchId,
+            from: toDateStr(fromFy),
+            to: toDateStr(today),
+          },
+        ).catch(() => [])) || [];
+      const customerTypeDonut =
+        (await query(
+          `SELECT UPPER(COALESCE(c.customer_type,'OTHER')) AS label,
+                  COALESCE(SUM(i.net_amount),0) AS value
+             FROM sal_invoices i
+             LEFT JOIN sal_customers c ON c.id = i.customer_id AND c.company_id = i.company_id
+            WHERE i.company_id = :companyId
+              AND i.branch_id = :branchId
+              AND i.invoice_date BETWEEN :from AND :to
+            GROUP BY UPPER(COALESCE(c.customer_type,'OTHER'))
+            ORDER BY value DESC`,
+          {
+            companyId,
+            branchId,
+            from: toDateStr(fromFy),
+            to: toDateStr(today),
+          },
+        ).catch(() => [])) || [];
+      const months = [
+        "JAN",
+        "FEB",
+        "MAR",
+        "APR",
+        "MAY",
+        "JUN",
+        "JUL",
+        "AUG",
+        "SEP",
+        "OCT",
+        "NOV",
+        "DEC",
+      ];
+      const monthlyRows =
+        (await query(
+          `SELECT DATE_FORMAT(i.invoice_date, '%Y-%m') AS ym, COALESCE(SUM(i.net_amount),0) AS v
+             FROM sal_invoices i
+            WHERE i.company_id = :companyId
+              AND i.branch_id = :branchId
+              AND YEAR(i.invoice_date) = YEAR(CURDATE())
+            GROUP BY ym
+            ORDER BY ym`,
+          { companyId, branchId },
+        ).catch(() => [])) || [];
+      const monthlyRevenue = monthlyRows.map((r) => {
+        const m = Number(String(r.ym || "").split("-")[1] || 0);
+        return { label: months[m - 1] || r.ym, value: Number(r.v || 0) };
+      });
+      const halfRows =
+        (await query(
+          `SELECT CASE WHEN MONTH(i.invoice_date) BETWEEN 1 AND 6 THEN 'H1' ELSE 'H2' END AS label,
+                  COALESCE(SUM(i.net_amount),0) AS v
+             FROM sal_invoices i
+            WHERE i.company_id = :companyId
+              AND i.branch_id = :branchId
+              AND YEAR(i.invoice_date) = YEAR(CURDATE())
+            GROUP BY label
+            ORDER BY label`,
+          { companyId, branchId },
+        ).catch(() => [])) || [];
+      const halfYearRevenue = halfRows.map((r) => ({
+        label: r.label,
+        value: Number(r.v || 0),
+      }));
+      const quarterRows =
+        (await query(
+          `SELECT CONCAT('Q', QUARTER(i.invoice_date)) AS label,
+                  COALESCE(SUM(i.net_amount),0) AS v
+             FROM sal_invoices i
+            WHERE i.company_id = :companyId
+              AND i.branch_id = :branchId
+              AND YEAR(i.invoice_date) = YEAR(CURDATE())
+            GROUP BY QUARTER(i.invoice_date)
+            ORDER BY QUARTER(i.invoice_date)`,
+          { companyId, branchId },
+        ).catch(() => [])) || [];
+      const quarterRevenue = quarterRows.map((r) => ({
+        label: r.label,
+        value: Number(r.v || 0),
+      }));
+      const trendRows =
+        (await query(
+          `SELECT DATE_FORMAT(i.invoice_date, '%Y-%m') AS ym, COALESCE(SUM(i.net_amount),0) AS v
+             FROM sal_invoices i
+            WHERE i.company_id = :companyId
+              AND i.branch_id = :branchId
+              AND i.invoice_date BETWEEN :from AND :to
+            GROUP BY ym
+            ORDER BY ym`,
+          {
+            companyId,
+            branchId,
+            from: toDateStr(fromFy),
+            to: toDateStr(today),
+          },
+        ).catch(() => [])) || [];
+      const salesTrend = trendRows.map((r) => {
+        const m = Number(String(r.ym || "").split("-")[1] || 0);
+        return { label: months[m - 1] || r.ym, value: Number(r.v || 0) };
+      });
+      res.json({
+        cards: {
+          ytd_sales: Number(ytdRow?.v || 0),
+          mtd_sales: Number(mtdRow?.v || 0),
+          wtd_sales: Number(wtdRow?.v || 0),
+          today_sales: Number(todayRow?.v || 0),
+          ytd_gross_profit: ytdGP,
+          mtd_gross_profit: mtdGP,
+          wtd_gross_profit: wtdGP,
+          today_gross_profit: todayGP,
+        },
+        top_products: topProducts,
+        top_customers: topCustomers,
+        product_group_pie: productGroupPie,
+        customer_type_donut: customerTypeDonut,
+        monthly_revenue: monthlyRevenue,
+        half_year_revenue: halfYearRevenue,
+        quarter_revenue: quarterRevenue,
+        sales_trend: salesTrend,
+      });
     } catch (e) {
       next(e);
     }
@@ -2501,6 +3052,7 @@ router.get(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
+      await ensureQuotationTables();
       const { companyId, branchId } = req.scope;
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
@@ -2581,6 +3133,511 @@ router.get(
   },
 );
 
+// --- ADDITIONAL REPORTS ---
+
+router.get(
+  "/reports/quotation-summary",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["SAL.QUOTATION.VIEW", "SAL.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      await ensureQuotationTables();
+      const { companyId, branchId } = req.scope;
+      const from = req.query.from ? String(req.query.from) : null;
+      const to = req.query.to ? String(req.query.to) : null;
+      const status = req.query.status ? String(req.query.status) : null;
+      const salesperson = req.query.salesperson ? String(req.query.salesperson) : null;
+      const rows = await query(
+        `
+        SELECT q.quotation_no,
+               q.quotation_date,
+               COALESCE(NULLIF(q.customer_name,''), c.customer_name, '') AS customer_name,
+               q.total_amount,
+               q.valid_until,
+               q.status,
+               u.username AS salesperson,
+               CASE WHEN UPPER(q.status) IN ('APPROVED','CONVERTED') THEN 'YES' ELSE 'NO' END AS converted_to_order
+        FROM sal_quotations q
+        LEFT JOIN sal_customers c ON c.id = q.customer_id AND c.company_id = q.company_id
+        LEFT JOIN adm_users u ON u.id = q.created_by
+        WHERE q.company_id = :companyId
+          AND q.branch_id = :branchId
+          AND (:from IS NULL OR q.quotation_date >= :from)
+          AND (:to IS NULL OR q.quotation_date <= :to)
+          AND (:status IS NULL OR q.status = :status)
+          AND (:salesperson IS NULL OR u.username LIKE :salespersonLike)
+        ORDER BY q.quotation_date DESC, q.id DESC
+        `,
+        {
+          companyId,
+          branchId,
+          from,
+          to,
+          status,
+          salesperson,
+          salespersonLike: salesperson ? `%${salesperson}%` : null,
+        },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/quotation-conversion",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["SAL.QUOTATION.VIEW", "SAL.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      await ensureQuotationTables();
+      const { companyId, branchId } = req.scope;
+      const from = req.query.from ? String(req.query.from) : null;
+      const to = req.query.to ? String(req.query.to) : null;
+      const totalRows = await query(
+        `
+        SELECT COUNT(*) AS c
+        FROM sal_quotations
+        WHERE company_id = :companyId AND branch_id = :branchId
+          AND (:from IS NULL OR quotation_date >= :from)
+          AND (:to IS NULL OR quotation_date <= :to)
+        `,
+        { companyId, branchId, from, to },
+      ).catch(() => []);
+      const convRows = await query(
+        `
+        SELECT COUNT(*) AS c
+        FROM sal_quotations
+        WHERE company_id = :companyId AND branch_id = :branchId
+          AND UPPER(status) IN ('APPROVED','CONVERTED')
+          AND (:from IS NULL OR quotation_date >= :from)
+          AND (:to IS NULL OR quotation_date <= :to)
+        `,
+        { companyId, branchId, from, to },
+      ).catch(() => []);
+      const total = Number(totalRows?.[0]?.c || 0);
+      const converted = Number(convRows?.[0]?.c || 0);
+      const conversion_rate = total > 0 ? Math.round((converted * 100) / total) : 0;
+      res.json({
+        metrics: {
+          total_quotations: total,
+          converted_quotations: converted,
+          conversion_rate_percent: conversion_rate,
+          average_conversion_time_days: null,
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/sales-order-status",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["SAL.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const from = req.query.from ? String(req.query.from) : null;
+      const to = req.query.to ? String(req.query.to) : null;
+      const status = req.query.status ? String(req.query.status) : null;
+      const customer = req.query.customer ? String(req.query.customer) : null;
+      const salesperson = req.query.salesperson ? String(req.query.salesperson) : null;
+      const rows = await query(
+        `
+        SELECT o.order_no,
+               o.order_date,
+               COALESCE(c.customer_name,'') AS customer_name,
+               o.total_amount,
+               o.status,
+               u.username AS salesperson,
+               NULL AS linked_quotation
+        FROM sal_orders o
+        LEFT JOIN sal_customers c ON c.id = o.customer_id AND c.company_id = o.company_id
+        LEFT JOIN adm_users u ON u.id = o.created_by
+        WHERE o.company_id = :companyId
+          AND o.branch_id = :branchId
+          AND (:from IS NULL OR o.order_date >= :from)
+          AND (:to IS NULL OR o.order_date <= :to)
+          AND (:status IS NULL OR o.status = :status)
+          AND (:customer IS NULL OR c.customer_name LIKE :customerLike)
+          AND (:salesperson IS NULL OR u.username LIKE :salespersonLike)
+        ORDER BY o.order_date DESC, o.id DESC
+        `,
+        {
+          companyId,
+          branchId,
+          from,
+          to,
+          status,
+          customer,
+          salesperson,
+          customerLike: customer ? `%${customer}%` : null,
+          salespersonLike: salesperson ? `%${salesperson}%` : null,
+        },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/invoice-summary",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["SAL.INVOICE.VIEW"]),
+  async (req, res, next) => {
+    try {
+      await ensureInvoiceTables();
+      const { companyId, branchId } = req.scope;
+      const from = req.query.from ? String(req.query.from) : null;
+      const to = req.query.to ? String(req.query.to) : null;
+      const customer = req.query.customer ? String(req.query.customer) : null;
+      const paymentStatus = req.query.paymentStatus ? String(req.query.paymentStatus) : null;
+      const rows = await query(
+        `
+        SELECT i.invoice_no,
+               i.invoice_date,
+               COALESCE(c.customer_name,'') AS customer_name,
+               i.total_amount,
+               COALESCE(i.net_amount, 0) AS net_amount,
+               (i.total_amount - COALESCE(i.net_amount,0)) AS vat_amount,
+               (COALESCE(i.net_amount,0) - COALESCE(i.balance_amount,0)) AS paid_amount,
+               COALESCE(i.balance_amount,0) AS balance_amount,
+               i.payment_status,
+               i.status
+        FROM sal_invoices i
+        LEFT JOIN sal_customers c ON c.id = i.customer_id AND c.company_id = i.company_id
+        WHERE i.company_id = :companyId
+          AND i.branch_id = :branchId
+          AND (:from IS NULL OR i.invoice_date >= :from)
+          AND (:to IS NULL OR i.invoice_date <= :to)
+          AND (:customer IS NULL OR c.customer_name LIKE :customerLike)
+          AND (:paymentStatus IS NULL OR i.payment_status = :paymentStatus)
+        ORDER BY i.invoice_date DESC, i.id DESC
+        `,
+        {
+          companyId,
+          branchId,
+          from,
+          to,
+          customer,
+          paymentStatus,
+          customerLike: customer ? `%${customer}%` : null,
+        },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/ar-aging",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.CUSTOMER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          COALESCE(c.customer_name,'') AS customer_name,
+          i.invoice_no,
+          i.invoice_date,
+          NULL AS due_date,
+          COALESCE(i.net_amount, i.total_amount, 0) AS amount,
+          CASE WHEN DATEDIFF(CURDATE(), i.invoice_date) BETWEEN 0 AND 30 THEN COALESCE(i.balance_amount,0) ELSE 0 END AS d0_30,
+          CASE WHEN DATEDIFF(CURDATE(), i.invoice_date) BETWEEN 31 AND 60 THEN COALESCE(i.balance_amount,0) ELSE 0 END AS d31_60,
+          CASE WHEN DATEDIFF(CURDATE(), i.invoice_date) BETWEEN 61 AND 90 THEN COALESCE(i.balance_amount,0) ELSE 0 END AS d61_90,
+          CASE WHEN DATEDIFF(CURDATE(), i.invoice_date) > 90 THEN COALESCE(i.balance_amount,0) ELSE 0 END AS d90_plus
+        FROM sal_invoices i
+        LEFT JOIN sal_customers c ON c.id = i.customer_id AND c.company_id = i.company_id
+        WHERE i.company_id = :companyId AND i.branch_id = :branchId
+          AND COALESCE(i.balance_amount,0) > 0
+        ORDER BY c.customer_name ASC, i.invoice_date ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/revenue-by-customer",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT
+          COALESCE(c.customer_name,'') AS customer_name,
+          COALESCE(o.total_orders,0) AS total_orders,
+          COALESCE(i.total_invoices,0) AS total_invoices,
+          COALESCE(i.total_revenue,0) AS total_revenue,
+          COALESCE(i.total_outstanding,0) AS outstanding_balance
+        FROM sal_customers c
+        LEFT JOIN (
+          SELECT customer_id, COUNT(*) AS total_orders
+          FROM sal_orders
+          WHERE company_id = :companyId AND branch_id = :branchId
+          GROUP BY customer_id
+        ) o ON o.customer_id = c.id
+        LEFT JOIN (
+          SELECT customer_id,
+                 COUNT(*) AS total_invoices,
+                 SUM(COALESCE(net_amount, total_amount, 0)) AS total_revenue,
+                 SUM(COALESCE(balance_amount, 0)) AS total_outstanding
+          FROM sal_invoices
+          WHERE company_id = :companyId AND branch_id = :branchId
+          GROUP BY customer_id
+        ) i ON i.customer_id = c.id
+        WHERE c.company_id = :companyId
+        ORDER BY total_revenue DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/revenue-by-product",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["SAL.INVOICE.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          it.item_name AS product_name,
+          SUM(d.quantity) AS quantity_sold,
+          SUM(COALESCE(d.net_amount, d.total_amount, d.quantity * d.unit_price)) AS total_revenue,
+          AVG(d.unit_price) AS avg_selling_price,
+          SUM(ROUND((d.discount_percent/100.0) * d.quantity * d.unit_price, 2)) AS discount_given
+        FROM sal_invoice_details d
+        JOIN sal_invoices i ON i.id = d.invoice_id
+        LEFT JOIN inv_items it ON it.id = d.item_id AND it.company_id = i.company_id
+        WHERE i.company_id = :companyId AND i.branch_id = :branchId
+        GROUP BY it.item_name
+        ORDER BY total_revenue DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/discount-utilization",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["SAL.INVOICE.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          'STANDARD' AS discount_scheme_name,
+          COALESCE(c.customer_name,'') AS customer,
+          i.invoice_no,
+          d.discount_percent AS discount_percent,
+          ROUND((d.discount_percent/100.0) * d.quantity * d.unit_price, 2) AS discount_amount,
+          u.username AS approved_by
+        FROM sal_invoice_details d
+        JOIN sal_invoices i ON i.id = d.invoice_id
+        LEFT JOIN sal_customers c ON c.id = i.customer_id AND c.company_id = i.company_id
+        LEFT JOIN adm_users u ON u.id = i.created_by
+        WHERE i.company_id = :companyId AND i.branch_id = :branchId
+          AND d.discount_percent > 0
+        ORDER BY i.invoice_date DESC, i.id DESC, d.id ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/price-list",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["SAL.PRICE.VIEW", "SAL.ITEM.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT 
+          it.item_name AS product,
+          COALESCE(sp.price, it.sell_price, 0) AS standard_price,
+          COALESCE(cp.price, NULL) AS customer_specific_price,
+          sp.effective_date,
+          u.username AS last_updated_by
+        FROM inv_items it
+        LEFT JOIN sal_standard_prices sp ON sp.item_id = it.id AND sp.company_id = it.company_id
+        LEFT JOIN sal_customer_prices cp ON cp.item_id = it.id AND cp.company_id = it.company_id
+        LEFT JOIN adm_users u ON u.id = sp.updated_by
+        WHERE it.company_id = :companyId
+        ORDER BY it.item_name ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/monthly-sales-trend",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT DATE_FORMAT(i.invoice_date, '%Y-%m-01') AS month_start,
+               COUNT(*) AS total_invoices,
+               SUM(COALESCE(i.net_amount, i.total_amount, 0)) AS total_revenue,
+               SUM(COALESCE(i.net_amount, 0) - COALESCE(i.balance_amount,0)) AS total_paid,
+               SUM(COALESCE(i.balance_amount,0)) AS total_discounts -- placeholder for discounts if tracked separately
+        FROM sal_invoices i
+        WHERE i.company_id = :companyId AND i.branch_id = :branchId
+        GROUP BY DATE_FORMAT(i.invoice_date, '%Y-%m-01')
+        ORDER BY month_start ASC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/customer-order-history",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["SAL.QUOTATION.VIEW", "SAL.ORDER.VIEW", "SAL.INVOICE.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const customer = req.query.customer ? String(req.query.customer) : null;
+      const items = await query(
+        `
+        SELECT stage, ref_no, txn_date, amount, notes
+        FROM (
+          SELECT 'QUOTATION' AS stage, q.quotation_no AS ref_no, q.quotation_date AS txn_date, q.total_amount AS amount, q.status AS notes,
+                 COALESCE(NULLIF(q.customer_name,''), c.customer_name, '') AS customer_name
+            FROM sal_quotations q
+            LEFT JOIN sal_customers c ON c.id = q.customer_id AND c.company_id = q.company_id
+           WHERE q.company_id = :companyId AND q.branch_id = :branchId
+          UNION ALL
+          SELECT 'ORDER' AS stage, o.order_no AS ref_no, o.order_date AS txn_date, o.total_amount AS amount, o.status AS notes,
+                 COALESCE(c.customer_name,'') AS customer_name
+            FROM sal_orders o
+            LEFT JOIN sal_customers c ON c.id = o.customer_id AND c.company_id = o.company_id
+           WHERE o.company_id = :companyId AND o.branch_id = :branchId
+          UNION ALL
+          SELECT 'INVOICE' AS stage, i.invoice_no AS ref_no, i.invoice_date AS txn_date, COALESCE(i.net_amount, i.total_amount,0) AS amount, i.status AS notes,
+                 COALESCE(c.customer_name,'') AS customer_name
+            FROM sal_invoices i
+            LEFT JOIN sal_customers c ON c.id = i.customer_id AND c.company_id = i.company_id
+           WHERE i.company_id = :companyId AND i.branch_id = :branchId
+          UNION ALL
+          SELECT 'DELIVERY' AS stage, d.delivery_no AS ref_no, d.delivery_date AS txn_date, 0 AS amount, d.status AS notes,
+                 COALESCE(c.customer_name,'') AS customer_name
+            FROM sal_deliveries d
+            LEFT JOIN sal_customers c ON c.id = d.customer_id AND c.company_id = d.company_id
+           WHERE d.company_id = :companyId AND d.branch_id = :branchId
+        ) t
+        WHERE (:customer IS NULL OR t.customer_name LIKE :customerLike)
+        ORDER BY t.txn_date DESC
+        `,
+        { companyId, branchId, customer, customerLike: customer ? `%${customer}%` : null },
+      ).catch(() => []);
+      res.json({ items: items || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/cancelled-orders",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["SAL.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT o.order_no,
+               COALESCE(c.customer_name,'') AS customer,
+               o.order_date AS date,
+               o.cancel_reason AS cancellation_reason,
+               u.username AS cancelled_by
+        FROM sal_orders o
+        LEFT JOIN sal_customers c ON c.id = o.customer_id AND c.company_id = o.company_id
+        LEFT JOIN adm_users u ON u.id = o.updated_by
+        WHERE o.company_id = :companyId AND o.branch_id = :branchId
+          AND UPPER(o.status) IN ('CANCELLED','REJECTED')
+        ORDER BY o.order_date DESC, o.id DESC
+        `,
+        { companyId, branchId },
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 router.get(
   "/returns",
   requireAuth,
@@ -2595,10 +3652,24 @@ router.get(
         `
         SELECT r.id, r.return_no, r.return_date, r.total_amount, r.status,
                COALESCE(c.customer_name, '') AS customer_name,
-               r.invoice_id
+               r.invoice_id,
+               u.username AS forwarded_to_username
         FROM sal_returns r
         LEFT JOIN sal_customers c
           ON c.id = r.customer_id AND c.company_id = r.company_id
+        LEFT JOIN (
+          SELECT t.document_id, t.assigned_to_user_id
+          FROM adm_document_workflows t
+          JOIN (
+            SELECT document_id, MAX(id) AS max_id
+            FROM adm_document_workflows
+            WHERE company_id = :companyId
+              AND status = 'PENDING'
+              AND (document_type = 'SALES_RETURN' OR document_type = 'Sales Return')
+            GROUP BY document_id
+          ) m ON m.max_id = t.id
+        ) x ON x.document_id = r.id
+        LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
         WHERE r.company_id = :companyId AND r.branch_id = :branchId
         ORDER BY r.id DESC
         `,
@@ -2790,6 +3861,8 @@ router.post(
         voucherTypeId,
       });
       const voucherDate = return_date || toYmd(new Date());
+      let voucherId = null;
+      let finalVoucherNo = null;
       const salesAccId =
         (await resolveFinAccountId(conn, { companyId, accountRef: "4000" })) ||
         (await resolveDefaultSalesAccountId(conn, { companyId }));
@@ -2801,55 +3874,34 @@ router.post(
         companyId,
         accountRef: "1100",
       });
-      if (
-        !salesAccId ||
-        !receivablesAccId ||
-        (tax_total > 0 && !vatOutputAccId)
-      ) {
-        throw httpError(
-          400,
-          "VALIDATION_ERROR",
-          "Required Finance accounts not found for posting",
+      const canPostVoucher =
+        salesAccId &&
+        receivablesAccId &&
+        (tax_total <= 0 || (tax_total > 0 && vatOutputAccId));
+      if (canPostVoucher) {
+        const [vIns] = await conn.execute(
+          `INSERT INTO fin_vouchers
+            (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
+           VALUES
+            (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
+          {
+            companyId,
+            branchId,
+            fiscalYearId,
+            voucherTypeId,
+            voucherNo,
+            voucherDate,
+            narration: `Sales Return ${return_no} credit note`,
+            totalDebit: total_amount,
+            totalCredit: total_amount,
+            createdBy: created_by,
+            approvedBy: created_by,
+            postedBy: created_by,
+          },
         );
-      }
-      const [vIns] = await conn.execute(
-        `INSERT INTO fin_vouchers
-          (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
-         VALUES
-          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
-        {
-          companyId,
-          branchId,
-          fiscalYearId,
-          voucherTypeId,
-          voucherNo,
-          voucherDate,
-          narration: `Sales Return ${return_no} credit note`,
-          totalDebit: total_amount,
-          totalCredit: total_amount,
-          createdBy: created_by,
-          approvedBy: created_by,
-          postedBy: created_by,
-        },
-      );
-      const voucherId = Number(vIns?.insertId || 0) || 0;
-      let lineNo = 1;
-      await conn.execute(
-        `INSERT INTO fin_voucher_lines
-          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-         VALUES
-          (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
-        {
-          companyId,
-          voucherId,
-          lineNo: lineNo++,
-          accountId: salesAccId,
-          description: `Sales return ${return_no}`,
-          debit: Math.round(sub_total * 100) / 100,
-          referenceNo: return_no,
-        },
-      );
-      if (tax_total > 0 && vatOutputAccId) {
+        voucherId = Number(vIns?.insertId || 0) || 0;
+        finalVoucherNo = voucherNo;
+        let lineNo = 1;
         await conn.execute(
           `INSERT INTO fin_voucher_lines
             (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
@@ -2859,35 +3911,52 @@ router.post(
             companyId,
             voucherId,
             lineNo: lineNo++,
-            accountId: vatOutputAccId,
-            description: `VAT reversal on ${return_no}`,
-            debit: Math.round(tax_total * 100) / 100,
+            accountId: salesAccId,
+            description: `Sales return ${return_no}`,
+            debit: Math.round(sub_total * 100) / 100,
+            referenceNo: return_no,
+          },
+        );
+        if (tax_total > 0 && vatOutputAccId) {
+          await conn.execute(
+            `INSERT INTO fin_voucher_lines
+              (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+             VALUES
+              (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
+            {
+              companyId,
+              voucherId,
+              lineNo: lineNo++,
+              accountId: vatOutputAccId,
+              description: `VAT reversal on ${return_no}`,
+              debit: Math.round(tax_total * 100) / 100,
+              referenceNo: return_no,
+            },
+          );
+        }
+        await conn.execute(
+          `INSERT INTO fin_voucher_lines
+            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+           VALUES
+            (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :referenceNo)`,
+          {
+            companyId,
+            voucherId,
+            lineNo: lineNo++,
+            accountId: receivablesAccId,
+            description: `Credit note for ${return_no}`,
+            credit: Math.round(total_amount * 100) / 100,
             referenceNo: return_no,
           },
         );
       }
-      await conn.execute(
-        `INSERT INTO fin_voucher_lines
-          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-         VALUES
-          (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :referenceNo)`,
-        {
-          companyId,
-          voucherId,
-          lineNo: lineNo++,
-          accountId: receivablesAccId,
-          description: `Credit note for ${return_no}`,
-          credit: Math.round(total_amount * 100) / 100,
-          referenceNo: return_no,
-        },
-      );
       await conn.commit();
       res.status(201).json({
         id: return_id,
         return_no,
         total_amount,
         voucher_id: voucherId,
-        voucher_no: voucherNo,
+        voucher_no: finalVoucherNo,
       });
     } catch (e) {
       try {
@@ -2896,6 +3965,226 @@ router.post(
       next(e);
     } finally {
       conn.release();
+    }
+  },
+);
+
+router.post(
+  "/returns/:id/submit",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id))
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const amount = req.body?.amount ?? null;
+      const workflowIdOverride = Number(req.body?.workflow_id || 0) || null;
+      const docRouteBase = "/inventory/sales-returns";
+
+      const wfByRoute = await query(
+        `
+        SELECT *
+        FROM adm_workflows
+        WHERE company_id = :companyId
+          AND document_route = :docRouteBase
+        ORDER BY id ASC
+        `,
+        { companyId, docRouteBase },
+      );
+      const wfDefs = await query(
+        `
+        SELECT *
+        FROM adm_workflows
+        WHERE company_id = :companyId
+          AND (document_type = 'SALES_RETURN' OR document_type = 'Sales Return')
+        ORDER BY id ASC
+        `,
+        { companyId },
+      );
+      let activeWf = null;
+      if (workflowIdOverride) {
+        const wfRows = await query(
+          `SELECT * FROM adm_workflows 
+           WHERE id = :wfId AND company_id = :companyId 
+             AND (document_type = 'SALES_RETURN' OR document_type = 'Sales Return')
+           LIMIT 1`,
+          { wfId: workflowIdOverride, companyId },
+        );
+        if (wfRows.length && Number(wfRows[0].is_active) === 1) {
+          activeWf = wfRows[0];
+        }
+      }
+      if (!activeWf && wfByRoute.length) {
+        for (const wf of wfByRoute) {
+          if (Number(wf.is_active) !== 1) continue;
+          if (amount === null) {
+            activeWf = wf;
+            break;
+          }
+          const minOk =
+            wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
+          const maxOk =
+            wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
+          if (minOk && maxOk) {
+            activeWf = wf;
+            break;
+          }
+        }
+      }
+      for (const wf of wfDefs) {
+        if (activeWf) break;
+        if (Number(wf.is_active) !== 1) continue;
+        if (amount === null) {
+          activeWf = wf;
+          break;
+        }
+        const minOk =
+          wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
+        const maxOk =
+          wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
+        if (minOk && maxOk) {
+          activeWf = wf;
+          break;
+        }
+      }
+      if (activeWf) {
+        const steps = await query(
+          `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+          { wf: activeWf.id },
+        );
+        if (!steps.length)
+          throw httpError(400, "BAD_REQUEST", "Workflow has no steps");
+        const first = steps[0];
+        if (!first.approver_user_id) {
+          throw httpError(
+            400,
+            "BAD_REQUEST",
+            "Workflow step 1 has no approver_user_id configured",
+          );
+        }
+        const allowedUsers = await query(
+          `SELECT approver_user_id 
+           FROM adm_workflow_step_approvers 
+           WHERE workflow_id = :wf AND step_order = :ord`,
+          { wf: activeWf.id, ord: first.step_order },
+        );
+        const allowedSet = new Set(
+          allowedUsers.map((r) => Number(r.approver_user_id)),
+        );
+        const targetUserIdRaw = req.body?.target_user_id;
+        let assignedToUserId = Number(first.approver_user_id);
+        if (
+          targetUserIdRaw != null &&
+          allowedSet.has(Number(targetUserIdRaw))
+        ) {
+          assignedToUserId = Number(targetUserIdRaw);
+        } else if (allowedUsers.length > 0) {
+          assignedToUserId = Number(allowedUsers[0].approver_user_id);
+        }
+        const dwRes = await query(
+          `
+          INSERT INTO adm_document_workflows
+            (company_id, workflow_id, document_id, document_type, amount, current_step_order, status, assigned_to_user_id)
+          VALUES
+            (:companyId, :workflowId, :documentId, 'SALES_RETURN', :amount, :stepOrder, 'PENDING', :assignedTo)
+          `,
+          {
+            companyId,
+            workflowId: activeWf.id,
+            documentId: id,
+            amount: amount === null ? null : Number(amount),
+            stepOrder: first.step_order,
+            assignedTo: assignedToUserId,
+          },
+        );
+        const instanceId = dwRes.insertId;
+        await query(
+          `
+          INSERT INTO adm_workflow_tasks
+            (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
+          VALUES
+            (:companyId, :workflowId, :dwId, :documentId, 'SALES_RETURN', :stepOrder, :assignedTo, 'PENDING')
+          `,
+          {
+            companyId,
+            workflowId: activeWf.id,
+            dwId: instanceId,
+            documentId: id,
+            stepOrder: first.step_order,
+            assignedTo: assignedToUserId,
+          },
+        );
+        await query(
+          `
+          INSERT INTO adm_workflow_logs
+            (document_workflow_id, step_order, action, actor_user_id, comments)
+          VALUES
+            (:dwId, :stepOrder, 'SUBMIT', :actor, :comments)
+          `,
+          {
+            dwId: instanceId,
+            stepOrder: first.step_order,
+            actor: req.user.sub,
+            comments: "",
+          },
+        );
+        await query(
+          `UPDATE sal_returns SET status = 'PENDING' WHERE id = :id AND company_id = :companyId`,
+          { id, companyId },
+        );
+        const emailRes = await query(
+          "SELECT email FROM adm_users WHERE id = :id",
+          { id: assignedToUserId },
+        );
+        if (emailRes.length && emailRes[0].email) {
+          const to = emailRes[0].email;
+          const subject = "Approval Required";
+          const text = `Sales Return #${id} requires your approval. View: ${req.protocol}://${req.headers.host}/administration/workflows/approvals/${instanceId}`;
+          const html = `<p>Sales Return #${id} requires your approval.</p><p><a href="/administration/workflows/approvals/${instanceId}">Open Approval</a></p>`;
+          if (isMailerConfigured()) {
+            try {
+              await sendMail({ to, subject, text, html });
+            } catch (e) {
+              console.log(`[EMAIL ERROR] ${e?.message || e}`);
+            }
+          } else {
+            console.log(
+              `[MOCK EMAIL] To: ${to} | Subject: ${subject} | Body: ${text}`,
+            );
+          }
+        }
+        res.status(201).json({ instanceId, status: "PENDING" });
+        return;
+      }
+      let behavior = null;
+      if (wfDefs.length) {
+        const firstWf = wfDefs[0];
+        if (Number(firstWf.is_active) === 0) {
+          behavior = firstWf.default_behavior || null;
+          if (!behavior) {
+            behavior = "AUTO_APPROVE";
+          }
+        }
+      }
+      if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
+        await query(
+          `UPDATE sal_returns SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+          { id, companyId },
+        );
+        res.json({ status: "APPROVED" });
+        return;
+      }
+      await query(
+        `UPDATE sal_returns SET status = 'SUBMITTED' WHERE id = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
+      res.json({ status: "SUBMITTED" });
+    } catch (e) {
+      next(e);
     }
   },
 );

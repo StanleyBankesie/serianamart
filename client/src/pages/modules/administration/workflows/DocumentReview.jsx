@@ -2,10 +2,12 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import client from "../../../../api/client";
 import { toast } from "react-toastify";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function DocumentReview() {
   const { instanceId } = useParams();
   const navigate = useNavigate();
+  const { canReverseApproval } = usePermission();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [comment, setComment] = useState("");
@@ -42,7 +44,7 @@ export default function DocumentReview() {
         .then((res) => {
           setDocHeader(res.data?.item || null);
           setDocDetails(
-            Array.isArray(res.data?.details) ? res.data.details : []
+            Array.isArray(res.data?.details) ? res.data.details : [],
           );
         })
         .catch(() => {
@@ -57,7 +59,7 @@ export default function DocumentReview() {
         .then((res) => {
           setDocHeader(res.data?.item || null);
           setDocDetails(
-            Array.isArray(res.data?.details) ? res.data.details : []
+            Array.isArray(res.data?.details) ? res.data.details : [],
           );
         })
         .catch(() => {
@@ -72,7 +74,7 @@ export default function DocumentReview() {
         .then((res) => {
           setDocHeader(res.data?.item || null);
           setDocDetails(
-            Array.isArray(res.data?.item?.details) ? res.data.item.details : []
+            Array.isArray(res.data?.item?.details) ? res.data.item.details : [],
           );
         })
         .catch(() => {
@@ -91,8 +93,25 @@ export default function DocumentReview() {
         .then((res) => {
           setDocHeader(res.data?.item || null);
           setDocDetails(
-            Array.isArray(res.data?.item?.details) ? res.data.item.details : []
+            Array.isArray(res.data?.item?.details) ? res.data.item.details : [],
           );
+        })
+        .catch(() => {
+          setDocHeader(null);
+          setDocDetails([]);
+        })
+        .finally(() => setDocLoading(false));
+    } else if (
+      t === "JOURNAL_VOUCHER" ||
+      t === "JOURNAL VOUCHER" ||
+      t === "JV"
+    ) {
+      setDocLoading(true);
+      client
+        .get(`/finance/vouchers/${data.document_id}`)
+        .then((res) => {
+          setDocHeader(res.data?.voucher || null);
+          setDocDetails(Array.isArray(res.data?.lines) ? res.data.lines : []);
         })
         .catch(() => {
           setDocHeader(null);
@@ -139,7 +158,9 @@ export default function DocumentReview() {
         .get(`/sales/orders/${data.document_id}`)
         .then((res) => {
           setDocHeader(res.data?.item || null);
-          setDocDetails(Array.isArray(res.data?.details) ? res.data.details : []);
+          setDocDetails(
+            Array.isArray(res.data?.details) ? res.data.details : [],
+          );
         })
         .catch(() => {
           setDocHeader(null);
@@ -172,7 +193,39 @@ export default function DocumentReview() {
         comments: comment,
         target_user_id: !data.is_last_step ? nextUser : null,
       });
-      toast.success(`Document ${action.toLowerCase()}ed successfully`);
+      try {
+        const status =
+          action === "APPROVE"
+            ? data.is_last_step
+              ? "APPROVED"
+              : "PENDING_APPROVAL"
+            : action === "RETURN"
+              ? "DRAFT"
+              : action;
+        const evt = new CustomEvent("omni.workflow.status", {
+          detail: {
+            status,
+            documentType: data.document_type,
+            documentId: data.document_id,
+            instanceId,
+            action: action,
+          },
+        });
+        window.dispatchEvent(evt);
+      } catch {}
+      try {
+        const msg =
+          action === "APPROVE"
+            ? data && !data.is_last_step
+              ? "Forwarded to next approver"
+              : "Document approved successfully"
+            : action === "REJECT"
+              ? "Document rejected successfully"
+              : action === "RETURN"
+                ? "Document returned successfully"
+                : "Action completed successfully";
+        toast.success(msg);
+      } catch {}
       navigate("/administration/workflows/approvals");
     } catch (err) {
       console.error(err);
@@ -348,7 +401,7 @@ export default function DocumentReview() {
                     <div className="font-medium">
                       {docHeader?.adjustment_date
                         ? new Date(
-                            docHeader.adjustment_date
+                            docHeader.adjustment_date,
                           ).toLocaleDateString()
                         : "-"}
                     </div>
@@ -468,7 +521,7 @@ export default function DocumentReview() {
                     <div className="font-medium">
                       {Number(docHeader?.total_amount || 0).toLocaleString(
                         "en-US",
-                        { minimumFractionDigits: 2 }
+                        { minimumFractionDigits: 2 },
                       )}
                     </div>
                   </div>
@@ -500,13 +553,13 @@ export default function DocumentReview() {
                               <td>
                                 {Number(d.unit_price || 0).toLocaleString(
                                   "en-US",
-                                  { minimumFractionDigits: 2 }
+                                  { minimumFractionDigits: 2 },
                                 )}
                               </td>
                               <td>
                                 {Number(d.line_total || 0).toLocaleString(
                                   "en-US",
-                                  { minimumFractionDigits: 2 }
+                                  { minimumFractionDigits: 2 },
                                 )}
                               </td>
                             </tr>
@@ -577,7 +630,7 @@ export default function DocumentReview() {
                     <div className="font-medium">
                       {Number(docHeader?.invoice_amount || 0).toLocaleString(
                         "en-US",
-                        { minimumFractionDigits: 2 }
+                        { minimumFractionDigits: 2 },
                       )}
                     </div>
                   </div>
@@ -613,13 +666,13 @@ export default function DocumentReview() {
                               <td>
                                 {Number(d.unit_price || 0).toLocaleString(
                                   "en-US",
-                                  { minimumFractionDigits: 2 }
+                                  { minimumFractionDigits: 2 },
                                 )}
                               </td>
                               <td>
                                 {Number(d.line_amount || 0).toLocaleString(
                                   "en-US",
-                                  { minimumFractionDigits: 2 }
+                                  { minimumFractionDigits: 2 },
                                 )}
                               </td>
                             </tr>
@@ -661,14 +714,16 @@ export default function DocumentReview() {
                   </div>
                   <div>
                     <div className="text-slate-500">Status</div>
-                    <div className="font-medium">{docHeader?.status || "-"}</div>
+                    <div className="font-medium">
+                      {docHeader?.status || "-"}
+                    </div>
                   </div>
                   <div>
                     <div className="text-slate-500">Total Debit</div>
                     <div className="font-medium">
                       {Number(docHeader?.total_debit || 0).toLocaleString(
                         "en-US",
-                        { minimumFractionDigits: 2 }
+                        { minimumFractionDigits: 2 },
                       )}
                     </div>
                   </div>
@@ -677,7 +732,103 @@ export default function DocumentReview() {
                     <div className="font-medium">
                       {Number(docHeader?.total_credit || 0).toLocaleString(
                         "en-US",
-                        { minimumFractionDigits: 2 }
+                        { minimumFractionDigits: 2 },
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm font-semibold mb-2">
+                    Lines ({docDetails.length})
+                  </div>
+                  {docLoading ? (
+                    <div className="text-sm text-slate-500">Loading...</div>
+                  ) : docDetails.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th>Account</th>
+                            <th>Description</th>
+                            <th className="text-right">Debit</th>
+                            <th className="text-right">Credit</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {docDetails.map((d) => (
+                            <tr key={d.id}>
+                              <td>
+                                {d.account_code} - {d.account_name}
+                              </td>
+                              <td>{d.description || "-"}</td>
+                              <td className="text-right">
+                                {Number(d.debit || 0).toLocaleString("en-US", {
+                                  minimumFractionDigits: 2,
+                                })}
+                              </td>
+                              <td className="text-right">
+                                {Number(d.credit || 0).toLocaleString("en-US", {
+                                  minimumFractionDigits: 2,
+                                })}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-500">No lines found</div>
+                  )}
+                </div>
+              </div>
+            ) : String(data.document_type || "").toUpperCase() ===
+                "JOURNAL_VOUCHER" ||
+              String(data.document_type || "").toUpperCase() ===
+                "JOURNAL VOUCHER" ||
+              String(data.document_type || "").toUpperCase() === "JV" ? (
+              <div className="mt-6 space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <div className="text-slate-500">Voucher No</div>
+                    <div className="font-medium">
+                      {docHeader?.voucher_no || "-"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Voucher Date</div>
+                    <div className="font-medium">
+                      {docHeader?.voucher_date
+                        ? String(docHeader.voucher_date).slice(0, 10)
+                        : "-"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Voucher Type</div>
+                    <div className="font-medium">
+                      {docHeader?.voucher_type_name || "Journal Voucher"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Status</div>
+                    <div className="font-medium">
+                      {docHeader?.status || "-"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Total Debit</div>
+                    <div className="font-medium">
+                      {Number(docHeader?.total_debit || 0).toLocaleString(
+                        "en-US",
+                        { minimumFractionDigits: 2 },
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Total Credit</div>
+                    <div className="font-medium">
+                      {Number(docHeader?.total_credit || 0).toLocaleString(
+                        "en-US",
+                        { minimumFractionDigits: 2 },
                       )}
                     </div>
                   </div>
@@ -755,14 +906,16 @@ export default function DocumentReview() {
                   </div>
                   <div>
                     <div className="text-slate-500">Status</div>
-                    <div className="font-medium">{docHeader?.status || "-"}</div>
+                    <div className="font-medium">
+                      {docHeader?.status || "-"}
+                    </div>
                   </div>
                   <div>
                     <div className="text-slate-500">Total Debit</div>
                     <div className="font-medium">
                       {Number(docHeader?.total_debit || 0).toLocaleString(
                         "en-US",
-                        { minimumFractionDigits: 2 }
+                        { minimumFractionDigits: 2 },
                       )}
                     </div>
                   </div>
@@ -771,7 +924,7 @@ export default function DocumentReview() {
                     <div className="font-medium">
                       {Number(docHeader?.total_credit || 0).toLocaleString(
                         "en-US",
-                        { minimumFractionDigits: 2 }
+                        { minimumFractionDigits: 2 },
                       )}
                     </div>
                   </div>
@@ -869,7 +1022,7 @@ export default function DocumentReview() {
                     <div className="font-medium">
                       {Number(docHeader?.total_amount || 0).toLocaleString(
                         "en-US",
-                        { minimumFractionDigits: 2 }
+                        { minimumFractionDigits: 2 },
                       )}
                     </div>
                   </div>
@@ -900,19 +1053,19 @@ export default function DocumentReview() {
                               <td>
                                 {Number(d.unit_price || 0).toLocaleString(
                                   "en-US",
-                                  { minimumFractionDigits: 2 }
+                                  { minimumFractionDigits: 2 },
                                 )}
                               </td>
                               <td>
                                 {Number(d.tax_amount || 0).toLocaleString(
                                   "en-US",
-                                  { minimumFractionDigits: 2 }
+                                  { minimumFractionDigits: 2 },
                                 )}
                               </td>
                               <td>
                                 {Number(d.total_amount || 0).toLocaleString(
                                   "en-US",
-                                  { minimumFractionDigits: 2 }
+                                  { minimumFractionDigits: 2 },
                                 )}
                               </td>
                             </tr>
@@ -1051,6 +1204,25 @@ export default function DocumentReview() {
               >
                 Return for Revision
               </button>
+              {canReverseApproval() ? (
+                <button
+                  onClick={async () => {
+                    try {
+                      await client.post(`/workflows/${instanceId}/reverse`);
+                      toast.success("Approval reversed and document returned");
+                      navigate("/administration/workflows/approvals");
+                    } catch (e) {
+                      toast.error(
+                        e?.response?.data?.message || "Reverse approval failed",
+                      );
+                    }
+                  }}
+                  disabled={processing}
+                  className="btn btn-outline w-full justify-center"
+                >
+                  Reverse Approval
+                </button>
+              ) : null}
               <button
                 onClick={() => handleAction("REJECT")}
                 disabled={processing}
@@ -1070,37 +1242,37 @@ export default function DocumentReview() {
                   docHeader?.status === "APPROVED"
                 );
               })() && (
-                  <button
-                    onClick={async () => {
-                      const reason =
-                        window.prompt("Reason for reversal (optional):") || "";
-                      try {
-                        await client.post(
-                          `/finance/vouchers/${data.document_id}/reverse`,
-                          { reason }
-                        );
-                        toast.success("Voucher reversed");
-                        const refreshed = await client.get(
-                          `/finance/vouchers/${data.document_id}`
-                        );
-                        setDocHeader(refreshed.data?.voucher || null);
-                        setDocDetails(
-                          Array.isArray(refreshed.data?.lines)
-                            ? refreshed.data.lines
-                            : []
-                        );
-                      } catch (e) {
-                        toast.error(
-                          e?.response?.data?.message ||
-                            "Failed to reverse voucher"
-                        );
-                      }
-                    }}
-                    disabled={processing}
-                    className="btn btn-outline w-full justify-center"
-                  >
-                    Reverse Voucher
-                  </button>
+                <button
+                  onClick={async () => {
+                    const reason =
+                      window.prompt("Reason for reversal (optional):") || "";
+                    try {
+                      await client.post(
+                        `/finance/vouchers/${data.document_id}/reverse`,
+                        { reason },
+                      );
+                      toast.success("Voucher reversed");
+                      const refreshed = await client.get(
+                        `/finance/vouchers/${data.document_id}`,
+                      );
+                      setDocHeader(refreshed.data?.voucher || null);
+                      setDocDetails(
+                        Array.isArray(refreshed.data?.lines)
+                          ? refreshed.data.lines
+                          : [],
+                      );
+                    } catch (e) {
+                      toast.error(
+                        e?.response?.data?.message ||
+                          "Failed to reverse voucher",
+                      );
+                    }
+                  }}
+                  disabled={processing}
+                  className="btn btn-outline w-full justify-center"
+                >
+                  Reverse Voucher
+                </button>
               )}
             </div>
           </div>

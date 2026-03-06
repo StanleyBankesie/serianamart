@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 import { api } from "../../../../api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
@@ -10,12 +10,12 @@ export default function SuppliersList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const { canPerformAction } = usePermission();
+  const location = useLocation();
 
-  useEffect(() => {
+  const loadSuppliers = () => {
     let mounted = true;
     setLoading(true);
     setError("");
-
     api
       .get("/purchase/suppliers")
       .then((res) => {
@@ -30,11 +30,25 @@ export default function SuppliersList() {
         if (!mounted) return;
         setLoading(false);
       });
-
     return () => {
       mounted = false;
     };
+  };
+
+  useEffect(() => {
+    const cleanup = loadSuppliers();
+    return cleanup;
   }, []);
+
+  useEffect(() => {
+    const s = location.state && location.state.afterSave;
+    if (!s || s.entity !== "suppliers") return;
+    loadSuppliers();
+    setTimeout(() => loadSuppliers(), 500);
+    try {
+      window.history.replaceState({}, "");
+    } catch {}
+  }, [location.state]);
 
   const filtered = useMemo(() => {
     const q = searchTerm.toLowerCase();
@@ -60,7 +74,8 @@ export default function SuppliersList() {
     <div className="space-y-6">
       <div className="card">
         <div className="card-header bg-brand text-white rounded-t-lg">
-          <div className="flex justify-between items-center text-white"><div>
+          <div className="flex justify-between items-center text-white">
+            <div>
               <h1 className="text-2xl font-bold dark:text-brand-300">
                 Supplier Details Setup
               </h1>
@@ -174,9 +189,3 @@ export default function SuppliersList() {
     </div>
   );
 }
-
-
-
-
-
-

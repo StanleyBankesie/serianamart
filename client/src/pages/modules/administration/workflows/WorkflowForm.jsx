@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "../../../../api/client";
 import { Plus, Trash2, Save, ArrowLeft } from "lucide-react";
+import { getAllFeatures as getAllModuleFeatures } from "../../../../data/modulesRegistry";
 
 function toTitle(s) {
   return String(s || "")
@@ -127,55 +128,39 @@ const WorkflowForm = () => {
 
   const fetchTransactionDocTypes = async () => {
     try {
-      const res = await api.get("/admin/pages");
-      const items = Array.isArray(res.data?.data?.items)
-        ? res.data.data.items
+      // Build from client modules registry to include ALL module features
+      const feats = Array.isArray(getAllModuleFeatures())
+        ? getAllModuleFeatures()
         : [];
       const map = new Map();
-      for (const p of items) {
-        const module = p.module || "General";
-        const name = String(p.name || "");
-        const path = String(p.path || "");
-        const nameLower = name.toLowerCase();
-        const pathLower = path.toLowerCase();
-        if (
-          nameLower.includes("report") ||
-          pathLower.includes("/reports") ||
-          pathLower.endsWith("/reports")
-        ) {
-          continue;
-        }
-        if (/\blist\b/i.test(nameLower)) {
-          continue;
-        }
-        let label =
-          name.replace(/\s*(List|Form|Edit|Delete)\s*$/i, "") ||
-          toTitle(path.split("/").filter(Boolean).pop() || "");
-        label = label
-          .replace(/\bOrders\b/gi, "Order")
-          .replace(/\bBills\b/gi, "Bill")
-          .replace(/\bRequisitions\b/gi, "Requisition")
-          .replace(/\bReturns\b/gi, "Return")
-          .replace(/\bTransfers\b/gi, "Transfer");
-        label = normalizeDocLabel(label);
-        const route = path;
-        if (!label || !route) continue;
-        const key = `${module}||${label.toUpperCase()}`;
+      for (const f of feats) {
+        if (!f || f.type === "dashboard") continue;
+        const moduleKey = String(f.module_key || "").trim();
+        const moduleLabel = moduleKey
+          .split("-")
+          .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : ""))
+          .join(" ");
+        const label = normalizeDocLabel(String(f.label || "").trim());
+        const route = String(f.path || "").trim();
+        if (!moduleLabel || !label || !route) continue;
+        const key = `${moduleLabel}||${label.toUpperCase()}`;
         const existing = map.get(key);
         if (!existing || isBetterRoute(route, existing.route)) {
-          const code = toCode(module, label);
-          map.set(key, { module, label, code, route });
+          const code = toCode(moduleLabel, label);
+          map.set(key, { module: moduleLabel, label, code, route });
         }
       }
-      const list = Array.from(map.values());
-      list.sort((a, b) =>
+      const list = Array.from(map.values()).sort((a, b) =>
         a.module === b.module
           ? a.label.localeCompare(b.label)
           : a.module.localeCompare(b.module),
       );
       setDocTypes(list);
     } catch (error) {
-      console.error("Failed to fetch transaction document types", error);
+      console.error(
+        "Failed to build document types from modules registry",
+        error,
+      );
       setDocTypes([]);
     }
   };

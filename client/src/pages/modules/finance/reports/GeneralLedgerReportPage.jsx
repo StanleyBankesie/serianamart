@@ -10,9 +10,29 @@ export default function GeneralLedgerReportPage() {
   const [to, setTo] = useState("");
   const [accountId, setAccountId] = useState("");
   const [accounts, setAccounts] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [groupId, setGroupId] = useState("");
   const [opening, setOpening] = useState(0);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  function mapVoucherType(code, name) {
+    const c = String(code || "").toUpperCase();
+    const byCode = {
+      JV: "Journal Voucher",
+      PV: "Payment Voucher",
+      RV: "Receipt Voucher",
+      CV: "Contra Voucher",
+      SV: "Sales Invoice",
+      SRV: "Sales Return",
+      SR: "Sales Return",
+      PRV: "Purchase Return",
+      PR: "Purchase Return",
+      PB: "Purchase Bill",
+      SB: "Service Bill",
+    };
+    return byCode[c] || name || code || "-";
+  }
 
   async function loadAccounts() {
     try {
@@ -25,6 +45,17 @@ export default function GeneralLedgerReportPage() {
       }
     } catch {
       toast.error("Failed to load accounts");
+    }
+  }
+
+  async function loadGroups() {
+    try {
+      const res = await api.get("/finance/account-groups", {
+        params: { active: 1 },
+      });
+      setGroups(res.data?.items || []);
+    } catch {
+      setGroups([]);
     }
   }
 
@@ -51,9 +82,30 @@ export default function GeneralLedgerReportPage() {
   }
 
   useEffect(() => {
-    loadAccounts();
+    Promise.all([loadAccounts(), loadGroups()]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Ensure selected account belongs to selected group; otherwise pick first in filtered list
+  useEffect(() => {
+    const gid = groupId ? Number(groupId) : null;
+    const filtered = gid
+      ? (accounts || []).filter(
+          (a) =>
+            Number(a.group_id || a.groupId || 0) === gid ||
+            String(a.group_name || a.groupName || "") ===
+              (groups.find((g) => Number(g.id) === gid)?.name || ""),
+        )
+      : accounts || [];
+    if (!filtered.length) return;
+    if (
+      !accountId ||
+      !filtered.find((a) => String(a.id) === String(accountId))
+    ) {
+      setAccountId(String(filtered[0].id));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId, accounts]);
 
   useEffect(() => {
     run();
@@ -79,7 +131,7 @@ export default function GeneralLedgerReportPage() {
 
       <div className="card">
         <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
             <div className="md:col-span-2">
               <label className="label">Account</label>
               <select
@@ -87,9 +139,34 @@ export default function GeneralLedgerReportPage() {
                 value={accountId}
                 onChange={(e) => setAccountId(e.target.value)}
               >
-                {accounts.map((a) => (
+                {(groupId
+                  ? accounts.filter(
+                      (a) =>
+                        Number(a.group_id || a.groupId || 0) ===
+                          Number(groupId) ||
+                        String(a.group_name || a.groupName || "") ===
+                          (groups.find((g) => String(g.id) === String(groupId))
+                            ?.name || ""),
+                    )
+                  : accounts
+                ).map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.code} — {a.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Account Group</label>
+              <select
+                className="input"
+                value={groupId}
+                onChange={(e) => setGroupId(e.target.value)}
+              >
+                <option value="">All Groups</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
                   </option>
                 ))}
               </select>
@@ -166,12 +243,13 @@ export default function GeneralLedgerReportPage() {
                   );
                   y += 8;
                   doc.text("Date", 10, y);
-                  doc.text("Voucher No", 45, y);
-                  doc.text("Line", 95, y);
-                  doc.text("Description", 115, y);
-                  doc.text("Debit", 160, y);
-                  doc.text("Credit", 180, y);
-                  doc.text("Balance", 200, y, { align: "right" });
+                  doc.text("Voucher No", 40, y);
+                  doc.text("Document", 85, y);
+                  doc.text("Line", 105, y);
+                  doc.text("Description", 125, y);
+                  doc.text("Debit", 165, y);
+                  doc.text("Credit", 185, y);
+                  doc.text("Balance", 205, y, { align: "right" });
                   y += 4;
                   doc.line(10, y, 200, y);
                   y += 5;
@@ -184,18 +262,23 @@ export default function GeneralLedgerReportPage() {
                       ? new Date(r.voucher_date).toLocaleDateString()
                       : "-";
                     const vn = String(r.voucher_no || "-");
+                    const vt = mapVoucherType(
+                      r.voucher_type_code,
+                      r.voucher_type_name,
+                    );
                     const ln = String(r.line_no || "-");
                     const desc = String(r.description || "-").slice(0, 35);
                     const dr = String(Number(r.debit || 0).toLocaleString());
                     const cr = String(Number(r.credit || 0).toLocaleString());
                     const bal = String(Number(r.balance || 0).toLocaleString());
                     doc.text(dt, 10, y);
-                    doc.text(vn, 45, y);
-                    doc.text(ln, 95, y);
-                    doc.text(desc, 115, y);
-                    doc.text(dr, 160, y);
-                    doc.text(cr, 180, y);
-                    doc.text(bal, 200, y, { align: "right" });
+                    doc.text(vn, 40, y);
+                    doc.text(vt, 85, y);
+                    doc.text(ln, 105, y);
+                    doc.text(desc, 125, y);
+                    doc.text(dr, 165, y);
+                    doc.text(cr, 185, y);
+                    doc.text(bal, 205, y, { align: "right" });
                     y += 5;
                   });
                   doc.save("general-ledger.pdf");
@@ -227,6 +310,7 @@ export default function GeneralLedgerReportPage() {
                 <tr>
                   <th>Date</th>
                   <th>Voucher No</th>
+                  <th>Document</th>
                   <th>Line</th>
                   <th>Description</th>
                   <th className="text-right">Debit</th>
@@ -239,6 +323,9 @@ export default function GeneralLedgerReportPage() {
                   <tr key={`${r.voucher_no}-${r.line_no}-${idx}`}>
                     <td>{new Date(r.voucher_date).toLocaleDateString()}</td>
                     <td className="font-medium">{r.voucher_no}</td>
+                    <td>
+                      {mapVoucherType(r.voucher_type_code, r.voucher_type_name)}
+                    </td>
                     <td>{r.line_no}</td>
                     <td>{r.description || "-"}</td>
                     <td className="text-right">

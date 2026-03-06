@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { usePermission } from "../auth/PermissionContext.jsx";
 
 const ModuleDashboard = ({
@@ -9,8 +9,10 @@ const ModuleDashboard = ({
   quickActions = [],
   sections = [],
   features = [],
+  headerActions = [],
 }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { canAccessPath, canAccessFeatureKey, canViewDashboardElement } =
     usePermission();
 
@@ -101,16 +103,127 @@ const ModuleDashboard = ({
     ];
   }, [sections, features]);
 
+  const slug = (s) =>
+    String(s || "")
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9\-]/g, "");
+
+  React.useEffect(() => {
+    const search = new URLSearchParams(location.search || "");
+    const hash = String(location.hash || "").replace(/^#/, "");
+    const focus = search.get("focus") || hash;
+    if (!focus) return;
+    const tryScroll = (el) => {
+      if (!el || typeof el.scrollIntoView !== "function") return false;
+      setTimeout(() => {
+        try {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch {}
+      }, 50);
+      return true;
+    };
+    if (focus.toLowerCase() === "reports") {
+      const all = Array.from(document.querySelectorAll("[data-section-title]"));
+      const target =
+        all.find((e) =>
+          String(e.getAttribute("data-section-title") || "")
+            .toLowerCase()
+            .includes("report"),
+        ) || null;
+      if (tryScroll(target)) return;
+    }
+    const id = `section-${slug(focus)}`;
+    const el = document.getElementById(id);
+    tryScroll(el);
+  }, [location.hash, location.search]);
+
+  const overlayType = React.useMemo(() => {
+    const search = new URLSearchParams(location.search || "");
+    return String(search.get("overlay") || "").toLowerCase() || null;
+  }, [location.search]);
+
+  const overlayItems = React.useMemo(() => {
+    if (overlayType !== "reports") return [];
+    const items = [];
+    const addItem = (it) => {
+      if (!it || !canShowItem(it)) return;
+      items.push({
+        title: it.title || it.name || it.label,
+        path: it.path,
+        icon: it.icon || "📄",
+      });
+    };
+    for (const s of allSections) {
+      const title = String(s.title || s.category || "").toLowerCase();
+      if (title.includes("report")) {
+        const sItems = s.items || s.features || [];
+        sItems.forEach((it) => addItem(it));
+      }
+      if (title.includes("dashboard")) {
+        const sItems = s.items || s.features || [];
+        sItems.forEach((it) => addItem(it));
+      }
+    }
+    if (Array.isArray(headerActions)) {
+      headerActions.forEach((a) =>
+        addItem({
+          title: a.label || "Dashboard",
+          path: a.path,
+          icon: a.icon || "📊",
+        }),
+      );
+    }
+    const seen = new Set();
+    return items.filter((it) => {
+      const k = `${it.title}|${it.path}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }, [overlayType, allSections, headerActions]);
+
+  const closeOverlay = React.useCallback(() => {
+    const search = new URLSearchParams(location.search || "");
+    search.delete("overlay");
+    navigate(
+      {
+        pathname: location.pathname,
+        search: search.toString(),
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  }, [location.pathname, location.search, location.hash, navigate]);
+
   return (
     <div className="p-6 space-y-8 animate-fade-in fullbleed-sm">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-brand-900 dark:text-white tracking-tight mb-2">
-          {title}
-        </h1>
-        <p className="text-slate-500 dark:text-slate-400 text-lg max-w-3xl">
-          {description}
-        </p>
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-brand-900 dark:text-white tracking-tight mb-2">
+            {title}
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 text-lg max-w-3xl">
+            {description}
+          </p>
+        </div>
+        {Array.isArray(headerActions) && headerActions.length > 0 && (
+          <div className="flex items-center gap-2">
+            {headerActions.map((a, i) => (
+              <button
+                key={i}
+                onClick={(e) => handleNavigate(a.path, e)}
+                className="btn btn-primary"
+                title={a.title || a.label}
+              >
+                {a.icon ? <span className="mr-2">{a.icon}</span> : null}
+                {a.label || "Open"}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Key Statistics */}
@@ -213,7 +326,11 @@ const ModuleDashboard = ({
           const sectionItems = section.items || section.features || [];
 
           return (
-            <div key={sectionIndex}>
+            <div
+              key={sectionIndex}
+              id={`section-${slug(sectionTitle)}`}
+              data-section-title={String(sectionTitle || "")}
+            >
               <div className="flex items-center gap-3 mb-5 border-b border-slate-200 dark:border-slate-700 pb-2">
                 <h2 className="text-xl font-bold text-slate-800 dark:text-white">
                   {sectionTitle}
@@ -260,8 +377,49 @@ const ModuleDashboard = ({
           );
         })}
       </div>
+      {overlayType === "reports" && overlayItems.length > 0 ? (
+        <div className="fixed inset-0 z-40 pointer-events-none">
+          <div className="absolute right-4 top-24 w-[min(260px,92vw)] max-h-[70vh] overflow-auto bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-xl shadow-erp-xl border border-slate-200 dark:border-slate-700 pointer-events-auto">
+            <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between sticky top-0 bg-white/80 dark:bg-slate-800/80 backdrop-blur">
+              <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                Reports & Dashboards
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={closeOverlay}
+              >
+                Close
+              </button>
+            </div>
+            <div className="p-2 divide-y divide-slate-200 dark:divide-slate-700">
+              {overlayItems.map((it, i) => (
+                <button
+                  key={`${it.path}-${i}`}
+                  onClick={() => handleNavigate(it.path)}
+                  className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center justify-between transition"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-md bg-brand-50 dark:bg-slate-700 flex items-center justify-center text-lg">
+                      {it.icon}
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-semibold text-slate-800 dark:text-slate-100">
+                        {it.title}
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {it.path}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-slate-400">→</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };
-
 export default ModuleDashboard;

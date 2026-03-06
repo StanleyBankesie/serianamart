@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import api from "../../../../api/client.js";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 
 export default function PosDayManagement() {
+  const navigate = useNavigate();
   const { user, scope } = useAuth();
   function toLocalInputDateTime(value) {
     try {
@@ -420,6 +421,25 @@ export default function PosDayManagement() {
         "Day is open. Complete transactions and close day when finished.",
       );
       addToTimeline("Day Opened", "Operations started");
+      try {
+        sessionStorage.setItem(
+          "omni.pos.day",
+          JSON.stringify({
+            terminal: terminalId,
+            status: "OPEN",
+            ts: Date.now(),
+          }),
+        );
+        toast.success("Day opened successfully");
+        window.dispatchEvent(
+          new CustomEvent("omni.pos.day", {
+            detail: { terminal: terminalId, status: "OPEN" },
+          }),
+        );
+        setTimeout(() => {
+          navigate("/pos/sales-entry");
+        }, 800);
+      } catch {}
     } catch (err) {
       const message =
         err?.response?.data?.message ||
@@ -452,8 +472,7 @@ export default function PosDayManagement() {
         setClosing((prev) => ({
           ...prev,
           dateTime:
-            toLocalInputDateTime(item.close_datetime || "") ||
-            closing.dateTime,
+            toLocalInputDateTime(item.close_datetime || "") || closing.dateTime,
           actualCash:
             item.actual_cash === null || item.actual_cash === undefined
               ? String(closing.actualCash || "")
@@ -515,6 +534,21 @@ export default function PosDayManagement() {
         "End-of-day reconciliation complete. See report summary below.",
       );
       addToTimeline("Day Closed", "Operations ended");
+      try {
+        sessionStorage.setItem(
+          "omni.pos.day",
+          JSON.stringify({
+            terminal: terminalId,
+            status: "CLOSED",
+            ts: Date.now(),
+          }),
+        );
+        window.dispatchEvent(
+          new CustomEvent("omni.pos.day", {
+            detail: { terminal: terminalId, status: "CLOSED" },
+          }),
+        );
+      } catch {}
     } catch (err) {
       const message =
         err?.response?.data?.message ||

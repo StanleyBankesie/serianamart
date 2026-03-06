@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { api } from "../../../../api/client";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 function StatusBadge({ status }) {
   const s = String(status || "").toLowerCase();
@@ -47,6 +48,7 @@ function PaymentBadge({ payment }) {
 }
 
 function ServiceRow({ idx, row, taxCodes, onChange, onRemove, readOnly }) {
+  const { canEditDiscount } = usePermission();
   const update = (key, value) => onChange(idx, { ...row, [key]: value });
   const qty = Number(row.qty || 0);
   const rate = Number(row.rate || 0);
@@ -116,16 +118,18 @@ function ServiceRow({ idx, row, taxCodes, onChange, onRemove, readOnly }) {
         />
       </td>
       <td className="p-2">
-        <input
-          className={`input text-right ${readOnly ? "bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold" : ""}`}
-          type="number"
-          step="0.01"
-          value={row.discount_percent ?? ""}
-          onChange={(e) => update("discount_percent", e.target.value)}
-          placeholder="Disc %"
-          readOnly={readOnly}
-          disabled={readOnly}
-        />
+        <div className={!canEditDiscount() ? "disabled-light-blue" : ""}>
+          <input
+            className={`input text-right ${readOnly ? "bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold" : ""}`}
+            type="number"
+            step="0.01"
+            value={row.discount_percent ?? ""}
+            onChange={(e) => update("discount_percent", e.target.value)}
+            placeholder="Disc %"
+            readOnly={readOnly}
+            disabled={readOnly || !canEditDiscount()}
+          />
+        </div>
       </td>
       <td className="p-2">
         <select

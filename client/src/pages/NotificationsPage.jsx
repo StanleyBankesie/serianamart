@@ -96,7 +96,26 @@ export default function NotificationsPage() {
                 </tr>
               ) : (
                 visibleItems.map((n) => (
-                  <tr key={n.id} className="hover">
+                  <tr
+                    key={n.id}
+                    className="hover cursor-pointer"
+                    onClick={async () => {
+                      if (!n.link) return;
+                      try {
+                        if (Number(n.is_read) !== 1) {
+                          await api.put(
+                            `/workflows/notifications/${n.id}/read`,
+                          );
+                          setItems((prev) =>
+                            prev.map((x) =>
+                              x.id === n.id ? { ...x, is_read: 1 } : x,
+                            ),
+                          );
+                        }
+                      } catch {}
+                      navigate(n.link);
+                    }}
+                  >
                     <td className="font-medium">{n.title}</td>
                     <td>{n.message}</td>
                     <td>
@@ -120,7 +139,21 @@ export default function NotificationsPage() {
                         {n.link ? (
                           <button
                             className="btn btn-ghost btn-xs text-blue-600"
-                            onClick={() => navigate(n.link)}
+                            onClick={async () => {
+                              try {
+                                if (Number(n.is_read) !== 1) {
+                                  await api.put(
+                                    `/workflows/notifications/${n.id}/read`,
+                                  );
+                                  setItems((prev) =>
+                                    prev.map((x) =>
+                                      x.id === n.id ? { ...x, is_read: 1 } : x,
+                                    ),
+                                  );
+                                }
+                              } catch {}
+                              navigate(n.link);
+                            }}
                             title="Open"
                           >
                             Open

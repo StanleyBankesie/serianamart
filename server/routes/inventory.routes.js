@@ -1342,7 +1342,6 @@ router.post(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.STOCK.ADJUSTMENT.MANAGE"),
   async (req, res, next) => {
     try {
       const { companyId } = req.scope;
@@ -1606,12 +1605,68 @@ router.post(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.STOCK.ADJUSTMENT.MANAGE"),
   async (req, res, next) => {
     try {
       await ensureStockBalancesWarehouseInfrastructure();
     } catch {}
     return inventoryController.bulkUpdateStockBalances(req, res, next);
+  },
+);
+
+router.get(
+  "/stock-balances",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const warehouseId =
+        Number(req.query.warehouseId || 0) > 0
+          ? Number(req.query.warehouseId)
+          : null;
+      const key = String(req.query.q || "").trim()
+        ? `%${String(req.query.q).trim()}%`
+        : null;
+      const items =
+        (await query(
+          `
+        SELECT 
+          i.id AS item_id,
+          i.item_code,
+          i.item_name,
+          COALESCE(t.total_qty, 0) AS total_qty,
+          COALESCE(r.reserved_qty, 0) AS reserved_qty,
+          GREATEST(COALESCE(t.total_qty, 0) - COALESCE(r.reserved_qty, 0), 0) AS available_qty
+        FROM inv_items i
+        LEFT JOIN (
+          SELECT sb.item_id, SUM(sb.qty) AS total_qty
+            FROM inv_stock_balances sb
+           WHERE sb.company_id = :companyId
+             AND sb.branch_id = :branchId
+             AND (:warehouseId IS NULL OR sb.warehouse_id = :warehouseId)
+           GROUP BY sb.item_id
+        ) t ON t.item_id = i.id
+        LEFT JOIN (
+          SELECT item_id, SUM(qty_reserved) AS reserved_qty
+            FROM inv_stock_reserves
+           WHERE company_id = :companyId
+             AND from_branch_id = :branchId
+             AND status = 'IN_TRANSIT'
+             AND (:warehouseId IS NULL OR from_warehouse_id = :warehouseId)
+           GROUP BY item_id
+        ) r ON r.item_id = i.id
+        WHERE i.company_id = :companyId
+          AND (:warehouseId IS NULL OR t.item_id IS NOT NULL)
+          AND (:key IS NULL OR i.item_code LIKE :key OR i.item_name LIKE :key)
+        ORDER BY i.item_name ASC
+        `,
+          { companyId, branchId, warehouseId, key },
+        ).catch(() => [])) || [];
+      res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (e) {
+      next(e);
+    }
   },
 );
 
@@ -2096,11 +2151,25 @@ router.get(
                r.status,
                w.warehouse_name,
                d.name as department_name,
-               COUNT(rd.id) AS item_count
+               COUNT(rd.id) AS item_count,
+               MAX(u.username) AS forwarded_to_username
         FROM inv_material_requisitions r
         LEFT JOIN inv_material_requisition_details rd ON rd.requisition_id = r.id
         LEFT JOIN inv_warehouses w ON w.id = r.warehouse_id
         LEFT JOIN adm_departments d ON d.id = r.department_id
+        LEFT JOIN (
+          SELECT t.document_id, t.assigned_to_user_id
+          FROM adm_document_workflows t
+          JOIN (
+            SELECT document_id, MAX(id) AS max_id
+            FROM adm_document_workflows
+            WHERE company_id = :companyId
+              AND status = 'PENDING'
+              AND (document_type = 'MATERIAL_REQUISITION' OR document_type = 'Material Requisition')
+            GROUP BY document_id
+          ) m ON m.max_id = t.id
+        ) x ON x.document_id = r.id
+        LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
         WHERE r.company_id = :companyId AND r.branch_id = :branchId
         GROUP BY r.id
         ORDER BY r.requisition_date DESC, r.id DESC
@@ -2600,7 +2669,6 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.RETURN_TO_STORES.VIEW"),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -2616,11 +2684,25 @@ router.get(
                dept.name as department_name,
                r.return_type,
                r.status,
-               COUNT(d.id) AS item_count
+               COUNT(d.id) AS item_count,
+               MAX(u.username) AS forwarded_to_username
         FROM inv_return_to_stores r
         LEFT JOIN inv_return_to_stores_details d ON d.rts_id = r.id
         LEFT JOIN inv_warehouses w ON w.id = r.warehouse_id
         LEFT JOIN adm_departments dept ON dept.id = r.department_id
+        LEFT JOIN (
+          SELECT t.document_id, t.assigned_to_user_id
+          FROM adm_document_workflows t
+          JOIN (
+            SELECT document_id, MAX(id) AS max_id
+            FROM adm_document_workflows
+            WHERE company_id = :companyId
+              AND status = 'PENDING'
+              AND (document_type = 'RETURN_TO_STORES' OR document_type = 'Return to Stores')
+            GROUP BY document_id
+          ) m ON m.max_id = t.id
+        ) x ON x.document_id = r.id
+        LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
         WHERE r.company_id = :companyId AND r.branch_id = :branchId
         GROUP BY r.id
         ORDER BY r.rts_date DESC, r.id DESC
@@ -2639,7 +2721,6 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.RETURN_TO_STORES.MANAGE"),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -2674,7 +2755,6 @@ router.post(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.RETURN_TO_STORES.MANAGE"),
   async (req, res, next) => {
     try {
       const { companyId } = req.scope;
@@ -2920,7 +3000,6 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.RETURN_TO_STORES.VIEW"),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -2973,7 +3052,6 @@ router.post(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.RETURN_TO_STORES.MANAGE"),
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
@@ -3073,7 +3151,6 @@ router.put(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.RETURN_TO_STORES.MANAGE"),
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
@@ -3201,7 +3278,6 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.ISSUE_TO_REQUIREMENT.VIEW"),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -3212,10 +3288,10 @@ router.get(
                h.issue_no,
                h.issue_date,
                h.warehouse_id,
-               w.warehouse_name,
+               MAX(w.warehouse_name) AS warehouse_name,
                h.issued_to,
                h.department_id,
-               dept.name as department_name,
+               MAX(dept.name) as department_name,
                h.issue_type,
                h.status,
                COUNT(d.id) AS item_count
@@ -3241,7 +3317,6 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.ISSUE_TO_REQUIREMENT.VIEW"),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -3291,7 +3366,6 @@ router.post(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.ISSUE_TO_REQUIREMENT.MANAGE"),
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
@@ -3382,7 +3456,6 @@ router.put(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.ISSUE_TO_REQUIREMENT.MANAGE"),
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
@@ -3500,7 +3573,6 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.STOCK.ADJUSTMENT.VIEW"),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -3516,10 +3588,24 @@ router.get(
                a.start_date,
                a.end_date,
                a.status,
-               COUNT(d.id) AS item_count
+               COUNT(d.id) AS item_count,
+               MAX(u.username) AS forwarded_to_username
         FROM inv_stock_adjustments a
         LEFT JOIN inv_stock_adjustment_details d ON d.adjustment_id = a.id
         LEFT JOIN inv_warehouses w ON w.id = a.warehouse_id
+        LEFT JOIN (
+          SELECT t.document_id, t.assigned_to_user_id
+          FROM adm_document_workflows t
+          JOIN (
+            SELECT document_id, MAX(id) AS max_id
+            FROM adm_document_workflows
+            WHERE company_id = :companyId
+              AND status = 'PENDING'
+              AND (document_type = 'STOCK_ADJUSTMENT' OR document_type = 'Stock Adjustment')
+            GROUP BY document_id
+          ) m ON m.max_id = t.id
+        ) x ON x.document_id = a.id
+        LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
         WHERE a.company_id = :companyId AND a.branch_id = :branchId
         GROUP BY a.id, w.warehouse_name
         ORDER BY a.adjustment_date DESC, a.id DESC
@@ -3538,7 +3624,6 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.STOCK.ADJUSTMENT.VIEW"),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -3582,7 +3667,6 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.STOCK.ADJUSTMENT.MANAGE"),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -3600,7 +3684,6 @@ router.post(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.STOCK.ADJUSTMENT.MANAGE"),
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
@@ -3965,7 +4048,6 @@ router.put(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.STOCK.ADJUSTMENT.MANAGE"),
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
@@ -4705,10 +4787,27 @@ router.get(
                g.supplier_id,
                s.supplier_name,
                g.warehouse_id,
-               w.warehouse_name
+               w.warehouse_name,
+               u.username AS forwarded_to_username
         FROM inv_goods_receipt_notes g
         JOIN pur_suppliers s ON s.id = g.supplier_id
         LEFT JOIN inv_warehouses w ON w.id = g.warehouse_id
+        LEFT JOIN (
+          SELECT t.document_id, t.assigned_to_user_id
+          FROM adm_document_workflows t
+          JOIN (
+            SELECT document_id, MAX(id) AS max_id
+            FROM adm_document_workflows
+            WHERE company_id = :companyId
+              AND status = 'PENDING'
+              AND (
+                document_type IN ('GOODS_RECEIPT','GRN','GOODS_RECEIPT_NOTE') OR
+                document_type IN ('Goods Receipt','Goods Receipt Note')
+              )
+            GROUP BY document_id
+          ) m ON m.max_id = t.id
+        ) x ON x.document_id = g.id
+        LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
         WHERE g.company_id = :companyId
           AND g.branch_id = :branchId
           AND (:typeFilter IS NULL OR g.grn_type = :typeFilter)
@@ -5653,6 +5752,26 @@ router.get(
       const defaultFrom = new Date(toDateObj);
       defaultFrom.setDate(defaultFrom.getDate() - 30);
       const fromDate = toDateOnly(req.query.from) || toDateOnly(defaultFrom);
+      const warehouseId =
+        Number(req.query.warehouseId || 0) > 0
+          ? Number(req.query.warehouseId)
+          : null;
+      const itemGroupId =
+        Number(req.query.itemGroupId || 0) > 0
+          ? Number(req.query.itemGroupId)
+          : null;
+      const key = String(req.query.q || "").trim()
+        ? `%${String(req.query.q).trim()}%`
+        : null;
+      const groupColRes =
+        (await query(
+          `SELECT COUNT(*) AS c
+             FROM information_schema.columns
+            WHERE table_schema = DATABASE()
+              AND table_name = 'inv_items'
+              AND column_name = 'group_id'`,
+        ).catch(() => [])) || [];
+      const hasGroupId = Number(groupColRes?.[0]?.c || 0) > 0;
       const rows = await query(
         `
         SELECT 
@@ -5669,6 +5788,7 @@ router.get(
           SELECT company_id, branch_id, item_id, SUM(qty) AS qty
           FROM inv_stock_balances
           WHERE company_id = :companyId AND branch_id = :branchId
+            AND (:warehouseId IS NULL OR warehouse_id = :warehouseId)
           GROUP BY company_id, branch_id, item_id
         ) sb
           ON sb.company_id = i.company_id
@@ -5693,9 +5813,19 @@ router.get(
           GROUP BY d.item_id
         ) iss ON iss.item_id = i.id
         WHERE i.company_id = :companyId
+          AND (:itemGroupId IS NULL OR i.${hasGroupId ? "group_id" : "item_group_id"} = :itemGroupId)
+          AND (:key IS NULL OR i.item_code LIKE :key OR i.item_name LIKE :key)
         ORDER BY i.item_name ASC
         `,
-        { companyId, branchId, fromDate, toDate },
+        {
+          companyId,
+          branchId,
+          fromDate,
+          toDate,
+          warehouseId,
+          itemGroupId,
+          key,
+        },
       );
       const items = rows.map((r) => {
         const currentQty = Number(r.current_qty || 0);
@@ -5737,6 +5867,26 @@ router.get(
       const defaultFrom = new Date(toDateObj);
       defaultFrom.setDate(defaultFrom.getDate() - 30);
       const fromDate = toDateOnly(req.query.from) || toDateOnly(defaultFrom);
+      const warehouseId =
+        Number(req.query.warehouseId || 0) > 0
+          ? Number(req.query.warehouseId)
+          : null;
+      const itemGroupId =
+        Number(req.query.itemGroupId || 0) > 0
+          ? Number(req.query.itemGroupId)
+          : null;
+      const key = String(req.query.q || "").trim()
+        ? `%${String(req.query.q).trim()}%`
+        : null;
+      const groupColRes =
+        (await query(
+          `SELECT COUNT(*) AS c
+             FROM information_schema.columns
+            WHERE table_schema = DATABASE()
+              AND table_name = 'inv_items'
+              AND column_name = 'group_id'`,
+        ).catch(() => [])) || [];
+      const hasGroupId = Number(groupColRes?.[0]?.c || 0) > 0;
       const openingRows = await query(
         `
         SELECT 
@@ -5749,6 +5899,7 @@ router.get(
           SELECT company_id, branch_id, item_id, SUM(qty) AS qty
           FROM inv_stock_balances
           WHERE company_id = :companyId AND branch_id = :branchId
+            AND (:warehouseId IS NULL OR warehouse_id = :warehouseId)
           GROUP BY company_id, branch_id, item_id
         ) sb
           ON sb.company_id = i.company_id
@@ -5771,8 +5922,10 @@ router.get(
           GROUP BY d.item_id
         ) iss ON iss.item_id = i.id
         WHERE i.company_id = :companyId
+          AND (:itemGroupId IS NULL OR i.${hasGroupId ? "group_id" : "item_group_id"} = :itemGroupId)
+          AND (:key IS NULL OR i.item_code LIKE :key OR i.item_name LIKE :key)
         `,
-        { companyId, branchId, fromDate },
+        { companyId, branchId, fromDate, warehouseId, itemGroupId, key },
       );
       const openingMap = new Map();
       openingRows.forEach((r) => {
@@ -5847,9 +6000,12 @@ router.get(
             AND t.transfer_date <= :toDate
         ) m
         JOIN inv_items i ON i.id = m.item_id
+        WHERE i.company_id = :companyId
+          AND (:itemGroupId IS NULL OR i.${hasGroupId ? "group_id" : "item_group_id"} = :itemGroupId)
+          AND (:key IS NULL OR i.item_code LIKE :key OR i.item_name LIKE :key)
         ORDER BY m.txn_date ASC, m.sort_id ASC
         `,
-        { companyId, branchId, fromDate, toDate },
+        { companyId, branchId, fromDate, toDate, itemGroupId, key },
       );
       const running = new Map(openingMap);
       const items = movements.map((r) => {
@@ -6564,6 +6720,215 @@ router.delete(
       res.json({ message: "Reorder point deleted" });
     } catch (err) {
       next(err);
+    }
+  },
+);
+
+router.get(
+  "/dashboard/metrics",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("INV.ITEM.VIEW"),
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      const branchId = req.scope.branchId;
+      const top = Math.max(1, Math.min(50, Number(req.query.top || 10)));
+      const fyRows =
+        (await query(
+          `SELECT id, start_date
+             FROM fin_fiscal_years
+            WHERE company_id = :companyId
+            ORDER BY start_date DESC
+            LIMIT 1`,
+          { companyId },
+        ).catch(() => [])) || [];
+      const now = new Date();
+      const fiscalStart =
+        fyRows?.[0]?.start_date || new Date(now.getFullYear(), 0, 1);
+      const qFrom = req.query.from ? new Date(String(req.query.from)) : null;
+      const qTo = req.query.to ? new Date(String(req.query.to)) : null;
+      const today = qTo && !Number.isNaN(qTo.getTime()) ? qTo : now;
+      const rangeFrom =
+        qFrom && !Number.isNaN(qFrom.getTime()) ? qFrom : fiscalStart;
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+      const stockValRows =
+        (await query(
+          `SELECT COALESCE(SUM(sb.qty * i.cost_price),0) AS value
+             FROM inv_stock_balances sb
+             JOIN inv_items i
+               ON i.id = sb.item_id AND i.company_id = sb.company_id
+            WHERE sb.company_id = :companyId
+              AND sb.branch_id = :branchId`,
+          { companyId, branchId },
+        ).catch(() => [])) || [];
+      const totalStockValue = Number(stockValRows?.[0]?.value || 0);
+      const ytdGrnRows =
+        (await query(
+          `SELECT COALESCE(SUM(d.line_amount),0) AS amt
+             FROM inv_goods_receipt_note_details d
+             JOIN inv_goods_receipt_notes h
+               ON h.id = d.grn_id
+            WHERE h.company_id = :companyId
+              AND (h.branch_id = :branchId OR h.branch_id IS NULL)
+              AND h.grn_date BETWEEN :fromFy AND :to`,
+          {
+            companyId,
+            branchId,
+            fromFy:
+              typeof rangeFrom === "string"
+                ? rangeFrom
+                : rangeFrom.toISOString().slice(0, 10),
+            to:
+              typeof today === "string"
+                ? today
+                : today.toISOString().slice(0, 10),
+          },
+        ).catch(() => [])) || [];
+      const mtdGrnRows =
+        (await query(
+          `SELECT COALESCE(SUM(d.line_amount),0) AS amt
+             FROM inv_goods_receipt_note_details d
+             JOIN inv_goods_receipt_notes h
+               ON h.id = d.grn_id
+            WHERE h.company_id = :companyId
+              AND (h.branch_id = :branchId OR h.branch_id IS NULL)
+              AND h.grn_date BETWEEN :fromMonth AND :to`,
+          {
+            companyId,
+            branchId,
+            fromMonth:
+              typeof monthStart === "string"
+                ? monthStart
+                : monthStart.toISOString().slice(0, 10),
+            to:
+              typeof today === "string"
+                ? today
+                : today.toISOString().slice(0, 10),
+          },
+        ).catch(() => [])) || [];
+      const ytdGrn = Number(ytdGrnRows?.[0]?.amt || 0);
+      const mtdGrn = Number(mtdGrnRows?.[0]?.amt || 0);
+      const belowAboveRows =
+        (await query(
+          `WITH avail AS (
+             SELECT company_id, branch_id, item_id, SUM(qty) AS qty
+               FROM inv_stock_balances
+              GROUP BY company_id, branch_id, item_id
+           )
+           SELECT 
+             SUM(CASE WHEN COALESCE(a.qty,0) < COALESCE(i.min_stock_level,0) THEN 1 ELSE 0 END) AS below_min,
+             SUM(CASE WHEN COALESCE(i.max_stock_level,0) > 0 AND COALESCE(a.qty,0) > i.max_stock_level THEN 1 ELSE 0 END) AS above_max
+           FROM inv_items i
+           LEFT JOIN avail a
+             ON a.company_id = i.company_id
+            AND a.branch_id = :branchId
+            AND a.item_id = i.id
+           WHERE i.company_id = :companyId`,
+          { companyId, branchId },
+        ).catch(() => [])) || [];
+      const itemsBelowMin = Number(belowAboveRows?.[0]?.below_min || 0);
+      const itemsAboveMax = Number(belowAboveRows?.[0]?.above_max || 0);
+      const topLimit = Math.max(1, Math.min(50, Number(top)));
+      const topItems =
+        (await query(
+          `SELECT i.item_name AS label,
+                  COALESCE(SUM(sb.qty * i.cost_price),0) AS value
+             FROM inv_stock_balances sb
+             JOIN inv_items i
+               ON i.id = sb.item_id AND i.company_id = sb.company_id
+            WHERE sb.company_id = :companyId
+              AND sb.branch_id = :branchId
+            GROUP BY i.item_name
+            ORDER BY value DESC
+            LIMIT ${topLimit}`,
+          { companyId, branchId },
+        ).catch(() => [])) || [];
+      const groupColRes =
+        (await query(
+          `SELECT COUNT(*) AS c
+             FROM information_schema.columns
+            WHERE table_schema = DATABASE()
+              AND table_name = 'inv_items'
+              AND column_name = 'group_id'`,
+        ).catch(() => [])) || [];
+      const hasGroupId = Number(groupColRes?.[0]?.c || 0) > 0;
+      const topGroups =
+        (await query(
+          `SELECT g.group_name AS label,
+                  COALESCE(SUM(sb.qty * i.cost_price),0) AS value
+             FROM inv_stock_balances sb
+             JOIN inv_items i
+               ON i.id = sb.item_id AND i.company_id = sb.company_id
+             LEFT JOIN inv_item_groups g
+               ON g.id = i.${hasGroupId ? "group_id" : "item_group_id"}
+            WHERE sb.company_id = :companyId
+              AND sb.branch_id = :branchId
+            GROUP BY g.group_name
+            ORDER BY value DESC
+            LIMIT ${topLimit}`,
+          { companyId, branchId },
+        ).catch(() => [])) || [];
+      const warehousePie =
+        (await query(
+          `SELECT COALESCE(w.warehouse_name,'Unassigned') AS label,
+                  COALESCE(SUM(sb.qty * i.cost_price),0) AS value
+             FROM inv_stock_balances sb
+             JOIN inv_items i
+               ON i.id = sb.item_id AND i.company_id = sb.company_id
+        LEFT JOIN inv_warehouses w
+               ON w.id = sb.warehouse_id
+            WHERE sb.company_id = :companyId
+              AND sb.branch_id = :branchId
+            GROUP BY COALESCE(w.warehouse_name,'Unassigned')
+            ORDER BY value DESC`,
+          { companyId, branchId },
+        ).catch(() => [])) || [];
+      const typePie =
+        (await query(
+          `SELECT COALESCE(i.item_type,'UNKNOWN') AS label,
+                  COALESCE(SUM(sb.qty * i.cost_price),0) AS value
+             FROM inv_stock_balances sb
+             JOIN inv_items i
+               ON i.id = sb.item_id AND i.company_id = sb.company_id
+            WHERE sb.company_id = :companyId
+              AND sb.branch_id = :branchId
+            GROUP BY COALESCE(i.item_type,'UNKNOWN')
+            ORDER BY value DESC`,
+          { companyId, branchId },
+        ).catch(() => [])) || [];
+      const groupPie =
+        (await query(
+          `SELECT COALESCE(g.group_name,'Unassigned') AS label,
+                  COALESCE(SUM(sb.qty * i.cost_price),0) AS value
+             FROM inv_stock_balances sb
+             JOIN inv_items i
+               ON i.id = sb.item_id AND i.company_id = sb.company_id
+        LEFT JOIN inv_item_groups g
+               ON g.id = i.${hasGroupId ? "group_id" : "item_group_id"}
+            WHERE sb.company_id = :companyId
+              AND sb.branch_id = :branchId
+            GROUP BY COALESCE(g.group_name,'Unassigned')
+            ORDER BY value DESC`,
+          { companyId, branchId },
+        ).catch(() => [])) || [];
+      res.json({
+        cards: {
+          total_stock_value: totalStockValue,
+          ytd_grn_value: ytdGrn,
+          mtd_grn_value: mtdGrn,
+          items_below_min: itemsBelowMin,
+          items_above_max: itemsAboveMax,
+        },
+        top_items: topItems,
+        top_groups: topGroups,
+        warehouse_pie: warehousePie,
+        type_pie: typePie,
+        group_pie: groupPie,
+      });
+    } catch (e) {
+      next(e);
     }
   },
 );

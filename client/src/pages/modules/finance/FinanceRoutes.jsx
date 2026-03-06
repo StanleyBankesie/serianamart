@@ -24,15 +24,18 @@ import TaxCodesPage from "./setup/TaxCodesPage.jsx";
 import CurrenciesPage from "./setup/CurrenciesPage.jsx";
 import FiscalYearsPage from "./setup/FiscalYearsPage.jsx";
 import CostCentersPage from "./setup/CostCentersPage.jsx";
+import OpeningBalancesPage from "./setup/OpeningBalancesPage.jsx";
 import BankReconciliationList from "./banking/BankReconciliationList.jsx";
 import BankReconciliationForm from "./banking/BankReconciliationForm.jsx";
 import PdcPostingsList from "./banking/PdcPostingsList.jsx";
 import PdcPostingForm from "./banking/PdcPostingForm.jsx";
+import FinanceDashboardPage from "./FinanceDashboardPage.jsx";
 
 export default function FinanceRoutes() {
   return (
     <Routes>
       <Route path="/" element={<FinanceHome />} />
+      <Route path="/dashboard" element={<FinanceDashboardPage />} />
 
       <Route
         path="/journal-voucher"
@@ -76,7 +79,9 @@ export default function FinanceRoutes() {
       />
       <Route
         path="/receipt-voucher/:id"
-        element={<VoucherFormPage voucherTypeCode="RV" title="Receive Payment" />}
+        element={
+          <VoucherFormPage voucherTypeCode="RV" title="Receive Payment" />
+        }
       />
 
       <Route
@@ -93,7 +98,9 @@ export default function FinanceRoutes() {
       />
       <Route
         path="/contra-voucher/:id"
-        element={<VoucherFormPage voucherTypeCode="CV" title="Account Transfer" />}
+        element={
+          <VoucherFormPage voucherTypeCode="CV" title="Account Transfer" />
+        }
       />
 
       <Route
@@ -110,7 +117,9 @@ export default function FinanceRoutes() {
       />
       <Route
         path="/sales-voucher/:id"
-        element={<VoucherFormPage voucherTypeCode="SV" title="Sales Vouchers" />}
+        element={
+          <VoucherFormPage voucherTypeCode="SV" title="Sales Vouchers" />
+        }
       />
 
       <Route
@@ -127,7 +136,9 @@ export default function FinanceRoutes() {
       />
       <Route
         path="/purchase-voucher/:id"
-        element={<VoucherFormPage voucherTypeCode="PUV" title="Purchase Vouchers" />}
+        element={
+          <VoucherFormPage voucherTypeCode="PUV" title="Purchase Vouchers" />
+        }
       />
 
       <Route
@@ -167,6 +178,7 @@ export default function FinanceRoutes() {
       <Route path="/cost-centers" element={<CostCentersPage />} />
       <Route path="/currencies" element={<CurrenciesPage />} />
       <Route path="/fiscal-years" element={<FiscalYearsPage />} />
+      <Route path="/opening-balances" element={<OpeningBalancesPage />} />
       <Route path="/bank-reconciliation" element={<BankReconciliationList />} />
       <Route
         path="/bank-reconciliation/:id"
@@ -189,19 +201,28 @@ export default function FinanceRoutes() {
         path="/reports/general-ledger"
         element={<GeneralLedgerReportPage />}
       />
-      <Route
-        path="/reports/payment-due"
-        element={<PaymentDueReportPage />}
-      />
+      <Route path="/reports/payment-due" element={<PaymentDueReportPage />} />
       <Route
         path="/reports/customer-outstanding"
         element={<CustomerOutstandingReportPage />}
       />
       <Route path="/reports/audit-trail" element={<AuditTrailReportPage />} />
-      <Route path="/reports/debtors-ledger" element={<DebtorsLedgerReportPage />} />
-      <Route path="/reports/creditors-ledger" element={<CreditorsLedgerReportPage />} />
-      <Route path="/reports/supplier-outstanding" element={<SupplierOutstandingReportPage />} />
-      <Route path="/reports/ratio-analysis" element={<RatioAnalysisReportPage />} />
+      <Route
+        path="/reports/debtors-ledger"
+        element={<DebtorsLedgerReportPage />}
+      />
+      <Route
+        path="/reports/creditors-ledger"
+        element={<CreditorsLedgerReportPage />}
+      />
+      <Route
+        path="/reports/supplier-outstanding"
+        element={<SupplierOutstandingReportPage />}
+      />
+      <Route
+        path="/reports/ratio-analysis"
+        element={<RatioAnalysisReportPage />}
+      />
       <Route
         path="/reports/profit-and-loss"
         element={<ProfitAndLossReportPage />}

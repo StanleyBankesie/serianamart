@@ -14,10 +14,9 @@ export default function AccountsPage() {
   const [filterGroupId, setFilterGroupId] = useState("");
   const [natureFilter, setNatureFilter] = useState("");
   const [activeFilter, setActiveFilter] = useState("");
-  const [postableFilter, setPostableFilter] = useState("");
+  // removed posting filter per request
 
   const [groupId, setGroupId] = useState("");
-  const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [currencyId, setCurrencyId] = useState("");
   const [isPostable, setIsPostable] = useState(true);
@@ -38,7 +37,7 @@ export default function AccountsPage() {
             groupId: filterGroupId || null,
             nature: natureFilter || null,
             active: activeFilter || null,
-            postable: postableFilter || null,
+            postable: null,
           },
         }),
         api.get("/finance/account-groups"),
@@ -57,6 +56,8 @@ export default function AccountsPage() {
   async function autosync() {
     try {
       await api.post("/finance/accounts/sync");
+      // Ensure all existing accounts are postable
+      await api.put("/finance/accounts/force-postable");
     } catch (e) {
       toast.error(
         e?.response?.data?.message ||
@@ -72,25 +73,51 @@ export default function AccountsPage() {
     })();
   }, []);
 
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm, filterGroupId, natureFilter, activeFilter]);
+
   async function create(e) {
     e.preventDefault();
     try {
-      await api.post("/finance/accounts", {
+      const payload = {
         groupId: Number(groupId),
-        code,
         name,
         currencyId: currencyId ? Number(currencyId) : null,
-        isPostable,
+        isPostable: 1,
         isControlAccount: 0,
         isActive: 1,
+      };
+      const resp = await api.post("/finance/accounts", payload);
+      const id = Number(resp?.data?.id || 0);
+      const newCode = resp?.data?.code || "";
+      // Optimistically update list without full reload
+      const g = groups.find((x) => String(x.id) === String(groupId));
+      const c = currencies.find((x) => String(x.id) === String(currencyId));
+      const newItem = {
+        id: id || Math.random(),
+        code: newCode,
+        name,
+        group_id: Number(groupId),
+        group_code: g?.code || "",
+        group_name: g?.name || "",
+        nature: g?.nature || "",
+        currency_id: currencyId ? Number(currencyId) : null,
+        currency_code: c?.code || "",
+        is_control_account: 0,
+        is_postable: 1,
+        is_active: 1,
+      };
+      setItems((prev) => {
+        const next = [newItem, ...prev];
+        return next;
       });
       toast.success("Account created");
-      setCode("");
       setName("");
       setGroupId("");
       setCurrencyId("");
       setIsPostable(true);
-      load();
     } catch (e2) {
       toast.error(e2?.response?.data?.message || "Failed to create account");
     }
@@ -137,11 +164,40 @@ export default function AccountsPage() {
         code: editCode,
         name: editName,
         currencyId: editCurrencyId ? Number(editCurrencyId) : null,
-        isPostable: editIsPostable ? 1 : 0,
+        isPostable: 1,
       });
+      // Update local state quickly without reload
+      setItems((prev) =>
+        prev.map((a) =>
+          String(a.id) === String(editId)
+            ? {
+                ...a,
+                code: editCode,
+                name: editName,
+                group_id: editGroupId ? Number(editGroupId) : a.group_id,
+                group_name:
+                  groups.find((g) => String(g.id) === String(editGroupId))
+                    ?.name || a.group_name,
+                group_code:
+                  groups.find((g) => String(g.id) === String(editGroupId))
+                    ?.code || a.group_code,
+                nature:
+                  groups.find((g) => String(g.id) === String(editGroupId))
+                    ?.nature || a.nature,
+                currency_id: editCurrencyId
+                  ? Number(editCurrencyId)
+                  : a.currency_id,
+                currency_code:
+                  currencies.find(
+                    (c) => String(c.id) === String(editCurrencyId),
+                  )?.code || a.currency_code,
+                is_postable: editIsPostable ? 1 : 0,
+              }
+            : a,
+        ),
+      );
       toast.success("Account updated");
       cancelEdit();
-      await load();
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to update account");
     } finally {
@@ -203,18 +259,7 @@ export default function AccountsPage() {
                 <option value="1">Active</option>
                 <option value="0">Inactive</option>
               </select>
-              <select
-                className="input w-40"
-                value={postableFilter}
-                onChange={(e) => setPostableFilter(e.target.value)}
-              >
-                <option value="">All Posting</option>
-                <option value="1">Postable</option>
-                <option value="0">Non-postable</option>
-              </select>
-              <button className="btn-success" onClick={load} disabled={loading}>
-                Apply
-              </button>
+              {/* Posting filter removed */}
             </div>
           </div>
         </div>
@@ -242,15 +287,6 @@ export default function AccountsPage() {
                 ))}
               </select>
             </div>
-            <div>
-              <label className="label">Code *</label>
-              <input
-                className="input"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                required
-              />
-            </div>
             <div className="md:col-span-2">
               <label className="label">Name *</label>
               <input
@@ -275,18 +311,7 @@ export default function AccountsPage() {
                 ))}
               </select>
             </div>
-            <div className="md:col-span-2">
-              <label className="label">Posting</label>
-              <select
-                className="input"
-                value={isPostable ? "1" : "0"}
-                onChange={(e) => setIsPostable(e.target.value === "1")}
-              >
-                <option value="1">Postable</option>
-                <option value="0">Non-postable</option>
-              </select>
-            </div>
-            <div className="md:col-span-6 flex justify-end">
+            <div className="flex items-end justify-end">
               <button className="btn-success" type="submit">
                 Create Account
               </button>
@@ -363,18 +388,7 @@ export default function AccountsPage() {
                               ))}
                             </select>
                           </td>
-                          <td>
-                            <select
-                              className="input"
-                              value={editIsPostable ? "1" : "0"}
-                              onChange={(e) =>
-                                setEditIsPostable(e.target.value === "1")
-                              }
-                            >
-                              <option value="1">Yes</option>
-                              <option value="0">No</option>
-                            </select>
-                          </td>
+                          <td>Yes</td>
                           <td>{a.is_active ? "Yes" : "No"}</td>
                           <td>
                             <div className="flex gap-2">

@@ -1,16 +1,17 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
-import { 
-  MODULES_REGISTRY, 
-  getAllModuleKeys, 
-  getModuleFeatures, 
-  getModuleDashboards 
+import {
+  MODULES_REGISTRY,
+  getAllModuleKeys,
+  getModuleFeatures,
+  getModuleDashboards,
 } from "../../../../data/modulesRegistry.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function RoleManagement() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { refreshPermissions } = usePermission();
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -79,6 +80,16 @@ export default function RoleManagement() {
     load();
   }, []);
 
+  useEffect(() => {
+    const s = location.state && location.state.afterSave;
+    if (!s || s.entity !== "roles") return;
+    load();
+    setTimeout(() => load(), 500);
+    try {
+      navigate("/administration/access/roles", { replace: true, state: null });
+    } catch {}
+  }, [location.state, navigate]);
+
   async function createRole() {
     try {
       const payload = {
@@ -115,21 +126,27 @@ export default function RoleManagement() {
     try {
       const [modsRes, featsRes] = await Promise.all([
         api.get(`/access/roles/${role.id}/modules`),
-        api.get(`/access/roles/${role.id}/features`).catch(() => ({ data: { features: [] } })),
+        api
+          .get(`/access/roles/${role.id}/features`)
+          .catch(() => ({ data: { features: [] } })),
       ]);
-      
+
       const assignedModules = new Set(modsRes?.data?.modules || []);
-      const assignedFeatures = new Set((featsRes?.data?.features || []).map(String));
-      
+      const assignedFeatures = new Set(
+        (featsRes?.data?.features || []).map(String),
+      );
+
       // Separate features and dashboards using registry
       const assignedDashboards = new Set();
       const featuresOnly = new Set();
-      
-      assignedFeatures.forEach(featureKey => {
-        const [moduleKey, itemKey] = featureKey.split(':');
+
+      assignedFeatures.forEach((featureKey) => {
+        const [moduleKey, itemKey] = featureKey.split(":");
         const moduleInfo = MODULES_REGISTRY[moduleKey];
         if (moduleInfo) {
-          const isDashboard = moduleInfo.dashboards.some(d => d.key === itemKey);
+          const isDashboard = moduleInfo.dashboards.some(
+            (d) => d.key === itemKey,
+          );
           if (isDashboard) {
             assignedDashboards.add(featureKey);
           } else {
@@ -177,9 +194,9 @@ export default function RoleManagement() {
       // Combine features and dashboards
       const allPermissions = [
         ...Array.from(selectedFeatures),
-        ...Array.from(selectedDashboards)
+        ...Array.from(selectedDashboards),
       ];
-      
+
       await api.put(`/access/roles/${assignRole.id}/features`, {
         features: allPermissions,
       });
@@ -211,7 +228,7 @@ export default function RoleManagement() {
 
   // Handle module selection with hierarchy enforcement
   function handleModuleToggle(moduleKey, checked) {
-    setSelectedModules(prev => {
+    setSelectedModules((prev) => {
       const next = new Set(prev);
       if (checked) {
         next.add(moduleKey);
@@ -220,16 +237,16 @@ export default function RoleManagement() {
         // Remove all features and dashboards when module is deselected
         const moduleFeatures = getModuleFeatures(moduleKey);
         const moduleDashboards = getModuleDashboards(moduleKey);
-        
-        setSelectedFeatures(featurePrev => {
+
+        setSelectedFeatures((featurePrev) => {
           const nextFeatures = new Set(featurePrev);
-          moduleFeatures.forEach(f => nextFeatures.delete(f.feature_key));
+          moduleFeatures.forEach((f) => nextFeatures.delete(f.feature_key));
           return nextFeatures;
         });
-        
-        setSelectedDashboards(dashboardPrev => {
+
+        setSelectedDashboards((dashboardPrev) => {
           const nextDashboards = new Set(dashboardPrev);
-          moduleDashboards.forEach(d => nextDashboards.delete(d.feature_key));
+          moduleDashboards.forEach((d) => nextDashboards.delete(d.feature_key));
           return nextDashboards;
         });
       }
@@ -239,13 +256,13 @@ export default function RoleManagement() {
 
   // Handle feature selection with module dependency
   function handleFeatureToggle(featureKey, checked) {
-    const [moduleKey] = featureKey.split(':');
+    const [moduleKey] = featureKey.split(":");
     if (!selectedModules.has(moduleKey)) {
       // Auto-select module if feature is selected
       handleModuleToggle(moduleKey, true);
     }
-    
-    setSelectedFeatures(prev => {
+
+    setSelectedFeatures((prev) => {
       const next = new Set(prev);
       if (checked) {
         next.add(featureKey);
@@ -258,13 +275,13 @@ export default function RoleManagement() {
 
   // Handle dashboard selection with module dependency
   function handleDashboardToggle(dashboardKey, checked) {
-    const [moduleKey] = dashboardKey.split(':');
+    const [moduleKey] = dashboardKey.split(":");
     if (!selectedModules.has(moduleKey)) {
       // Auto-select module if dashboard is selected
       handleModuleToggle(moduleKey, true);
     }
-    
-    setSelectedDashboards(prev => {
+
+    setSelectedDashboards((prev) => {
       const next = new Set(prev);
       if (checked) {
         next.add(dashboardKey);
@@ -301,12 +318,16 @@ export default function RoleManagement() {
           </button>
         </div>
       </div>
-      
+
       {error && <div className="alert alert-error">{error}</div>}
       {success && (
         <div className="alert alert-success flex justify-between items-center">
           <span>{success}</span>
-          <button className="btn-outline" type="button" onClick={() => setSuccess("")}> 
+          <button
+            className="btn-outline"
+            type="button"
+            onClick={() => setSuccess("")}
+          >
             ×
           </button>
         </div>
@@ -335,7 +356,8 @@ export default function RoleManagement() {
                     <td className="text-right">
                       <div className="flex gap-2 justify-end">
                         <button
-                          className="btn btn-secondary" type="button"
+                          className="btn btn-secondary"
+                          type="button"
                           onClick={() => openRoleSettings(r)}
                         >
                           Configure Permissions
@@ -405,7 +427,11 @@ export default function RoleManagement() {
               >
                 Cancel
               </button>
-              <button className="btn-success" type="button" onClick={createRole}>
+              <button
+                className="btn-success"
+                type="button"
+                onClick={createRole}
+              >
                 Save
               </button>
             </div>
@@ -430,7 +456,7 @@ export default function RoleManagement() {
                 ×
               </button>
             </div>
-            
+
             <div className="p-5 space-y-6 overflow-y-auto flex-1">
               {/* Role Info */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -482,16 +508,23 @@ export default function RoleManagement() {
                   {getAllModuleKeys().map((moduleKey) => {
                     const moduleInfo = MODULES_REGISTRY[moduleKey];
                     return (
-                      <label key={moduleKey} className="flex items-center gap-3 p-3 border rounded-lg hover:bg-slate-50 cursor-pointer">
+                      <label
+                        key={moduleKey}
+                        className="flex items-center gap-3 p-3 border rounded-lg hover:bg-slate-50 cursor-pointer"
+                      >
                         <input
                           type="checkbox"
                           className="checkbox"
                           checked={selectedModules.has(moduleKey)}
-                          onChange={(e) => handleModuleToggle(moduleKey, e.target.checked)}
+                          onChange={(e) =>
+                            handleModuleToggle(moduleKey, e.target.checked)
+                          }
                         />
                         <div className="flex items-center gap-2">
                           <span className="text-xl">{moduleInfo?.icon}</span>
-                          <span className="font-medium">{moduleInfo?.name}</span>
+                          <span className="font-medium">
+                            {moduleInfo?.name}
+                          </span>
                         </div>
                       </label>
                     );
@@ -513,9 +546,14 @@ export default function RoleManagement() {
                   const selectedCount = allKeys.filter(
                     (k) => selectedFeatures.has(k) || selectedDashboards.has(k),
                   ).length;
-                  const isAllSelected = allKeys.length > 0 && selectedCount === allKeys.length;
-                  
-                  if (!isModuleSelected && moduleFeatures.length === 0 && moduleDashboards.length === 0) {
+                  const isAllSelected =
+                    allKeys.length > 0 && selectedCount === allKeys.length;
+
+                  if (
+                    !isModuleSelected &&
+                    moduleFeatures.length === 0 &&
+                    moduleDashboards.length === 0
+                  ) {
                     return null;
                   }
 
@@ -527,9 +565,13 @@ export default function RoleManagement() {
                             type="checkbox"
                             className="checkbox"
                             checked={isModuleSelected}
-                            onChange={(e) => handleModuleToggle(moduleKey, e.target.checked)}
+                            onChange={(e) =>
+                              handleModuleToggle(moduleKey, e.target.checked)
+                            }
                           />
-                          <span className="font-semibold text-lg">{moduleInfo?.icon} {moduleInfo?.name}</span>
+                          <span className="font-semibold text-lg">
+                            {moduleInfo?.icon} {moduleInfo?.name}
+                          </span>
                         </div>
                         <div className="flex items-center gap-4 text-sm text-slate-600">
                           <span>{moduleFeatures.length} features</span>
@@ -541,7 +583,10 @@ export default function RoleManagement() {
                                 className="checkbox checkbox-sm"
                                 checked={isAllSelected}
                                 onChange={(e) =>
-                                  handleModuleSelectAll(moduleKey, e.target.checked)
+                                  handleModuleSelectAll(
+                                    moduleKey,
+                                    e.target.checked,
+                                  )
                                 }
                               />
                               Select All
@@ -568,10 +613,19 @@ export default function RoleManagement() {
                                     <input
                                       type="checkbox"
                                       className="checkbox checkbox-sm"
-                                      checked={selectedFeatures.has(feature.feature_key)}
-                                      onChange={(e) => handleFeatureToggle(feature.feature_key, e.target.checked)}
+                                      checked={selectedFeatures.has(
+                                        feature.feature_key,
+                                      )}
+                                      onChange={(e) =>
+                                        handleFeatureToggle(
+                                          feature.feature_key,
+                                          e.target.checked,
+                                        )
+                                      }
                                     />
-                                    <span className="text-sm">{feature.label}</span>
+                                    <span className="text-sm">
+                                      {feature.label}
+                                    </span>
                                   </label>
                                 ))}
                               </div>
@@ -594,10 +648,19 @@ export default function RoleManagement() {
                                     <input
                                       type="checkbox"
                                       className="checkbox checkbox-sm"
-                                      checked={selectedDashboards.has(dashboard.feature_key)}
-                                      onChange={(e) => handleDashboardToggle(dashboard.feature_key, e.target.checked)}
+                                      checked={selectedDashboards.has(
+                                        dashboard.feature_key,
+                                      )}
+                                      onChange={(e) =>
+                                        handleDashboardToggle(
+                                          dashboard.feature_key,
+                                          e.target.checked,
+                                        )
+                                      }
                                     />
-                                    <span className="text-sm">{dashboard.label}</span>
+                                    <span className="text-sm">
+                                      {dashboard.label}
+                                    </span>
                                   </label>
                                 ))}
                               </div>
@@ -612,17 +675,21 @@ export default function RoleManagement() {
             </div>
 
             <div className="px-5 py-4 border-t flex justify-end gap-2">
-                <button
-                  className="btn-outline"
-                  type="button"
-                  onClick={() => setAssignRole(null)}
-                >
-                  Cancel
-                </button>
-                <button className="btn-success" type="button" onClick={saveRoleSettings}>
-                  Save Permissions
-                </button>
-              </div>
+              <button
+                className="btn-outline"
+                type="button"
+                onClick={() => setAssignRole(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-success"
+                type="button"
+                onClick={saveRoleSettings}
+              >
+                Save Permissions
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -195,7 +195,7 @@ export default function StockUpdationForm() {
         await api.put(`/inventory/stock-adjustments/${id}`, payload);
       }
 
-      navigate("/inventory/stock-updation");
+      navigate("/inventory/stock-updation", { state: { refresh: true } });
     } catch (e2) {
       setError(e2?.response?.data?.message || "Failed to save stock updation");
     } finally {
@@ -244,7 +244,7 @@ export default function StockUpdationForm() {
       if (instanceId) {
         navigate(`/administration/workflows/approvals/${instanceId}`);
       } else {
-        navigate("/inventory/stock-updation");
+        navigate("/inventory/stock-updation", { state: { refresh: true } });
       }
     } catch (e2) {
       setError(

@@ -2,8 +2,23 @@ import mysql from "mysql2/promise";
 import mysqlCore from "mysql2";
 import dotenv from "dotenv";
 import fs from "fs/promises";
+import fsSync from "fs";
 import path from "path";
-dotenv.config({ path: path.join(process.cwd(), ".env") });
+import { fileURLToPath } from "url";
+
+// Load env similar to db/pool.js
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const serverRoot = path.resolve(__dirname, "..");
+dotenv.config({ path: path.join(serverRoot, ".env") });
+const localEnv = path.join(serverRoot, ".env.local");
+const prodEnv = path.join(serverRoot, ".env.production");
+const isProd = String(process.env.NODE_ENV || "").toLowerCase() === "production";
+if (isProd && fsSync.existsSync(prodEnv)) {
+  dotenv.config({ path: prodEnv, override: true });
+} else if (fsSync.existsSync(localEnv)) {
+  dotenv.config({ path: localEnv, override: true });
+}
 async function exportDump() {
   const conn = await mysql.createConnection({
     host: process.env.DB_HOST,

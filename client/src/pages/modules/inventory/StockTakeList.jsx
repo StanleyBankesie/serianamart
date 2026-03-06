@@ -2,10 +2,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
-import { usePermission } from "../../../auth/PermissionContext.jsx";
+import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
 
 export default function StockTakeList() {
-  const { canPerformAction } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -54,13 +53,12 @@ export default function StockTakeList() {
     <div className="space-y-6">
       <div className="card">
         <div className="card-header bg-brand text-white rounded-t-lg">
-          <div className="flex justify-between items-center text-white"><div>
+          <div className="flex justify-between items-center text-white">
+            <div>
               <h1 className="text-2xl font-bold dark:text-brand-300">
                 Daily Stock Take
               </h1>
-              <p className="text-sm mt-1">
-                Perform physical stock counts
-              </p>
+              <p className="text-sm mt-1">Perform physical stock counts</p>
             </div>
             <div className="flex gap-2">
               <Link to="/inventory" className="btn btn-secondary">
@@ -139,22 +137,18 @@ export default function StockTakeList() {
                       </span>
                     </td>
                     <td>
-                      {canPerformAction("inventory:stock-take", "view") && (
-                        <Link
-                          to={`/inventory/stock-take/${s.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                      )}
-                      {canPerformAction("inventory:stock-take", "edit") && (
-                        <Link
-                          to={`/inventory/stock-take/${s.id}?mode=edit`}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                        >
-                          Edit
-                        </Link>
-                      )}
+                      <Link
+                        to={`/inventory/stock-take/${s.id}?mode=view`}
+                        className="text-brand hover:text-brand-700 text-sm font-medium"
+                      >
+                        View
+                      </Link>
+                      <Link
+                        to={`/inventory/stock-take/${s.id}?mode=edit`}
+                        className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                      >
+                        Edit
+                      </Link>
                     </td>
                   </tr>
                 ))}
@@ -163,13 +157,10 @@ export default function StockTakeList() {
           </div>
         </div>
       </div>
+      <FloatingCreateButton
+        to="/inventory/stock-take/new"
+        title="New Stock Take"
+      />
     </div>
   );
 }
-
-
-
-
-
-
-

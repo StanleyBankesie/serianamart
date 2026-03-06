@@ -9,10 +9,8 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { api } from "../../../api/client";
-import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 export default function StockVerificationList() {
-  const { canPerformAction } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [verifications, setVerifications] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -54,8 +52,9 @@ export default function StockVerificationList() {
   }, []);
 
   const getWarehouseName = (id) => {
-    const wh = warehouses.find((w) => w.id === id);
-    return wh ? wh.name : "Unknown Warehouse"; // Adjust based on warehouse object structure
+    const wh = warehouses.find((w) => Number(w.id) === Number(id));
+    if (!wh) return "-";
+    return wh.warehouse_name || wh.name || wh.warehouse_code || String(wh.id);
   };
 
   const statusOptions = [
@@ -344,30 +343,20 @@ export default function StockVerificationList() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex gap-2">
-                          {canPerformAction(
-                            "inventory:stock-verification",
-                            "view",
-                          ) && (
-                            <Link
-                              to={`/inventory/stock-verification/${verification.id}?mode=view`}
-                              className="text-blue-600 hover:text-blue-900"
-                              title="View Details"
-                            >
-                              View
-                            </Link>
-                          )}
-                          {canPerformAction(
-                            "inventory:stock-verification",
-                            "edit",
-                          ) && (
-                            <Link
-                              to={`/inventory/stock-verification/${verification.id}?mode=edit`}
-                              className="text-green-600 hover:text-green-900"
-                              title="Edit"
-                            >
-                              Edit
-                            </Link>
-                          )}
+                          <Link
+                            to={`/inventory/stock-verification/${verification.id}?mode=view`}
+                            className="text-blue-600 hover:text-blue-900"
+                            title="View Details"
+                          >
+                            View
+                          </Link>
+                          <Link
+                            to={`/inventory/stock-verification/${verification.id}?mode=edit`}
+                            className="text-green-600 hover:text-green-900"
+                            title="Edit"
+                          >
+                            Edit
+                          </Link>
                         </div>
                       </td>
                     </tr>

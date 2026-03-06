@@ -8,14 +8,26 @@ import jsPDF from "jspdf";
 export default function PeriodicalStockSummaryPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [warehouseId, setWarehouseId] = useState("");
+  const [itemGroupId, setItemGroupId] = useState("");
+  const [q, setQ] = useState("");
+  const [warehouses, setWarehouses] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [itemOptions, setItemOptions] = useState([]);
 
   async function run() {
     try {
       setLoading(true);
       const res = await api.get("/inventory/reports/periodical-stock-summary", {
-        params: { from: from || null, to: to || null },
+        params: {
+          from: from || null,
+          to: to || null,
+          warehouseId: warehouseId || null,
+          itemGroupId: itemGroupId || null,
+          q: q || null,
+        },
       });
       setItems(res.data?.items || []);
     } catch (e) {
@@ -26,9 +38,38 @@ export default function PeriodicalStockSummaryPage() {
   }
 
   useEffect(() => {
-    run();
+    let mounted = true;
+    (async () => {
+      try {
+        const [whRes, grpRes] = await Promise.all([
+          api.get("/inventory/warehouses"),
+          api.get("/inventory/item-groups"),
+        ]);
+        if (!mounted) return;
+        setWarehouses(
+          Array.isArray(whRes?.data?.items) ? whRes.data.items : [],
+        );
+        setGroups(Array.isArray(grpRes?.data?.items) ? grpRes.data.items : []);
+        try {
+          const itRes = await api.get("/inventory/items");
+          if (mounted) {
+            setItemOptions(
+              Array.isArray(itRes?.data?.items) ? itRes.data.items : [],
+            );
+          }
+        } catch {}
+      } catch {}
+      run();
+    })();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
+  useEffect(() => {
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to, warehouseId, itemGroupId, q]);
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -50,7 +91,7 @@ export default function PeriodicalStockSummaryPage() {
 
       <div className="card">
         <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
             <div>
               <label className="label">From</label>
               <input
@@ -69,26 +110,55 @@ export default function PeriodicalStockSummaryPage() {
                 onChange={(e) => setTo(e.target.value)}
               />
             </div>
-            <div className="md:col-span-2 flex items-end gap-2">
-              <button
-                type="button"
-                className="btn-success"
-                onClick={run}
-                disabled={loading}
+            <div>
+              <label className="label">Warehouse</label>
+              <select
+                className="input"
+                value={warehouseId}
+                onChange={(e) => setWarehouseId(e.target.value)}
               >
-                {loading ? "Running..." : "Run Report"}
-              </button>
-              <button
-                type="button"
-                className="btn-success"
-                onClick={() => {
-                  setFrom("");
-                  setTo("");
-                }}
-                disabled={loading}
+                <option value="">All</option>
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.warehouse_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Item Group</label>
+              <select
+                className="input"
+                value={itemGroupId}
+                onChange={(e) => setItemGroupId(e.target.value)}
               >
-                Clear
-              </button>
+                <option value="">All</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.group_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Item</label>
+              <input
+                className="input"
+                type="text"
+                placeholder="Item code or name…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                list="summary_item_options"
+              />
+              <datalist id="summary_item_options">
+                {itemOptions.slice(0, 1000).map((it) => (
+                  <option key={it.id} value={it.item_code}>
+                    {it.item_name}
+                  </option>
+                ))}
+              </datalist>
+            </div>
+            <div className="md:col-span-1 flex items-end gap-2 justify-end">
               <button
                 type="button"
                 className="btn-secondary"
@@ -166,13 +236,6 @@ export default function PeriodicalStockSummaryPage() {
                 disabled={!items.length}
               >
                 Export PDF
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => window.print()}
-              >
-                Print
               </button>
             </div>
           </div>

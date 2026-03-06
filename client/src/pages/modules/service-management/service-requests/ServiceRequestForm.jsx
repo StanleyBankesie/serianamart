@@ -171,7 +171,12 @@ export default function ServiceRequestForm() {
           department: item.department || "",
           requestTitle: item.request_title || "",
           description: item.description || "",
-          urgency: item.priority === "high" ? "emergency" : item.priority === "medium" ? "urgent" : "normal",
+          urgency:
+            item.priority === "high"
+              ? "emergency"
+              : item.priority === "medium"
+                ? "urgent"
+                : "normal",
           preferredDate: normalizeDateString(item.preferred_date) || "",
           preferredTime: item.preferred_time || "",
           contactMethod: item.contact_method || "email",
@@ -336,7 +341,9 @@ export default function ServiceRequestForm() {
             ? `Service request ${requestNo} submitted successfully`
             : "Service request submitted successfully",
         );
-        navigate("/service-management/service-requests");
+        navigate("/service-management/service-requests", {
+          state: { refresh: true },
+        });
       })
       .catch((err) => {
         toast.error(
@@ -477,7 +484,10 @@ export default function ServiceRequestForm() {
                     />
                     <datalist id="prospectsList">
                       {prospects.map((p) => (
-                        <option key={`${p.company_id}-${p.id}`} value={p.prospect_customer} />
+                        <option
+                          key={`${p.company_id}-${p.id}`}
+                          value={p.prospect_customer}
+                        />
                       ))}
                     </datalist>
                   </div>

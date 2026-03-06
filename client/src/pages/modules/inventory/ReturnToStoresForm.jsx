@@ -61,13 +61,13 @@ export default function ReturnToStoresForm() {
 
         if (mounted) {
           setAvailableItems(
-            Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : []
+            Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : [],
           );
           setWarehouses(
-            Array.isArray(whRes.data?.items) ? whRes.data.items : []
+            Array.isArray(whRes.data?.items) ? whRes.data.items : [],
           );
           setDepartments(
-            Array.isArray(deptRes.data?.items) ? deptRes.data.items : []
+            Array.isArray(deptRes.data?.items) ? deptRes.data.items : [],
           );
           if (isNew && nextNoRes?.data?.next_no) {
             setFormData((prev) => ({ ...prev, rtsNo: nextNoRes.data.next_no }));
@@ -141,7 +141,7 @@ export default function ReturnToStoresForm() {
                 location: d.location || "",
                 remarks: d.remarks || "",
               }))
-            : []
+            : [],
         );
 
         if (details.length === 0) addLine();
@@ -149,7 +149,7 @@ export default function ReturnToStoresForm() {
       .catch((e) => {
         if (!mounted) return;
         setError(
-          e?.response?.data?.message || "Failed to load return to stores"
+          e?.response?.data?.message || "Failed to load return to stores",
         );
       })
       .finally(() => {
@@ -180,7 +180,7 @@ export default function ReturnToStoresForm() {
     const totalItems = lines.filter((l) => l.item_id).length;
     const totalQty = lines.reduce(
       (sum, l) => sum + (Number(l.qtyReturned) || 0),
-      0
+      0,
     );
     const goodCondition = lines
       .filter((l) => l.condition === "GOOD")
@@ -226,7 +226,7 @@ export default function ReturnToStoresForm() {
           itemName: item?.item_name || "",
           uom: item?.uom || "PCS",
         };
-      })
+      }),
     );
   };
 
@@ -235,7 +235,7 @@ export default function ReturnToStoresForm() {
       lines.map((l) => {
         if (l.id !== lineId) return l;
         return { ...l, [field]: value };
-      })
+      }),
     );
   };
 
@@ -292,7 +292,7 @@ export default function ReturnToStoresForm() {
             .filter((d) => d.item_id)
             .map((d) => {
               const ai = availableItems.find(
-                (i) => String(i.id) === String(d.item_id)
+                (i) => String(i.id) === String(d.item_id),
               );
               return {
                 id: d.id || Date.now() + Math.random(),
@@ -351,10 +351,10 @@ export default function ReturnToStoresForm() {
         await api.put(`/inventory/return-to-stores/${id}`, payload);
       }
 
-      navigate("/inventory/return-to-stores");
+      navigate("/inventory/return-to-stores", { state: { refresh: true } });
     } catch (e2) {
       setError(
-        e2?.response?.data?.message || "Failed to save return to stores"
+        e2?.response?.data?.message || "Failed to save return to stores",
       );
     } finally {
       setSaving(false);
@@ -459,10 +459,10 @@ export default function ReturnToStoresForm() {
                         formData.status === "DRAFT"
                           ? "bg-slate-100 text-slate-800"
                           : formData.status === "PENDING"
-                          ? "bg-yellow-100 text-yellow-800"
-                          : formData.status === "APPROVED"
-                          ? "bg-green-100 text-green-800"
-                          : "bg-red-100 text-red-800"
+                            ? "bg-yellow-100 text-yellow-800"
+                            : formData.status === "APPROVED"
+                              ? "bg-green-100 text-green-800"
+                              : "bg-red-100 text-red-800"
                       }`}
                     >
                       {formData.status}

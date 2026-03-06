@@ -13,6 +13,7 @@ import html2canvas from "html2canvas";
 import { toast } from "react-toastify";
 import { useUoms } from "@/hooks/useUoms";
 import PrintPreviewModal from "../../../../components/PrintPreviewModal.jsx";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import UnitConversionModal from "@/components/UnitConversionModal";
 import {
   Save,
@@ -34,6 +35,7 @@ export default function SalesOrderForm() {
   const { id } = useParams();
   const isEditMode = !!id;
   const { user } = useAuth();
+  const { canEditDiscount } = usePermission();
   const [searchParams] = useSearchParams();
   const isViewMode =
     String(searchParams.get("mode") || "").toLowerCase() === "view";
@@ -930,7 +932,27 @@ export default function SalesOrderForm() {
           ? "Order updated successfully!"
           : "Order created successfully!",
       );
-      navigate("/sales/sales-orders");
+      // Ensure the new/updated order is visible in list before navigating
+      try {
+        const orderNoToFind = finalOrderNo;
+        const start = Date.now();
+        let found = false;
+        while (Date.now() - start < 5000 && !found) {
+          const res = await api.get("/sales/orders");
+          const items = Array.isArray(res.data?.items) ? res.data.items : [];
+          found = items.some(
+            (it) => String(it.order_no || "") === String(orderNoToFind || ""),
+          );
+          if (!found) {
+            await new Promise((r) => setTimeout(r, 200));
+          }
+        }
+        navigate("/sales/sales-orders", {
+          state: { highlightRef: finalOrderNo, refresh: true },
+        });
+      } catch {
+        navigate("/sales/sales-orders");
+      }
     } catch (error) {
       console.error("Error saving order:", error);
       const msg =
@@ -1472,7 +1494,11 @@ export default function SalesOrderForm() {
                           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
                         />
                       </div>
-                      <div>
+                      <div
+                        className={
+                          !canEditDiscount() ? "disabled-light-blue" : ""
+                        }
+                      >
                         <label className="block text-xs font-medium text-gray-700 mb-1">
                           Disc %
                         </label>
@@ -1484,6 +1510,7 @@ export default function SalesOrderForm() {
                           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
                           min="0"
                           max="100"
+                          disabled={!canEditDiscount()}
                         />
                       </div>
                       <div>
@@ -1826,14 +1853,14 @@ export default function SalesOrderForm() {
                     {calcAggregates().netSub.toFixed(2)}
                   </div>
                   {calcAggregates().components.map((c) => (
-                    <React.Fragment key={c.name}>
+                    <div key={c.name} className="contents">
                       <div className="px-2 py-1">
                         {c.name} [{c.rate}%]
                       </div>
                       <div className="px-2 py-1 text-right">
                         {c.amount.toFixed(2)}
                       </div>
-                    </React.Fragment>
+                    </div>
                   ))}
                   <div className="px-2 py-1 font-semibold">Total</div>
                   <div className="px-2 py-1 text-right font-semibold">

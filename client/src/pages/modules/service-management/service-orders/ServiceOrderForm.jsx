@@ -85,6 +85,14 @@ export default function ServiceOrderForm() {
   const [serviceCategories, setServiceCategories] = useState([]);
   const [workLocations, setWorkLocations] = useState([]);
 
+  const [permissions, setPermissions] = useState({});
+
+  useEffect(() => {
+    api.get("/inventory/permissions").then((res) => {
+      setPermissions(res.data?.permissions || {});
+    });
+  }, []);
+
   function generateOrderNo() {
     return `ORD-${Date.now().toString().slice(-8)}`;
   }

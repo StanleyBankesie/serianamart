@@ -3,13 +3,23 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { useDispatch, useSelector } from "react-redux";
+import { fetchCustomers } from "../../../../modules/customers/customerSlice.js";
+import {
+  selectAllCustomers,
+  selectCustomersLoading,
+  selectCustomersError,
+  makeSelectCustomersBySearch,
+} from "../../../../modules/customers/customerSelectors.js";
+import { useAfterSaveRefresh } from "../../../../hooks/useAfterSaveRefresh.js";
 
 export default function CustomerList() {
   const navigate = useNavigate();
   const fileInputRef = React.useRef(null);
-  const [customers, setCustomers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const dispatch = useDispatch();
+  const loading = useSelector(selectCustomersLoading) === "pending";
+  const error = useSelector(selectCustomersError) || "";
+  const allCustomers = useSelector(selectAllCustomers);
   const [searchTerm, setSearchTerm] = useState("");
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [bulkDeleteRaw, setBulkDeleteRaw] = useState("");
@@ -20,30 +30,16 @@ export default function CustomerList() {
   const { hasAccess, scope } = useAuth();
   const { canPerformAction } = usePermission();
   const [branchOnly, setBranchOnly] = useState(false);
+  const selectBySearch = React.useMemo(makeSelectCustomersBySearch, []);
+  const filteredCustomers = useSelector((s) => selectBySearch(s, searchTerm));
 
   useEffect(() => {
-    fetchCustomers();
-  }, []);
+    dispatch(fetchCustomers({ force: false }));
+  }, [dispatch]);
 
-  const fetchCustomers = async () => {
-    try {
-      setLoading(true);
-      setError("");
-      const response = await api.get("/sales/customers", {
-        params: { active: true },
-      });
-      const items =
-        (response.data && response.data.data && response.data.data.items) ||
-        response.data?.items ||
-        [];
-      setCustomers(Array.isArray(items) ? items : []);
-    } catch (err) {
-      setError(err?.response?.data?.message || "Error fetching customers");
-      console.error("Error fetching customers:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useAfterSaveRefresh("customers", fetchCustomers);
+
+  const refresh = () => dispatch(fetchCustomers({ force: true }));
 
   const downloadTemplate = async () => {
     try {
@@ -76,7 +72,7 @@ export default function CustomerList() {
         headers: { "Content-Type": "multipart/form-data" },
       });
       alert("Customers imported successfully!");
-      fetchCustomers();
+      refresh();
     } catch (err) {
       console.error("Error importing customers", err);
       alert(err?.response?.data?.message || "Error importing customers");
@@ -86,19 +82,11 @@ export default function CustomerList() {
     }
   };
 
-  const filteredCustomers = customers.filter(
-    (r) =>
-      r &&
-      (String(r.customer_code || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase()) ||
-        String(r.customer_name || "")
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase()) ||
-        String(r.email || "")
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase())),
-  );
+  const branchFiltered = branchOnly
+    ? filteredCustomers.filter(
+        (x) => String(x.branch_id || "") === String(scope?.branchId || ""),
+      )
+    : filteredCustomers;
 
   if (loading) {
     return <div className="text-center py-8">Loading customers...</div>;
@@ -168,7 +156,7 @@ export default function CustomerList() {
               />
               <span>Show current branch only</span>
             </label>
-            <button className="btn btn-outline" onClick={fetchCustomers}>
+            <button className="btn btn-outline" onClick={refresh}>
               Refresh
             </button>
           </div>
@@ -189,14 +177,7 @@ export default function CustomerList() {
                 </tr>
               </thead>
               <tbody>
-                {(branchOnly
-                  ? filteredCustomers.filter(
-                      (x) =>
-                        String(x.branch_id || "") ===
-                        String(scope?.branchId || ""),
-                    )
-                  : filteredCustomers
-                ).map((r) => (
+                {branchFiltered.map((r) => (
                   <tr key={r.id}>
                     <td className="font-medium">{r.customer_code}</td>
                     <td>

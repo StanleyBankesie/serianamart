@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Link } from "react-router-dom";
-import { usePermission } from "../../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
 import { api } from "../../../api/client";
+import * as XLSX from "xlsx";
 
 export default function ItemsList() {
-  const { canPerformAction } = usePermission();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -240,12 +239,37 @@ export default function ItemsList() {
     const file = e.target.files[0];
     if (!file) return;
 
+    const isExcel = /\.xlsx?$/i.test(String(file.name || ""));
     const reader = new FileReader();
     reader.onload = async (evt) => {
-      const text = evt.target.result || "";
-      const rowsCsv = parseCsv(text);
+      let rowsCsv = [];
+      try {
+        if (isExcel) {
+          const data = new Uint8Array(evt.target.result);
+          const wb = XLSX.read(data, { type: "array" });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const aoa = XLSX.utils.sheet_to_json(ws, {
+            header: 1,
+            blankrows: false,
+          });
+          rowsCsv = Array.isArray(aoa)
+            ? aoa.map((row) =>
+                row.map((c) => {
+                  const v = c == null ? "" : c;
+                  return String(v).trim();
+                }),
+              )
+            : [];
+        } else {
+          const text = evt.target.result || "";
+          rowsCsv = parseCsv(text);
+        }
+      } catch {
+        toast.error("Failed to parse file");
+        return;
+      }
       if (!rowsCsv.length) {
-        toast.error("Empty CSV file");
+        toast.error("Empty file");
         return;
       }
       const headers = rowsCsv[0].map((h) => String(h || "").trim());
@@ -255,7 +279,7 @@ export default function ItemsList() {
       const missing = requiredHeaders.filter((h) => !headers.includes(h));
       if (missing.length > 0) {
         toast.error(
-          `Invalid CSV format: Missing required header(s): ${missing.join(", ")}`,
+          `Invalid file format: Missing required header(s): ${missing.join(", ")}`,
         );
         return;
       }
@@ -494,8 +518,8 @@ export default function ItemsList() {
       setPreviewOpen(true);
       e.target.value = null;
     };
-
-    reader.readAsText(file);
+    if (isExcel) reader.readAsArrayBuffer(file);
+    else reader.readAsText(file);
   };
 
   const confirmUpload = async () => {
@@ -929,18 +953,10 @@ export default function ItemsList() {
         "10",
       ],
     ];
-    const rows = [headers.join(","), ...sample.map((r) => r.join(","))].join(
-      "\n",
-    );
-    const blob = new Blob([rows], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "items_bulk_upload_template.csv";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 100);
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...sample]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "ItemsTemplate");
+    XLSX.writeFile(wb, "items_bulk_upload_template.xlsx");
   };
 
   const exportItemsCSV = () => {
@@ -1017,7 +1033,7 @@ export default function ItemsList() {
                 ref={fileInputRef}
                 onChange={processImport}
                 className="hidden"
-                accept=".csv"
+                accept=".xlsx,.xls,.csv"
               />
               <button
                 type="button"
@@ -1031,7 +1047,7 @@ export default function ItemsList() {
                 className="btn-outline"
                 onClick={downloadTemplateCSV}
               >
-                Download Template
+                Download Template (Excel)
               </button>
               <button
                 type="button"
@@ -1214,22 +1230,18 @@ export default function ItemsList() {
                       </span>
                     </td>
                     <td>
-                      {canPerformAction("inventory:items", "view") && (
-                        <Link
-                          to={`/inventory/items/${it.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                      )}
-                      {canPerformAction("inventory:items", "edit") && (
-                        <Link
-                          to={`/inventory/items/${it.id}?mode=edit`}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                        >
-                          Edit
-                        </Link>
-                      )}
+                      <Link
+                        to={`/inventory/items/${it.id}?mode=view`}
+                        className="text-brand hover:text-brand-700 text-sm font-medium"
+                      >
+                        View
+                      </Link>
+                      <Link
+                        to={`/inventory/items/${it.id}?mode=edit`}
+                        className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                      >
+                        Edit
+                      </Link>
                     </td>
                   </tr>
                 ))}

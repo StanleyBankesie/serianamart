@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { toast } from "react-toastify";
+import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
 
 export default function SalesOrderList() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { canPerformAction } = usePermission();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -23,6 +26,8 @@ export default function SalesOrderList() {
   const [targetApproverId, setTargetApproverId] = useState(null);
   const [submittingForward, setSubmittingForward] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [forwardedTo, setForwardedTo] = useState({});
+  const [returnedFlags, setReturnedFlags] = useState({});
   const [companyInfo, setCompanyInfo] = useState({
     name: "",
     address: "",
@@ -50,12 +55,7 @@ export default function SalesOrderList() {
         const fname = String(u.full_name || "").trim();
         const name = String(u.name || "").trim();
         const email = String(u.email || "").trim();
-        const pb =
-          uname ||
-          fname ||
-          name ||
-          email ||
-          "";
+        const pb = uname || fname || name || email || "";
         if (mounted) setPreparedBy(pb);
         if (!companyId) return;
         const cResp = await api.get(`/admin/companies/${companyId}`);
@@ -87,6 +87,76 @@ export default function SalesOrderList() {
     };
   }, []);
 
+  // Ensure highlighted document is present after redirect
+  useEffect(() => {
+    const ref = location.state?.highlightRef;
+    if (!ref) return;
+    let cancelled = false;
+    async function ensureVisible() {
+      const start = Date.now();
+      while (!cancelled && Date.now() - start < 5000) {
+        try {
+          const res = await api.get("/sales/orders");
+          const items = Array.isArray(res.data?.items) ? res.data.items : [];
+          setOrders(items);
+          const hit = items.find((it) => String(it.order_no) === String(ref));
+          if (hit) break;
+        } catch {}
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    }
+    ensureVisible();
+    return () => {
+      cancelled = true;
+    };
+  }, [location.state?.highlightRef]);
+
+  useEffect(() => {
+    function onWorkflowStatus(e) {
+      try {
+        const d = e.detail || {};
+        const id = Number(d.documentId || d.document_id);
+        const status = String(d.status || "").toUpperCase();
+        const action = String(d.action || "").toUpperCase();
+        if (!id || !status) return;
+        const normalized = status === "RETURNED" ? "DRAFT" : status;
+        setOrders((prev) =>
+          prev.map((x) =>
+            Number(x.id) === id
+              ? {
+                  ...x,
+                  status: normalized,
+                  ...(normalized === "DRAFT"
+                    ? { forwarded_to_username: null }
+                    : {}),
+                }
+              : x,
+          ),
+        );
+      } catch {}
+      if (normalized === "DRAFT") {
+        if (action === "RETURN") {
+          setReturnedFlags((prev) => ({ ...prev, [id]: true }));
+        }
+        setForwardedTo((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
+      if (normalized !== "DRAFT") {
+        setReturnedFlags((prev) => {
+          if (!prev[id]) return prev;
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
+    }
+    window.addEventListener("omni.workflow.status", onWorkflowStatus);
+    return () =>
+      window.removeEventListener("omni.workflow.status", onWorkflowStatus);
+  }, []);
   function escapeHtml(v) {
     return String(v ?? "")
       .replace(/&/g, "&amp;")
@@ -137,7 +207,9 @@ export default function SalesOrderList() {
       const unit = Number(d.unit_price ?? 0);
       const disc = Number(d.discount_percent ?? 0);
       const tax = Number(d.tax_amount ?? 0);
-      const total = Number(d.total_amount ?? qty * unit - (qty * unit * disc) / 100 + tax);
+      const total = Number(
+        d.total_amount ?? qty * unit - (qty * unit * disc) / 100 + tax,
+      );
       return {
         sr: String(idx + 1),
         code: String(d.item_code || ""),
@@ -150,14 +222,20 @@ export default function SalesOrderList() {
         amount: total.toFixed(2),
       };
     });
-    const sub = items.reduce((s, it) => s + Number(it.price) * Number(it.quantity), 0);
+    const sub = items.reduce(
+      (s, it) => s + Number(it.price) * Number(it.quantity),
+      0,
+    );
     const discTotal = items.reduce(
-      (s, it) => s + (Number(it.price) * Number(it.quantity) * Number(it.discount)) / 100,
+      (s, it) =>
+        s +
+        (Number(it.price) * Number(it.quantity) * Number(it.discount)) / 100,
       0,
     );
     const taxTotal = items.reduce((s, it) => s + Number(it.tax || 0), 0);
     const net = sub - discTotal;
-    const totalBase = header.net_amount ?? header.total_amount ?? (net + taxTotal);
+    const totalBase =
+      header.net_amount ?? header.total_amount ?? net + taxTotal;
     const total = Number(totalBase ?? 0);
     return {
       company: {
@@ -310,7 +388,9 @@ export default function SalesOrderList() {
     try {
       const resp = await api.get(`/sales/orders/${id}`);
       const header = resp.data?.item || {};
-      const details = Array.isArray(resp.data?.details) ? resp.data.details : [];
+      const details = Array.isArray(resp.data?.details)
+        ? resp.data.details
+        : [];
       const data = buildSalesOrderTemplateDataFromApi(header, details);
       const html = wrapDoc(renderSalesOrderHtml(data));
       const iframe = document.createElement("iframe");
@@ -321,7 +401,8 @@ export default function SalesOrderList() {
       iframe.style.height = "0";
       iframe.style.border = "0";
       document.body.appendChild(iframe);
-      const doc = iframe.contentWindow?.document || iframe.contentDocument || null;
+      const doc =
+        iframe.contentWindow?.document || iframe.contentDocument || null;
       if (!doc) {
         document.body.removeChild(iframe);
         return;
@@ -346,7 +427,9 @@ export default function SalesOrderList() {
     try {
       const resp = await api.get(`/sales/orders/${id}`);
       const header = resp.data?.item || {};
-      const details = Array.isArray(resp.data?.details) ? resp.data.details : [];
+      const details = Array.isArray(resp.data?.details)
+        ? resp.data.details
+        : [];
       const data = buildSalesOrderTemplateDataFromApi(header, details);
       const html = renderSalesOrderHtml(data);
       const container = document.createElement("div");
@@ -360,7 +443,10 @@ export default function SalesOrderList() {
       document.body.appendChild(container);
       try {
         await waitForImages(container);
-        const canvas = await html2canvas(container, { scale: 2, useCORS: true });
+        const canvas = await html2canvas(container, {
+          scale: 2,
+          useCORS: true,
+        });
         const imgData = canvas.toDataURL("image/png");
         const pdf = new jsPDF("p", "mm", "a4");
         const pageWidth = pdf.internal.pageSize.getWidth();
@@ -389,12 +475,34 @@ export default function SalesOrderList() {
     fetchOrders();
   }, []);
 
+  useEffect(() => {
+    const t = setInterval(() => {
+      // lightweight refresh to update forwarded_to_username and statuses
+      fetchOrders();
+    }, 30000);
+    return () => clearInterval(t);
+  }, []);
+
   const fetchOrders = async () => {
     try {
       setLoading(true);
       setError("");
       const response = await api.get("/sales/orders");
-      setOrders(Array.isArray(response.data?.items) ? response.data.items : []);
+      const items = Array.isArray(response.data?.items)
+        ? response.data.items
+        : [];
+      const fwd = {};
+      for (const it of items) {
+        const st = String(it.status || "").toUpperCase();
+        if (
+          it.forwarded_to_username &&
+          !["DRAFT", "RETURNED", "REJECTED"].includes(st)
+        ) {
+          fwd[it.id] = String(it.forwarded_to_username);
+        }
+      }
+      setForwardedTo(fwd);
+      setOrders(items);
     } catch (error) {
       setError(error?.response?.data?.message || "Error fetching orders");
       console.error("Error fetching orders:", error);
@@ -578,6 +686,60 @@ export default function SalesOrderList() {
     setSubmittingForward(true);
     setWfError("");
     try {
+      // Optimistically update UI to "Forwarded to {username}" immediately
+      let optimisticApprover = null;
+      try {
+        const first =
+          Array.isArray(workflowSteps) && workflowSteps.length
+            ? workflowSteps[0]
+            : null;
+        const opts = first
+          ? Array.isArray(first.approvers) && first.approvers.length
+            ? first.approvers.map((u) => ({
+                id: u.id,
+                name: u.username,
+              }))
+            : first.approver_user_id
+              ? [
+                  {
+                    id: first.approver_user_id,
+                    name: first.approver_name || String(first.approver_user_id),
+                  },
+                ]
+              : []
+          : [];
+        if (targetApproverId && opts.length) {
+          const hit = opts.find(
+            (u) => Number(u.id) === Number(targetApproverId),
+          );
+          optimisticApprover = hit ? hit.name : null;
+        }
+      } catch {}
+      setOrders((prev) =>
+        prev.map((x) =>
+          x.id === selectedOrder.id
+            ? {
+                ...x,
+                status: "PENDING_APPROVAL",
+                forwarded_to_username:
+                  optimisticApprover || x.forwarded_to_username || "Approver",
+              }
+            : x,
+        ),
+      );
+      setForwardedTo((prev) => ({
+        ...prev,
+        [selectedOrder.id]:
+          optimisticApprover || prev[selectedOrder.id] || "Approver",
+      }));
+      setReturnedFlags((prev) => {
+        if (!prev[selectedOrder.id]) return prev;
+        const next = { ...prev };
+        delete next[selectedOrder.id];
+        return next;
+      });
+      setShowForwardModal(false);
+
       const amount =
         selectedOrder.total_amount === undefined ||
         selectedOrder.total_amount === null
@@ -594,12 +756,19 @@ export default function SalesOrderList() {
           x.id === selectedOrder.id ? { ...x, status: newStatus } : x,
         ),
       );
-      setShowForwardModal(false);
-      setSelectedOrder(null);
+      try {
+        toast.success("Sales order forwarded for approval");
+      } catch {}
+      try {
+        await fetchOrders();
+      } catch {}
     } catch (e) {
       setWfError(
         e?.response?.data?.message || "Failed to forward for approval",
       );
+      try {
+        await fetchOrders();
+      } catch {}
     } finally {
       setSubmittingForward(false);
     }
@@ -713,8 +882,9 @@ export default function SalesOrderList() {
                               View
                             </button>
                           )}
-                          {String(order.status || "").toUpperCase() !==
-                            "CONFIRMED" &&
+                          {!["APPROVED", "POSTED", "CONFIRMED"].includes(
+                            String(order.status || "").toUpperCase(),
+                          ) &&
                             canPerformAction("sales:sales-orders", "edit") && (
                               <button
                                 onClick={() =>
@@ -727,20 +897,64 @@ export default function SalesOrderList() {
                                 Edit
                               </button>
                             )}
-                          {order.status === "APPROVED" ? (
-                            <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                              Approved
+                          {["APPROVED", "CONFIRMED"].includes(
+                            String(order.status || "").toUpperCase(),
+                          ) ? (
+                            <>
+                              <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
+                                Approved
+                              </span>
+                              <ReverseApprovalButton
+                                docType="SALES_ORDER"
+                                docId={order.id}
+                                onDone={() =>
+                                  setOrders((prev) =>
+                                    prev.map((x) =>
+                                      x.id === order.id
+                                        ? {
+                                            ...x,
+                                            status: "REVERSED",
+                                            forwarded_to_username: null,
+                                          }
+                                        : x,
+                                    ),
+                                  )
+                                }
+                              />
+                            </>
+                          ) : String(order.status || "").toUpperCase() ===
+                            "POSTED" ? (
+                            <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-indigo-600 text-white">
+                              Posted
                             </span>
-                          ) : order.status === "DRAFT" ? (
-                            <button
-                              type="button"
-                              className="ml-3 text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 transition-colors"
-                              onClick={() => openForwardModal(order)}
-                              disabled={submittingForward}
-                            >
-                              Forward for Approval
-                            </button>
-                          ) : null}
+                          ) : ["DRAFT", "RETURNED", "REJECTED"].includes(
+                              String(order.status || "").toUpperCase(),
+                            ) || returnedFlags[order.id] ? (
+                            <span className="ml-3 inline-flex items-center gap-2">
+                              {returnedFlags[order.id] ? (
+                                <span className="text-xs font-semibold px-2 py-0.5 rounded bg-yellow-100 text-yellow-800 border border-yellow-300">
+                                  Returned
+                                </span>
+                              ) : null}
+                              <button
+                                type="button"
+                                className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 transition-colors"
+                                onClick={() => openForwardModal(order)}
+                                disabled={submittingForward}
+                              >
+                                Forward for Approval
+                              </button>
+                            </span>
+                          ) : (
+                            <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
+                              Forwarded to{" "}
+                              {order.forwarded_to_username
+                                ? order.forwarded_to_username
+                                : forwardedTo[order.id]
+                                  ? forwardedTo[order.id]
+                                  : "Approver"}
+                            </span>
+                          )}
                           <button
                             onClick={() => printSalesOrder(order.id)}
                             className="inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"

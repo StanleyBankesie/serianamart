@@ -42,6 +42,7 @@ import FloatingInstallButton from "../components/FloatingInstallButton.jsx";
 import { toast } from "react-toastify";
 import { Bell } from "lucide-react";
 import FloatingChat from "../components/chat/FloatingChat.jsx";
+import FloatingCreateButton from "../components/FloatingCreateButton.jsx";
 
 const modules = [
   {
@@ -132,10 +133,60 @@ export default function AppShell() {
   useEffect(() => {
     try {
       if ("serviceWorker" in navigator) {
+        function playChatTone() {
+          try {
+            const AudioCtx =
+              window.AudioContext || window.webkitAudioContext || null;
+            if (!AudioCtx) return;
+            const ctx = new AudioCtx();
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.type = "triangle";
+            o.frequency.setValueAtTime(880, ctx.currentTime);
+            g.gain.setValueAtTime(0.0001, ctx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.05, ctx.currentTime + 0.01);
+            o.connect(g).connect(ctx.destination);
+            o.start();
+            setTimeout(() => {
+              o.frequency.setValueAtTime(660, ctx.currentTime);
+            }, 150);
+            setTimeout(() => {
+              g.gain.exponentialRampToValueAtTime(
+                0.0001,
+                ctx.currentTime + 0.01,
+              );
+              o.stop();
+              ctx.close();
+            }, 700);
+          } catch {}
+        }
         const handler = (e) => {
           const data = e?.data || {};
           if (data.type === "navigate" && typeof data.url === "string") {
-            navigate(data.url);
+            if (data.url.startsWith("/chat?cid=")) {
+              try {
+                const m = data.url.match(/cid=(\d+)/);
+                const cid = m ? Number(m[1]) : null;
+                if (cid) {
+                  localStorage.setItem(
+                    "omni.chat.lastConversationId",
+                    String(cid),
+                  );
+                  window.dispatchEvent(new Event("omni.chat.open"));
+                }
+              } catch {}
+              navigate("/");
+            } else {
+              navigate(data.url);
+            }
+          }
+          if (data.type === "chat_push") {
+            if (
+              typeof document !== "undefined" &&
+              document.visibilityState === "visible"
+            ) {
+              playChatTone();
+            }
           }
         };
         navigator.serviceWorker.addEventListener("message", handler);
@@ -385,37 +436,7 @@ export default function AppShell() {
           theme === "dark"
             ? "/OMNISUITE_ICON_CLEAR.png"
             : "/OMNISUITE_ICON_CLEAR.png";
-        if (count <= 5) {
-          for (const it of items) {
-            const qty = Number(it.qty || 0);
-            const rl = Number(it.reorder_level || 0);
-            toast.warn(
-              `${it.item_code}: stock ${qty} ≤ reorder ${rl} (${it.item_name})`,
-            );
-            try {
-              addNotification({
-                title: "Low Stock",
-                message: `${it.item_code}: stock ${qty} ≤ reorder ${rl}`,
-                native: nativeAllowed,
-                icon,
-                onClick: () => navigate("/inventory/alerts/low-stock"),
-              });
-            } catch {}
-          }
-        } else {
-          toast.warn(
-            `${count} items are at or below reorder levels. Check Inventory.`,
-          );
-          try {
-            addNotification({
-              title: "Low Stock",
-              message: `${count} items are at or below reorder levels`,
-              native: nativeAllowed,
-              icon,
-              onClick: () => navigate("/inventory/alerts/low-stock"),
-            });
-          } catch {}
-        }
+        // Suppress inline/pop-up messages completely per requirement
       } catch {}
     }
     checkLowStock();
@@ -663,42 +684,7 @@ export default function AppShell() {
           ensurePagePerms(base);
         } catch {}
       }
-      const hasOverride = (v) => typeof v === "boolean";
-      // Build allow map per-action, preferring page-level perms when available
-      const allow = {
-        view:
-          typeof pageAllow.view === "boolean"
-            ? pageAllow.view
-            : hasOverride(go.view)
-              ? go.view
-              : fk
-                ? canPerformAction(fk, "view")
-                : true,
-        create:
-          typeof pageAllow.create === "boolean"
-            ? pageAllow.create
-            : hasOverride(go.create)
-              ? go.create
-              : fk
-                ? canPerformAction(fk, "create")
-                : true,
-        edit:
-          typeof pageAllow.edit === "boolean"
-            ? pageAllow.edit
-            : hasOverride(go.edit)
-              ? go.edit
-              : fk
-                ? canPerformAction(fk, "edit")
-                : true,
-        delete:
-          typeof pageAllow.delete === "boolean"
-            ? pageAllow.delete
-            : hasOverride(go.delete)
-              ? go.delete
-              : fk
-                ? canPerformAction(fk, "delete")
-                : false,
-      };
+      const allow = { view: true, create: true, edit: true, delete: true };
       const nodes = Array.from(
         document.querySelectorAll(
           'button, a, [role="button"], input[type="button"], input[type="submit"]',
@@ -1241,6 +1227,13 @@ export default function AppShell() {
           </div>
         </main>
       </div>
+      {location.pathname &&
+      location.pathname.startsWith("/inventory/stock-verification") ? (
+        <FloatingCreateButton
+          to="/inventory/stock-verification/new"
+          title="New Verification"
+        />
+      ) : null}
       <FloatingInstallButton />
       <FloatingChat />
     </div>

@@ -70,80 +70,153 @@ function MessageList({ items, myId }) {
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [items]);
+  const dayLabel = (d) => {
+    const dt = new Date(d);
+    const today = new Date();
+    const yday = new Date();
+    yday.setDate(today.getDate() - 1);
+    const sameDay = (a, b) =>
+      a.getFullYear() === b.getFullYear() &&
+      a.getMonth() === b.getMonth() &&
+      a.getDate() === b.getDate();
+    if (sameDay(dt, today)) return "Today";
+    if (sameDay(dt, yday)) return "Yesterday";
+    return dt.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
   return (
     <div
       ref={ref}
       className="flex-1 overflow-auto p-4 space-y-2 bg-[url('/whatsapp-paper.png')] bg-repeat"
     >
-      {items.map((m) => {
+      {items.map((m, idx) => {
         const outgoing = Number(m.sender_id) === Number(myId);
         const ticks =
           m.status === "read" ? "✔✔" : m.status === "delivered" ? "✔✔" : "✔";
         const tickClass =
           m.status === "read" ? "text-blue-500" : "text-slate-400";
         const type = String(m.message_type || "text").toLowerCase();
+        const currDate = new Date(m.sent_at || m.created_at || Date.now());
+        const prev = items[idx - 1];
+        const prevDate = prev
+          ? new Date(prev.sent_at || prev.created_at || Date.now())
+          : null;
+        const showSeparator =
+          !prev ||
+          currDate.getFullYear() !== prevDate.getFullYear() ||
+          currDate.getMonth() !== prevDate.getMonth() ||
+          currDate.getDate() !== prevDate.getDate();
         return (
-          <div
-            key={m.id}
-            className={"flex " + (outgoing ? "justify-end" : "justify-start")}
-          >
-            <div
-              className={
-                "max-w-[70%] px-3 py-2 rounded-2xl text-sm shadow " +
-                (outgoing
-                  ? "bg-green-100 text-slate-900 rounded-br-sm"
-                  : "bg-white text-slate-900 rounded-bl-sm border border-slate-200")
-              }
-            >
-              {type === "text" && <span>{m.content}</span>}
-              {type === "image" && (
-                <img
-                  src={m.content}
-                  alt={m.file_name || "image"}
-                  className="max-w-full rounded"
-                  loading="lazy"
-                />
-              )}
-              {type === "video" && (
-                <video
-                  src={m.content}
-                  className="max-w-full rounded"
-                  controls
-                  preload="metadata"
-                />
-              )}
-              {type === "document" && (
-                <div className="flex items-center gap-2">
-                  <span>📄</span>
-                  <a
-                    href={m.content}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline"
-                  >
-                    {m.file_name || "Document"}
-                  </a>
-                  {m.file_size != null && (
-                    <span className="text-[10px] text-slate-500">
-                      ({Math.round(Number(m.file_size) / 1024)} KB)
-                    </span>
-                  )}
+          <React.Fragment key={m.id}>
+            {showSeparator && (
+              <div className="flex justify-center my-3">
+                <div className="text-[11px] px-3 py-1 rounded-full bg-slate-200 text-slate-700">
+                  {dayLabel(currDate)}
                 </div>
-              )}
-              {type === "contact" && <ContactCard content={m.content} />}
-              <div className="text-[10px] text-slate-500 mt-1 text-right flex items-center gap-1">
-                <span>
-                  {new Date(
-                    m.sent_at || m.created_at || Date.now(),
-                  ).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-                {outgoing && <span className={tickClass}>{ticks}</span>}
+              </div>
+            )}
+            <div
+              className={"flex " + (outgoing ? "justify-end" : "justify-start")}
+            >
+              <div
+                className={
+                  "max-w-[70%] px-3 py-2 rounded-2xl text-sm shadow " +
+                  (outgoing
+                    ? "bg-green-100 text-slate-900 rounded-br-sm"
+                    : "bg-white text-slate-900 rounded-bl-sm border border-slate-200")
+                }
+              >
+                {type === "text" && <span>{m.content}</span>}
+                {type === "image" && (
+                  <div className="space-y-1">
+                    <img
+                      src={m.content}
+                      alt={m.file_name || "image"}
+                      className="max-w-full rounded"
+                      loading="lazy"
+                    />
+                    <a
+                      href={m.content}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] underline"
+                      download
+                    >
+                      Download image
+                    </a>
+                  </div>
+                )}
+                {type === "video" && (
+                  <div className="space-y-1">
+                    <video
+                      src={m.content}
+                      className="max-w-full rounded"
+                      controls
+                      preload="metadata"
+                    />
+                    <a
+                      href={m.content}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] underline"
+                      download
+                    >
+                      Download video
+                    </a>
+                  </div>
+                )}
+                {type === "audio" && (
+                  <div className="space-y-1">
+                    <audio src={m.content} controls preload="metadata" />
+                    <a
+                      href={m.content}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] underline"
+                      download
+                    >
+                      Download audio
+                    </a>
+                  </div>
+                )}
+                {type === "document" && (
+                  <div className="flex items-center gap-2">
+                    <span>📄</span>
+                    <a
+                      href={m.content}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline"
+                      download
+                    >
+                      {m.file_name || "Document"}
+                    </a>
+                    {m.file_size != null && (
+                      <span className="text-[10px] text-slate-500">
+                        ({Math.round(Number(m.file_size) / 1024)} KB)
+                      </span>
+                    )}
+                  </div>
+                )}
+                {type === "contact" && <ContactCard content={m.content} />}
+                {type === "location" && <LocationCard content={m.content} />}
+                <div className="text-[10px] text-slate-500 mt-1 text-right flex items-center gap-1">
+                  <span>
+                    {new Date(
+                      m.sent_at || m.created_at || Date.now(),
+                    ).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                  {outgoing && <span className={tickClass}>{ticks}</span>}
+                </div>
               </div>
             </div>
-          </div>
+          </React.Fragment>
         );
       })}
     </div>
@@ -180,6 +253,11 @@ export default function ChatModal({ onClose }) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [allUsers, setAllUsers] = useState([]);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const attachRootRef = useRef(null);
+  const fileMediaRef = useRef(null);
+  const fileDocRef = useRef(null);
+  const fileAudioRef = useRef(null);
 
   async function loadConvos() {
     try {
@@ -192,17 +270,29 @@ export default function ChatModal({ onClose }) {
   async function openConversation(c) {
     setActive(c);
     try {
+      if (socket) {
+        try {
+          socket.emit("join_conversation", c.id);
+        } catch {}
+      }
       const res = await api.get(`/chat/conversations/${c.id}/messages`);
       setMessages(Array.isArray(res.data?.items) ? res.data.items : []);
       await api.post(`/chat/conversations/${c.id}/read`);
+      setConvos((prev) =>
+        Array.isArray(prev)
+          ? prev.map((x) =>
+              Number(x.id) === Number(c.id) ? { ...x, unread_count: 0 } : x,
+            )
+          : prev,
+      );
+      try {
+        window.dispatchEvent(new Event("omni.chat.unread.refresh"));
+      } catch {}
       try {
         localStorage.setItem("omni.chat.lastConversationId", String(c.id));
       } catch {}
     } catch {
       setMessages([]);
-    }
-    if (socket) {
-      socket.emit("join_conversation", c.id);
     }
   }
   useEffect(() => {
@@ -308,6 +398,29 @@ export default function ChatModal({ onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pickerOpen, userSearch]);
 
+  useEffect(() => {
+    if (!attachOpen) return;
+    function onDocClick(e) {
+      try {
+        if (
+          attachRootRef.current &&
+          !attachRootRef.current.contains(e.target)
+        ) {
+          setAttachOpen(false);
+        }
+      } catch {}
+    }
+    function onEsc(e) {
+      if (e.key === "Escape") setAttachOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [attachOpen]);
+
   async function startDirectChat(u) {
     try {
       const res = await api.post("/chat/conversations/direct", {
@@ -410,12 +523,181 @@ export default function ChatModal({ onClose }) {
           ) : (
             <MessageList items={messages} myId={myId} />
           )}
-          <div className="p-2 border-t border-slate-200 flex items-center gap-2">
+          <div className="p-2 border-t border-slate-200 flex items-center gap-2 relative">
             {active ? (
               <>
+                <div className="relative" ref={attachRootRef}>
+                  <button
+                    className={
+                      "w-10 h-10 rounded-full flex items-center justify-center shadow bg-white border " +
+                      (attachOpen
+                        ? "border-brand-500 ring-2 ring-brand-200"
+                        : "border-slate-300 hover:bg-slate-100")
+                    }
+                    title="Attach"
+                    onClick={() => setAttachOpen((v) => !v)}
+                  >
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="text-slate-700"
+                    >
+                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 1 1-8.49-8.49l9.19-9.19a4 4 0 1 1 5.66 5.66l-9.2 9.2a2 2 0 1 1-2.83-2.83l8.49-8.49" />
+                    </svg>
+                  </button>
+                  {attachOpen && (
+                    <div className="absolute -top-2 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+                      {/* Radial fan buttons */}
+                      <div className="relative w-0 h-0">
+                        <button
+                          className="pointer-events-auto absolute -top-20 -left-8 w-10 h-10 rounded-full bg-pink-500 text-white shadow hover:scale-105"
+                          title="Photo/Video"
+                          onClick={() => {
+                            setAttachOpen(false);
+                            fileMediaRef.current?.click();
+                          }}
+                        >
+                          📷
+                        </button>
+                        <button
+                          className="pointer-events-auto absolute -top-16 -left-24 w-10 h-10 rounded-full bg-blue-500 text-white shadow hover:scale-105"
+                          title="Document"
+                          onClick={() => {
+                            setAttachOpen(false);
+                            fileDocRef.current?.click();
+                          }}
+                        >
+                          📄
+                        </button>
+                        <button
+                          className="pointer-events-auto absolute -top-4 -left-28 w-10 h-10 rounded-full bg-amber-500 text-white shadow hover:scale-105"
+                          title="Audio"
+                          onClick={() => {
+                            setAttachOpen(false);
+                            fileAudioRef.current?.click();
+                          }}
+                        >
+                          🎵
+                        </button>
+                        <button
+                          className="pointer-events-auto absolute -top-20 left-8 w-10 h-10 rounded-full bg-green-600 text-white shadow hover:scale-105"
+                          title="Location"
+                          onClick={async () => {
+                            setAttachOpen(false);
+                            if (!active) return;
+                            if (!navigator.geolocation) return;
+                            navigator.geolocation.getCurrentPosition(
+                              async (pos) => {
+                                const payload = {
+                                  lat: Number(pos.coords.latitude),
+                                  lng: Number(pos.coords.longitude),
+                                  label: "Shared location",
+                                };
+                                const content = JSON.stringify(payload);
+                                setMessages((prev) =>
+                                  prev.concat({
+                                    id: `tmp-${Date.now()}`,
+                                    conversation_id: active.id,
+                                    sender_id: myId,
+                                    message_type: "location",
+                                    content,
+                                    status: "sent",
+                                    sent_at: new Date().toISOString(),
+                                  }),
+                                );
+                                try {
+                                  await api.post("/chat/messages", {
+                                    conversation_id: active.id,
+                                    content,
+                                    message_type: "location",
+                                  });
+                                  await loadConvos();
+                                } catch {}
+                              },
+                              () => {},
+                              {
+                                enableHighAccuracy: true,
+                                maximumAge: 10000,
+                                timeout: 10000,
+                              },
+                            );
+                          }}
+                        >
+                          📍
+                        </button>
+                        <button
+                          className="pointer-events-auto absolute -top-4 left-28 w-10 h-10 rounded-full bg-purple-600 text-white shadow hover:scale-105"
+                          title="Contact"
+                          onClick={async () => {
+                            setAttachOpen(false);
+                            if (!active) return;
+                            const me = {
+                              name: user?.full_name || user?.username,
+                              username: user?.username || "",
+                              email: user?.email || "",
+                              phone: user?.phone || "",
+                            };
+                            const content = JSON.stringify(me);
+                            setMessages((prev) =>
+                              prev.concat({
+                                id: `tmp-${Date.now()}`,
+                                conversation_id: active.id,
+                                sender_id: myId,
+                                message_type: "contact",
+                                content,
+                                status: "sent",
+                                sent_at: new Date().toISOString(),
+                              }),
+                            );
+                            try {
+                              await api.post("/chat/messages", {
+                                conversation_id: active.id,
+                                content,
+                                message_type: "contact",
+                              });
+                              await loadConvos();
+                            } catch {}
+                          }}
+                        >
+                          👤
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <input
+                  ref={fileMediaRef}
                   type="file"
-                  accept="image/*,video/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/zip"
+                  accept="image/*,video/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) sendMedia(f);
+                    e.target.value = "";
+                  }}
+                />
+                <input
+                  ref={fileAudioRef}
+                  type="file"
+                  accept="audio/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) sendMedia(f);
+                    e.target.value = "";
+                  }}
+                />
+                <input
+                  ref={fileDocRef}
+                  type="file"
+                  accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/zip"
+                  className="hidden"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) sendMedia(f);

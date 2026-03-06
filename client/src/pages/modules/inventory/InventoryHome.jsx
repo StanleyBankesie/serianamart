@@ -33,8 +33,6 @@ import IssueToRequirementList from "./IssueToRequirementList.jsx";
 import IssueToRequirementForm from "./IssueToRequirementForm.jsx";
 import ModuleDashboard from "../../../components/ModuleDashboard.jsx";
 import { api } from "../../../api/client.js";
-import SalesReturnList from "../sales/returns/SalesReturnList.jsx";
-import SalesReturnForm from "../sales/returns/SalesReturnForm.jsx";
 import StockReorderPage from "./StockReorderPage.jsx";
 import StockUploadPage from "./StockUploadPage.jsx";
 import InventoryHealthMonitorPage from "./reports/InventoryHealthMonitorPage.jsx";
@@ -47,9 +45,9 @@ import StockAgingAnalysisReportPage from "./reports/StockAgingAnalysisReportPage
 import SlowMovingReportPage from "./reports/SlowMovingReportPage.jsx";
 import FastMovingReportPage from "./reports/FastMovingReportPage.jsx";
 import NonMovingReportPage from "./reports/NonMovingReportPage.jsx";
+import StockBalancesReportPage from "./reports/StockBalancesReportPage.jsx";
 import LowStockNotificationsPage from "./LowStockNotificationsPage.jsx";
-import PurchaseReturnList from "./purchase-returns/PurchaseReturnList.jsx";
-import PurchaseReturnForm from "./purchase-returns/PurchaseReturnForm.jsx";
+// Removed Sales Return from Inventory, and moved Purchase Return to Purchase module
 
 function InventoryFeaturePage({ title, description }) {
   return (
@@ -224,23 +222,7 @@ function InventoryHomeIndex() {
         },
       ],
     },
-    {
-      title: "Returns",
-      features: [
-        {
-          name: "Sales Return",
-          path: "/inventory/sales-returns",
-          description: "Process customer returns",
-          icon: "↩",
-        },
-        {
-          name: "Purchase Return",
-          path: "/inventory/purchase-returns",
-          description: "Return goods to suppliers",
-          icon: "↩",
-        },
-      ],
-    },
+    // Returns section removed from Inventory (Sales Return hidden, Purchase Return moved to Purchase)
     {
       title: "Master Data Setup",
       features: [
@@ -274,25 +256,19 @@ function InventoryHomeIndex() {
       title: "Reports",
       features: [
         {
-          name: "Inventory Reports",
-          path: "/inventory/reports",
-          description: "Stock reports and analytics",
-          icon: "📊",
-        },
-        {
           name: "Health Monitor",
           path: "/inventory/reports/health-monitor",
           description: "Low stock and coverage analysis",
           icon: "🩺",
         },
         {
-          name: "Periodical Stock Summary",
+          name: "Stock Summary",
           path: "/inventory/reports/periodical-stock-summary",
           description: "Summary of movements by period",
           icon: "🗓️",
         },
         {
-          name: "Periodical Stock Statement",
+          name: "Stock Statement",
           path: "/inventory/reports/periodical-stock-statement",
           description: "Detailed item movements by period",
           icon: "🧾",
@@ -308,6 +284,12 @@ function InventoryHomeIndex() {
           path: "/inventory/reports/stock-transfer-register",
           description: "Transfers between warehouses",
           icon: "🔁",
+        },
+        {
+          name: "Stock Balances",
+          path: "/inventory/reports/stock-balances",
+          description: "Available stock by warehouse",
+          icon: "📦",
         },
         {
           name: "Stock Verification",
@@ -348,6 +330,9 @@ function InventoryHomeIndex() {
       title="Inventory Management"
       description="Stock management, warehouse operations, and inventory control"
       stats={stats}
+      headerActions={[
+        { label: "Dashboard", path: "/inventory/dashboard", icon: "📊" },
+      ]}
       sections={sections}
       features={inventoryFeatures}
     />
@@ -358,6 +343,16 @@ export default function InventoryHome() {
   return (
     <Routes>
       <Route index element={<InventoryHomeIndex />} />
+      <Route
+        path="dashboard"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(() => import("./InventoryDashboardPage.jsx")),
+            )}
+          </React.Suspense>
+        }
+      />
       <Route
         path="material-requisitions"
         element={<MaterialRequisitionList />}
@@ -404,10 +399,7 @@ export default function InventoryHome() {
       <Route path="grn-local/:id" element={<GRNLocalForm />} />
       <Route path="grn-import" element={<GRNImportList />} />
       <Route path="grn-import/:id" element={<GRNImportForm />} />
-      <Route path="sales-returns" element={<SalesReturnList />} />
-      <Route path="sales-returns/new" element={<SalesReturnForm />} />
-      <Route path="purchase-returns" element={<PurchaseReturnList />} />
-      <Route path="purchase-returns/new" element={<PurchaseReturnForm />} />
+      {/* Sales Return and Purchase Return routes removed from Inventory */}
       <Route path="items" element={<ItemsList />} />
       <Route path="items/:id" element={<ItemForm />} />
       <Route path="item-groups" element={<ItemGroupsList />} />
@@ -416,15 +408,7 @@ export default function InventoryHome() {
       <Route path="unit-conversions/:id" element={<UnitConversionForm />} />
       <Route path="warehouses" element={<WarehousesList />} />
       <Route path="warehouses/:id" element={<WarehouseForm />} />
-      <Route
-        path="reports"
-        element={
-          <InventoryFeaturePage
-            title="Inventory Reports"
-            description="Stock reports and analytics"
-          />
-        }
-      />
+
       <Route
         path="reports/health-monitor"
         element={<InventoryHealthMonitorPage />}
@@ -446,6 +430,10 @@ export default function InventoryHome() {
         element={<StockTransferRegisterReportPage />}
       />
       <Route
+        path="reports/stock-balances"
+        element={<StockBalancesReportPage />}
+      />
+      <Route
         path="reports/stock-verification"
         element={<StockVerificationReportPage />}
       />
@@ -462,34 +450,166 @@ export default function InventoryHome() {
 }
 
 export const inventoryFeatures = [
-  { module_key: "inventory", label: "Material Requisition", path: "/inventory/material-requisitions", type: "feature" },
-  { module_key: "inventory", label: "Stock Upload", path: "/inventory/stock-upload", type: "feature" },
-  { module_key: "inventory", label: "Stock Updation", path: "/inventory/stock-updation", type: "feature" },
-  { module_key: "inventory", label: "Stock Verification", path: "/inventory/stock-verification", type: "feature" },
-  { module_key: "inventory", label: "Return to Stores Advice", path: "/inventory/return-to-stores", type: "feature" },
-  { module_key: "inventory", label: "Stock Adjustment", path: "/inventory/stock-adjustments", type: "feature" },
-  { module_key: "inventory", label: "Issue to Requirement Area", path: "/inventory/issue-to-requirement", type: "feature" },
-  { module_key: "inventory", label: "Warehouse Stock Transfer", path: "/inventory/stock-transfers", type: "feature" },
-  { module_key: "inventory", label: "Transfer Acceptance", path: "/inventory/transfer-acceptance", type: "feature" },
-  { module_key: "inventory", label: "Stock Reorder", path: "/inventory/stock-reorder", type: "feature" },
-  { module_key: "inventory", label: "Daily Stock Take", path: "/inventory/stock-take", type: "feature" },
-  { module_key: "inventory", label: "Material Receipt (GRN) - Local", path: "/inventory/grn-local", type: "feature" },
-  { module_key: "inventory", label: "Material Receipt (GRN) - Import", path: "/inventory/grn-import", type: "feature" },
-  { module_key: "inventory", label: "Sales Return", path: "/inventory/sales-returns", type: "feature" },
-  { module_key: "inventory", label: "Purchase Return", path: "/inventory/purchase-returns", type: "feature" },
-  { module_key: "inventory", label: "Items Setup", path: "/inventory/items", type: "feature" },
-  { module_key: "inventory", label: "Item Groups & Sub Groups", path: "/inventory/item-groups", type: "feature" },
-  { module_key: "inventory", label: "Unit Conversion", path: "/inventory/unit-conversions", type: "feature" },
-  { module_key: "inventory", label: "Warehouse Setup", path: "/inventory/warehouses", type: "feature" },
-  { module_key: "inventory", label: "Inventory Reports", path: "/inventory/reports", type: "dashboard" },
-  { module_key: "inventory", label: "Health Monitor", path: "/inventory/reports/health-monitor", type: "dashboard" },
-  { module_key: "inventory", label: "Periodical Stock Summary", path: "/inventory/reports/periodical-stock-summary", type: "dashboard" },
-  { module_key: "inventory", label: "Periodical Stock Statement", path: "/inventory/reports/periodical-stock-statement", type: "dashboard" },
-  { module_key: "inventory", label: "Issue Register", path: "/inventory/reports/issue-register", type: "dashboard" },
-  { module_key: "inventory", label: "Stock Transfer Register", path: "/inventory/reports/stock-transfer-register", type: "dashboard" },
-  { module_key: "inventory", label: "Stock Verification", path: "/inventory/reports/stock-verification", type: "dashboard" },
-  { module_key: "inventory", label: "Stock Aging Analysis", path: "/inventory/reports/stock-aging-analysis", type: "dashboard" },
-  { module_key: "inventory", label: "Slow Moving Items", path: "/inventory/reports/slow-moving", type: "dashboard" },
-  { module_key: "inventory", label: "Fast Moving Items", path: "/inventory/reports/fast-moving", type: "dashboard" },
-  { module_key: "inventory", label: "Non Moving Items", path: "/inventory/reports/non-moving", type: "dashboard" },
+  {
+    module_key: "inventory",
+    label: "Material Requisition",
+    path: "/inventory/material-requisitions",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Stock Upload",
+    path: "/inventory/stock-upload",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Stock Updation",
+    path: "/inventory/stock-updation",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Stock Verification",
+    path: "/inventory/stock-verification",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Return to Stores Advice",
+    path: "/inventory/return-to-stores",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Stock Adjustment",
+    path: "/inventory/stock-adjustments",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Issue to Requirement Area",
+    path: "/inventory/issue-to-requirement",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Warehouse Stock Transfer",
+    path: "/inventory/stock-transfers",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Transfer Acceptance",
+    path: "/inventory/transfer-acceptance",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Stock Reorder",
+    path: "/inventory/stock-reorder",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Daily Stock Take",
+    path: "/inventory/stock-take",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Material Receipt (GRN) - Local",
+    path: "/inventory/grn-local",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Material Receipt (GRN) - Import",
+    path: "/inventory/grn-import",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Items Setup",
+    path: "/inventory/items",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Item Groups & Sub Groups",
+    path: "/inventory/item-groups",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Unit Conversion",
+    path: "/inventory/unit-conversions",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Warehouse Setup",
+    path: "/inventory/warehouses",
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
+    label: "Health Monitor",
+    path: "/inventory/reports/health-monitor",
+    type: "dashboard",
+  },
+  {
+    module_key: "inventory",
+    label: "Stock Summary",
+    path: "/inventory/reports/periodical-stock-summary",
+    type: "dashboard",
+  },
+  {
+    module_key: "inventory",
+    label: "Stock Statement",
+    path: "/inventory/reports/periodical-stock-statement",
+    type: "dashboard",
+  },
+  {
+    module_key: "inventory",
+    label: "Issue Register",
+    path: "/inventory/reports/issue-register",
+    type: "dashboard",
+  },
+  {
+    module_key: "inventory",
+    label: "Stock Transfer Register",
+    path: "/inventory/reports/stock-transfer-register",
+    type: "dashboard",
+  },
+  {
+    module_key: "inventory",
+    label: "Stock Verification",
+    path: "/inventory/reports/stock-verification",
+    type: "dashboard",
+  },
+  {
+    module_key: "inventory",
+    label: "Stock Aging Analysis",
+    path: "/inventory/reports/stock-aging-analysis",
+    type: "dashboard",
+  },
+  {
+    module_key: "inventory",
+    label: "Slow Moving Items",
+    path: "/inventory/reports/slow-moving",
+    type: "dashboard",
+  },
+  {
+    module_key: "inventory",
+    label: "Fast Moving Items",
+    path: "/inventory/reports/fast-moving",
+    type: "dashboard",
+  },
+  {
+    module_key: "inventory",
+    label: "Non Moving Items",
+    path: "/inventory/reports/non-moving",
+    type: "dashboard",
+  },
 ];

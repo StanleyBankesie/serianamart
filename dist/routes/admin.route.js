@@ -10,6 +10,8 @@ import {
   createExceptionalPermission,
   getMe,
   getDashboardStats,
+  getExceptionalPermissionsForUser,
+  bulkUpsertExceptionalPermissionsForUser,
 } from "../controllers/admin.controller.js";
 
 import {
@@ -20,6 +22,12 @@ import {
 import { requirePermission } from "../middleware/requirePermission.js";
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
+import {
+  ensureRoleModulesTable,
+  ensureRolePermissionsTable,
+  ensureRoleFeaturesTable,
+} from "../utils/dbUtils.js";
+import { ensureUserPermissionCacheAndTriggers } from "../utils/dbUtils.js";
 import {
   createBranch,
   getBranchById,
@@ -54,7 +62,21 @@ import {
   getUserPermissionsContext,
   saveUserPermissions,
   getUserAssignments,
+  saveUserFeaturePermissions,
+  getUserFeaturePermissionsContext,
+  getUserFeaturePermissionsList,
 } from "../controllers/users.controller.js";
+import {
+  getRoles as getRolesRbac,
+  createRole as createRoleRbac,
+  updateRole as updateRoleRbac,
+  getRoleModules,
+  saveRoleModules,
+  getRolePermissions,
+  saveRolePermissions,
+  getRoleFeatures,
+  saveRoleFeatures,
+} from "../controllers/rbac.controller.js";
 
 const router = express.Router();
 
@@ -204,12 +226,20 @@ async function ensurePagesTable() {
       name VARCHAR(100) NOT NULL,
       code VARCHAR(100) NOT NULL UNIQUE,
       path VARCHAR(255) NULL,
+      feature_key VARCHAR(150) NULL,
       is_active TINYINT(1) DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       INDEX idx_module (module)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  // Backwards-compatible: add feature_key column if it does not exist yet
+  if (!(await hasColumn("adm_pages", "feature_key"))) {
+    await query(
+      `ALTER TABLE adm_pages ADD COLUMN feature_key VARCHAR(150) NULL AFTER path`,
+    );
+  }
 }
 
 async function ensurePagesSeed() {
@@ -699,6 +729,11 @@ async function ensurePagesSeed() {
       module: "Purchase",
       name: "Purchase Bill Import Edit",
       path: "/purchase/purchase-bills-import/:id",
+    },
+    {
+      module: "Purchase",
+      name: "Direct Purchase",
+      path: "/purchase/direct-purchase",
     },
     { module: "Purchase", name: "Suppliers", path: "/purchase/suppliers" },
     {
@@ -1221,6 +1256,43 @@ async function ensureUserPermissionsTable() {
   `);
 }
 
+function deriveActionAndBase(page) {
+  const path = String(page?.path || "");
+  const parts = path.split("/").filter(Boolean);
+  if (!parts.length) {
+    return { base: path, action: "view" };
+  }
+  const seg = parts[parts.length - 1];
+  let action = "view";
+  if (seg === "new" || seg === "create") action = "create";
+  else if (seg && seg.startsWith(":")) action = "edit";
+  const name = String(page?.name || "");
+  if (/\bDelete\b/i.test(name)) action = "delete";
+  let baseParts = parts.slice();
+  if (action !== "view") {
+    baseParts = parts.slice(0, parts.length - 1);
+  }
+  const base = baseParts.length > 0 ? `/${baseParts.join("/")}` : path || "/";
+  return { base, action };
+}
+
+function basePathFromRequestPath(p) {
+  const raw = String(p || "").trim() || "/";
+  const parts = raw.split("/").filter(Boolean);
+  if (parts.length >= 2) {
+    const last = parts[parts.length - 1];
+    if (last === "new" || last === "create") {
+      return `/${parts.slice(0, parts.length - 1).join("/")}`;
+    }
+    if (/^[0-9]+$/.test(last) || /^[0-9a-fA-F-]{8,}$/.test(last)) {
+      return `/${parts.slice(0, parts.length - 1).join("/")}`;
+    }
+    return `/${parts.slice(0, 2).join("/")}`;
+  }
+  if (parts.length === 1) return `/${parts[0]}`;
+  return "/";
+}
+
 function requirePageAccess(path, action = "view") {
   return async function pageAccessMiddleware(req, res, next) {
     try {
@@ -1233,7 +1305,7 @@ function requirePageAccess(path, action = "view") {
         return next(httpError(401, "UNAUTHORIZED", "Invalid user"));
       }
       const rows = await query(
-        `SELECT id, module FROM adm_pages WHERE path = :path AND is_active = 1 LIMIT 1`,
+        `SELECT id, module, name, path FROM adm_pages WHERE path = :path AND is_active = 1 LIMIT 1`,
         { path },
       );
       const page = rows[0];
@@ -1247,19 +1319,23 @@ function requirePageAccess(path, action = "view") {
       const roleId = Number(users?.[0]?.role_id || 0);
       await ensureRolePagesTable();
       await ensureUserPermissionsTable();
-      let can_view = 0;
+      if (!roleId) {
+        return next(httpError(403, "FORBIDDEN", "Role not assigned"));
+      }
+      const roleHasPageRows = await query(
+        `SELECT 1 
+         FROM adm_role_pages 
+         WHERE role_id = :rid AND page_id = :pid 
+         LIMIT 1`,
+        { rid: roleId, pid: page.id },
+      );
+      if (!roleHasPageRows.length) {
+        return next(httpError(403, "FORBIDDEN", "Insufficient page rights"));
+      }
+      let can_view = 1;
       let can_create = 0;
       let can_edit = 0;
       let can_delete = 0;
-      if (roleId > 0) {
-        const rp = await query(
-          `SELECT 1 FROM adm_role_pages WHERE role_id = :rid AND page_id = :pid LIMIT 1`,
-          { rid: roleId, pid: page.id },
-        );
-        if (rp.length) {
-          can_view = 1;
-        }
-      }
       const upRows = await query(
         `SELECT can_view, can_create, can_edit, can_delete 
          FROM adm_user_permissions 
@@ -1268,14 +1344,15 @@ function requirePageAccess(path, action = "view") {
         { uid: userId, pid: page.id },
       );
       if (upRows.length) {
-        can_view = Number(upRows[0].can_view) ? 1 : can_view;
-        can_create = Number(upRows[0].can_create) ? 1 : 0;
-        can_edit = Number(upRows[0].can_edit) ? 1 : 0;
-        can_delete = Number(upRows[0].can_delete) ? 1 : 0;
+        const row = upRows[0];
+        can_view = Number(row.can_view) ? 1 : 0;
+        can_create = Number(row.can_create) ? 1 : 0;
+        can_edit = Number(row.can_edit) ? 1 : 0;
+        can_delete = Number(row.can_delete) ? 1 : 0;
       }
       if (action === "view" && can_view) return next();
-      if (action === "create" && (can_create || can_edit)) return next();
-      if (action === "edit" && (can_edit || can_create)) return next();
+      if (action === "create" && can_create) return next();
+      if (action === "edit" && can_edit) return next();
       if (action === "delete" && can_delete) return next();
       return next(httpError(403, "FORBIDDEN", "Insufficient page rights"));
     } catch (err) {
@@ -1479,40 +1556,11 @@ router.put("/departments/:id", requireAuth, updateDepartment);
 
 // ===== PAGES =====
 
-router.get("/pages", requireAuth, listPages);
+// legacy pages API removed under hybrid model
 
 // ===== ROLES =====
 
-router.get(
-  "/roles",
-  requireAuth,
-  requirePermission("ADMIN.ROLES.VIEW"),
-  listRoles,
-);
-
-router.get(
-  "/roles/:id",
-  requireAuth,
-  requireCompanyScope,
-  requirePermission("ADMIN.ROLES.VIEW"),
-  getRoleById,
-);
-
-router.post(
-  "/roles",
-  requireAuth,
-  requireCompanyScope,
-  requirePermission("ADMIN.ROLES.MANAGE"),
-  createRole,
-);
-
-router.put(
-  "/roles/:id",
-  requireAuth,
-  requireCompanyScope,
-  requirePermission("ADMIN.ROLES.MANAGE"),
-  updateRole,
-);
+// legacy roles APIs removed; replaced by access routes
 
 // ===== USERS =====
 
@@ -1566,64 +1614,158 @@ router.patch(
   patchUser,
 );
 
-// ===== USER PERMISSIONS =====
+router.post(
+  "/users/:id/feature-permissions",
+  requireAuth,
+  saveUserFeaturePermissions,
+);
 
 router.get(
-  "/users/:id/permissions-context",
+  "/users/:id/feature-permissions-context",
   requireAuth,
-  requirePermission("ADMIN.USERS.MANAGE"),
-  getUserPermissionsContext,
+  getUserFeaturePermissionsContext,
 );
 
-router.post(
-  "/users/:id/permissions",
+router.get(
+  "/users/:id/feature-permissions",
   requireAuth,
-  requirePermission("ADMIN.USERS.MANAGE"),
-  saveUserPermissions,
+  getUserFeaturePermissionsList,
 );
 
-router.get("/user-assignments", requireAuth, getUserAssignments);
+// ===== Exceptional Permissions (User-scoped) =====
+router.get(
+  "/users/:id/exceptional-permissions",
+  requireAuth,
+  getExceptionalPermissionsForUser,
+);
+router.put(
+  "/users/:id/exceptional-permissions",
+  requireAuth,
+  bulkUpsertExceptionalPermissionsForUser,
+);
+
+// Global exceptional permissions list/detail
+router.get("/exceptional-permissions", requireAuth, listExceptionalPermissions);
+router.get(
+  "/exceptional-permissions/:id",
+  requireAuth,
+  getExceptionalPermissionById,
+);
+
+// Page-level permissions snapshot for current user on a given path
+router.get("/page-permissions", requireAuth, async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.sub || req.user?.id);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return next(httpError(401, "UNAUTHORIZED", "Invalid user"));
+    }
+    await ensurePagesTable();
+    await ensureUserPermissionsTable();
+    try {
+      await ensureUserPermissionCacheAndTriggers();
+    } catch {}
+    const reqPath = String(req.query?.path || "").trim() || "/";
+    const base = basePathFromRequestPath(reqPath);
+    const pages = await query(
+      `SELECT id, path, feature_key FROM adm_pages WHERE path = :path AND is_active = 1 LIMIT 1`,
+      { path: base },
+    );
+    if (!pages.length) {
+      return res.json({
+        path: base,
+        can_view: 0,
+        can_create: 0,
+        can_edit: 0,
+        can_delete: 0,
+      });
+    }
+    const page = pages[0];
+    // Start with role-level defaults using feature_key (if present)
+    let roleDefaults = {
+      can_view: 0,
+      can_create: 0,
+      can_edit: 0,
+      can_delete: 0,
+    };
+    try {
+      const segs = String(base || "/")
+        .split("/")
+        .filter(Boolean);
+      const mk = segs[0] || "";
+      const feat = segs[1] || "";
+      const fk = mk && feat ? `${mk}:${feat}` : null;
+      if (fk) {
+        const agg = await query(
+          `SELECT 
+             MAX(rp.can_view)   AS can_view,
+             MAX(rp.can_create) AS can_create,
+             MAX(rp.can_edit)   AS can_edit,
+             MAX(rp.can_delete) AS can_delete
+           FROM adm_role_permissions rp
+           JOIN adm_users u ON u.role_id = rp.role_id
+           WHERE u.id = :uid
+             AND (rp.feature_key = :fk OR rp.feature_key LIKE CONCAT(:fk, ':%'))
+           LIMIT 1`,
+          { uid: userId, fk },
+        );
+        if (agg.length) {
+          roleDefaults = {
+            can_view: Number(agg[0].can_view) ? 1 : 0,
+            can_create: Number(agg[0].can_create) ? 1 : 0,
+            can_edit: Number(agg[0].can_edit) ? 1 : 0,
+            can_delete: Number(agg[0].can_delete) ? 1 : 0,
+          };
+        }
+      }
+    } catch {}
+    // Prefer the effective cache table for performance; override role defaults if user-specific exists
+    let row = null;
+    try {
+      const eff = await query(
+        `SELECT can_view, can_create, can_edit, can_delete
+         FROM adm_page_permission_effective
+         WHERE user_id = :uid AND page_id = :pid
+         LIMIT 1`,
+        { uid: userId, pid: page.id },
+      );
+      if (eff.length) row = eff[0];
+    } catch {}
+    if (!row) {
+      const ups = await query(
+        `SELECT can_view, can_create, can_edit, can_delete
+         FROM adm_user_permissions
+         WHERE user_id = :uid AND page_id = :pid
+         LIMIT 1`,
+        { uid: userId, pid: page.id },
+      );
+      row = ups[0] || null;
+    }
+    const out = {
+      path: base,
+      can_view: roleDefaults.can_view,
+      can_create: roleDefaults.can_create,
+      can_edit: roleDefaults.can_edit,
+      can_delete: roleDefaults.can_delete,
+    };
+    if (row) {
+      out.can_view = Number(row.can_view) ? 1 : 0;
+      out.can_create = Number(row.can_create) ? 1 : 0;
+      out.can_edit = Number(row.can_edit) ? 1 : 0;
+      out.can_delete = Number(row.can_delete) ? 1 : 0;
+    }
+    res.json(out);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// legacy page-based user permissions removed
 
 // ===== DASHBOARD STATS =====
 
 // duplicate removed; single dashboard-stats route defined above
 
-// ===== EXCEPTIONAL PERMISSIONS =====
-
-router.get(
-  "/exceptional-permissions",
-  requireAuth,
-  requirePermission("ADMIN.EXCEPTIONS.VIEW"),
-  listExceptionalPermissions,
-);
-
-router.get(
-  "/exceptional-permissions/:id",
-  requireAuth,
-  requirePermission("ADMIN.EXCEPTIONS.VIEW"),
-  getExceptionalPermissionById,
-);
-
-router.post(
-  "/exceptional-permissions",
-  requireAuth,
-  requirePermission("ADMIN.EXCEPTIONS.MANAGE"),
-  createExceptionalPermission,
-);
-
-router.put(
-  "/exceptional-permissions/:id",
-  requireAuth,
-  requirePermission("ADMIN.EXCEPTIONS.MANAGE"),
-  updateExceptionalPermissionController,
-);
-
-router.delete(
-  "/exceptional-permissions/:id",
-  requireAuth,
-  requirePermission("ADMIN.EXCEPTIONS.MANAGE"),
-  deleteExceptionalPermissionController,
-);
+// legacy exceptional permissions APIs removed
 
 router.post("/error-logs", requireAuth, logErrorController);
 
@@ -1682,6 +1824,7 @@ router.get("/system-status", requireAuth, async (req, res, next) => {
       recentLogins,
     });
   } catch (err) {
+    console.error("Error in POST /api/admin/activity/log:", err);
     next(err);
   }
 });
@@ -1919,6 +2062,78 @@ router.delete("/push/unsubscribe", requireAuth, async (req, res, next) => {
       { endpoint },
     );
     res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===== RBAC SYSTEM ROUTES =====
+// ROLES MANAGEMENT
+router.get("/roles", requireAuth, getRolesRbac);
+router.post("/roles", requireAuth, createRoleRbac);
+router.put("/roles/:id", requireAuth, updateRoleRbac);
+
+// ROLE MODULES
+router.get("/role-modules/:roleId", requireAuth, getRoleModules);
+router.post("/role-modules", requireAuth, saveRoleModules);
+
+router.get("/role-permissions/:roleId", requireAuth, getRolePermissions);
+router.post("/role-permissions", requireAuth, saveRolePermissions);
+
+// ROLE FEATURES (allowlist)
+router.get("/role-features/:roleId", requireAuth, getRoleFeatures);
+router.post("/role-features", requireAuth, saveRoleFeatures);
+
+// USER PERMISSIONS ENDPOINT
+router.get("/user-permissions", requireAuth, async (req, res, next) => {
+  try {
+    // Ensure RBAC tables exist before querying
+    await ensureRoleModulesTable();
+    await ensureRolePermissionsTable();
+    await ensureRoleFeaturesTable();
+
+    const userId = Number(req.user?.sub || req.user?.id);
+
+    // Allow invalid user IDs to proceed but return empty permissions
+    if (userId === null || userId === undefined || !Number.isFinite(userId)) {
+      return res.json({ modules: [], permissions: [] });
+    }
+
+    // Get user's role
+    const roleResult = await query(
+      `SELECT role_id FROM adm_users WHERE id = :userId`,
+      { userId },
+    );
+
+    if (roleResult.length === 0 || !roleResult[0].role_id) {
+      return res.json({ modules: [], permissions: [] });
+    }
+
+    const roleId = roleResult[0].role_id;
+
+    // Get user's modules
+    const modules = await query(
+      `SELECT module_key FROM adm_role_modules WHERE role_id = :roleId`,
+      { roleId },
+    );
+
+    // Get user's permissions
+    const permissions = await query(
+      `SELECT module_key, feature_key, can_view, can_create, can_edit, can_delete 
+       FROM adm_role_permissions WHERE role_id = :roleId`,
+      { roleId },
+    );
+
+    const roleFeatures = await query(
+      `SELECT feature_key FROM adm_role_features WHERE role_id = :roleId`,
+      { roleId },
+    );
+
+    res.json({
+      modules: modules.map((m) => m.module_key),
+      permissions: permissions,
+      role_features: roleFeatures.map((rf) => String(rf.feature_key)),
+    });
   } catch (err) {
     next(err);
   }

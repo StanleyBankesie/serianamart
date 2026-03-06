@@ -1,4 +1,5 @@
 import { query } from "../db/pool.js";
+import { getAllFeatures } from "../data/featuresRegistry.js";
 
 export function toNumber(v, fallback = null) {
   const n = Number(v);
@@ -57,6 +58,9 @@ export async function ensureUserColumns() {
       `ALTER TABLE ${table} ADD COLUMN profile_picture LONGBLOB NULL`,
     );
   }
+  if (!(await hasColumn(table, "full_name"))) {
+    await query(`ALTER TABLE ${table} ADD COLUMN full_name VARCHAR(150) NULL`);
+  }
   if (!(await hasColumn(table, "is_employee"))) {
     await query(
       `ALTER TABLE ${table} ADD COLUMN is_employee TINYINT(1) DEFAULT 0`,
@@ -81,6 +85,16 @@ export async function ensureUserColumns() {
       `ALTER TABLE ${table} ADD COLUMN branch_id BIGINT UNSIGNED NULL`,
     );
   }
+  if (!(await hasColumn(table, "is_active"))) {
+    await query(
+      `ALTER TABLE ${table} ADD COLUMN is_active TINYINT(1) DEFAULT 1`,
+    );
+  }
+  if (!(await hasColumn(table, "created_at"))) {
+    await query(
+      `ALTER TABLE ${table} ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`,
+    );
+  }
 }
 
 export async function ensurePagesTable() {
@@ -91,12 +105,68 @@ export async function ensurePagesTable() {
       name VARCHAR(100) NOT NULL,
       code VARCHAR(100) NOT NULL UNIQUE,
       path VARCHAR(255) NULL,
+      feature_key VARCHAR(150) NULL,
       is_active TINYINT(1) DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       INDEX idx_module (module)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  // Backwards-compatible: add feature_key column if missing
+  if (!(await hasColumn("adm_pages", "feature_key"))) {
+    await query(
+      `ALTER TABLE adm_pages ADD COLUMN feature_key VARCHAR(150) NULL AFTER path`,
+    );
+  }
+
+  // Backfill feature_key for existing rows based on path
+  const allFeatures = getAllFeatures();
+  const pagesNeedingFk = await query(
+    `SELECT id, path FROM adm_pages WHERE feature_key IS NULL OR feature_key = ''`,
+    {},
+  );
+  for (const row of pagesNeedingFk) {
+    const rawPath = String(row.path || "").trim();
+    if (!rawPath) continue;
+    let bestFeatureKey = null;
+    let bestLen = -1;
+    for (const f of allFeatures) {
+      const fp = String(f.path || "").trim();
+      if (!fp) continue;
+      if (rawPath === fp || rawPath.startsWith(fp + "/")) {
+        if (fp.length > bestLen) {
+          bestLen = fp.length;
+          bestFeatureKey = String(f.feature_key || "").trim();
+        }
+      }
+    }
+    if (bestFeatureKey) {
+      await query(
+        `UPDATE adm_pages SET feature_key = :feature_key WHERE id = :id`,
+        { feature_key: bestFeatureKey, id: row.id },
+      );
+    }
+  }
+
+  const pagesStillNeedingFk = await query(
+    `SELECT id, path FROM adm_pages WHERE feature_key IS NULL OR feature_key = ''`,
+    {},
+  );
+  for (const row of pagesStillNeedingFk) {
+    const rawPath = String(row.path || "").trim();
+    if (!rawPath) continue;
+    const segs = rawPath.split("/").filter(Boolean);
+    if (segs.length < 2) continue;
+    const feature_key = `${segs[0]}:${segs[1]}`;
+    await query(
+      `UPDATE adm_pages SET feature_key = :feature_key WHERE id = :id`,
+      {
+        feature_key,
+        id: row.id,
+      },
+    );
+  }
 }
 
 export async function ensurePagesSeed() {
@@ -132,6 +202,11 @@ export async function ensurePagesSeed() {
       module: "Administration",
       name: "User Edit",
       path: "/administration/users/:id",
+    },
+    {
+      module: "Administration",
+      name: "User Management",
+      path: "/administration/users",
     },
     {
       module: "Administration",
@@ -681,6 +756,31 @@ export async function ensurePagesSeed() {
       path: "/service-management/service-requests/:id",
     },
     {
+      module: "Service Management",
+      name: "Service Orders",
+      path: "/service-management/service-orders",
+    },
+    {
+      module: "Service Management",
+      name: "Service Executions",
+      path: "/service-management/service-executions",
+    },
+    {
+      module: "Service Management",
+      name: "Service Confirmation",
+      path: "/service-management/service-confirmation",
+    },
+    {
+      module: "Service Management",
+      name: "Service Bills",
+      path: "/service-management/service-bills",
+    },
+    {
+      module: "Service Management",
+      name: "Service Setup",
+      path: "/service-management/setup",
+    },
+    {
       module: "Purchase",
       name: "Mass Suppliers Upload",
       path: "/purchase/suppliers/mass-upload",
@@ -971,14 +1071,42 @@ export async function ensurePagesSeed() {
       path: p.path,
     }));
   const allPages = [...pages, ...deleteDerived];
+
+  const allFeatures = getAllFeatures();
+
+  function deriveFeatureKeyFromPath(path) {
+    const rawPath = String(path || "").trim();
+    if (!rawPath) return null;
+    let bestFeatureKey = null;
+    let bestLen = -1;
+    for (const f of allFeatures) {
+      const fp = String(f.path || "").trim();
+      if (!fp) continue;
+      if (rawPath === fp || rawPath.startsWith(fp + "/")) {
+        if (fp.length > bestLen) {
+          bestLen = fp.length;
+          bestFeatureKey = String(f.feature_key || "").trim();
+        }
+      }
+    }
+    return bestFeatureKey;
+  }
+
   for (const p of allPages) {
     const code = `${p.module}_${p.name}`
       .toUpperCase()
       .replace(/[^A-Z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "");
+    const feature_key = deriveFeatureKeyFromPath(p.path);
     await query(
-      "INSERT IGNORE INTO adm_pages (module, name, code, path) VALUES (:module, :name, :code, :path)",
-      { module: p.module, name: p.name, code, path: p.path || null },
+      "INSERT IGNORE INTO adm_pages (module, name, code, path, feature_key) VALUES (:module, :name, :code, :path, :feature_key)",
+      {
+        module: p.module,
+        name: p.name,
+        code,
+        path: p.path || null,
+        feature_key: feature_key || null,
+      },
     );
   }
 }
@@ -1013,6 +1141,67 @@ export async function ensureUserPermissionsTable() {
       FOREIGN KEY (user_id) REFERENCES adm_users(id) ON DELETE CASCADE,
       FOREIGN KEY (page_id) REFERENCES adm_pages(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+export async function ensureUserPermissionCacheAndTriggers() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS adm_page_permission_effective (
+      user_id BIGINT UNSIGNED NOT NULL,
+      page_id BIGINT UNSIGNED NOT NULL,
+      can_view TINYINT(1) NOT NULL DEFAULT 0,
+      can_create TINYINT(1) NOT NULL DEFAULT 0,
+      can_edit TINYINT(1) NOT NULL DEFAULT 0,
+      can_delete TINYINT(1) NOT NULL DEFAULT 0,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, page_id),
+      KEY idx_page (page_id),
+      CONSTRAINT fk_e_user FOREIGN KEY (user_id) REFERENCES adm_users(id) ON DELETE CASCADE,
+      CONSTRAINT fk_e_page FOREIGN KEY (page_id) REFERENCES adm_pages(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  // Recreate triggers idempotently
+  await query(`DROP TRIGGER IF EXISTS trg_adm_user_permissions_ai`);
+  await query(`DROP TRIGGER IF EXISTS trg_adm_user_permissions_au`);
+  await query(`DROP TRIGGER IF EXISTS trg_adm_user_permissions_ad`);
+  await query(`
+    CREATE TRIGGER trg_adm_user_permissions_ai
+    AFTER INSERT ON adm_user_permissions
+    FOR EACH ROW
+    BEGIN
+      INSERT INTO adm_page_permission_effective (user_id, page_id, can_view, can_create, can_edit, can_delete, updated_at)
+      VALUES (NEW.user_id, NEW.page_id, NEW.can_view, NEW.can_create, NEW.can_edit, NEW.can_delete, NOW())
+      ON DUPLICATE KEY UPDATE
+        can_view = VALUES(can_view),
+        can_create = VALUES(can_create),
+        can_edit = VALUES(can_edit),
+        can_delete = VALUES(can_delete),
+        updated_at = NOW();
+    END
+  `);
+  await query(`
+    CREATE TRIGGER trg_adm_user_permissions_au
+    AFTER UPDATE ON adm_user_permissions
+    FOR EACH ROW
+    BEGIN
+      INSERT INTO adm_page_permission_effective (user_id, page_id, can_view, can_create, can_edit, can_delete, updated_at)
+      VALUES (NEW.user_id, NEW.page_id, NEW.can_view, NEW.can_create, NEW.can_edit, NEW.can_delete, NOW())
+      ON DUPLICATE KEY UPDATE
+        can_view = VALUES(can_view),
+        can_create = VALUES(can_create),
+        can_edit = VALUES(can_edit),
+        can_delete = VALUES(can_delete),
+        updated_at = NOW();
+    END
+  `);
+  await query(`
+    CREATE TRIGGER trg_adm_user_permissions_ad
+    AFTER DELETE ON adm_user_permissions
+    FOR EACH ROW
+    BEGIN
+      DELETE FROM adm_page_permission_effective
+      WHERE user_id = OLD.user_id AND page_id = OLD.page_id;
+    END
   `);
 }
 
@@ -1369,6 +1558,58 @@ export async function ensureSalesOrderColumns() {
       `ALTER TABLE ${orderDetails} ADD COLUMN uom VARCHAR(50) DEFAULT 'PCS'`,
     );
   }
+}
+
+export async function ensureRoleModulesTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS adm_role_modules (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      role_id BIGINT UNSIGNED NOT NULL,
+      module_key VARCHAR(100) NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_role_module (role_id, module_key),
+      KEY idx_rm_role (role_id),
+      KEY idx_rm_module (module_key),
+      FOREIGN KEY (role_id) REFERENCES adm_roles(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+export async function ensureRolePermissionsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS adm_role_permissions (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      role_id BIGINT UNSIGNED NOT NULL,
+      module_key VARCHAR(100) NOT NULL,
+      feature_key VARCHAR(100) NOT NULL,
+      can_view TINYINT(1) DEFAULT 0,
+      can_create TINYINT(1) DEFAULT 0,
+      can_edit TINYINT(1) DEFAULT 0,
+      can_delete TINYINT(1) DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_role_module_feature (role_id, module_key, feature_key),
+      KEY idx_rp_role (role_id),
+      KEY idx_rp_module (module_key),
+      FOREIGN KEY (role_id) REFERENCES adm_roles(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+export async function ensureRoleFeaturesTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS adm_role_features (
+      role_id BIGINT UNSIGNED NOT NULL,
+      feature_key VARCHAR(150) NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (role_id, feature_key),
+      INDEX idx_role_id (role_id),
+      INDEX idx_feature_key (feature_key),
+      FOREIGN KEY (role_id) REFERENCES adm_roles(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
 }
 
 export async function ensureTemplateTables() {

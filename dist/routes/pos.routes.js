@@ -5,6 +5,7 @@ import {
   requireCompanyScope,
   requireBranchScope,
 } from "../middleware/auth.js";
+import { checkModuleAccess, checkFeatureAction } from "../middleware/access.js";
 import { requirePermission } from "../middleware/requirePermission.js";
 import { pool, query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
@@ -657,6 +658,15 @@ router.get(
            AND MONTH(invoice_date) = MONTH(CURDATE())`,
         { companyId, branchId },
       );
+      const [monthAvg] = await query(
+        `SELECT COALESCE(AVG(total_amount), 0) AS avg_amt
+         FROM sal_invoices 
+         WHERE company_id = :companyId 
+           AND branch_id = :branchId 
+           AND YEAR(invoice_date) = YEAR(CURDATE()) 
+           AND MONTH(invoice_date) = MONTH(CURDATE())`,
+        { companyId, branchId },
+      );
       const [customers] = await query(
         `SELECT COUNT(*) AS count 
          FROM sal_customers 
@@ -665,7 +675,8 @@ router.get(
       );
       res.json({
         todaySales: Number(today?.total || 0),
-        averageOrder: Number(today?.avg_amt || 0),
+        // Average order amount for current month
+        averageOrder: Number(monthAvg?.avg_amt || 0),
         transactions: Number(today?.count || 0),
         monthlyRevenue: Number(month?.total || 0),
         totalCustomers: Number(customers?.count || 0),
@@ -1420,28 +1431,33 @@ router.post(
       } = req.body || {};
       await ensurePosTables();
       await ensureStockBalancesWarehouseInfrastructure();
-      const [openRows] = await conn.execute(
-        `
-        SELECT id
-        FROM pos_day_status
-        WHERE company_id = :companyId
-          AND branch_id = :branchId
-          AND business_date = CURDATE()
-          ${terminal ? "AND terminal_code = :terminal" : ""}
-          AND status = 'OPEN'
-        ORDER BY open_datetime DESC
-        LIMIT 1
-        `,
-        terminal
-          ? { companyId, branchId, terminal: String(terminal || "") }
-          : { companyId, branchId },
-      );
-      if (!openRows || !openRows.length) {
-        throw httpError(
-          400,
-          "VALIDATION_ERROR",
-          "Day is not open. Please open the POS day before sales entry.",
+      // Enforce daily POS day requirement:
+      // - A day must be opened for today's business date before sales are allowed
+      // - Sales remain allowed even if the day has been closed, as long as it's the same date
+      {
+        const [dayRows] = await conn.execute(
+          `
+          SELECT id, status
+          FROM pos_day_status
+          WHERE company_id = :companyId
+            AND branch_id = :branchId
+            AND business_date = CURDATE()
+            ${terminal ? "AND terminal_code = :terminal" : ""}
+          ORDER BY open_datetime DESC
+          LIMIT 1
+          `,
+          terminal
+            ? { companyId, branchId, terminal: String(terminal || "") }
+            : { companyId, branchId },
         );
+        if (!dayRows || dayRows.length === 0) {
+          throw httpError(
+            400,
+            "VALIDATION_ERROR",
+            "Open POS day required for today. Please open day in POS Setup.",
+          );
+        }
+        // If found and status is OPEN or CLOSED, proceed (CLOSED still allowed same day)
       }
       await conn.beginTransaction();
 

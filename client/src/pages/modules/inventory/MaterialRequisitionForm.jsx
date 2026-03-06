@@ -146,13 +146,13 @@ export default function MaterialRequisitionForm() {
                   qtyIssued: 0,
                   uom: "PCS",
                 },
-              ]
+              ],
         );
       })
       .catch((e) => {
         if (!mounted) return;
         setError(
-          e?.response?.data?.message || "Failed to load material requisition"
+          e?.response?.data?.message || "Failed to load material requisition",
         );
       })
       .finally(() => {
@@ -210,10 +210,12 @@ export default function MaterialRequisitionForm() {
         await api.put(`/inventory/material-requisitions/${id}`, payload);
       }
 
-      navigate("/inventory/material-requisitions");
+      navigate("/inventory/material-requisitions", {
+        state: { refresh: true },
+      });
     } catch (e2) {
       setError(
-        e2?.response?.data?.message || "Failed to save material requisition"
+        e2?.response?.data?.message || "Failed to save material requisition",
       );
     } finally {
       setSaving(false);
@@ -247,7 +249,7 @@ export default function MaterialRequisitionForm() {
       const targetId = newId || id;
       const submitRes = await api.post(
         `/inventory/material-requisitions/${targetId}/submit`,
-        { amount: null }
+        { amount: null },
       );
       const instanceId = submitRes?.data?.instanceId;
       setFormData((prev) => ({
@@ -257,13 +259,15 @@ export default function MaterialRequisitionForm() {
       if (instanceId) {
         navigate(`/administration/workflows/approvals/${instanceId}`);
       } else {
-        navigate("/inventory/material-requisitions");
+        navigate("/inventory/material-requisitions", {
+          state: { refresh: true },
+        });
       }
     } catch (e2) {
       setError(
         e2?.response?.data?.message ||
           e2?.message ||
-          "Failed to forward for approval"
+          "Failed to forward for approval",
       );
     } finally {
       setSaving(false);
@@ -297,7 +301,7 @@ export default function MaterialRequisitionForm() {
     return availableItems.filter(
       (i) =>
         (i.item_code && i.item_code.toLowerCase().includes(lower)) ||
-        (i.item_name && i.item_name.toLowerCase().includes(lower))
+        (i.item_name && i.item_name.toLowerCase().includes(lower)),
     );
   }, [availableItems, itemSearch]);
 
@@ -508,7 +512,7 @@ export default function MaterialRequisitionForm() {
                             onChange={(e) => {
                               const selectedId = e.target.value;
                               const selected = availableItems.find(
-                                (ai) => String(ai.id) === String(selectedId)
+                                (ai) => String(ai.id) === String(selectedId),
                               );
                               const updated = items.map((i) =>
                                 i.id === item.id
@@ -518,7 +522,7 @@ export default function MaterialRequisitionForm() {
                                       itemCode: selected?.item_code || "",
                                       itemName: selected?.item_name || "",
                                     }
-                                  : i
+                                  : i,
                               );
                               setItems(updated);
                             }}
@@ -526,7 +530,7 @@ export default function MaterialRequisitionForm() {
                           >
                             <option value="">Select Item</option>
                             {!availableItems.some(
-                              (ai) => String(ai.id) === String(item.item_id)
+                              (ai) => String(ai.id) === String(item.item_id),
                             ) &&
                               item.item_id && (
                                 <option value={item.item_id}>
@@ -560,10 +564,10 @@ export default function MaterialRequisitionForm() {
                                       ...i,
                                       qtyRequested: Math.max(
                                         0,
-                                        parseInt(e.target.value, 10) || 0
+                                        parseInt(e.target.value, 10) || 0,
                                       ),
                                     }
-                                  : i
+                                  : i,
                               );
                               setItems(updated);
                             }}
@@ -589,7 +593,7 @@ export default function MaterialRequisitionForm() {
                               const updated = items.map((i) =>
                                 i.id === item.id
                                   ? { ...i, uom: e.target.value }
-                                  : i
+                                  : i,
                               );
                               setItems(updated);
                             }}

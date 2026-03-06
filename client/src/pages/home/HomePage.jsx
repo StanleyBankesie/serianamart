@@ -1,14 +1,22 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { usePermission } from "../../auth/PermissionContext.jsx";
 import client from "../../api/client";
 import CompanyFeed from "../../components/CompanyFeed/CompanyFeed";
+import { toast } from "react-toastify";
+import { getModuleDashboards } from "../../data/modulesRegistry.js";
 
 export default function HomePage() {
   const { user, token } = useAuth();
-  const { canAccessPath, hasRoleFeature, canViewDashboardElement } =
-    usePermission();
+  const {
+    canAccessPath,
+    hasRoleFeature,
+    canViewDashboardElement,
+    canReverseApproval,
+    getEnabledModules,
+    isModuleEnabled,
+  } = usePermission();
   const navigate = useNavigate();
   const [pendingItems, setPendingItems] = useState([]);
   const [notifications, setNotifications] = useState([]);
@@ -24,6 +32,239 @@ export default function HomePage() {
   const [modalProcessing, setModalProcessing] = useState(false);
   const [modalNextUser, setModalNextUser] = useState(null);
   // legacy chat widget removed
+  const postRef = useRef(null);
+  const pendingHeaderRef = useRef(null);
+  const [pendingHeight, setPendingHeight] = useState(null);
+  const [reportsModules, setReportsModules] = useState([]);
+  const [roleFeatures, setRoleFeatures] = useState([]);
+  const [allFeatures, setAllFeatures] = useState([]);
+  const [activeModule, setActiveModule] = useState(null);
+  const moduleReportsMap = useMemo(
+    () => ({
+      inventory: [
+        { label: "Stock Balances", path: "/inventory/reports/stock-balances" },
+        { label: "Issue Register", path: "/inventory/reports/issue-register" },
+        {
+          label: "Stock Summary",
+          path: "/inventory/reports/periodical-stock-summary",
+        },
+        {
+          label: "Stock Statement",
+          path: "/inventory/reports/periodical-stock-statement",
+        },
+        {
+          label: "Stock Transfer Register",
+          path: "/inventory/reports/stock-transfer-register",
+        },
+        {
+          label: "Stock Verification",
+          path: "/inventory/reports/stock-verification",
+        },
+        {
+          label: "Stock Aging Analysis",
+          path: "/inventory/reports/stock-aging-analysis",
+        },
+        { label: "Slow Moving Items", path: "/inventory/reports/slow-moving" },
+        { label: "Fast Moving Items", path: "/inventory/reports/fast-moving" },
+        { label: "Non Moving Items", path: "/inventory/reports/non-moving" },
+      ],
+      purchase: [
+        {
+          label: "Supplier Quotation Analysis",
+          path: "/purchase/reports/supplier-quotation-analysis",
+        },
+        {
+          label: "Import Purchase Order Tracking",
+          path: "/purchase/reports/import-order-tracking",
+        },
+        {
+          label: "Local Purchase Order Tracking",
+          path: "/purchase/reports/local-order-tracking",
+        },
+        {
+          label: "Pending GRN → Bill (Local)",
+          path: "/purchase/reports/pending-grn-to-bill-local",
+        },
+        {
+          label: "Pending GRN → Bill (Import)",
+          path: "/purchase/reports/pending-grn-to-bill-import",
+        },
+        {
+          label: "Import Order List",
+          path: "/purchase/reports/import-order-list",
+        },
+        {
+          label: "Pending Shipment Details",
+          path: "/purchase/reports/pending-shipments",
+        },
+        {
+          label: "Purchase Register",
+          path: "/purchase/reports/purchase-register",
+        },
+      ],
+      sales: [
+        { label: "Debtors Balance", path: "/sales/reports/debtors-balance" },
+        {
+          label: "Sales Profitability",
+          path: "/sales/reports/sales-profitability",
+        },
+        { label: "Sales Tracking", path: "/sales/reports/sales-tracking" },
+      ],
+      finance: [
+        {
+          label: "Voucher Register",
+          path: "/finance/reports/voucher-register",
+        },
+        { label: "Payment Due", path: "/finance/reports/payment-due" },
+        {
+          label: "Customer Outstanding",
+          path: "/finance/reports/customer-outstanding",
+        },
+        { label: "Trial Balance", path: "/finance/reports/trial-balance" },
+        { label: "Audit Trail", path: "/finance/reports/audit-trail" },
+        { label: "Journal Report", path: "/finance/reports/journals" },
+        { label: "General Ledger", path: "/finance/reports/general-ledger" },
+        { label: "Debtors Ledger", path: "/finance/reports/debtors-ledger" },
+        {
+          label: "Creditors Ledger",
+          path: "/finance/reports/creditors-ledger",
+        },
+        {
+          label: "Supplier Outstanding",
+          path: "/finance/reports/supplier-outstanding",
+        },
+        { label: "Profit & Loss", path: "/finance/reports/profit-and-loss" },
+        { label: "Balance Sheet", path: "/finance/reports/balance-sheet" },
+        { label: "Cash Flow", path: "/finance/reports/cash-flow" },
+        { label: "Ratio Analysis", path: "/finance/reports/ratio-analysis" },
+      ],
+      "service-management": [
+        {
+          label: "Service Request Summary",
+          path: "/service-management/reports/service-request-summary",
+        },
+        {
+          label: "Service Order Status",
+          path: "/service-management/reports/service-order-status",
+        },
+        {
+          label: "Execution Performance",
+          path: "/service-management/reports/execution-performance",
+        },
+        {
+          label: "SLA Compliance",
+          path: "/service-management/reports/sla-compliance",
+        },
+        {
+          label: "Service Revenue",
+          path: "/service-management/reports/service-revenue",
+        },
+        {
+          label: "Outstanding Service Bills",
+          path: "/service-management/reports/outstanding-bills",
+        },
+        {
+          label: "Service Confirmation",
+          path: "/service-management/reports/service-confirmation",
+        },
+        {
+          label: "Technician Utilization",
+          path: "/service-management/reports/technician-utilization",
+        },
+        {
+          label: "Service Cost Analysis",
+          path: "/service-management/reports/service-cost-analysis",
+        },
+        {
+          label: "Repeat Service Requests",
+          path: "/service-management/reports/repeat-requests",
+        },
+        {
+          label: "Service Type Performance",
+          path: "/service-management/reports/service-type-performance",
+        },
+      ],
+      administration: [
+        {
+          label: "System Log Book Report",
+          path: "/administration/reports/system-log-book",
+        },
+        {
+          label: "User Login Activity",
+          path: "/administration/reports/user-login-activity",
+        },
+      ],
+    }),
+    [],
+  );
+  const moduleDashboardPath = useMemo(
+    () => ({
+      sales: "/sales/dashboard",
+      purchase: "/purchase/dashboard",
+      finance: "/finance/dashboard",
+      "human-resources": "/human-resources/dashboard",
+      "service-management": "/service-management/dashboard",
+      pos: "/pos/dashboard",
+      inventory: "/inventory/dashboard",
+      "business-intelligence": "/business-intelligence/analytics",
+    }),
+    [],
+  );
+
+  useEffect(() => {
+    function measure() {
+      try {
+        const root = postRef.current;
+        if (!root) return;
+        const card = root.parentElement;
+        const h = card ? card.offsetHeight : 0;
+        if (h && Math.abs(h - (pendingHeight || 0)) > 8) {
+          setPendingHeight(h);
+        }
+      } catch {}
+    }
+    measure();
+    const onResize = () => measure();
+    window.addEventListener("resize", onResize);
+    const t = setTimeout(measure, 50);
+    const t2 = setTimeout(measure, 250);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      clearTimeout(t);
+      clearTimeout(t2);
+    };
+  }, [pendingHeight]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPerms() {
+      try {
+        const [upRes, featRes] = await Promise.all([
+          client.get("/admin/user-permissions"),
+          client.get("/access/features"),
+        ]);
+        const up = upRes?.data || {};
+        const fr = featRes?.data || {};
+        if (!cancelled) {
+          setReportsModules(Array.isArray(up?.modules) ? up.modules : []);
+          setRoleFeatures(
+            Array.isArray(up?.role_features) ? up.role_features : [],
+          );
+          setAllFeatures(Array.isArray(fr?.features) ? fr.features : []);
+        }
+      } catch {
+        if (!cancelled) {
+          setReportsModules([]);
+          setRoleFeatures([]);
+          setAllFeatures([]);
+        }
+      }
+    }
+    loadPerms();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +316,11 @@ export default function HomePage() {
     const t = normalizeType(s);
     if (t === "MATERIAL_REQUISITION") return "Material Requisition";
     if (t === "RETURN_TO_STORES") return "Return to Stores";
+    if (t === "SALES_ORDER") return "Sales Order";
+    if (t === "JOURNAL_VOUCHER" || t === "JV") return "Journal Voucher";
+    if (t === "PAYMENT_VOUCHER" || t === "PV") return "Payment Voucher";
+    if (t === "RECEIPT_VOUCHER" || t === "RV") return "Receipt Voucher";
+    if (t === "CONTRA_VOUCHER" || t === "CV") return "Contra Voucher";
     if (t.startsWith("PURCHASE_ORDER:")) {
       const sub = t.split(":")[1];
       if (sub === "LOCAL") return "Purchase Order - Local";
@@ -228,12 +474,12 @@ export default function HomePage() {
   const handleModalAction = async (action) => {
     if (!modalInstanceId) return;
     if (!modalComment && (action === "REJECT" || action === "RETURN")) {
-      alert("Please provide a comment for rejection/return");
+      toast.warning("Please provide a comment for rejection/return");
       return;
     }
     if (action === "APPROVE" && modalData && !modalData.is_last_step) {
       if (!modalNextUser) {
-        alert("Please select the next approver");
+        toast.warning("Please select the next approver");
         return;
       }
     }
@@ -245,12 +491,52 @@ export default function HomePage() {
         target_user_id:
           modalData && !modalData.is_last_step ? modalNextUser : null,
       });
+      try {
+        const status =
+          action === "APPROVE"
+            ? modalData && modalData.is_last_step
+              ? "APPROVED"
+              : "PENDING_APPROVAL"
+            : action === "RETURN"
+              ? "DRAFT"
+              : action;
+        const evt = new CustomEvent("omni.workflow.status", {
+          detail: {
+            status,
+            documentType: modalData?.document_type,
+            documentId: modalData?.document_id,
+            instanceId: modalInstanceId,
+            action: action,
+          },
+        });
+        window.dispatchEvent(evt);
+      } catch {}
       setPendingItems((items) =>
         items.filter((i) => i.workflow_instance_id !== modalInstanceId),
       );
+      try {
+        const msg =
+          action === "APPROVE"
+            ? modalData && !modalData.is_last_step
+              ? (() => {
+                  const name =
+                    Array.isArray(modalData?.next_step_approvers) &&
+                    modalData.next_step_approvers.find(
+                      (u) => Number(u.id) === Number(modalNextUser),
+                    )?.username;
+                  return `Forwarded to ${name || "next approver"}`;
+                })()
+              : "Document approved successfully"
+            : action === "REJECT"
+              ? "Document rejected successfully"
+              : action === "RETURN"
+                ? "Document returned successfully"
+                : "Action completed successfully";
+        toast.success(msg);
+      } catch {}
       closeApprovalModal();
     } catch (e) {
-      alert(e?.response?.data?.message || "Action failed");
+      toast.error(e?.response?.data?.message || "Action failed");
     } finally {
       setModalProcessing(false);
     }
@@ -415,9 +701,12 @@ export default function HomePage() {
             <span className="relative inline-flex items-center">
               <span className="sr-only">Unread</span>
               <span className="ml-1 text-sm">Notifications</span>
-              <span className="absolute -top-2 -right-3 bg-red-600 text-white text-xs font-bold rounded-full px-2 py-0.5">
-                {notifications.filter((n) => Number(n.is_read) !== 1).length}
-              </span>
+              {notifications.filter((n) => Number(n.is_read) !== 1).length >
+                0 && (
+                <span className="absolute -top-2 -right-3 bg-red-600 text-white text-xs font-bold rounded-full px-2 py-0.5">
+                  {notifications.filter((n) => Number(n.is_read) !== 1).length}
+                </span>
+              )}
             </span>
           </button>
         </div>
@@ -474,9 +763,11 @@ export default function HomePage() {
                 <span className="relative inline-flex items-center">
                   <span className="sr-only">Post alerts</span>
                   <span className="ml-1 text-sm">Posts</span>
-                  <span className="absolute -top-2 -right-3 bg-red-600 text-white text-xs font-bold rounded-full px-2 py-0.5">
-                    {postNotificationsUnread.length}
-                  </span>
+                  {postNotificationsUnread.length > 0 && (
+                    <span className="absolute -top-2 -right-3 bg-red-600 text-white text-xs font-bold rounded-full px-2 py-0.5">
+                      {postNotificationsUnread.length}
+                    </span>
+                  )}
                 </span>
               </button>
               {showPostAlerts && (
@@ -571,11 +862,20 @@ export default function HomePage() {
                   </div>
                 </div>
               )}
-              <CompanyFeed compact />
+              <div ref={postRef}>
+                <CompanyFeed compact />
+              </div>
             </div>
           </div>
           <div className="space-y-6">
-            <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100">
+            <div
+              className="bg-white rounded-xl shadow-erp p-6 border border-slate-100"
+              style={{
+                height: pendingHeight ? `${pendingHeight}px` : undefined,
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                   <span className="text-blue-500">✅</span> Pending Approvals
@@ -584,119 +884,221 @@ export default function HomePage() {
                   {filteredPending.length} Pending
                 </span>
               </div>
-              {uniquePending.length > 0 ? (
-                <div className="space-y-4">
-                  {orderedGroups.map((key) => (
-                    <div key={key}>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-sm font-bold text-slate-700">
-                          {displayType(key)}
-                        </div>
-                        <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-full">
-                          {groupedPending[key].length}
-                        </span>
-                      </div>
-                      <div className="divide-y divide-slate-100">
-                        {groupedPending[key].map((item) => (
-                          <div
-                            key={item.workflow_instance_id}
-                            className="py-3 flex items-center justify-between hover:bg-slate-50 rounded-lg px-2 transition-colors"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-600">
-                                {item.initiator
-                                  ? item.initiator.charAt(0)
-                                  : "U"}
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium text-slate-900">
-                                  {docLabel(item)}
-                                </p>
-                                <p className="text-xs text-slate-500">
-                                  {item.submitted_at
-                                    ? new Date(
-                                        item.submitted_at,
-                                      ).toLocaleString()
-                                    : "Just now"}{" "}
-                                  • {item.workflow_name || "Approval Required"}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() =>
-                                  openApprovalModal(item.workflow_instance_id)
-                                }
-                                className="px-3 py-1 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-md transition-colors"
-                              >
-                                Approve
-                              </button>
-                              <button
-                                onClick={() =>
-                                  navigate(
-                                    `/administration/workflows/approvals/${item.workflow_instance_id}`,
-                                  )
-                                }
-                                className="px-3 py-1 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
-                              >
-                                View
-                              </button>
-                            </div>
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                {uniquePending.length > 0 ? (
+                  <div className="space-y-4">
+                    {orderedGroups.map((key) => (
+                      <div key={key}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-sm font-bold text-slate-700">
+                            {displayType(key)}
                           </div>
-                        ))}
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-full">
+                            {groupedPending[key].length}
+                          </span>
+                        </div>
+                        <div className="divide-y divide-slate-100">
+                          {groupedPending[key].map((item) => (
+                            <div
+                              key={item.workflow_instance_id}
+                              className="py-3 flex items-center justify-between hover:bg-slate-50 rounded-lg px-2 transition-colors"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-600">
+                                  {item.initiator
+                                    ? item.initiator.charAt(0)
+                                    : "U"}
+                                </div>
+                                <div>
+                                  <p className="text-sm font-medium text-slate-900">
+                                    {docLabel(item)}
+                                  </p>
+                                  <p className="text-xs text-slate-500">
+                                    {item.submitted_at
+                                      ? new Date(
+                                          item.submitted_at,
+                                        ).toLocaleString()
+                                      : "Just now"}{" "}
+                                    •{" "}
+                                    {item.workflow_name || "Approval Required"}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() =>
+                                    openApprovalModal(item.workflow_instance_id)
+                                  }
+                                  className="px-3 py-1 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-md transition-colors"
+                                >
+                                  Approve
+                                </button>
+
+                                <button
+                                  onClick={() =>
+                                    navigate(
+                                      `/administration/workflows/approvals/${item.workflow_instance_id}`,
+                                    )
+                                  }
+                                  className="px-3 py-1 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
+                                >
+                                  Review
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-slate-500 text-sm bg-slate-50/50 rounded-lg border border-dashed border-slate-200">
-                  No pending approvals found. You're all caught up! 🎉
-                </div>
-              )}
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-slate-500 text-sm bg-slate-50/50 rounded-lg border border-dashed border-slate-200">
+                    No pending approvals found. You're all caught up! 🎉
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100">
+          <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100 relative">
             <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-              <span className="text-purple-500">📊</span> System Status
+              <span className="text-purple-500">📑</span> Reports
             </h2>
-            <div className="space-y-4">
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-slate-600">Server Uptime</span>
-                  <span className="text-green-600 font-medium">99.9%</span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {(getEnabledModules() || reportsModules).map((mk) => {
+                const label = String(mk)
+                  .split("-")
+                  .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+                  .join(" ");
+                const colors = [
+                  "from-emerald-500 to-emerald-600",
+                  "from-blue-500 to-blue-600",
+                  "from-purple-500 to-purple-600",
+                  "from-orange-500 to-orange-600",
+                  "from-pink-500 to-pink-600",
+                  "from-teal-500 to-teal-600",
+                  "from-rose-500 to-rose-600",
+                ];
+                const idx =
+                  Math.abs(
+                    mk.split("").reduce((a, c) => a + c.charCodeAt(0), 0),
+                  ) % colors.length;
+                return (
                   <div
-                    className="bg-green-500 h-2 rounded-full"
-                    style={{ width: "99.9%" }}
-                  ></div>
-                </div>
-              </div>
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-slate-600">Database Load</span>
-                  <span className="text-brand-600 font-medium">34%</span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-2">
-                  <div
-                    className="bg-brand-500 h-2 rounded-full"
-                    style={{ width: "34%" }}
-                  ></div>
-                </div>
-              </div>
-              <div className="pt-4 border-t border-slate-100">
-                <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-2">
-                  Recent Login
-                </p>
-                <div className="flex items-center gap-2 text-sm text-slate-700">
-                  <span>🖥️</span>
-                  <span>Windows PC • Chrome</span>
-                  <span className="text-slate-400 ml-auto">10:42 AM</span>
-                </div>
-              </div>
+                    key={mk}
+                    className="relative"
+                    onMouseEnter={() => setActiveModule(mk)}
+                    onMouseLeave={() =>
+                      setActiveModule((curr) => (curr === mk ? null : curr))
+                    }
+                  >
+                    <button
+                      type="button"
+                      className={`rounded-lg px-4 py-3 text-left text-white shadow-erp-sm hover:shadow-erp-md transition bg-gradient-to-r ${colors[idx]} h-20 w-full flex flex-col justify-center`}
+                      title={`Show ${label} reports and dashboards`}
+                    >
+                      <div className="text-sm font-semibold truncate">
+                        {label}
+                      </div>
+                      <div className="text-xs text-white/90 mt-0.5 truncate">
+                        Reports
+                      </div>
+                    </button>
+                    {activeModule === mk
+                      ? (() => {
+                          const modKey = String(activeModule);
+                          const reportsFromFeatures = allFeatures
+                            .filter((f) => {
+                              const sameModule =
+                                String(f.module_key) === modKey;
+                              const p = String(f.path || "");
+                              const isReportPath = p.startsWith(
+                                `/${modKey}/reports`,
+                              );
+                              const isDashboardType =
+                                String(f.type || "").toLowerCase() ===
+                                "dashboard";
+                              return (
+                                sameModule && (isReportPath || isDashboardType)
+                              );
+                            })
+                            .map((f) => ({
+                              label: f.label || "Entry",
+                              path: f.path || "/",
+                            }));
+                          const curated =
+                            Array.isArray(moduleReportsMap?.[mk]) &&
+                            moduleReportsMap[mk].map((r) => ({
+                              label: r.label || r.name || "Report",
+                              path: r.path || "/",
+                            }));
+                          const regDash = Array.isArray(
+                            getModuleDashboards?.(mk),
+                          )
+                            ? getModuleDashboards(mk).map((d) => ({
+                                label: d.label,
+                                path: d.path,
+                              }))
+                            : [];
+                          const preferredDash =
+                            moduleDashboardPath[mk] ||
+                            (Array.isArray(getModuleDashboards?.(mk)) &&
+                              getModuleDashboards(mk)[0]?.path) ||
+                            null;
+                          const dashEntry =
+                            preferredDash && canAccessPath(preferredDash)
+                              ? [{ label: "Dashboard", path: preferredDash }]
+                              : [];
+                          const byPath = new Map();
+                          [
+                            ...dashEntry,
+                            ...reportsFromFeatures,
+                            ...(curated || []),
+                            ...regDash,
+                          ].forEach((e) => {
+                            const p = String(e.path || "");
+                            if (!p) return;
+                            if (!byPath.has(p)) byPath.set(p, e);
+                          });
+                          const entries = Array.from(byPath.values()).filter(
+                            (e) => {
+                              const p = e?.path || "";
+                              if (!p) return false;
+                              if (canAccessPath(p)) return true;
+                              const parts = p.split("/").filter(Boolean);
+                              const moduleKey = parts[0] || "";
+                              return !!moduleKey && isModuleEnabled(moduleKey);
+                            },
+                          );
+                          return (
+                            <div className="absolute left-full top-0 ml-0 z-20 w-56 max-h-80 overflow-auto rounded-lg border border-slate-200 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm shadow-erp-lg">
+                              {entries.map((e) => (
+                                <button
+                                  key={e.path || e.label}
+                                  type="button"
+                                  onClick={() => navigate(e.path)}
+                                  className="block w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition"
+                                  title={e.path}
+                                >
+                                  <div className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                                    {e.label}
+                                  </div>
+                                </button>
+                              ))}
+                              {entries.length === 0 ? (
+                                <div className="p-3 text-sm text-slate-600">
+                                  No entries available for your role.
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })()
+                      : null}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -842,6 +1244,32 @@ export default function HomePage() {
                   ? "Final Approve"
                   : "Forward"}
               </button>
+              {canReverseApproval() ? (
+                <button
+                  type="button"
+                  className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+                  onClick={async () => {
+                    if (!modalInstanceId) return;
+                    setModalProcessing(true);
+                    try {
+                      await client.post(
+                        `/workflows/${modalInstanceId}/reverse`,
+                      );
+                      toast.success("Approval reversed and document returned");
+                      closeApprovalModal();
+                    } catch (e) {
+                      toast.error(
+                        e?.response?.data?.message || "Reverse approval failed",
+                      );
+                    } finally {
+                      setModalProcessing(false);
+                    }
+                  }}
+                  disabled={modalProcessing}
+                >
+                  Reverse Approval
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50"

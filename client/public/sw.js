@@ -113,7 +113,7 @@ self.addEventListener("push", (event) => {
     const body = String(data.message || data.body || "");
     const icon = data.icon || "/OMNISUITE_ICON_CLEAR.png";
     const badge = data.badge || "/OMNISUITE_ICON_CLEAR.png";
-    const link = data.link || "/notifications";
+    const link = data.link || data.url || "/notifications";
     const tag = data.tag || "omnisuite-push";
     const actions = Array.isArray(data.actions) ? data.actions : [];
     const options = {
@@ -121,10 +121,32 @@ self.addEventListener("push", (event) => {
       icon,
       badge,
       tag,
-      data: { link },
+      data: { link, ...(data || {}) },
       actions,
+      silent: false,
     };
-    event.waitUntil(self.registration.showNotification(title, options));
+    event.waitUntil(
+      (async () => {
+        await self.registration.showNotification(title, options);
+        try {
+          if (String(data?.type || "").toLowerCase() === "chat") {
+            const clients = await self.clients.matchAll({
+              type: "window",
+              includeUncontrolled: true,
+            });
+            for (const c of clients) {
+              c.postMessage({
+                type: "chat_push",
+                url: link,
+                cid: data?.cid || null,
+                title,
+                body,
+              });
+            }
+          }
+        } catch {}
+      })(),
+    );
   } catch (e) {}
 });
 

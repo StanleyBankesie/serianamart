@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { MODULES_REGISTRY } from "../../../../data/modulesRegistry.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { toast } from "react-toastify";
 
 export default function UserPermissions() {
   const navigate = useNavigate();
@@ -33,17 +34,18 @@ export default function UserPermissions() {
   const [lowStockEmail, setLowStockEmail] = useState(false);
   const [lowStockLoading, setLowStockLoading] = useState(false);
 
-  useEffect(() => {
-    async function loadUsers() {
-      setError("");
-      try {
-        const res = await api.get("/admin/users");
-        const items = res?.data?.data?.items || [];
-        setUsers(items);
-      } catch (err) {
-        setError(err?.response?.data?.message || "Failed to load users");
-      }
+  async function loadUsers() {
+    setError("");
+    try {
+      const res = await api.get("/admin/users");
+      const items = res?.data?.data?.items || [];
+      setUsers(items);
+    } catch (err) {
+      setError(err?.response?.data?.message || "Failed to load users");
     }
+  }
+
+  useEffect(() => {
     loadUsers();
   }, []);
 
@@ -62,6 +64,21 @@ export default function UserPermissions() {
     } catch {}
     return () => clearTimeout(t);
   }, [location?.state, navigate, params?.id]);
+
+  useEffect(() => {
+    const s = location?.state?.afterSave;
+    const onListRoute = !params?.id;
+    if (!onListRoute) return;
+    if (!s || s.entity !== "user-permissions") return;
+    loadUsers();
+    setTimeout(() => loadUsers(), 500);
+    try {
+      navigate("/administration/access/user-permissions", {
+        replace: true,
+        state: null,
+      });
+    } catch {}
+  }, [location?.state, params?.id, navigate]);
 
   useEffect(() => {
     const idRaw = params?.id;
@@ -343,45 +360,30 @@ export default function UserPermissions() {
       await api.post(`/admin/users/${selectedUser}/feature-permissions`, {
         permissions: payload,
       });
-
       try {
-        const res = await api.get(
-          `/admin/users/${selectedUser}/feature-permissions`,
-        );
-        const overrideItems = Array.isArray(res?.data?.data?.items)
-          ? res.data.data.items
-          : Array.isArray(res?.data?.items)
-            ? res.data.items
-            : [];
-
-        const initialOverrides = {};
-        for (const row of overrideItems) {
-          const fk = String(row?.feature_key || "").trim();
-          if (!fk) continue;
-          initialOverrides[fk] = {
-            can_view: !!row?.can_view,
-            can_create: !!row?.can_create,
-            can_edit: !!row?.can_edit,
-            can_delete: !!row?.can_delete,
-          };
-        }
-        setUserFeatureOverrides(initialOverrides);
+        // Non-blocking RBAC refresh (do not delay navigation)
+        refreshPermissions?.();
+        window.dispatchEvent?.(new Event("rbac:changed"));
       } catch {}
 
+      const msg = "User permissions saved successfully";
       try {
-        window.dispatchEvent(new Event("rbac:changed"));
+        toast.success(msg);
       } catch {}
-      try {
-        await refreshPermissions();
-      } catch {}
-
-      const msg = "Permissions saved successfully";
       try {
         clearSessionOverrides();
       } catch {}
       resetSelection();
       navigate("/administration/access/user-permissions", {
-        state: { success: msg },
+        state: {
+          success: msg,
+          afterSave: {
+            entity: "user-permissions",
+            id: Number(selectedUser) || null,
+            ts: Date.now(),
+          },
+        },
+        replace: true,
       });
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to save permissions");

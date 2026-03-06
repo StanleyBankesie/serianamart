@@ -9,8 +9,10 @@ import html2canvas from "html2canvas";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { toast } from "react-toastify";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function InvoiceForm() {
+  const { canEditDiscount } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = Boolean(id);
@@ -1687,7 +1689,7 @@ export default function InvoiceForm() {
                       step="1"
                     />
                   </div>
-                  <div>
+                  <div className={!canEditDiscount() ? "disabled-light-blue" : ""}>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
                       Disc %
                     </label>
@@ -1704,6 +1706,7 @@ export default function InvoiceForm() {
                       min="0"
                       max="100"
                       step="1"
+                      disabled={!canEditDiscount()}
                     />
                   </div>
                   <div>
@@ -1957,26 +1960,29 @@ export default function InvoiceForm() {
                           </td>
                           <td className="px-4 py-3 text-gray-900">
                             {canEdit ? (
-                              <input
-                                className="input w-full min-w-[7rem]"
-                                type="number"
-                                min="0"
-                                max="100"
-                                step="1"
-                                value={
-                                  i.discount_percent === ""
-                                    ? ""
-                                    : i.discount_percent || 0
-                                }
-                                onChange={(e) =>
-                                  updateLine(idx, {
-                                    discount_percent:
-                                      e.target.value === ""
-                                        ? ""
-                                        : Number(e.target.value),
-                                  })
-                                }
-                              />
+                              <div className={!canEditDiscount() ? "disabled-light-blue" : ""}>
+                                <input
+                                  className="input w-full min-w-[7rem]"
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  step="1"
+                                  value={
+                                    i.discount_percent === ""
+                                      ? ""
+                                      : i.discount_percent || 0
+                                  }
+                                  onChange={(e) =>
+                                    updateLine(idx, {
+                                      discount_percent:
+                                        e.target.value === ""
+                                          ? ""
+                                          : Number(e.target.value),
+                                    })
+                                  }
+                                  disabled={!canEditDiscount()}
+                                />
+                              </div>
                             ) : (
                               parseFloat(i.discount_percent || 0).toFixed(2)
                             )}

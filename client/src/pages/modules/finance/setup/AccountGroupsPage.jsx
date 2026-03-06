@@ -48,11 +48,42 @@ export default function AccountGroupsPage() {
     load();
   }, []);
 
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm, natureFilter, activeFilter, showTotals]);
+
   async function create(e) {
     e.preventDefault();
     try {
+      // Auto-generate code based on parent code pattern or nature
+      const parent =
+        parentId && items.find((g) => String(g.id) === String(parentId));
+      const makeToken = (s) =>
+        String(s || "")
+          .replace(/[^A-Za-z0-9]/g, "")
+          .toUpperCase();
+      let genCode = "";
+      if (parent && parent.code) {
+        const part = makeToken(name);
+        if (parent.code.includes(".")) genCode = `${parent.code}.${part}`;
+        else if (parent.code.includes("_")) genCode = `${parent.code}_${part}`;
+        else genCode = `${parent.code}.${part}`;
+      } else {
+        const base =
+          nature === "ASSET"
+            ? "AST"
+            : nature === "LIABILITY"
+              ? "LIA"
+              : nature === "EQUITY"
+                ? "EQU"
+                : nature === "INCOME"
+                  ? "INC"
+                  : "EXP";
+        genCode = base;
+      }
       await api.post("/finance/account-groups", {
-        code,
+        code: genCode,
         name,
         nature,
         parentId: parentId ? Number(parentId) : null,
@@ -161,9 +192,6 @@ export default function AccountGroupsPage() {
                 <option value="1">Active</option>
                 <option value="0">Inactive</option>
               </select>
-              <button className="btn-success" onClick={load} disabled={loading}>
-                Apply
-              </button>
             </div>
           </div>
         </div>
@@ -175,15 +203,6 @@ export default function AccountGroupsPage() {
             onSubmit={create}
             className="grid grid-cols-1 md:grid-cols-5 gap-3"
           >
-            <div>
-              <label className="label">Code *</label>
-              <input
-                className="input"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                required
-              />
-            </div>
             <div className="md:col-span-2">
               <label className="label">Name *</label>
               <input
@@ -222,7 +241,7 @@ export default function AccountGroupsPage() {
                 ))}
               </select>
             </div>
-            <div className="md:col-span-5 flex justify-end">
+            <div className="flex items-end justify-end">
               <button className="btn-success" type="submit">
                 Create Group
               </button>
@@ -359,6 +378,13 @@ export default function AccountGroupsPage() {
                                   Activate
                                 </button>
                               )}
+                              <button
+                                className="btn"
+                                onClick={() => startEdit(g)}
+                                disabled={loading}
+                              >
+                                Edit
+                              </button>
                             </div>
                           </td>
                         </>

@@ -1,12 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { usePermission } from "../../../auth/PermissionContext.jsx";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { toast } from "react-toastify";
 
 import { api } from "api/client";
+import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 export default function GRNImportList() {
-  const { canPerformAction } = usePermission();
   const navigate = useNavigate();
+  const location = useLocation();
+  const { canReverseApproval } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [grns, setGrns] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -53,6 +56,73 @@ export default function GRNImportList() {
     return () => {
       mounted = false;
     };
+  }, []);
+  useEffect(() => {
+    const ref = location.state?.highlightRef;
+    const hid = location.state?.highlightId;
+    const refresh = location.state?.refresh;
+    if (!ref && !hid && !refresh) return;
+    let cancelled = false;
+    async function ensureVisible() {
+      const start = Date.now();
+      while (!cancelled && Date.now() - start < 5000) {
+        try {
+          const res = await api.get("/inventory/grn", {
+            params: { grn_type: "IMPORT" },
+          });
+          const arr = Array.isArray(res.data?.items) ? res.data.items : [];
+          setGrns(arr);
+          let hit = false;
+          if (ref) {
+            hit = arr.some(
+              (g) =>
+                String(g.grn_no || "").toLowerCase() ===
+                String(ref).toLowerCase(),
+            );
+          } else if (hid) {
+            hit = arr.some((g) => Number(g.id) === Number(hid));
+          } else {
+            hit = arr.length > 0;
+          }
+          if (hit) break;
+        } catch {}
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    }
+    ensureVisible();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    location.state?.highlightRef,
+    location.state?.highlightId,
+    location.state?.refresh,
+  ]);
+  useEffect(() => {
+    function onWorkflowStatus(e) {
+      try {
+        const d = e.detail || {};
+        const id = Number(d.documentId || d.document_id);
+        const status = String(d.status || "").toUpperCase();
+        if (!id || !status) return;
+        setGrns((prev) =>
+          prev.map((g) =>
+            Number(g.id) === id
+              ? {
+                  ...g,
+                  status,
+                  ...(status === "DRAFT"
+                    ? { forwarded_to_username: null }
+                    : {}),
+                }
+              : g,
+          ),
+        );
+      } catch {}
+    }
+    window.addEventListener("omni.workflow.status", onWorkflowStatus);
+    return () =>
+      window.removeEventListener("omni.workflow.status", onWorkflowStatus);
   }, []);
 
   const filtered = useMemo(() => {
@@ -262,6 +332,44 @@ export default function GRNImportList() {
     if (!selectedDoc) return;
     setSubmittingForward(true);
     setWfError("");
+    // Optimistic UI update
+    let optimisticApprover = null;
+    try {
+      const first =
+        Array.isArray(workflowSteps) && workflowSteps.length
+          ? workflowSteps[0]
+          : null;
+      const opts = first
+        ? Array.isArray(first.approvers) && first.approvers.length
+          ? first.approvers.map((u) => ({ id: u.id, name: u.username }))
+          : first.approver_user_id
+            ? [
+                {
+                  id: first.approver_user_id,
+                  name: first.approver_name || String(first.approver_user_id),
+                },
+              ]
+            : []
+        : [];
+      if (targetApproverId && opts.length) {
+        const hit = opts.find((u) => Number(u.id) === Number(targetApproverId));
+        optimisticApprover = hit ? hit.name : null;
+      }
+    } catch {}
+    setGrns((prev) =>
+      prev.map((p) =>
+        p.id === selectedDoc.id
+          ? {
+              ...p,
+              status: "PENDING_APPROVAL",
+              forwarded_to_username:
+                optimisticApprover || p.forwarded_to_username || "Approver",
+            }
+          : p,
+      ),
+    );
+    setShowForwardModal(false);
+    setSelectedDoc(null);
     try {
       const res = await api.post(`/inventory/grn/${selectedDoc.id}/submit`, {
         amount: selectedDoc.invoice_amount ?? null,
@@ -269,13 +377,49 @@ export default function GRNImportList() {
         target_user_id: targetApproverId || null,
       });
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
+      let approverName = null;
+      try {
+        const first =
+          Array.isArray(workflowSteps) && workflowSteps.length
+            ? workflowSteps[0]
+            : null;
+        const opts = first
+          ? Array.isArray(first.approvers) && first.approvers.length
+            ? first.approvers.map((u) => ({
+                id: u.id,
+                name: u.username,
+              }))
+            : first.approver_user_id
+              ? [
+                  {
+                    id: first.approver_user_id,
+                    name: first.approver_name || String(first.approver_user_id),
+                  },
+                ]
+              : []
+          : [];
+        if (targetApproverId && opts.length) {
+          const hit = opts.find(
+            (u) => Number(u.id) === Number(targetApproverId),
+          );
+          approverName = hit ? hit.name : null;
+        }
+      } catch {}
       setGrns((prev) =>
         prev.map((p) =>
-          p.id === selectedDoc.id ? { ...p, status: newStatus } : p,
+          p.id === selectedDoc.id
+            ? {
+                ...p,
+                status: newStatus,
+                forwarded_to_username:
+                  approverName || p.forwarded_to_username || "Approver",
+              }
+            : p,
         ),
       );
-      setShowForwardModal(false);
-      setSelectedDoc(null);
+      try {
+        toast.success("GRN forwarded for approval");
+      } catch {}
     } catch (e) {
       setWfError(
         e?.response?.data?.message || "Failed to forward for approval",
@@ -418,18 +562,62 @@ export default function GRNImportList() {
                         >
                           Details
                         </button>
-                        {String(g.status || "").toUpperCase() !== "APPROVED" &&
-                          canPerformAction("inventory:stock-updation", "edit") && (
-                            <Link
-                              to={`/inventory/grn-import/${g.id}?mode=edit`}
-                              className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                            >
-                              Edit
-                            </Link>
-                          )}
+                        {String(g.status || "").toUpperCase() !==
+                          "APPROVED" && (
+                          <Link
+                            to={`/inventory/grn-import/${g.id}?mode=edit`}
+                            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                          >
+                            Edit
+                          </Link>
+                        )}
                         {String(g.status || "").toUpperCase() === "APPROVED" ? (
-                          <span className="ml-2 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                            Approved
+                          <>
+                            <span className="ml-2 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
+                              Approved
+                            </span>
+                            {canReverseApproval() ? (
+                              <button
+                                type="button"
+                                className="ml-2 text-indigo-700 hover:text-indigo-800 text-sm font-medium"
+                                onClick={async () => {
+                                  try {
+                                    await api.post(
+                                      "/workflows/reverse-by-document",
+                                      {
+                                        document_type: "GOODS_RECEIPT",
+                                        document_id: g.id,
+                                      },
+                                    );
+                                    toast.success(
+                                      "Approval reversed and document returned",
+                                    );
+                                    setGrns((prev) =>
+                                      prev.map((x) =>
+                                        x.id === g.id
+                                          ? {
+                                              ...x,
+                                              status: "REVERSED",
+                                              forwarded_to_username: null,
+                                            }
+                                          : x,
+                                      ),
+                                    );
+                                  } catch (e) {
+                                    toast.error(
+                                      e?.response?.data?.message ||
+                                        "Reverse approval failed",
+                                    );
+                                  }
+                                }}
+                              >
+                                Reverse Approval
+                              </button>
+                            ) : null}
+                          </>
+                        ) : g.forwarded_to_username ? (
+                          <span className="ml-2 text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
+                            Forwarded to {g.forwarded_to_username}
                           </span>
                         ) : (
                           <button
@@ -749,6 +937,10 @@ export default function GRNImportList() {
           </div>
         </div>
       ) : null}
+      <FloatingCreateButton
+        to="/inventory/grn-import/new"
+        title="New GRN (Import)"
+      />
     </div>
   );
 }

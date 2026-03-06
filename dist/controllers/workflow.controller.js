@@ -188,6 +188,171 @@ export const listWorkflows = async (req, res, next) => {
   }
 };
 
+export const reverseApproval = async (req, res, next) => {
+  try {
+    const { instanceId } = req.params;
+    const userId = req.user.sub;
+    // Check exceptional permission
+    try {
+      await ensureExceptionalPermissionsTable?.();
+    } catch {}
+    const rows = await query(
+      `SELECT permission_code, effect, is_active 
+       FROM adm_exceptional_permissions 
+       WHERE user_id = :uid 
+         AND permission_code = 'WORKFLOW.APPROVAL.REVERSE'
+         AND is_active = 1 
+         AND UPPER(effect) = 'ALLOW'
+       LIMIT 1`,
+      { uid: userId },
+    ).catch(() => []);
+    if (!rows || !rows.length) {
+      throw httpError(403, "FORBIDDEN", "Reverse approval not permitted");
+    }
+    // Fetch instance
+    const instances = await query(
+      `SELECT dw.*, w.id as workflow_id
+         FROM adm_document_workflows dw
+         JOIN adm_workflows w ON dw.workflow_id = w.id
+         WHERE dw.id = :instanceId`,
+      { instanceId },
+    );
+    if (!instances.length)
+      throw httpError(404, "NOT_FOUND", "Workflow instance not found");
+    const instance = instances[0];
+    // Log reversal
+    await query(
+      `INSERT INTO adm_workflow_logs (document_workflow_id, step_order, action, actor_user_id, comments)
+       VALUES (:id, :step, 'REVERSED', :userId, :comments)`,
+      {
+        id: instance.id,
+        step: instance.current_step_order,
+        userId,
+        comments: "Approval reversed by exceptional permission",
+      },
+    );
+    // Set workflow state to returned and unassign
+    await query(
+      `UPDATE adm_document_workflows SET status = 'RETURNED', assigned_to_user_id = NULL WHERE id = :id`,
+      { id: instance.id },
+    );
+    // Mirror document status updates same as RETURN action
+    if (
+      instance.document_type === "STOCK_ADJUSTMENT" ||
+      instance.document_type === "Stock Adjustment"
+    ) {
+      await query(
+        `UPDATE inv_stock_adjustments SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+        { id: instance.document_id, companyId: instance.company_id },
+      );
+    } else if (
+      instance.document_type === "PURCHASE_ORDER" ||
+      instance.document_type === "Purchase Order"
+    ) {
+      await query(
+        `UPDATE pur_orders SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+        { id: instance.document_id, companyId: instance.company_id },
+      );
+    } else if (
+      instance.document_type === "GOODS_RECEIPT" ||
+      instance.document_type === "Goods Receipt" ||
+      instance.document_type === "GRN" ||
+      instance.document_type === "Goods Receipt Note"
+    ) {
+      await query(
+        `UPDATE inv_goods_receipt_notes SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+        { id: instance.document_id, companyId: instance.company_id },
+      );
+    } else if (
+      instance.document_type === "PAYMENT_VOUCHER" ||
+      instance.document_type === "Payment Voucher" ||
+      instance.document_type === "PV"
+    ) {
+      await query(
+        `UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+        { id: instance.document_id, companyId: instance.company_id },
+      );
+    } else if (
+      instance.document_type === "RECEIPT_VOUCHER" ||
+      instance.document_type === "Receipt Voucher" ||
+      instance.document_type === "RV"
+    ) {
+      await query(
+        `UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+        { id: instance.document_id, companyId: instance.company_id },
+      );
+    } else if (
+      instance.document_type === "CONTRA_VOUCHER" ||
+      instance.document_type === "Contra Voucher" ||
+      instance.document_type === "CV"
+    ) {
+      await query(
+        `UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+        { id: instance.document_id, companyId: instance.company_id },
+      );
+    } else if (
+      instance.document_type === "MATERIAL_REQUISITION" ||
+      instance.document_type === "Material Requisition"
+    ) {
+      try {
+        await query(
+          `UPDATE inv_material_requisitions SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+          { id: instance.document_id, companyId: instance.company_id },
+        );
+      } catch {}
+    } else if (
+      instance.document_type === "RETURN_TO_STORES" ||
+      instance.document_type === "Return to Stores"
+    ) {
+      try {
+        await query(
+          `UPDATE inv_return_to_stores SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+          { id: instance.document_id, companyId: instance.company_id },
+        );
+      } catch {}
+    } else if (
+      instance.document_type === "SALES_ORDER" ||
+      instance.document_type === "Sales Order"
+    ) {
+      try {
+        await query(
+          `UPDATE sal_orders SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+          { id: instance.document_id, companyId: instance.company_id },
+        );
+      } catch {}
+    } else if (instance.document_type === "SALES_RETURN") {
+      try {
+        await query(
+          `UPDATE sal_returns SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+          { id: instance.document_id, companyId: instance.company_id },
+        );
+      } catch {}
+    }
+    // Notify initiator
+    const initiatorRes = await query(
+      "SELECT actor_user_id FROM adm_workflow_logs WHERE document_workflow_id = :id AND action = 'SUBMIT' LIMIT 1",
+      { id: instance.id },
+    );
+    const initiatorId = initiatorRes.length ? initiatorRes[0].actor_user_id : null;
+    if (initiatorId) {
+      await query(
+        `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read) 
+         VALUES (:companyId, :userId, :title, :message, :link, 0)`,
+        {
+          companyId: req.scope.companyId,
+          userId: initiatorId,
+          title: "Approval Reversed",
+          message: `Your document #${instance.document_id} approval was reversed.`,
+          link: `/administration/workflows/approvals/${instance.id}`,
+        },
+      );
+    }
+    res.json({ success: true, message: "Approval reversed and document returned" });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const getWorkflow = async (req, res, next) => {
   try {
     await ensureWorkflowTables();
@@ -236,7 +401,8 @@ export const getWorkflow = async (req, res, next) => {
         ...s,
         approver_user_id: s.approver_user_id || (first ? first.id : null),
         approver_name: first ? first.username : null,
-        approval_limit: s.approval_limit ?? (first ? first.approval_limit : null),
+        approval_limit:
+          s.approval_limit ?? (first ? first.approval_limit : null),
         approvers,
       };
     });
@@ -273,17 +439,22 @@ export const createWorkflow = async (req, res, next) => {
       {
         companyId,
         workflow_code:
-          typeof workflow_code === "string" && /^WF-[0-9]{6}$/.test(workflow_code)
+          typeof workflow_code === "string" &&
+          /^WF-[0-9]{6}$/.test(workflow_code)
             ? workflow_code
             : await nextWorkflowCode(companyId),
         workflow_name,
         module_key,
         document_type,
         document_route:
-          typeof document_route === "string" && document_route ? document_route : null,
+          typeof document_route === "string" && document_route
+            ? document_route
+            : null,
         default_behavior:
           typeof default_behavior === "string" &&
-          ["BYPASS", "AUTO_APPROVE", "MANUAL"].includes(default_behavior.toUpperCase())
+          ["BYPASS", "AUTO_APPROVE", "MANUAL"].includes(
+            default_behavior.toUpperCase(),
+          )
             ? default_behavior.toUpperCase()
             : null,
         is_active: is_active === undefined ? 1 : Number(Boolean(is_active)),
@@ -309,7 +480,9 @@ export const createWorkflow = async (req, res, next) => {
             step_order: step.step_order,
             step_name: step.step_name,
             approver_user_id: firstId,
-            approval_limit: step.approval_limit ? Number(step.approval_limit) : null,
+            approval_limit: step.approval_limit
+              ? Number(step.approval_limit)
+              : null,
             is_mandatory: step.is_mandatory ? 1 : 0,
           },
         );
@@ -376,17 +549,23 @@ export const updateWorkflow = async (req, res, next) => {
         module_key,
         document_type,
         document_route:
-          typeof document_route === "string" && document_route ? document_route : null,
+          typeof document_route === "string" && document_route
+            ? document_route
+            : null,
         default_behavior:
           typeof default_behavior === "string" &&
-          ["BYPASS", "AUTO_APPROVE", "MANUAL"].includes(default_behavior.toUpperCase())
+          ["BYPASS", "AUTO_APPROVE", "MANUAL"].includes(
+            default_behavior.toUpperCase(),
+          )
             ? default_behavior.toUpperCase()
             : null,
         is_active: is_active === undefined ? 1 : Number(Boolean(is_active)),
       },
     );
 
-    await query("DELETE FROM adm_workflow_steps WHERE workflow_id = :id", { id });
+    await query("DELETE FROM adm_workflow_steps WHERE workflow_id = :id", {
+      id,
+    });
     await query(
       "DELETE FROM adm_workflow_step_approvers WHERE workflow_id = :id",
       { id },
@@ -410,7 +589,9 @@ export const updateWorkflow = async (req, res, next) => {
             step_order: step.step_order,
             step_name: step.step_name,
             approver_user_id: firstId,
-            approval_limit: step.approval_limit ? Number(step.approval_limit) : null,
+            approval_limit: step.approval_limit
+              ? Number(step.approval_limit)
+              : null,
             is_mandatory: step.is_mandatory ? 1 : 0,
           },
         );
@@ -459,7 +640,8 @@ export const startWorkflow = async (req, res, next) => {
   try {
     await ensureWorkflowTables();
     const { companyId } = req.scope;
-    const { workflow_id, document_id, document_type, target_user_id } = req.body;
+    const { workflow_id, document_id, document_type, target_user_id } =
+      req.body;
 
     const workflows = await query(
       `SELECT * FROM adm_workflows WHERE id = :workflow_id AND company_id = :companyId`,
@@ -489,7 +671,9 @@ export const startWorkflow = async (req, res, next) => {
        WHERE workflow_id = :workflow_id AND step_order = :step_order`,
       { workflow_id, step_order: firstStep.step_order },
     );
-    const allowedSet = new Set(allowedUsers.map((r) => Number(r.approver_user_id)));
+    const allowedSet = new Set(
+      allowedUsers.map((r) => Number(r.approver_user_id)),
+    );
     let firstAssigned =
       firstApproverRows.length > 0
         ? firstApproverRows[0].approver_user_id
@@ -562,7 +746,7 @@ export const getPendingApprovals = async (req, res, next) => {
           dw.created_at as submitted_at,
           w.workflow_name,
           ws.step_name,
-          COALESCE(fv.voucher_no, po.po_no, mr.requisition_no, rts.rts_no, sa.adjustment_no, grn.grn_no) as doc_ref,
+          COALESCE(so.order_no, fv.voucher_no, po.po_no, mr.requisition_no, rts.rts_no, sa.adjustment_no, grn.grn_no) as doc_ref,
           po.po_type as po_type,
           u.username as initiator,
           (
@@ -573,6 +757,9 @@ export const getPendingApprovals = async (req, res, next) => {
          FROM adm_document_workflows dw
          JOIN adm_workflows w ON dw.workflow_id = w.id
          JOIN adm_workflow_steps ws ON w.id = ws.workflow_id AND dw.current_step_order = ws.step_order
+         LEFT JOIN sal_orders so
+           ON (dw.document_type = 'SALES_ORDER' OR dw.document_type = 'Sales Order')
+          AND so.id = dw.document_id
          LEFT JOIN pur_orders po
            ON (dw.document_type = 'PURCHASE_ORDER' OR dw.document_type = 'Purchase Order')
           AND po.id = dw.document_id
@@ -803,7 +990,9 @@ export const performAction = async (req, res, next) => {
             console.log(`[EMAIL ERROR] ${e?.message || e}`);
           }
         } else {
-          console.log(`[MOCK EMAIL] To: ${to} | Subject: ${subject} | Body: ${text}`);
+          console.log(
+            `[MOCK EMAIL] To: ${to} | Subject: ${subject} | Body: ${text}`,
+          );
         }
       }
     };
@@ -837,7 +1026,10 @@ export const performAction = async (req, res, next) => {
         );
         const targetUserIdRaw = req.body?.target_user_id;
         let nextAssigned = null;
-        if (targetUserIdRaw != null && allowedSet.has(Number(targetUserIdRaw))) {
+        if (
+          targetUserIdRaw != null &&
+          allowedSet.has(Number(targetUserIdRaw))
+        ) {
           nextAssigned = Number(targetUserIdRaw);
         } else if (allowedUsers.length > 0) {
           nextAssigned = Number(allowedUsers[0].approver_user_id);
@@ -1382,4 +1574,3 @@ export const performAction = async (req, res, next) => {
     next(err);
   }
 };
-

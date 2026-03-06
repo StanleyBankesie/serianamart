@@ -3,11 +3,13 @@ import { api } from "../../../../api/client.js";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import UnitConversionModal from "../../../../components/UnitConversionModal.jsx";
 import { useUoms } from "../../../../hooks/useUoms.js";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function DirectPurchase() {
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
+  const { canEditDiscount } = usePermission();
   const dpId = params?.id ? Number(params.id) : null;
   const isViewMode =
     location?.pathname?.endsWith(`/direct-purchase/${params?.id || ""}`) &&
@@ -603,15 +605,21 @@ export default function DirectPurchase() {
                         />
                       </td>
                       <td>
-                        <input
-                          type="number"
-                          className="input"
-                          value={l.discount_percent}
-                          onChange={(e) =>
-                            updateLine(i, "discount_percent", e.target.value)
+                        <div
+                          className={
+                            !canEditDiscount() ? "disabled-light-blue" : ""
                           }
-                          disabled={isViewMode}
-                        />
+                        >
+                          <input
+                            type="number"
+                            className="input"
+                            value={l.discount_percent}
+                            onChange={(e) =>
+                              updateLine(i, "discount_percent", e.target.value)
+                            }
+                            disabled={isViewMode || !canEditDiscount()}
+                          />
+                        </div>
                       </td>
                       <td>
                         <select

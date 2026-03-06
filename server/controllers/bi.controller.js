@@ -107,7 +107,18 @@ export const getInventoryReport = async (req, res, next) => {
       { companyId, branchId },
       [],
     );
-    res.json({ items: data });
+    const permissions = await safeQuery(
+      `SELECT can_edit, can_view, can_delete, can_create 
+       FROM adm_user_permissions 
+       WHERE user_id = :userId AND module = 'inventory'`,
+      { userId: req.user.id },
+      [],
+    );
+
+    res.json({
+      items: data,
+      permissions: permissions[0] || {},
+    });
   } catch (err) {
     next(err);
   }

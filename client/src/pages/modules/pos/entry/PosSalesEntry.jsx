@@ -4,6 +4,7 @@ import { Trash2 } from "lucide-react";
 import api from "../../../../api/client.js";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 function FilterableSelect({
   value,
@@ -35,6 +36,7 @@ function FilterableSelect({
 
 export default function PosSalesEntry() {
   const { user } = useAuth();
+  const { canEditDiscount } = usePermission();
   const [now, setNow] = useState(new Date());
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState([]);
@@ -93,7 +95,7 @@ export default function PosSalesEntry() {
   const itemSelectOptions = useMemo(() => {
     return (Array.isArray(products) ? products : []).map((p) => ({
       value: String(p.id),
-      label: (p.code ? `${p.code} - ` : "") + String(p.name || ""),
+      label: String(p.name || ""),
     }));
   }, [products]);
   const itemSearchResults = useMemo(() => {
@@ -145,6 +147,22 @@ export default function PosSalesEntry() {
         const code =
           (assigned.length ? String(assigned[0]?.code || "") : "") || "";
         setTerminalCode(code);
+        try {
+          const raw = sessionStorage.getItem("omni.pos.day");
+          if (raw) {
+            const data = JSON.parse(raw);
+            const t = String(data?.terminal || data?.terminalCode || "");
+            const status = String(data?.status || "").toUpperCase();
+            const recent = Number(data?.ts || 0) > Date.now() - 5000;
+            if (status === "OPEN" && recent && (!code || !t || t === code)) {
+              setDayExists(true);
+              setDayStatus("OPEN");
+              setDayOpen(true);
+              setDayLoading(false);
+              return;
+            }
+          }
+        } catch {}
         const params = code ? { params: { terminal: code } } : undefined;
         const res = await api.get("/pos/day/status", params);
         const item = res?.data?.item || null;
@@ -168,6 +186,48 @@ export default function PosSalesEntry() {
       cancelled = true;
     };
   }, [user?.id, user?.sub]);
+
+  useEffect(() => {
+    function onPosDayEvent(e) {
+      try {
+        const d = e.detail || {};
+        const t = String(d.terminal || d.terminalCode || "");
+        if (terminalCode && t && t !== terminalCode) return;
+        const status = String(d.status || "").toUpperCase();
+        if (status === "OPEN") {
+          setDayExists(true);
+          setDayOpen(true);
+          setDayStatus("OPEN");
+        } else if (status === "CLOSED") {
+          setDayExists(true);
+          setDayOpen(false);
+          setDayStatus("CLOSED");
+        }
+      } catch {}
+    }
+    window.addEventListener("omni.pos.day", onPosDayEvent);
+    return () => window.removeEventListener("omni.pos.day", onPosDayEvent);
+  }, [terminalCode]);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("omni.pos.day");
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      const t = String(data?.terminal || data?.terminalCode || "");
+      if (terminalCode && t && t !== terminalCode) return;
+      const status = String(data?.status || "").toUpperCase();
+      if (status === "OPEN") {
+        setDayExists(true);
+        setDayOpen(true);
+        setDayStatus("OPEN");
+      } else if (status === "CLOSED") {
+        setDayExists(true);
+        setDayOpen(false);
+        setDayStatus("CLOSED");
+      }
+    } catch {}
+  }, [terminalCode]);
 
   useEffect(() => {
     let mounted = true;
@@ -251,6 +311,7 @@ export default function PosSalesEntry() {
       mounted = false;
     };
   }, []);
+  const [headerDiscount, setHeaderDiscount] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -486,7 +547,7 @@ export default function PosSalesEntry() {
           code: prod.code,
           price: unitPrice,
           quantity: qty,
-          discount: 0,
+          discount: canEditDiscount() ? Number(headerDiscount || 0) : 0,
         },
       ];
     });
@@ -556,7 +617,7 @@ export default function PosSalesEntry() {
             code: prod.code,
             price: unitPrice,
             quantity: qty,
-            discount: 0,
+            discount: canEditDiscount() ? Number(headerDiscount || 0) : 0,
           });
         }
       }
@@ -675,8 +736,12 @@ export default function PosSalesEntry() {
   }
 
   function updateCartField(id, field, value) {
-    setCart((prev) =>
-      prev
+    setCart((prev) => {
+      // Hard guard: ignore discount updates when user lacks exceptional permission
+      if (field === "discount" && !canEditDiscount()) {
+        return prev;
+      }
+      return prev
         .map((p) => {
           if (p.id !== id) return p;
           if (field === "quantity") {
@@ -689,8 +754,8 @@ export default function PosSalesEntry() {
           }
           return p;
         })
-        .filter((p) => Number(p.quantity || 0) > 0),
-    );
+        .filter((p) => Number(p.quantity || 0) > 0);
+    });
   }
 
   function removeFromCart(id) {
@@ -1058,7 +1123,7 @@ export default function PosSalesEntry() {
   }
 
   return (
-    <div className="space-y-6 pos-sales-entry">
+    <div className="space-y-3 pos-sales-entry pr-1">
       <div className="flex items-center justify-between">
         <div>
           <Link
@@ -1105,8 +1170,8 @@ export default function PosSalesEntry() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-2">
+        <div className="lg:col-span-3 space-y-3">
           {!dayExists && !dayLoading ? (
             <div className="alert alert-warning">
               <div className="flex items-center justify-between">
@@ -1122,10 +1187,26 @@ export default function PosSalesEntry() {
               </div>
             </div>
           ) : null}
-          {null}
+          {dayExists && dayOpen && !dayLoading ? (
+            <div className="rounded-lg border border-slate-200 bg-white p-4 flex items-center justify-between">
+              <div>
+                <div className="font-semibold">POS Day is Open</div>
+                <div className="text-sm text-slate-600">
+                  Review collections and close day when ready.
+                </div>
+              </div>
+              <Link
+                to="/pos/cash-collection"
+                className="btn btn-primary"
+                title="Go to Cash Collection to close day"
+              >
+                Check Account &amp; Close Day
+              </Link>
+            </div>
+          ) : null}
           <div className="card">
             <div className="card-body space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-7 gap-2">
                 <div className="md:col-span-2">
                   <label className="label">Barcode</label>
                   <input
@@ -1211,164 +1292,146 @@ export default function PosSalesEntry() {
                     filterPlaceholder="Filter price types..."
                   />
                 </div>
+                <div className="discount-guard">
+                  <label className="label">Discount</label>
+                  <input
+                    name="discount"
+                    type="number"
+                    className={`input ${!canEditDiscount() ? "disabled-light-blue" : ""}`}
+                    min={0}
+                    step="0.01"
+                    value={headerDiscount}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setHeaderDiscount(v);
+                      const id = Number(entryItemId || 0);
+                      if (id && canEditDiscount()) {
+                        updateCartField(id, "discount", v);
+                      }
+                    }}
+                    disabled={!canEditDiscount()}
+                    placeholder="0.00"
+                  />
+                </div>
               </div>
-            </div>
-          </div>
-          <div>
-            <div className="text-lg font-semibold text-slate-900 mb-2">
-              Item Information
-            </div>
-            {selectedItems.length ? (
-              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-700">
-                      <th className="px-3 py-2 text-left">Item Code</th>
-                      <th className="px-3 py-2 text-left">Item Name</th>
-                      <th className="px-3 py-2 text-right">Price</th>
-                      <th className="px-3 py-2 text-right">Avail_Qty</th>
-                      <th className="px-3 py-2 text-right">QTY</th>
-                      <th className="px-3 py-2 text-right">Discount</th>
-                      <th className="px-3 py-2 text-right">Total</th>
-                      <th className="px-3 py-2 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedItems.map((it) => {
-                      const cartItem = cart.find((c) => c.id === it.id) || null;
-                      const qty = Number(cartItem?.quantity || 0);
-                      const unitPrice = Number(cartItem?.price || 0);
-                      const discount = Number(cartItem?.discount || 0);
-                      const lineTotal = Math.max(0, qty * unitPrice - discount);
-                      return (
-                        <tr key={it.id}>
-                          <td className="px-3 py-2">{it.code}</td>
-                          <td className="px-3 py-2">{it.name}</td>
-                          <td className="px-3 py-2 text-right">
-                            {`GH₵ ${unitPrice.toFixed(2)}`}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            {Number(it.availQty || 0)}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <input
-                              type="number"
-                              className="input text-right w-24"
-                              min={0}
-                              value={qty}
-                              onChange={(e) =>
-                                updateCartField(
-                                  it.id,
-                                  "quantity",
-                                  e.target.value,
-                                )
-                              }
-                            />
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <input
-                              type="number"
-                              className="input text-right w-24"
-                              min={0}
-                              step="0.01"
-                              value={discount}
-                              onChange={(e) =>
-                                updateCartField(
-                                  it.id,
-                                  "discount",
-                                  e.target.value,
-                                )
-                              }
-                            />
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            {`GH₵ ${lineTotal.toFixed(2)}`}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <button
-                              type="button"
-                              className="btn-danger inline-flex items-center justify-center"
-                              onClick={() => removeSelectedItem(it.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
+              <div>
+                <div className="text-lg font-semibold text-slate-900 mb-2">
+                  Item Information
+                </div>
+                {selectedItems.length ? (
+                  <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-700">
+                          <th className="px-3 py-2 text-left">Item Code</th>
+                          <th className="px-3 py-2 text-left">Item Name</th>
+                          <th className="px-3 py-2 text-right">Price</th>
+                          <th className="px-3 py-2 text-right">Avail_Qty</th>
+                          <th className="px-3 py-2 text-right">QTY</th>
+                          <th className="px-3 py-2 text-right">Discount</th>
+                          <th className="px-3 py-2 text-right">Total</th>
+                          <th className="px-3 py-2 text-right">Actions</th>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                      </thead>
+                      <tbody>
+                        {selectedItems.map((it) => {
+                          const cartItem =
+                            cart.find((c) => c.id === it.id) || null;
+                          const qty = Number(cartItem?.quantity || 0);
+                          const unitPrice = Number(cartItem?.price || 0);
+                          const discount = Number(cartItem?.discount || 0);
+                          const lineTotal = Math.max(
+                            0,
+                            qty * unitPrice - discount,
+                          );
+                          return (
+                            <tr key={it.id}>
+                              <td className="px-3 py-2">{it.code}</td>
+                              <td className="px-3 py-2">{it.name}</td>
+                              <td className="px-3 py-2 text-right">
+                                {`GH₵ ${unitPrice.toFixed(2)}`}
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                {Number(it.availQty || 0)}
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                <div className="flex items-center gap-2 justify-end">
+                                  <button
+                                    type="button"
+                                    className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                                    onClick={() => updateQuantity(it.id, -1)}
+                                  >
+                                    -
+                                  </button>
+                                  <span className="w-8 text-center font-semibold inline-block">
+                                    {qty}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                                    onClick={() => updateQuantity(it.id, 1)}
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                <div className="discount-guard">
+                                  <input
+                                    name="discount"
+                                    type="number"
+                                    className={`input text-right w-24 ${!canEditDiscount() ? "disabled-light-blue" : ""}`}
+                                    min={0}
+                                    step={0.01}
+                                    value={discount}
+                                    onChange={(e) =>
+                                      updateCartField(
+                                        it.id,
+                                        "discount",
+                                        e.target.value,
+                                      )
+                                    }
+                                    disabled={!canEditDiscount()}
+                                  />
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                {`GH₵ ${lineTotal.toFixed(2)}`}
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                <button
+                                  type="button"
+                                  className="btn-danger inline-flex items-center justify-center"
+                                  onClick={() => removeSelectedItem(it.id)}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-sm text-slate-600">
+                    Select an item by barcode or from the item filter to view
+                    details
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-sm text-slate-600">
-                Select an item by barcode or from the item filter to view
-                details
-              </div>
-            )}
+            </div>
           </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-4 lg:pr-0">
           <div className="card">
             <div className="card-header bg-brand text-white rounded-t-lg">
-              <div className="font-semibold">Shopping Cart</div>
+              <div className="font-semibold text-lg">Shopping Cart</div>
             </div>
-            <div className="card-body space-y-3" ref={cartRef}>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {!cart.length ? (
-                  <div className="text-center text-slate-600">
-                    Cart is empty
-                  </div>
-                ) : (
-                  cart.map((item) => (
-                    <div
-                      key={item.id}
-                      className="p-3 rounded-lg border border-slate-200 bg-white flex items-center justify-between"
-                    >
-                      <div>
-                        <div className="font-medium text-slate-900">
-                          {item.name}
-                        </div>
-                        <div className="text-xs text-slate-600">
-                          GH₵ {Number(item.price).toFixed(2)} each
-                          {Number(item.discount || 0) > 0 ? (
-                            <span className="ml-2 text-amber-600">
-                              Disc GH₵ {Number(item.discount || 0).toFixed(2)}
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          onClick={() => updateQuantity(item.id, -1)}
-                        >
-                          -
-                        </button>
-                        <span className="text-sm font-semibold">
-                          {item.quantity}
-                        </span>
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          onClick={() => updateQuantity(item.id, 1)}
-                        >
-                          +
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-danger inline-flex items-center justify-center"
-                          onClick={() => removeFromCart(item.id)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-              <div className="space-y-1">
+            <div className="card-body space-y-3 text-base" ref={cartRef}>
+              {/* Selected items list hidden per requirement */}
+              <div className="space-y-2">
                 <div className="flex justify-between">
                   <div>Discount</div>
                   <div>{`GH₵ ${discountTotal.toFixed(2)}`}</div>
@@ -1383,9 +1446,9 @@ export default function PosSalesEntry() {
                     <div>{`GH₵ ${tax.toFixed(2)}`}</div>
                   </div>
                 ) : null}
-                <div className="flex justify-between font-bold pt-2 border-t">
+                <div className="flex justify-between font-bold pt-2 border-t text-lg">
                   <div>Total</div>
-                  <div>{`GH₵ ${total.toFixed(2)}`}</div>
+                  <div className="font-extrabold">{`GH₵ ${total.toFixed(2)}`}</div>
                 </div>
                 <div className="flex justify-between items-center pt-2">
                   <label htmlFor="amountPaid" className="mr-2">
@@ -1395,8 +1458,8 @@ export default function PosSalesEntry() {
                     id="amountPaid"
                     type="number"
                     inputMode="decimal"
-                    className="input text-right w-36"
-                    step="0.01"
+                    className="input text-right w-40"
+                    step="1"
                     min="0"
                     value={amountPaid}
                     onChange={(e) => setAmountPaid(e.target.value)}
@@ -1404,7 +1467,7 @@ export default function PosSalesEntry() {
                     disabled={false}
                   />
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between text-lg">
                   <div>{changeDue >= 0 ? "Change" : "Amount Due"}</div>
                   <div
                     className={
@@ -1419,7 +1482,7 @@ export default function PosSalesEntry() {
           </div>
 
           <div className="card">
-            <div className="card-body space-y-3">
+            <div className="card-body space-y-3 text-base">
               <div className="grid grid-cols-2 gap-2">
                 {paymentModesLoading ? (
                   <div className="col-span-2 text-center text-sm text-slate-500">
@@ -1434,7 +1497,7 @@ export default function PosSalesEntry() {
                     <button
                       key={m.id}
                       type="button"
-                      className={`btn ${
+                      className={`btn text-base ${
                         String(selectedPaymentModeId) === String(m.id)
                           ? "btn-primary"
                           : "btn-secondary"
@@ -1450,7 +1513,7 @@ export default function PosSalesEntry() {
               <div className="space-y-2">
                 <button
                   type="button"
-                  className="btn-success w-full"
+                  className="btn-success w-full text-base"
                   onClick={clearCart}
                   disabled={false}
                 >
@@ -1458,7 +1521,7 @@ export default function PosSalesEntry() {
                 </button>
                 <button
                   type="button"
-                  className="btn-success w-full"
+                  className="btn-success w-full text-base"
                   onClick={checkout}
                   disabled={
                     !cart.length ||

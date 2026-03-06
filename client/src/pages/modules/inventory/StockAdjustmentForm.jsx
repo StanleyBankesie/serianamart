@@ -222,7 +222,7 @@ export default function StockAdjustmentForm() {
         await api.put(`/inventory/stock-adjustments/${id}`, payload);
       }
 
-      navigate("/inventory/stock-adjustments");
+      navigate("/inventory/stock-adjustments", { state: { refresh: true } });
     } catch (e2) {
       setError(
         e2?.response?.data?.message || "Failed to save stock adjustment",

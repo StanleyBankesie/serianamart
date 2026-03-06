@@ -1,13 +1,27 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
+import { toast } from "react-toastify";
 
 export default function UserOverrides() {
+  const navigate = useNavigate();
+  const STANDARD_EXCEPTIONS = [
+    { code: "SALES.DISCOUNT.ALLOW", label: "Permission to give discount" },
+    { code: "WORKFLOW.APPROVAL.REVERSE", label: "Reversal of approval" },
+    { code: "SALES.ORDER.CANCEL", label: "Sales Order Cancellations" },
+    { code: "PURCHASE.ORDER.CANCEL", label: "Purchase Order Cancellations" },
+    { code: "SALES.INVOICE.CANCEL", label: "Invoice Cancellations" },
+    { code: "PURCHASE.GRN.REVERSE", label: "GRN Reversal" },
+    { code: "PURCHASE.BILL.CANCEL", label: "Purchase Bill Cancellation" },
+  ];
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [role, setRole] = useState(null);
   const [roleModules, setRoleModules] = useState([]);
   const [rolePermissions, setRolePermissions] = useState({});
   const [overrides, setOverrides] = useState({});
+  const [exPerms, setExPerms] = useState({});
+  const [exSaving, setExSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -32,40 +46,76 @@ export default function UserOverrides() {
       setRole(u && u.role ? u.role : null);
 
       const roleId = Number(u?.role_id || u?.role?.id || 0);
-      if (!roleId) {
+      if (roleId) {
+        try {
+          const modsRes = await api
+            .get(`/access/roles/${roleId}/modules`)
+            .catch(() => ({ data: { modules: [] } }));
+          const permsRes = await api
+            .get(`/access/roles/${roleId}/permissions`)
+            .catch(() => ({ data: { permissions: [] } }));
+          const mods = modsRes?.data?.modules || [];
+          setRoleModules(mods);
+          const permList = permsRes?.data?.permissions || [];
+          const byModule = {};
+          for (const p of permList) {
+            byModule[p.module_key] = {
+              can_view: !!p.can_view,
+              can_create: !!p.can_create,
+              can_edit: !!p.can_edit,
+              can_delete: !!p.can_delete,
+            };
+          }
+          setRolePermissions(byModule);
+        } catch {}
+      } else {
         setRoleModules([]);
         setRolePermissions({});
-      } else {
-        const modsRes = await api.get(`/access/roles/${roleId}/modules`);
-        const permsRes = await api.get(`/access/roles/${roleId}/permissions`);
-        const mods = modsRes?.data?.modules || [];
-        setRoleModules(mods);
-        const permList = permsRes?.data?.permissions || [];
-        const byModule = {};
-        for (const p of permList) {
-          byModule[p.module_key] = {
-            can_view: !!p.can_view,
-            can_create: !!p.can_create,
-            can_edit: !!p.can_edit,
-            can_delete: !!p.can_delete,
+      }
+      try {
+        const oRes = await api
+          .get(`/access/users/${userId}/overrides`)
+          .catch(() => ({ data: { overrides: [] } }));
+        const oList = oRes?.data?.overrides || [];
+        const byModuleOverride = {};
+        for (const o of oList) {
+          byModuleOverride[o.module_key] = {
+            can_view: o.can_view,
+            can_create: o.can_create,
+            can_edit: o.can_edit,
+            can_delete: o.can_delete,
           };
         }
-        setRolePermissions(byModule);
-      }
-      const oRes = await api.get(`/access/users/${userId}/overrides`);
-      const oList = oRes?.data?.overrides || [];
-      const byModuleOverride = {};
-      for (const o of oList) {
-        byModuleOverride[o.module_key] = {
-          can_view: o.can_view,
-          can_create: o.can_create,
-          can_edit: o.can_edit,
-          can_delete: o.can_delete,
-        };
-      }
-      setOverrides(byModuleOverride);
+        setOverrides(byModuleOverride);
+      } catch {}
+      // Load exceptional permissions for user
+      try {
+        const exRes = await api.get(
+          `/admin/users/${userId}/exceptional-permissions`,
+        );
+        const items = Array.isArray(exRes?.data?.data?.items)
+          ? exRes.data.data.items
+          : Array.isArray(exRes?.data?.items)
+            ? exRes.data.items
+            : [];
+        const map = {};
+        for (const { permission_code, effect, is_active } of items) {
+          const code = String(permission_code || "").toUpperCase();
+          const active = Number(is_active) === 1;
+          const allow = String(effect || "ALLOW").toUpperCase() === "ALLOW";
+          map[code] = active && allow;
+        }
+        const init = {};
+        for (const def of STANDARD_EXCEPTIONS) {
+          init[def.code] = !!map[def.code];
+        }
+        setExPerms(init);
+      } catch {}
     } catch (err) {
-      setError(err?.response?.data?.message || "Failed to load");
+      setError(
+        err?.response?.data?.message ||
+          "Failed to load user context. Please try again.",
+      );
     } finally {
       setLoading(false);
     }
@@ -110,6 +160,46 @@ export default function UserOverrides() {
     }
   }
 
+  function toggleExceptional(code) {
+    const k = String(code || "");
+    if (!k) return;
+    setExPerms((prev) => ({ ...prev, [k]: !prev[k] }));
+  }
+
+  async function saveExceptional() {
+    if (!selectedUser) return;
+    try {
+      setExSaving(true);
+      const permissions = STANDARD_EXCEPTIONS.map((e) => ({
+        permission_code: e.code,
+        effect: exPerms[e.code] ? "ALLOW" : "DENY",
+        is_active: exPerms[e.code] ? 1 : 0,
+        exception_type: "STANDARD",
+      }));
+      await api.put(`/admin/users/${selectedUser}/exceptional-permissions`, {
+        permissions,
+      });
+      toast.success("Exceptional permissions saved");
+      navigate("/administration/exceptional-permissions", {
+        state: {
+          afterSave: {
+            entity: "exceptional-permissions",
+            id: Number(selectedUser) || null,
+            ts: Date.now(),
+          },
+        },
+        replace: true,
+      });
+    } catch (err) {
+      setError(
+        err?.response?.data?.message ||
+          "Failed to save exceptional permissions",
+      );
+    } finally {
+      setExSaving(false);
+    }
+  }
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -141,74 +231,35 @@ export default function UserOverrides() {
               ))}
             </select>
           </div>
-          {loading ? (
-            <div>Loading...</div>
-          ) : selectedUser ? (
-            <div className="overflow-x-auto">
-              <table className="table w-full">
-                <thead>
-                  <tr>
-                    <th>Module</th>
-                    <th className="text-center w-28">Role Default</th>
-                    <th className="text-center w-28">Override View</th>
-                    <th className="text-center w-28">Override Create</th>
-                    <th className="text-center w-28">Override Edit</th>
-                    <th className="text-center w-28">Override Delete</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {roleModules.map((mk) => {
-                    const roleRow = rolePermissions[mk] || {};
-                    const overrideRow = overrides[mk] || {};
-                    return (
-                      <tr key={mk}>
-                        <td className="p-3 font-medium">{mk}</td>
-                        <td className="p-3 text-center">
-                          V {display(roleRow.can_view)} / C{" "}
-                          {display(roleRow.can_create)} / E{" "}
-                          {display(roleRow.can_edit)} / D{" "}
-                          {display(roleRow.can_delete)}
-                        </td>
-                        <td className="p-3 text-center">
-                          <button
-                            className="btn btn-xs"
-                            onClick={() => toggleOverride(mk, "can_view")}
-                          >
-                            {display(overrideRow.can_view)}
-                          </button>
-                        </td>
-                        <td className="p-3 text-center">
-                          <button
-                            className="btn btn-xs"
-                            onClick={() => toggleOverride(mk, "can_create")}
-                          >
-                            {display(overrideRow.can_create)}
-                          </button>
-                        </td>
-                        <td className="p-3 text-center">
-                          <button
-                            className="btn btn-xs"
-                            onClick={() => toggleOverride(mk, "can_edit")}
-                          >
-                            {display(overrideRow.can_edit)}
-                          </button>
-                        </td>
-                        <td className="p-3 text-center">
-                          <button
-                            className="btn btn-xs"
-                            onClick={() => toggleOverride(mk, "can_delete")}
-                          >
-                            {display(overrideRow.can_delete)}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              <div className="flex justify-end mt-4">
-                <button className="btn btn-success" onClick={saveOverrides}>
-                  Save
+          {selectedUser ? (
+            <div className="space-y-3 border rounded p-3">
+              <div className="text-sm font-semibold">
+                ERP Standard Exceptional Permissions
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {STANDARD_EXCEPTIONS.map((e) => (
+                  <label
+                    key={e.code}
+                    className="flex items-center gap-2 p-2 border rounded hover:bg-slate-50"
+                  >
+                    <input
+                      type="checkbox"
+                      className="checkbox"
+                      checked={!!exPerms[e.code]}
+                      onChange={() => toggleExceptional(e.code)}
+                      disabled={exSaving}
+                    />
+                    <span>{e.label}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="flex justify-end">
+                <button
+                  className="btn btn-success"
+                  onClick={saveExceptional}
+                  disabled={exSaving}
+                >
+                  {exSaving ? "Saving..." : "Save Exceptional Permissions"}
                 </button>
               </div>
             </div>

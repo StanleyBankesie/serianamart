@@ -8,12 +8,14 @@ import { useUoms } from "@/hooks/useUoms";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { Printer, Download } from "lucide-react";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function PurchaseOrdersLocalForm() {
   const { id } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { canEditDiscount } = usePermission();
 
   const isNew = !id || id === "new";
   const isEdit =
@@ -962,7 +964,7 @@ export default function PurchaseOrdersLocalForm() {
         } else if (createdId) {
         }
       }
-      navigate("/purchase/purchase-orders-local");
+      navigate("/purchase/purchase-orders-local", { state: { refresh: true } });
     } catch (e2) {
       const msg =
         e2?.response?.data?.message ||
@@ -1776,21 +1778,30 @@ export default function PurchaseOrdersLocalForm() {
                                 />
                               </td>
                               <td className="p-3">
-                                <input
-                                  type="number"
-                                  value={row.discount_percent}
-                                  onChange={(e) =>
-                                    handleItemChange(
-                                      idx,
-                                      "discount_percent",
-                                      e.target.value,
-                                    )
+                                <div
+                                  className={
+                                    !canEditDiscount()
+                                      ? "disabled-light-blue"
+                                      : ""
                                   }
-                                  className="w-full p-2 border border-[#dee2e6] rounded text-sm text-right focus:outline-none focus:border-[#0E3646]"
-                                  min="0"
-                                  max="100"
-                                  step="1"
-                                />
+                                >
+                                  <input
+                                    type="number"
+                                    value={row.discount_percent}
+                                    onChange={(e) =>
+                                      handleItemChange(
+                                        idx,
+                                        "discount_percent",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full p-2 border border-[#dee2e6] rounded text-sm text-right focus:outline-none focus:border-[#0E3646]"
+                                    min="0"
+                                    max="100"
+                                    step="1"
+                                    disabled={!canEditDiscount()}
+                                  />
+                                </div>
                               </td>
                               <td className="p-3">
                                 <select

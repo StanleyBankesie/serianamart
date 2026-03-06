@@ -774,7 +774,7 @@ export default function GRNImportForm() {
         });
       }
 
-      navigate("/inventory/grn-import");
+      navigate("/inventory/grn-import", { state: { refresh: true } });
     } catch (e2) {
       setError(
         e2?.response?.data?.message || e2?.message || "Failed to save GRN",

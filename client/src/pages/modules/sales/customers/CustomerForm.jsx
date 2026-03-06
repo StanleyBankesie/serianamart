@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../../../api/client";
+import { useDispatch } from "react-redux";
+import { setRefresh } from "../../../../store/ui/refreshSlice.js";
 
 export default function CustomerForm() {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = Boolean(id);
+  const dispatch = useDispatch();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -51,7 +54,7 @@ export default function CustomerForm() {
     try {
       const response = await api.get("/sales/price-types");
       setPriceTypes(
-        Array.isArray(response.data?.items) ? response.data.items : []
+        Array.isArray(response.data?.items) ? response.data.items : [],
       );
     } catch (err) {
       console.error("Error fetching price types", err);
@@ -61,7 +64,9 @@ export default function CustomerForm() {
   async function fetchCurrencies() {
     try {
       const response = await api.get("/finance/currencies");
-      const arr = Array.isArray(response.data?.items) ? response.data.items : [];
+      const arr = Array.isArray(response.data?.items)
+        ? response.data.items
+        : [];
       setCurrencies(arr);
       const base = arr.find((c) => Number(c.is_base) === 1);
       if (!isEdit && base) {
@@ -96,12 +101,25 @@ export default function CustomerForm() {
     setLoading(true);
     setError("");
     try {
+      let createdId = null;
       if (isEdit) {
-        await api.put(`/sales/customers/${id}`, form);
+        const res = await api.put(`/sales/customers/${id}`, form);
+        createdId = res?.data?.id || res?.data?.item?.id || id;
       } else {
-        await api.post("/sales/customers", form);
+        const res = await api.post("/sales/customers", form);
+        createdId = res?.data?.id || res?.data?.item?.id || null;
       }
-      navigate("/sales/customers");
+      dispatch(setRefresh({ key: "customers", id: createdId || null }));
+      navigate("/sales/customers", {
+        state: {
+          afterSave: {
+            entity: "customers",
+            id: createdId || null,
+            ts: Date.now(),
+          },
+        },
+        replace: true,
+      });
     } catch (err) {
       setError(err?.response?.data?.message || "Error saving customer");
     } finally {
@@ -428,7 +446,7 @@ export default function CustomerForm() {
                           <div className="text-sm">
                             {priceTypes.find(
                               (pt) =>
-                                String(pt.id) === String(form.price_type_id)
+                                String(pt.id) === String(form.price_type_id),
                             )?.name || form.price_type_id}
                           </div>
                         </div>

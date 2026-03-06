@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
 
 export default function ServiceRequestsList() {
+  const location = useLocation();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -33,17 +35,92 @@ export default function ServiceRequestsList() {
       mounted = false;
     };
   }, []);
+  useEffect(() => {
+    const ref = location.state?.highlightRef;
+    const hid = location.state?.highlightId;
+    const refresh = location.state?.refresh;
+    if (!ref && !hid && !refresh) return;
+    let cancelled = false;
+    async function ensureVisible() {
+      const start = Date.now();
+      while (!cancelled && Date.now() - start < 5000) {
+        try {
+          const res = await api.get("/purchase/service-requests");
+          const arr = Array.isArray(res.data?.items) ? res.data.items : [];
+          setItems(arr);
+          let hit = false;
+          if (ref) {
+            hit = arr.some(
+              (r) =>
+                String(r.request_no || "").toLowerCase() ===
+                String(ref).toLowerCase(),
+            );
+          } else if (hid) {
+            hit = arr.some((r) => Number(r.id) === Number(hid));
+          } else {
+            hit = arr.length > 0;
+          }
+          if (hit) break;
+        } catch {}
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    }
+    ensureVisible();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    location.state?.highlightRef,
+    location.state?.highlightId,
+    location.state?.refresh,
+  ]);
+  useEffect(() => {
+    function onWorkflowStatus(e) {
+      try {
+        const d = e.detail || {};
+        const id = Number(d.documentId || d.document_id);
+        const status = String(d.status || "").toUpperCase();
+        if (!id || !status) return;
+        setItems((prev) =>
+          prev.map((r) =>
+            Number(r.id) === id
+              ? {
+                  ...r,
+                  status,
+                  ...(status === "DRAFT"
+                    ? { forwarded_to_username: null }
+                    : {}),
+                }
+              : r,
+          ),
+        );
+      } catch {}
+    }
+    window.addEventListener("omni.workflow.status", onWorkflowStatus);
+    return () =>
+      window.removeEventListener("omni.workflow.status", onWorkflowStatus);
+  }, []);
 
   const filtered = useMemo(() => {
     const q = String(searchTerm || "").toLowerCase();
     if (!q) return items;
     return items.filter((r) => {
       return (
-        String(r.request_no || "").toLowerCase().includes(q) ||
-        String(r.requester_company || "").toLowerCase().includes(q) ||
-        String(r.requester_full_name || "").toLowerCase().includes(q) ||
-        String(r.service_type || "").toLowerCase().includes(q) ||
-        String(r.status || "").toLowerCase().includes(q)
+        String(r.request_no || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(r.requester_company || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(r.requester_full_name || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(r.service_type || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(r.status || "")
+          .toLowerCase()
+          .includes(q)
       );
     });
   }, [items, searchTerm]);
@@ -124,9 +201,34 @@ export default function ServiceRequestsList() {
                       <td>{r.requester_company || r.requester_full_name}</td>
                       <td>{String(r.service_type || "").replace(/_/g, " ")}</td>
                       <td className="capitalize">{r.priority}</td>
-                      <td>{r.status}</td>
+                      <td>
+                        {r.status}
+                        {String(r.status || "").toUpperCase() === "APPROVED" ? (
+                          <ReverseApprovalButton
+                            docType="SERVICE_REQUEST"
+                            docId={r.id}
+                            className="ml-2 text-indigo-700 hover:text-indigo-800 text-xs font-medium"
+                            onDone={() =>
+                              setItems((prev) =>
+                                prev.map((x) =>
+                                  x.id === r.id
+                                    ? {
+                                        ...x,
+                                        status: "REVERSED",
+                                        forwarded_to_username: null,
+                                      }
+                                    : x,
+                                ),
+                              )
+                            }
+                          />
+                        ) : null}
+                      </td>
                       <td className="whitespace-nowrap">
-                        {canPerformAction("service-management:service-requests", "view") && (
+                        {canPerformAction(
+                          "service-management:service-requests",
+                          "view",
+                        ) && (
                           <button
                             type="button"
                             className="btn-secondary btn-sm mr-2"
@@ -147,14 +249,25 @@ export default function ServiceRequestsList() {
                             View
                           </button>
                         )}
-                        {canPerformAction("service-management:service-requests", "edit") && (
-                          <Link
-                            to={`/service-management/service-requests/new?id=${r.id}`}
-                            className="btn-primary btn-sm"
-                          >
-                            Edit
-                          </Link>
-                        )}
+                        {canPerformAction(
+                          "service-management:service-requests",
+                          "edit",
+                        ) &&
+                          !["APPROVED", "POSTED"].includes(
+                            String(r.status || "").toUpperCase(),
+                          ) && (
+                            <Link
+                              to={`/service-management/service-requests/new?id=${r.id}`}
+                              className="btn-primary btn-sm"
+                            >
+                              Edit
+                            </Link>
+                          )}
+                        {r.forwarded_to_username ? (
+                          <span className="inline-block ml-2 text-xs font-medium px-2 py-1 rounded bg-amber-500 text-white">
+                            Forwarded to {r.forwarded_to_username}
+                          </span>
+                        ) : null}
                       </td>
                     </tr>
                   ))}

@@ -36,12 +36,232 @@ async function ensureItemFlagColumns() {
       "ALTER TABLE inv_items ADD COLUMN is_purchasable CHAR(1) NOT NULL DEFAULT 'N'",
     );
   }
+  if (!(await hasColumn("inv_items", "category_id"))) {
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN category_id BIGINT UNSIGNED NULL",
+    );
+  }
+  if (!(await hasColumn("inv_items", "item_group_id"))) {
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN item_group_id BIGINT UNSIGNED NULL",
+    );
+  }
+  if (!(await hasColumn("inv_items", "min_stock_level"))) {
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN min_stock_level DECIMAL(18,3) NOT NULL DEFAULT 0",
+    );
+  }
+  if (!(await hasColumn("inv_items", "max_stock_level"))) {
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN max_stock_level DECIMAL(18,3) NOT NULL DEFAULT 0",
+    );
+  }
+  if (!(await hasColumn("inv_items", "reorder_level"))) {
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN reorder_level DECIMAL(18,3) NOT NULL DEFAULT 0",
+    );
+  }
+  if (!(await hasColumn("inv_items", "safety_stock"))) {
+    await query(
+      "ALTER TABLE inv_items ADD COLUMN safety_stock DECIMAL(18,3) NOT NULL DEFAULT 0",
+    );
+  }
+  if (!(await hasColumn("inv_items", "description"))) {
+    await query("ALTER TABLE inv_items ADD COLUMN description TEXT NULL");
+  }
+}
+
+async function resolveCategoryId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const code = v.toUpperCase();
+  const rows = await query(
+    `
+    SELECT id
+    FROM inv_item_categories
+    WHERE company_id = :companyId
+      AND (UPPER(category_code) = :code OR UPPER(category_name) = :code)
+    LIMIT 1
+    `,
+    { companyId, code },
+  ).catch(() => []);
+  return Number(rows?.[0]?.id || 0) || null;
+}
+
+async function resolveGroupId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const code = v.toUpperCase();
+  const rows = await query(
+    `
+    SELECT id
+    FROM inv_item_groups
+    WHERE company_id = :companyId
+      AND (UPPER(group_code) = :code OR UPPER(group_name) = :code)
+    LIMIT 1
+    `,
+    { companyId, code },
+  ).catch(() => []);
+  return Number(rows?.[0]?.id || 0) || null;
+}
+
+async function resolveCurrencyId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const code = v.toUpperCase();
+  const rows = await query(
+    `
+    SELECT id
+    FROM fin_currencies
+    WHERE company_id = :companyId
+      AND (UPPER(code) = :code OR UPPER(name) = :code)
+    LIMIT 1
+    `,
+    { companyId, code },
+  ).catch(() => []);
+  return Number(rows?.[0]?.id || 0) || null;
+}
+
+async function resolvePriceTypeId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const name = v;
+  const rows = await query(
+    `
+    SELECT id
+    FROM sal_price_types
+    WHERE company_id = :companyId
+      AND UPPER(name) = UPPER(:name)
+    LIMIT 1
+    `,
+    { companyId, name },
+  ).catch(() => []);
+  return Number(rows?.[0]?.id || 0) || null;
+}
+
+async function resolveTaxCodeId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const code = v.toUpperCase();
+  const rows = await query(
+    `
+    SELECT id
+    FROM fin_tax_codes
+    WHERE company_id = :companyId
+      AND (UPPER(code) = :code OR UPPER(name) = :code)
+    LIMIT 1
+    `,
+    { companyId, code },
+  ).catch(() => []);
+  return Number(rows?.[0]?.id || 0) || null;
+}
+
+async function resolveAccountId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  // Prefer code match; fallback to name
+  const asNum = Number(v);
+  if (Number.isFinite(asNum) && asNum > 0) {
+    const rows = await query(
+      `
+      SELECT id FROM fin_accounts
+      WHERE company_id = :companyId AND id = :id
+      LIMIT 1
+      `,
+      { companyId, id: asNum },
+    ).catch(() => []);
+    return Number(rows?.[0]?.id || 0) || null;
+  }
+  const rows = await query(
+    `
+    SELECT id
+    FROM fin_accounts
+    WHERE company_id = :companyId
+      AND (UPPER(code) = UPPER(:v) OR UPPER(name) = UPPER(:v))
+    LIMIT 1
+    `,
+    { companyId, v },
+  ).catch(() => []);
+  return Number(rows?.[0]?.id || 0) || null;
+}
+
+async function resolveOrCreateCategoryId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const existing =
+    (await query(
+      `
+      SELECT id
+      FROM inv_item_categories
+      WHERE company_id = :companyId
+        AND (UPPER(category_code) = :code OR UPPER(category_name) = :code)
+      LIMIT 1
+      `,
+      { companyId, code: v.toUpperCase() },
+    ).catch(() => [])) || [];
+  if (existing.length) return Number(existing[0].id) || null;
+  const code = v
+    .toUpperCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^A-Z0-9_]/g, "_")
+    .slice(0, 30);
+  const name = v.slice(0, 150);
+  try {
+    const ins = await query(
+      `
+      INSERT INTO inv_item_categories (company_id, category_code, category_name, is_active)
+      VALUES (:companyId, :code, :name, 1)
+      `,
+      { companyId, code, name },
+    );
+    return Number(ins.insertId) || null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveOrCreateGroupId(companyId, raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const existing =
+    (await query(
+      `
+      SELECT id
+      FROM inv_item_groups
+      WHERE company_id = :companyId
+        AND (UPPER(group_code) = :code OR UPPER(group_name) = :code)
+      LIMIT 1
+      `,
+      { companyId, code: v.toUpperCase() },
+    ).catch(() => [])) || [];
+  if (existing.length) return Number(existing[0].id) || null;
+  const code = v
+    .toUpperCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^A-Z0-9_]/g, "_")
+    .slice(0, 30);
+  const name = v.slice(0, 150);
+  try {
+    const ins = await query(
+      `
+      INSERT INTO inv_item_groups (company_id, group_code, group_name, is_active)
+      VALUES (:companyId, :code, :name, 1)
+      `,
+      { companyId, code, name },
+    );
+    return Number(ins.insertId) || null;
+  } catch {
+    return null;
+  }
 }
 
 export const listItems = async (req, res, next) => {
   try {
     await ensureItemFlagColumns();
     const { companyId, branchId } = req.scope;
+    const groupCol = (await hasColumn("inv_items", "group_id"))
+      ? "group_id"
+      : "item_group_id";
     const rows = await query(
       `
       SELECT i.id,
@@ -60,6 +280,10 @@ export const listItems = async (req, res, next) => {
              i.vat_on_sales_id,
              i.purchase_account_id,
              i.sales_account_id,
+             i.category_id,
+             i.${groupCol} AS item_group_id,
+             c.category_name,
+             g.group_name,
              i.service_item,
              i.is_stockable,
              i.is_sellable,
@@ -70,6 +294,10 @@ export const listItems = async (req, res, next) => {
       LEFT JOIN inv_item_types t
         ON t.company_id = i.company_id
        AND t.type_code = i.item_type
+      LEFT JOIN inv_item_categories c
+        ON c.id = i.category_id
+      LEFT JOIN inv_item_groups g
+        ON g.id = i.${groupCol}
       LEFT JOIN (
         SELECT company_id, branch_id, item_id, SUM(qty) AS qty
         FROM inv_stock_balances
@@ -225,6 +453,9 @@ export const createItem = async (req, res, next) => {
     await ensureItemFlagColumns();
     const { companyId } = req.scope;
     const body = req.body || {};
+    const groupCol = (await hasColumn("inv_items", "group_id"))
+      ? "group_id"
+      : "item_group_id";
     const yn = (v, def = "N") => {
       if (v === undefined || v === null) return def;
       const s = String(v).toUpperCase();
@@ -239,13 +470,77 @@ export const createItem = async (req, res, next) => {
     const barcode = body.barcode ? String(body.barcode).trim() : null;
     const costPrice = Number(body.cost_price || 0);
     const sellingPrice = Number(body.selling_price || 0);
-    const currencyId = Number(body.currency_id || 0) || null;
-    const priceTypeId = Number(body.price_type_id || 0) || null;
+    let currencyId = Number(body.currency_id || 0) || null;
+    let priceTypeId = Number(body.price_type_id || 0) || null;
     const imageUrl = body.image_url ? String(body.image_url).trim() : null;
-    const vatOnPurchaseId = Number(body.vat_on_purchase_id || 0) || null;
-    const vatOnSalesId = Number(body.vat_on_sales_id || 0) || null;
-    const purchaseAccountId = Number(body.purchase_account_id || 0) || null;
-    const salesAccountId = Number(body.sales_account_id || 0) || null;
+    let vatOnPurchaseId = Number(body.vat_on_purchase_id || 0) || null;
+    let vatOnSalesId = Number(body.vat_on_sales_id || 0) || null;
+    let purchaseAccountId = Number(body.purchase_account_id || 0) || null;
+    let salesAccountId = Number(body.sales_account_id || 0) || null;
+    let categoryId = Number(body.category_id || 0) || null;
+    let itemGroupId = Number(body.item_group_id || body.group_id || 0) || null;
+    // Fallback server-side resolution if IDs not provided
+    if (!categoryId) {
+      categoryId =
+        (await resolveCategoryId(companyId, body.category_label)) ||
+        (await resolveCategoryId(companyId, body.category_name)) ||
+        (await resolveCategoryId(companyId, body.category_code));
+      if (!categoryId && (body.auto_create_missing || body.bulk_import)) {
+        categoryId =
+          (await resolveOrCreateCategoryId(companyId, body.category_label)) ||
+          (await resolveOrCreateCategoryId(companyId, body.category_name)) ||
+          (await resolveOrCreateCategoryId(companyId, body.category_code));
+      }
+    }
+    if (!itemGroupId) {
+      itemGroupId =
+        (await resolveGroupId(companyId, body.group_label)) ||
+        (await resolveGroupId(companyId, body.group_name)) ||
+        (await resolveGroupId(companyId, body.group_code));
+      if (!itemGroupId && (body.auto_create_missing || body.bulk_import)) {
+        itemGroupId =
+          (await resolveOrCreateGroupId(companyId, body.group_label)) ||
+          (await resolveOrCreateGroupId(companyId, body.group_name)) ||
+          (await resolveOrCreateGroupId(companyId, body.group_code));
+      }
+    }
+    // Fallbacks for finance-related IDs
+    if (!currencyId) {
+      currencyId =
+        (await resolveCurrencyId(companyId, body.currency_code)) ||
+        (await resolveCurrencyId(companyId, body.currency_name));
+    }
+    if (!priceTypeId) {
+      priceTypeId =
+        (await resolvePriceTypeId(companyId, body.price_type)) ||
+        (await resolvePriceTypeId(companyId, body.price_type_name));
+    }
+    if (!vatOnPurchaseId) {
+      vatOnPurchaseId =
+        (await resolveTaxCodeId(companyId, body.vat_on_purchase_code)) ||
+        (await resolveTaxCodeId(companyId, body.vat_on_purchase_name)) ||
+        (await resolveTaxCodeId(companyId, body.vat_purchase)) ||
+        (await resolveTaxCodeId(companyId, body.vat_on_purchase));
+    }
+    if (!vatOnSalesId) {
+      vatOnSalesId =
+        (await resolveTaxCodeId(companyId, body.vat_on_sales_code)) ||
+        (await resolveTaxCodeId(companyId, body.vat_on_sales_name)) ||
+        (await resolveTaxCodeId(companyId, body.vat_sales)) ||
+        (await resolveTaxCodeId(companyId, body.vat_on_sales));
+    }
+    if (!purchaseAccountId) {
+      purchaseAccountId =
+        (await resolveAccountId(companyId, body.purchase_account_code)) ||
+        (await resolveAccountId(companyId, body.purchase_account_name)) ||
+        (await resolveAccountId(companyId, body.purchase_account));
+    }
+    if (!salesAccountId) {
+      salesAccountId =
+        (await resolveAccountId(companyId, body.sales_account_code)) ||
+        (await resolveAccountId(companyId, body.sales_account_name)) ||
+        (await resolveAccountId(companyId, body.sales_account));
+    }
     const serviceItem = yn(body.service_item, "N");
     const isStockable = yn(body.is_stockable, "N");
     const isSellable = yn(body.is_sellable, "N");
@@ -258,10 +553,21 @@ export const createItem = async (req, res, next) => {
         "VALIDATION_ERROR",
         "item_code and item_name are required",
       );
+    // Prevent duplicate item_name within the same company (case-insensitive)
+    const dup = await query(
+      `SELECT id 
+       FROM inv_items 
+       WHERE company_id = :companyId AND UPPER(item_name) = UPPER(:itemName) 
+       LIMIT 1`,
+      { companyId, itemName },
+    );
+    if (dup.length) {
+      throw httpError(409, "DUPLICATE_ITEM_NAME", "Item name already exists");
+    }
     const result = await query(
       `
-      INSERT INTO inv_items (company_id, item_code, item_name, uom, item_type, barcode, cost_price, selling_price, currency_id, price_type_id, image_url, vat_on_purchase_id, vat_on_sales_id, purchase_account_id, sales_account_id, service_item, is_stockable, is_sellable, is_purchasable, is_active)
-      VALUES (:companyId, :itemCode, :itemName, :uom, :itemType, :barcode, :costPrice, :sellingPrice, :currencyId, :priceTypeId, :imageUrl, :vatOnPurchaseId, :vatOnSalesId, :purchaseAccountId, :salesAccountId, :serviceItem, :isStockable, :isSellable, :isPurchasable, :isActive)
+      INSERT INTO inv_items (company_id, item_code, item_name, uom, item_type, barcode, cost_price, selling_price, currency_id, price_type_id, image_url, vat_on_purchase_id, vat_on_sales_id, purchase_account_id, sales_account_id, category_id, ${groupCol}, service_item, is_stockable, is_sellable, is_purchasable, is_active)
+      VALUES (:companyId, :itemCode, :itemName, :uom, :itemType, :barcode, :costPrice, :sellingPrice, :currencyId, :priceTypeId, :imageUrl, :vatOnPurchaseId, :vatOnSalesId, :purchaseAccountId, :salesAccountId, :categoryId, :itemGroupId, :serviceItem, :isStockable, :isSellable, :isPurchasable, :isActive)
       `,
       {
         companyId,
@@ -279,6 +585,8 @@ export const createItem = async (req, res, next) => {
         vatOnSalesId,
         purchaseAccountId,
         salesAccountId,
+        categoryId,
+        itemGroupId,
         serviceItem,
         isStockable,
         isSellable,
@@ -297,6 +605,9 @@ export const updateItem = async (req, res, next) => {
     await ensureItemFlagColumns();
     const { companyId } = req.scope;
     const id = Number(req.params.id);
+    const groupCol = (await hasColumn("inv_items", "group_id"))
+      ? "group_id"
+      : "item_group_id";
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const body = req.body || {};
@@ -321,6 +632,9 @@ export const updateItem = async (req, res, next) => {
     const vatOnSalesId = Number(body.vat_on_sales_id || 0) || null;
     const purchaseAccountId = Number(body.purchase_account_id || 0) || null;
     const salesAccountId = Number(body.sales_account_id || 0) || null;
+    const categoryId = Number(body.category_id || 0) || null;
+    const itemGroupId =
+      Number(body.item_group_id || body.group_id || 0) || null;
     const serviceItem = yn(body.service_item, "N");
     const isStockable = yn(body.is_stockable, "N");
     const isSellable = yn(body.is_sellable, "N");
@@ -333,6 +647,17 @@ export const updateItem = async (req, res, next) => {
         "VALIDATION_ERROR",
         "item_code and item_name are required",
       );
+    // Prevent duplicate item_name on rename (case-insensitive)
+    const exists = await query(
+      `SELECT id 
+       FROM inv_items 
+       WHERE company_id = :companyId AND UPPER(item_name) = UPPER(:itemName) AND id <> :id
+       LIMIT 1`,
+      { companyId, itemName, id },
+    );
+    if (exists.length) {
+      throw httpError(409, "DUPLICATE_ITEM_NAME", "Item name already exists");
+    }
     const upd = await query(
       `
       UPDATE inv_items
@@ -350,6 +675,8 @@ export const updateItem = async (req, res, next) => {
           vat_on_sales_id = :vatOnSalesId,
           purchase_account_id = :purchaseAccountId,
           sales_account_id = :salesAccountId,
+          category_id = :categoryId,
+          ${groupCol} = :itemGroupId,
           service_item = :serviceItem,
           is_stockable = :isStockable,
           is_sellable = :isSellable,
@@ -374,6 +701,8 @@ export const updateItem = async (req, res, next) => {
         vatOnSalesId,
         purchaseAccountId,
         salesAccountId,
+        categoryId,
+        itemGroupId,
         serviceItem,
         isStockable,
         isSellable,
@@ -383,6 +712,370 @@ export const updateItem = async (req, res, next) => {
     );
     if (!upd.affectedRows) throw httpError(404, "NOT_FOUND", "Item not found");
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const bulkUpsertItems = async (req, res, next) => {
+  try {
+    await ensureItemFlagColumns();
+    const { companyId } = req.scope;
+    const body = req.body || {};
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+    const autoCreate = !!body.auto_create_missing || !!body.bulk_import;
+    if (!rows.length)
+      return res.json({ inserted: 0, updated: 0, failed: 0, errors: [] });
+
+    const groupCol = (await hasColumn("inv_items", "group_id"))
+      ? "group_id"
+      : "item_group_id";
+    const yn = (v, def = "N") => {
+      if (v === undefined || v === null) return def;
+      const s = String(v).toUpperCase();
+      if (s === "Y") return "Y";
+      if (s === "N") return "N";
+      return Boolean(v) ? "Y" : "N";
+    };
+
+    let baseNextNum = null;
+    const needNextCode = rows.some(
+      (r) => !String(r.item_code || r.ITEM_CODE || "").trim(),
+    );
+    if (needNextCode) {
+      const rec = await query(
+        `
+        SELECT item_code
+        FROM inv_items
+        WHERE company_id = :companyId AND item_code REGEXP '^[0-9]+$'
+        ORDER BY CAST(item_code AS UNSIGNED) DESC
+        LIMIT 1
+        `,
+        { companyId },
+      );
+      baseNextNum = rec.length ? parseInt(rec[0].item_code, 10) + 1 : 1;
+    }
+    const usedCodes = new Set();
+
+    let inserted = 0;
+    let updated = 0;
+    let failed = 0;
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i] || {};
+      try {
+        const itemName = String(r.item_name || r.ITEM_NAME || "").trim();
+        if (!itemName) {
+          failed += 1;
+          errors.push({
+            index: i + 1,
+            item_name: "",
+            message: "Missing ITEM_NAME",
+          });
+          continue;
+        }
+        let itemCode = String(r.item_code || r.ITEM_CODE || "").trim();
+        if (!itemCode) {
+          if (baseNextNum == null) {
+            const rec2 = await query(
+              `
+              SELECT item_code
+              FROM inv_items
+              WHERE company_id = :companyId AND item_code REGEXP '^[0-9]+$'
+              ORDER BY CAST(item_code AS UNSIGNED) DESC
+              LIMIT 1
+              `,
+              { companyId },
+            );
+            baseNextNum = rec2.length ? parseInt(rec2[0].item_code, 10) + 1 : 1;
+          }
+          do {
+            itemCode = String(baseNextNum).padStart(6, "0");
+            baseNextNum += 1;
+          } while (usedCodes.has(itemCode));
+        }
+        usedCodes.add(itemCode);
+
+        const uom =
+          String(r.uom || r.UOM || r.BASE_UOM || "PCS").trim() || "PCS";
+        const itemType = r.item_type || r.ITEM_TYPE || null;
+        const barcode = r.barcode || r.BARCODE || null;
+        const costPrice = Number(
+          r.cost_price || r.COST_PRICE || r.STANDARD_COST || 0,
+        );
+        const sellingPrice = Number(r.selling_price || r.SELLING_PRICE || 0);
+        let currencyId = Number(r.currency_id || r.CURRENCY_ID || 0) || null;
+        let priceTypeId =
+          Number(r.price_type_id || r.PRICE_TYPE_ID || 0) || null;
+        const imageUrl = r.image_url || r.IMAGE_URL || r.IMAGE || null;
+        let vatOnPurchaseId =
+          Number(r.vat_on_purchase_id || r.VAT_ON_PURCHASE_ID || 0) || null;
+        let vatOnSalesId =
+          Number(r.vat_on_sales_id || r.VAT_ON_SALES_ID || 0) || null;
+        let purchaseAccountId =
+          Number(r.purchase_account_id || r.PURCHASE_ACCOUNT_ID || 0) || null;
+        let salesAccountId =
+          Number(r.sales_account_id || r.SALES_ACCOUNT_ID || 0) || null;
+        let categoryId = Number(r.category_id || r.CATEGORY_ID || 0) || null;
+        let itemGroupId =
+          Number(r.item_group_id || r.group_id || r.ITEM_GROUP_ID || 0) || null;
+
+        if (!categoryId) {
+          categoryId =
+            (await resolveCategoryId(
+              companyId,
+              r.category_label || r.CATEGORY_LABEL,
+            )) ||
+            (await resolveCategoryId(
+              companyId,
+              r.category_name || r.CATEGORY_NAME,
+            )) ||
+            (await resolveCategoryId(
+              companyId,
+              r.category_code || r.CATEGORY_CODE,
+            ));
+          if (!categoryId && autoCreate) {
+            categoryId =
+              (await resolveOrCreateCategoryId(
+                companyId,
+                r.category_label || r.CATEGORY_LABEL,
+              )) ||
+              (await resolveOrCreateCategoryId(
+                companyId,
+                r.category_name || r.CATEGORY_NAME,
+              )) ||
+              (await resolveOrCreateCategoryId(
+                companyId,
+                r.category_code || r.CATEGORY_CODE,
+              ));
+          }
+        }
+        if (!itemGroupId) {
+          itemGroupId =
+            (await resolveGroupId(companyId, r.group_label || r.GROUP_LABEL)) ||
+            (await resolveGroupId(companyId, r.group_name || r.GROUP_NAME)) ||
+            (await resolveGroupId(companyId, r.group_code || r.GROUP_CODE));
+          if (!itemGroupId && autoCreate) {
+            itemGroupId =
+              (await resolveOrCreateGroupId(
+                companyId,
+                r.group_label || r.GROUP_LABEL,
+              )) ||
+              (await resolveOrCreateGroupId(
+                companyId,
+                r.group_name || r.GROUP_NAME,
+              )) ||
+              (await resolveOrCreateGroupId(
+                companyId,
+                r.group_code || r.GROUP_CODE,
+              ));
+          }
+        }
+        if (!currencyId) {
+          currencyId =
+            (await resolveCurrencyId(
+              companyId,
+              r.currency_code || r.CURRENCY_CODE,
+            )) ||
+            (await resolveCurrencyId(
+              companyId,
+              r.currency_name || r.CURRENCY_NAME,
+            ));
+        }
+        if (!priceTypeId) {
+          priceTypeId =
+            (await resolvePriceTypeId(
+              companyId,
+              r.price_type ||
+                r.PRICE_TYPE ||
+                r.price_type_name ||
+                r.PRICE_TYPE_NAME,
+            )) || null;
+        }
+        if (!vatOnPurchaseId) {
+          vatOnPurchaseId =
+            (await resolveTaxCodeId(
+              companyId,
+              r.vat_on_purchase_code ||
+                r.VAT_ON_PURCHASE_CODE ||
+                r.vat_purchase ||
+                r.VAT_PURCHASE,
+            )) ||
+            (await resolveTaxCodeId(
+              companyId,
+              r.vat_on_purchase_name || r.VAT_ON_PURCHASE_NAME,
+            )) ||
+            null;
+        }
+        if (!vatOnSalesId) {
+          vatOnSalesId =
+            (await resolveTaxCodeId(
+              companyId,
+              r.vat_on_sales_code ||
+                r.VAT_ON_SALES_CODE ||
+                r.vat_sales ||
+                r.VAT_SALES,
+            )) ||
+            (await resolveTaxCodeId(
+              companyId,
+              r.vat_on_sales_name || r.VAT_ON_SALES_NAME,
+            )) ||
+            null;
+        }
+        if (!purchaseAccountId) {
+          purchaseAccountId =
+            (await resolveAccountId(
+              companyId,
+              r.purchase_account_code || r.PURCHASE_ACCOUNT_CODE,
+            )) ||
+            (await resolveAccountId(
+              companyId,
+              r.purchase_account_name || r.PURCHASE_ACCOUNT_NAME,
+            )) ||
+            (await resolveAccountId(
+              companyId,
+              r.purchase_account || r.PURCHASE_ACCOUNT,
+            )) ||
+            null;
+        }
+        if (!salesAccountId) {
+          salesAccountId =
+            (await resolveAccountId(
+              companyId,
+              r.sales_account_code || r.SALES_ACCOUNT_CODE,
+            )) ||
+            (await resolveAccountId(
+              companyId,
+              r.sales_account_name || r.SALES_ACCOUNT_NAME,
+            )) ||
+            (await resolveAccountId(
+              companyId,
+              r.sales_account || r.SALES_ACCOUNT,
+            )) ||
+            null;
+        }
+
+        const serviceItem = yn(r.service_item, "N");
+        const isStockable = yn(r.is_stockable, "N");
+        const isSellable = yn(r.is_sellable, "N");
+        const isPurchasable = yn(r.is_purchasable, "N");
+        const isActive =
+          r.is_active === undefined ? 1 : Number(Boolean(r.is_active));
+        const minStock = Number(r.min_stock_level || r.MIN_STOCK_LEVEL || 0);
+        const maxStock = Number(r.max_stock_level || r.MAX_STOCK_LEVEL || 0);
+        const reorderLevel = Number(r.reorder_level || r.REORDER_LEVEL || 0);
+        const safetyStock = Number(r.safety_stock || r.SAFETY_STOCK || 0);
+        const description = r.description || r.DESCRIPTION || null;
+
+        const exists = await query(
+          `SELECT id FROM inv_items WHERE company_id = :companyId AND UPPER(item_name) = UPPER(:itemName) LIMIT 1`,
+          { companyId, itemName },
+        );
+        if (exists.length) {
+          const id = Number(exists[0].id);
+          await query(
+            `
+            UPDATE inv_items
+            SET item_code = :itemCode,
+                item_name = :itemName,
+                uom = :uom,
+                item_type = :itemType,
+                barcode = :barcode,
+                cost_price = :costPrice,
+                selling_price = :sellingPrice,
+                currency_id = :currencyId,
+                price_type_id = :priceTypeId,
+                image_url = :imageUrl,
+                vat_on_purchase_id = :vatOnPurchaseId,
+                vat_on_sales_id = :vatOnSalesId,
+                purchase_account_id = :purchaseAccountId,
+                sales_account_id = :salesAccountId,
+                category_id = :categoryId,
+                ${groupCol} = :itemGroupId,
+                service_item = :serviceItem,
+                is_stockable = :isStockable,
+                is_sellable = :isSellable,
+                is_purchasable = :isPurchasable,
+                is_active = :isActive
+            WHERE id = :id AND company_id = :companyId
+            `,
+            {
+              id,
+              companyId,
+              itemCode,
+              itemName,
+              uom,
+              itemType,
+              barcode,
+              costPrice,
+              sellingPrice,
+              currencyId,
+              priceTypeId,
+              imageUrl,
+              vatOnPurchaseId,
+              vatOnSalesId,
+              purchaseAccountId,
+              salesAccountId,
+              categoryId,
+              itemGroupId,
+              serviceItem,
+              isStockable,
+              isSellable,
+              isPurchasable,
+              isActive,
+            },
+          );
+          updated += 1;
+        } else {
+          await query(
+            `
+            INSERT INTO inv_items (company_id, item_code, item_name, uom, item_type, barcode, cost_price, selling_price, currency_id, price_type_id, image_url, vat_on_purchase_id, vat_on_sales_id, purchase_account_id, sales_account_id, category_id, ${groupCol}, service_item, is_stockable, is_sellable, is_purchasable, is_active, min_stock_level, max_stock_level, reorder_level, safety_stock, description)
+            VALUES (:companyId, :itemCode, :itemName, :uom, :itemType, :barcode, :costPrice, :sellingPrice, :currencyId, :priceTypeId, :imageUrl, :vatOnPurchaseId, :vatOnSalesId, :purchaseAccountId, :salesAccountId, :categoryId, :itemGroupId, :serviceItem, :isStockable, :isSellable, :isPurchasable, :isActive, :minStock, :maxStock, :reorderLevel, :safetyStock, :description)
+            `,
+            {
+              companyId,
+              itemCode,
+              itemName,
+              uom,
+              itemType,
+              barcode,
+              costPrice,
+              sellingPrice,
+              currencyId,
+              priceTypeId,
+              imageUrl,
+              vatOnPurchaseId,
+              vatOnSalesId,
+              purchaseAccountId,
+              salesAccountId,
+              categoryId,
+              itemGroupId,
+              serviceItem,
+              isStockable,
+              isSellable,
+              isPurchasable,
+              isActive,
+              minStock,
+              maxStock,
+              reorderLevel,
+              safetyStock,
+              description,
+            },
+          );
+          inserted += 1;
+        }
+      } catch (e) {
+        failed += 1;
+        const msg = e?.message || "Upload failed";
+        errors.push({
+          index: i + 1,
+          item_name: String(rows[i]?.item_name || rows[i]?.ITEM_NAME || ""),
+          message: msg,
+        });
+      }
+    }
+    res.json({ inserted, updated, failed, errors });
   } catch (err) {
     next(err);
   }

@@ -38,6 +38,22 @@ router.get(
   workflowController.getApprovalInstanceDetail,
 );
 
+// Reverse Approval (Exceptional Permission)
+router.post(
+  "/:instanceId/reverse",
+  requireAuth,
+  requireCompanyScope,
+  workflowController.reverseApproval,
+);
+
+// Reverse by Document (Exceptional Permission)
+router.post(
+  "/reverse-by-document",
+  requireAuth,
+  requireCompanyScope,
+  workflowController.reverseByDocument,
+);
+
 // Get Notifications
 router.get(
   "/notifications",
