@@ -377,6 +377,7 @@ export default function AppShell() {
 
     async function loadUnread() {
       try {
+        if (!token || !online) return;
         const res = await api.get("/workflows/notifications");
         const items = Array.isArray(res.data?.items) ? res.data.items : [];
         const unread = items.filter((n) => Number(n.is_read) !== 1).length;
@@ -439,14 +440,16 @@ export default function AppShell() {
         // Suppress inline/pop-up messages completely per requirement
       } catch {}
     }
-    checkLowStock();
-    loadUnread();
-    pollTimer = setInterval(loadUnread, 60000);
+    if (token && online) {
+      checkLowStock();
+      loadUnread();
+      pollTimer = setInterval(loadUnread, 60000);
+    }
     return () => {
       cancelled = true;
       if (pollTimer) clearInterval(pollTimer);
     };
-  }, [scope?.companyId, scope?.branchId, lowStockPrompted]);
+  }, [scope?.companyId, scope?.branchId, lowStockPrompted, token, online]);
   useEffect(() => {
     if (typeof window !== "undefined" && "Notification" in window) {
       if (window.Notification.permission === "default") {

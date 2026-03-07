@@ -2,8 +2,16 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import useSocket from "../../hooks/useSocket";
 import { useAuth } from "../../auth/AuthContext";
+import defaultChatBg from "../../assets/resources/CHAT_BACKGROUND.png";
 
-function ConversationList({ items, activeId, onOpen, users, onStart }) {
+function ConversationList({
+  items,
+  activeId,
+  onOpen,
+  users,
+  onStart,
+  unreadByUser,
+}) {
   return (
     <div className="w-[290px] border-r border-slate-200 bg-slate-50 h-full overflow-auto">
       <div className="p-2 font-semibold text-slate-700">Chats</div>
@@ -59,13 +67,18 @@ function ConversationList({ items, activeId, onOpen, users, onStart }) {
                 {u.username} {u.is_online ? "• online" : ""}
               </div>
             </div>
+            {!!(unreadByUser && unreadByUser[u.id]) && (
+              <div className="inline-flex min-w-5 h-5 items-center justify-center rounded-full bg-green-600 text-white text-[10px] px-1">
+                {unreadByUser[u.id]}
+              </div>
+            )}
           </button>
         ))}
     </div>
   );
 }
 
-function MessageList({ items, myId }) {
+function MessageList({ items, myId, bgUrl }) {
   const ref = useRef(null);
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
@@ -90,7 +103,13 @@ function MessageList({ items, myId }) {
   return (
     <div
       ref={ref}
-      className="flex-1 overflow-auto p-4 space-y-2 bg-[url('/whatsapp-paper.png')] bg-repeat"
+      className="flex-1 overflow-auto p-4 space-y-2 chat-bg"
+      style={{
+        backgroundImage: bgUrl ? `url('${bgUrl}')` : "none",
+        backgroundRepeat: "no-repeat",
+        backgroundSize: "contain",
+        backgroundPosition: "center",
+      }}
     >
       {items.map((m, idx) => {
         const outgoing = Number(m.sender_id) === Number(myId);
@@ -254,10 +273,13 @@ export default function ChatModal({ onClose }) {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [allUsers, setAllUsers] = useState([]);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [unreadByUser, setUnreadByUser] = useState({});
+  const [chatBg, setChatBg] = useState("");
   const attachRootRef = useRef(null);
   const fileMediaRef = useRef(null);
   const fileDocRef = useRef(null);
   const fileAudioRef = useRef(null);
+  const bgFileRef = useRef(null);
 
   async function loadConvos() {
     try {
@@ -265,6 +287,19 @@ export default function ChatModal({ onClose }) {
       setConvos(Array.isArray(res.data?.items) ? res.data.items : []);
     } catch {
       setConvos([]);
+    }
+  }
+  async function loadUnreadByUser() {
+    try {
+      const res = await api.get("/chat/unread-by-user");
+      const items = Array.isArray(res.data?.items) ? res.data.items : [];
+      const map = {};
+      for (const r of items) {
+        map[Number(r.user_id)] = Number(r.unread || 0);
+      }
+      setUnreadByUser(map);
+    } catch {
+      setUnreadByUser({});
     }
   }
   async function openConversation(c) {
@@ -289,6 +324,9 @@ export default function ChatModal({ onClose }) {
         window.dispatchEvent(new Event("omni.chat.unread.refresh"));
       } catch {}
       try {
+        await loadUnreadByUser();
+      } catch {}
+      try {
         localStorage.setItem("omni.chat.lastConversationId", String(c.id));
       } catch {}
     } catch {
@@ -298,6 +336,19 @@ export default function ChatModal({ onClose }) {
   useEffect(() => {
     (async () => {
       await loadConvos();
+      try {
+        const resUnread = await api.get("/chat/unread-by-user");
+        const rows = Array.isArray(resUnread.data?.items)
+          ? resUnread.data.items
+          : [];
+        const map = {};
+        rows.forEach((r) => {
+          map[Number(r.user_id)] = Number(r.unread || 0);
+        });
+        setUnreadByUser(map);
+      } catch {
+        setUnreadByUser({});
+      }
       try {
         const res = await api.get("/chat/users");
         const items = Array.isArray(res.data?.items) ? res.data.items : [];
@@ -316,6 +367,10 @@ export default function ChatModal({ onClose }) {
           if (found) openConversation(found);
         }
       } catch {}
+      try {
+        const bg = localStorage.getItem("omni.chat.bg") || defaultChatBg;
+        setChatBg(bg);
+      } catch {}
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -326,6 +381,19 @@ export default function ChatModal({ onClose }) {
         setMessages((prev) => prev.concat(m));
       }
       loadConvos();
+      (async () => {
+        try {
+          const resUnread = await api.get("/chat/unread-by-user");
+          const rows = Array.isArray(resUnread.data?.items)
+            ? resUnread.data.items
+            : [];
+          const map = {};
+          rows.forEach((r) => {
+            map[Number(r.user_id)] = Number(r.unread || 0);
+          });
+          setUnreadByUser(map);
+        } catch {}
+      })();
     };
     const onTypingStart = ({ conversation_id, user_id }) => {
       if (!active || Number(conversation_id) !== Number(active.id)) return;
@@ -378,6 +446,25 @@ export default function ChatModal({ onClose }) {
       socket.emit("typing_stop", { conversation_id: active.id });
     }, 1200);
     return () => clearTimeout(t);
+  }
+  async function chooseBackground(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const res = await api.post("/chat/upload", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const url = String(res.data?.url || res.data?.path || "");
+      if (url) {
+        setChatBg(url);
+        try {
+          localStorage.setItem("omni.chat.bg", url);
+        } catch {}
+      }
+    } catch {}
+    e.target.value = "";
   }
 
   const typing = useMemo(() => typingUsers.size > 0, [typingUsers]);
@@ -498,6 +585,7 @@ export default function ChatModal({ onClose }) {
           onOpen={openConversation}
           users={allUsers}
           onStart={startDirectChat}
+          unreadByUser={unreadByUser}
         />
         <div className="flex-1 flex flex-col">
           <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">
@@ -507,21 +595,38 @@ export default function ChatModal({ onClose }) {
             <div className="text-[11px] text-slate-500">
               {typing ? "typing…" : ""}
             </div>
-            <button
-              onClick={onClose}
-              className="rounded px-2 py-1 text-sm hover:bg-slate-100"
-            >
-              Close
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                className="rounded px-2 py-1 text-sm hover:bg-slate-100"
+                title="Background"
+                onClick={() => bgFileRef.current?.click()}
+              >
+                🖼
+              </button>
+              <button
+                onClick={onClose}
+                className="rounded px-2 py-1 text-sm hover:bg-slate-100"
+              >
+                Close
+              </button>
+            </div>
           </div>
           {!active ? (
-            <div className="flex-1 flex items-center justify-center">
+            <div
+              className="flex-1 chat-bg flex items-center justify-center"
+              style={{
+                backgroundImage: chatBg ? `url('${chatBg}')` : undefined,
+                backgroundRepeat: "no-repeat",
+                backgroundSize: "contain",
+                backgroundPosition: "center",
+              }}
+            >
               <button className="btn" onClick={() => setPickerOpen(true)}>
                 New Chat
               </button>
             </div>
           ) : (
-            <MessageList items={messages} myId={myId} />
+            <MessageList items={messages} myId={myId} bgUrl={chatBg} />
           )}
           <div className="p-2 border-t border-slate-200 flex items-center gap-2 relative">
             {active ? (
@@ -681,6 +786,13 @@ export default function ChatModal({ onClose }) {
                     if (f) sendMedia(f);
                     e.target.value = "";
                   }}
+                />
+                <input
+                  ref={bgFileRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={chooseBackground}
                 />
                 <input
                   ref={fileAudioRef}

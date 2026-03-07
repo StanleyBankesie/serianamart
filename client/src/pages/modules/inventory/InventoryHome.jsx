@@ -335,6 +335,7 @@ function InventoryHomeIndex() {
       ]}
       sections={sections}
       features={inventoryFeatures}
+      showAll={true}
     />
   );
 }

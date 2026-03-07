@@ -35,10 +35,11 @@ export default function StockUploadPage() {
 
   const downloadTemplate = () => {
     try {
-      const header = ["ITEM_CODE", "ITEM_NAME", "NEW_QTY"];
+      const header = ["ITEM_CODE", "ITEM_NAME", "GROUP_NAME", "NEW_QTY"];
       const data = items.map((it) => ({
         ITEM_CODE: String(it.item_code || ""),
         ITEM_NAME: String(it.item_name || ""),
+        GROUP_NAME: String(it.group_name || ""),
         NEW_QTY: "",
       }));
       const ws = XLSX.utils.json_to_sheet(data, { header });
@@ -153,8 +154,8 @@ export default function StockUploadPage() {
             </div>
           </div>
           <div className="text-sm text-slate-600 dark:text-slate-300">
-            Template columns: ITEM_CODE, ITEM_NAME, NEW_QTY. Only ITEM_CODE and
-            NEW_QTY are required.
+            Template columns: ITEM_CODE, ITEM_NAME, GROUP_NAME, NEW_QTY. Only
+            ITEM_CODE and NEW_QTY are required; GROUP_NAME is for reference.
           </div>
         </div>
       </div>

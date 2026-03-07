@@ -5,6 +5,7 @@ import {
   requireCompanyScope,
   requireBranchScope,
 } from "../middleware/auth.js";
+import { checkModuleAccess } from "../middleware/access.js";
 import { requirePermission } from "../middleware/requirePermission.js";
 import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
@@ -1596,7 +1597,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("INV.ITEMS.VIEW"),
+  checkModuleAccess("inventory"),
   inventoryController.listItems,
 );
 

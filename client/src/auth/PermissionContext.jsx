@@ -423,6 +423,12 @@ export const PermissionProvider = ({ children }) => {
       )
         return true;
     }
+    if (mk === "inventory") {
+      if (seg === "items" && roleFeatures.has("inventory:item-master"))
+        return true;
+      if (seg === "item-master" && roleFeatures.has("inventory:items"))
+        return true;
+    }
     return false;
   };
 

@@ -125,6 +125,15 @@
     display: none;
   }
 
+  /* Chat default background */
+  .chat-bg {
+    background-color: #faf7f2;
+    background-image: url("/omnisuite-chat-bg.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+  }
+
   .pos-input-select .ant-select-selector {
     border-radius: 0.5rem !important;
     padding: 0.5rem 0.75rem !important;

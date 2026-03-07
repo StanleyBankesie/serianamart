@@ -491,6 +491,34 @@ router.get("/unread-count", async (req, res, next) => {
   }
 });
 
+router.get("/unread-by-user", async (req, res, next) => {
+  try {
+    const me = Number(req.user?.sub || req.user?.id);
+    const rows = await query(
+      `
+      SELECT m.sender_id AS user_id, COUNT(*) AS unread
+      FROM chat_conversations c
+      JOIN chat_conversation_participants p
+        ON p.conversation_id = c.id AND p.user_id = :me
+      JOIN chat_messages m
+        ON m.conversation_id = c.id
+      WHERE m.id > COALESCE(p.last_read_message_id, 0)
+        AND m.sender_id <> :me
+      GROUP BY m.sender_id
+      `,
+      { me },
+    );
+    res.json({
+      items: rows.map((r) => ({
+        user_id: Number(r.user_id),
+        unread: Number(r.unread || 0),
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Media upload for chat
 const chatUploadDir = path.join(process.cwd(), "uploads");
 try {

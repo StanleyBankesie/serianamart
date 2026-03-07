@@ -10,6 +10,7 @@ const ModuleDashboard = ({
   sections = [],
   features = [],
   headerActions = [],
+  showAll = false,
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -46,6 +47,7 @@ const ModuleDashboard = ({
   }, [stats.length]);
 
   function isFeatureEnabled(path) {
+    if (showAll) return true;
     return canAccessPath(path);
   }
 
@@ -59,6 +61,7 @@ const ModuleDashboard = ({
     const mk = String(item.module_key || parts[0] || "");
     const fk = String(item.feature_key || parts[1] || "");
 
+    if (showAll) return true;
     if (mk && fk) {
       if (canAccessFeatureKey(mk, fk)) return true;
       if (!item.feature_key && parts.length > 2) {
