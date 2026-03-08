@@ -959,52 +959,37 @@ export default function ItemsList() {
     XLSX.writeFile(wb, "items_bulk_upload_template.xlsx");
   };
 
-  const exportItemsCSV = () => {
+  const exportItemsExcel = () => {
     const headers = [
-      "item_code",
-      "item_name",
-      "item_type",
-      "category_name",
-      "uom",
-      "barcode",
-      "stock_level",
-      "cost_price",
-      "selling_price",
-      "is_active",
+      "ITEM_CODE",
+      "ITEM_NAME",
+      "ITEM_TYPE",
+      "CATEGORY_NAME",
+      "GROUP_NAME",
+      "UOM",
+      "BARCODE",
+      "STOCK_LEVEL",
+      "COST_PRICE",
+      "SELLING_PRICE",
+      "IS_ACTIVE",
     ];
-    const csv = [
-      headers.join(","),
-      ...filtered.map((it) =>
-        [
-          it.item_code ?? "",
-          it.item_name ?? "",
-          it.item_type ?? "",
-          it.category_name ?? "",
-          it.uom ?? "",
-          it.barcode ?? "",
-          it.stock_level ?? "",
-          it.cost_price ?? "",
-          it.selling_price ?? "",
-          it.is_active ? "Y" : "N",
-        ]
-          .map((v) => {
-            const s = String(v);
-            return s.includes(",") || s.includes('"') || s.includes("\n")
-              ? `"${s.replace(/"/g, '""')}"`
-              : s;
-          })
-          .join(","),
-      ),
-    ].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "items_export.csv";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 100);
+    const rows = filtered.map((it) => [
+      it.item_code ?? "",
+      it.item_name ?? "",
+      it.item_type ?? "",
+      it.category_name ?? "",
+      it.group_name ?? "",
+      it.uom ?? "",
+      it.barcode ?? "",
+      it.stock_level ?? "",
+      it.cost_price ?? "",
+      it.selling_price ?? "",
+      it.is_active ? "Y" : "N",
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Items");
+    XLSX.writeFile(wb, "items_export.xlsx");
   };
 
   useEffect(() => {
@@ -1052,9 +1037,9 @@ export default function ItemsList() {
               <button
                 type="button"
                 className="btn-outline"
-                onClick={exportItemsCSV}
+                onClick={exportItemsExcel}
               >
-                Export Items
+                Export Items (Excel)
               </button>
               <Link to="/inventory/items/new" className="btn-primary">
                 + New Item
