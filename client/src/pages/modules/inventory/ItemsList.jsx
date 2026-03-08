@@ -480,6 +480,30 @@ export default function ItemsList() {
         // Only annotate (do not block) basic issues; server will decide final result
         const nameUpper = String(rowData.ITEM_NAME || "").toUpperCase();
         if (!nameUpper) errorsRow.push("Missing ITEM_NAME");
+        // Validate category, group, and item type
+        const categoryProvided =
+          String(
+            rowData.ITEM_CATEGORY ||
+              rowData.ITEM_CATEGORY_CODE ||
+              rowData.ITEM_CATEGORY_ID ||
+              "",
+          ).trim() !== "";
+        const groupProvided =
+          String(
+            rowData.ITEM_GROUP ||
+              rowData.ITEM_GROUP_CODE ||
+              rowData.ITEM_GROUP_ID ||
+              "",
+          ).trim() !== "";
+        if (categoryProvided && !categoryResolved) {
+          errorsRow.push("Unknown CATEGORY (no match in system)");
+        }
+        if (groupProvided && !groupResolved) {
+          errorsRow.push("Unknown GROUP (no match in system)");
+        }
+        if (String(itemTypeRaw || "") && !itemTypeValid) {
+          errorsRow.push("Unknown ITEM_TYPE (no match in system)");
+        }
         if (nameUpper) seenNames.add(nameUpper);
         rows.push({
           index: i + 1,
@@ -527,7 +551,7 @@ export default function ItemsList() {
       setUploading(true);
       let shouldClosePreview = true;
       const payloadRows = previewRows
-        .filter((r) => r) // attempt all rows; server decides validity
+        .filter((r) => r && r.valid) // only valid rows
         .map((r) => {
           const rowData = r.raw || {};
           return {
@@ -620,7 +644,7 @@ export default function ItemsList() {
             Number(it.id),
           ]),
       );
-      for (const r of previewRows) {
+      for (const r of previewRows.filter((x) => x && x.valid)) {
         const rowData = r.raw;
         let nextItemCode = rowData.ITEM_CODE;
         if (!nextItemCode) {
@@ -1302,6 +1326,26 @@ export default function ItemsList() {
               </button>
             </div>
             <div className="p-4 space-y-4">
+              <div className="text-sm">
+                {(() => {
+                  const total = previewRows.length;
+                  const invalid = previewRows.filter((r) => !r.valid).length;
+                  if (invalid > 0) {
+                    return (
+                      <div className="mb-2 text-red-700">
+                        {invalid} of {total} rows have issues (unknown
+                        category/group/item type). Fix or proceed to upload only
+                        valid rows.
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="mb-2 text-green-700">
+                      All {total} rows look valid.
+                    </div>
+                  );
+                })()}
+              </div>
               <div className="overflow-auto" style={{ maxHeight: "55vh" }}>
                 <div className="min-w-[960px]">
                   <table className="table w-full">
