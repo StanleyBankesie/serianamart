@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { Search } from "lucide-react";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function PurchaseReturnList() {
   const [items, setItems] = useState([]);
@@ -38,13 +39,11 @@ export default function PurchaseReturnList() {
   }, [items]);
 
   const filtered = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((r) => {
-      return (
-        String(r.return_no || "").toLowerCase().includes(q) ||
-        String(r.supplier_name || "").toLowerCase().includes(q)
-      );
+    const q = String(searchTerm || "").trim();
+    if (!q) return items.slice();
+    return filterAndSort(items, {
+      query: q,
+      getKeys: (r) => [r.return_no, r.supplier_name],
     });
   }, [items, searchTerm]);
 

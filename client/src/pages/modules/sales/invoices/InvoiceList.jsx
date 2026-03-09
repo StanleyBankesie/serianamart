@@ -5,6 +5,7 @@ import { toast } from "react-toastify";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function InvoiceList() {
   const navigate = useNavigate();
@@ -318,13 +319,13 @@ export default function InvoiceList() {
   }
   async function printInvoice(id) {
     try {
-      const resp = await api.get(`/sales/invoices/${id}`);
-      const header = resp.data?.item || {};
-      const details = Array.isArray(resp.data?.details)
-        ? resp.data.details
-        : [];
-      const data = buildInvoiceTemplateDataFromApi(header, details);
-      const html = wrapDoc(renderInvoiceHtml(data));
+      const resp = await api.post(
+        `/documents/invoice/${id}/render`,
+        { format: "html" },
+        { headers: { "Content-Type": "application/json" } },
+      );
+      const html =
+        typeof resp.data === "string" ? resp.data : String(resp.data || "");
       const iframe = document.createElement("iframe");
       iframe.style.position = "fixed";
       iframe.style.right = "0";
@@ -359,51 +360,23 @@ export default function InvoiceList() {
   }
   async function downloadInvoicePdf(id) {
     try {
-      const resp = await api.get(`/sales/invoices/${id}`);
-      const header = resp.data?.item || {};
-      const details = Array.isArray(resp.data?.details)
-        ? resp.data.details
-        : [];
-      const data = buildInvoiceTemplateDataFromApi(header, details);
-      const html = renderInvoiceHtml(data);
-      const container = document.createElement("div");
-      container.style.position = "fixed";
-      container.style.left = "-10000px";
-      container.style.top = "0";
-      container.style.width = "794px";
-      container.style.background = "white";
-      container.style.padding = "32px";
-      container.innerHTML = html;
-      document.body.appendChild(container);
-      try {
-        await waitForImages(container);
-        const canvas = await html2canvas(container, {
-          scale: 2,
-          useCORS: true,
-        });
-        const imgData = canvas.toDataURL("image/png");
-        const pdf = new jsPDF("p", "mm", "a4");
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const imgWidth = pageWidth;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        let rendered = 0;
-        while (rendered < imgHeight) {
-          pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
-          rendered += pageHeight;
-          if (rendered < imgHeight) pdf.addPage();
-        }
-        const fname =
-          "Invoice_" +
-          (String(header.invoice_no || "").replaceAll(" ", "_") ||
-            new Date().toISOString().slice(0, 10)) +
-          ".pdf";
-        pdf.save(fname);
-      } finally {
-        document.body.removeChild(container);
-      }
+      const resp = await api.post(
+        `/documents/invoice/${id}/render?format=pdf`,
+        {},
+        { responseType: "blob" },
+      );
+      const blob = resp.data;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `invoice-${id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (err) {
-      toast.error(err?.response?.data?.message || "Failed to download invoice");
+      toast.error(
+        err?.response?.data?.message ||
+          "Failed to download invoice (default template missing)",
+      );
     }
   }
   const getStatusBadge = (status) => {
@@ -425,13 +398,17 @@ export default function InvoiceList() {
     return <span className={classes[label] || "badge"}>{label}</span>;
   };
 
-  const filteredInvoices = invoices.filter((inv) => {
-    const matchesSearch =
-      inv.invoice_no.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inv.customer_name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === "ALL" || inv.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredInvoices = (() => {
+    const base =
+      statusFilter === "ALL"
+        ? invoices.slice()
+        : invoices.filter((inv) => inv.status === statusFilter);
+    if (!searchTerm.trim()) return base;
+    return filterAndSort(base, {
+      query: searchTerm,
+      getKeys: (inv) => [inv.invoice_no, inv.customer_name],
+    });
+  })();
 
   return (
     <div className="space-y-4">
@@ -539,17 +516,7 @@ export default function InvoiceList() {
                               View
                             </button>
                           )}
-                          {inv.status !== "POSTED" &&
-                            canPerformAction("sales:invoices", "edit") && (
-                              <button
-                                onClick={() =>
-                                  navigate(`/sales/invoices/${inv.id}`)
-                                }
-                                className="text-blue-600 hover:text-blue-700 font-medium text-sm"
-                              >
-                                Edit
-                              </button>
-                            )}
+                          {/* Edit removed by request */}
                           <button
                             onClick={() => printInvoice(inv.id)}
                             className="inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"

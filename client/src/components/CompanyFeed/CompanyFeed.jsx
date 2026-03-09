@@ -5,6 +5,7 @@ import PostCreator from "./PostCreator";
 import PostList from "./PostList";
 import { useSocket } from "../../hooks/useSocket";
 import "./CompanyFeed.css";
+import api from "../../api/client";
 
 export default function CompanyFeed({
   compact = false,
@@ -29,19 +30,19 @@ export default function CompanyFeed({
         setLoading(true);
         const uid = Number(user?.sub || user?.id) || "";
         const isFocus = Number.isFinite(focusId) && focusId > 0;
-        const url = isFocus
-          ? `/api/social-feed/${focusId}`
-          : `/api/social-feed?offset=${pageOffset}&limit=20`;
-        const response = await fetch(url, {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-            "x-user-id": String(uid),
-          },
+        const config =
+          isFocus
+            ? { method: "get", url: `/social-feed/${focusId}` }
+            : {
+                method: "get",
+                url: `/social-feed`,
+                params: { offset: pageOffset, limit: 20 },
+              };
+        const resp = await api.request({
+          ...config,
+          headers: { "x-user-id": String(uid) },
         });
-
-        if (!response.ok) throw new Error("Failed to fetch posts");
-
-        const data = await response.json();
+        const data = resp?.data || {};
         if (isFocus) {
           const post = data?.data ? data.data : null;
           setPosts(post ? [post] : []);
@@ -111,17 +112,11 @@ export default function CompanyFeed({
         const remaining = Math.max(total - already, 0);
         setLoading(true);
         const uid = Number(user?.sub || user?.id) || "";
-        const res = await fetch(
-          `/api/social-feed/${focusId}/comments?offset=${already}&limit=${remaining || 20}`,
-          {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-              "x-user-id": String(uid),
-            },
-          },
-        );
-        if (!res.ok) throw new Error("Failed to load comments");
-        const data = await res.json();
+        const res = await api.get(`/social-feed/${focusId}/comments`, {
+          params: { offset: already, limit: remaining || 20 },
+          headers: { "x-user-id": String(uid) },
+        });
+        const data = res?.data || {};
         const more = Array.isArray(data.data) ? data.data : [];
         setPosts((prev) => {
           if (!prev.length) return prev;

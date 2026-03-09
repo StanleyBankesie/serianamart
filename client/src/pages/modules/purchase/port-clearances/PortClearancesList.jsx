@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function PortClearancesList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -49,11 +50,10 @@ export default function PortClearancesList() {
   };
 
   const filtered = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return items.filter((r) => {
-      const no = String(r.clearance_no || "").toLowerCase();
-      const sa = String(r.advice_no || "").toLowerCase();
-      return no.includes(q) || sa.includes(q);
+    if (!searchTerm.trim()) return items.slice();
+    return filterAndSort(items, {
+      query: searchTerm,
+      getKeys: (r) => [r.clearance_no, r.advice_no],
     });
   }, [items, searchTerm]);
 

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function ServiceConfirmationsList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -37,19 +38,10 @@ export default function ServiceConfirmationsList() {
   }, []);
 
   const filtered = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return items.filter((c) => {
-      return (
-        String(c.sc_no || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(c.supplier_name || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(c.status || "")
-          .toLowerCase()
-          .includes(q)
-      );
+    if (!searchTerm.trim()) return items.slice();
+    return filterAndSort(items, {
+      query: searchTerm,
+      getKeys: (c) => [c.sc_no, c.supplier_name, c.status],
     });
   }, [items, searchTerm]);
 

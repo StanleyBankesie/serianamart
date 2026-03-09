@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import "../../../../styles/BranchSetup.css";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 // Sub-component for User Assignment
 function UserAssignmentTab({ branches, companies, onUpdate }) {
@@ -78,14 +79,13 @@ function UserAssignmentTab({ branches, companies, onUpdate }) {
       )
     : [];
 
-  const filteredUsers = users.filter((u) => {
-    const s = searchTerm.toLowerCase();
-    return (
-      u.username.toLowerCase().includes(s) ||
-      u.email.toLowerCase().includes(s) ||
-      (u.full_name && u.full_name.toLowerCase().includes(s))
-    );
-  });
+  const filteredUsers = (() => {
+    if (!searchTerm.trim()) return users.slice();
+    return filterAndSort(users, {
+      query: searchTerm,
+      getKeys: (u) => [u.username, u.email, u.full_name],
+    });
+  })();
 
   return (
     <div>

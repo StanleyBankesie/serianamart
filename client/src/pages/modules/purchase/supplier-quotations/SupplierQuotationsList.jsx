@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function SupplierQuotationsList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -50,19 +51,14 @@ export default function SupplierQuotationsList() {
   };
 
   const filteredQuotations = useMemo(() => {
-    return quotations.filter((q) => {
-      const matchesSearch =
-        String(q.quotation_no || "")
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase()) ||
-        String(q.supplier_name || "")
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase()) ||
-        String(q.rfq_no || "")
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase());
-      const matchesStatus = statusFilter === "ALL" || q.status === statusFilter;
-      return matchesSearch && matchesStatus;
+    const base =
+      statusFilter === "ALL"
+        ? quotations.slice()
+        : quotations.filter((q) => q.status === statusFilter);
+    if (!searchTerm.trim()) return base;
+    return filterAndSort(base, {
+      query: searchTerm,
+      getKeys: (q) => [q.quotation_no, q.supplier_name, q.rfq_no],
     });
   }, [quotations, searchTerm, statusFilter]);
 

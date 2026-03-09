@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function ServiceBillsList() {
   const location = useLocation();
@@ -30,15 +31,17 @@ export default function ServiceBillsList() {
   }, []);
 
   const filtered = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    return items.filter((r) => {
-      const no = String(r.bill_no || "").toLowerCase();
-      const client = String(r.client_name || "").toLowerCase();
-      const st = String(r.status || "").toUpperCase();
-      const matchSearch = !q || no.includes(q) || client.includes(q);
-      const matchStatus =
-        statusFilter === "ALL" || st === String(statusFilter).toUpperCase();
-      return matchSearch && matchStatus;
+    const base =
+      statusFilter === "ALL"
+        ? items.slice()
+        : items.filter(
+            (r) => String(r.status || "").toUpperCase() === statusFilter,
+          );
+    const q = String(searchTerm || "").trim();
+    if (!q) return base;
+    return filterAndSort(base, {
+      query: q,
+      getKeys: (r) => [r.bill_no, r.client_name],
     });
   }, [items, searchTerm, statusFilter]);
 

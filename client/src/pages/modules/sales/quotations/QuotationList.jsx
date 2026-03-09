@@ -4,6 +4,7 @@ import { api } from "../../../../api/client";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function QuotationList() {
   const navigate = useNavigate();
@@ -302,13 +303,13 @@ export default function QuotationList() {
   }
   async function printQuotation(id) {
     try {
-      const resp = await api.get(`/sales/quotations/${id}`);
-      const header = resp.data?.item || {};
-      const details = Array.isArray(resp.data?.details)
-        ? resp.data.details
-        : [];
-      const data = buildQuotationTemplateDataFromApi(header, details);
-      const html = wrapDoc(renderQuotationHtml(data));
+      const resp = await api.post(
+        `/documents/quotation/${id}/render`,
+        { format: "html" },
+        { headers: { "Content-Type": "application/json" } },
+      );
+      const html =
+        typeof resp.data === "string" ? resp.data : String(resp.data || "");
       const iframe = document.createElement("iframe");
       iframe.style.position = "fixed";
       iframe.style.right = "0";
@@ -341,49 +342,18 @@ export default function QuotationList() {
   }
   async function downloadQuotationPdf(id) {
     try {
-      const resp = await api.get(`/sales/quotations/${id}`);
-      const header = resp.data?.item || {};
-      const details = Array.isArray(resp.data?.details)
-        ? resp.data.details
-        : [];
-      const data = buildQuotationTemplateDataFromApi(header, details);
-      const html = renderQuotationHtml(data);
-      const container = document.createElement("div");
-      container.style.position = "fixed";
-      container.style.left = "-10000px";
-      container.style.top = "0";
-      container.style.width = "794px";
-      container.style.background = "white";
-      container.style.padding = "32px";
-      container.innerHTML = html;
-      document.body.appendChild(container);
-      try {
-        await waitForImages(container);
-        const canvas = await html2canvas(container, {
-          scale: 2,
-          useCORS: true,
-        });
-        const imgData = canvas.toDataURL("image/png");
-        const pdf = new jsPDF("p", "mm", "a4");
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const imgWidth = pageWidth;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        let rendered = 0;
-        while (rendered < imgHeight) {
-          pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
-          rendered += pageHeight;
-          if (rendered < imgHeight) pdf.addPage();
-        }
-        const fname =
-          "Quotation_" +
-          (String(header.quotation_no || "").replaceAll(" ", "_") ||
-            new Date().toISOString().slice(0, 10)) +
-          ".pdf";
-        pdf.save(fname);
-      } finally {
-        document.body.removeChild(container);
-      }
+      const resp = await api.post(
+        `/documents/quotation/${id}/render?format=pdf`,
+        {},
+        { responseType: "blob" },
+      );
+      const blob = resp.data;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `quotation-${id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch {}
   }
   const getStatusBadge = (status) => {
@@ -398,18 +368,17 @@ export default function QuotationList() {
     return <span className={statusClasses[status] || "badge"}>{status}</span>;
   };
 
-  const filteredQuotations = quotations.filter((quot) => {
-    const matchesSearch =
-      String(quot.quotation_no || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase()) ||
-      String(quot.customer_name || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase());
-    const matchesStatus =
-      statusFilter === "ALL" || quot.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredQuotations = (() => {
+    const base =
+      statusFilter === "ALL"
+        ? quotations.slice()
+        : quotations.filter((q) => q.status === statusFilter);
+    if (!searchTerm.trim()) return base;
+    return filterAndSort(base, {
+      query: searchTerm,
+      getKeys: (q) => [q.quotation_no, q.customer_name],
+    });
+  })();
 
   function safeDate(v) {
     const s = String(v || "").trim();

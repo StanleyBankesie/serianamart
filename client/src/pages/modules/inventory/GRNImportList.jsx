@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 import { toast } from "react-toastify";
 
 import { api } from "api/client";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
 import { usePermission } from "@/auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function GRNImportList() {
   const navigate = useNavigate();
@@ -31,6 +33,8 @@ export default function GRNImportList() {
   const [viewDoc, setViewDoc] = useState(null);
   const [viewDetails, setViewDetails] = useState([]);
   const [viewPoNo, setViewPoNo] = useState("");
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
   const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
 
   useEffect(() => {
@@ -126,19 +130,11 @@ export default function GRNImportList() {
   }, []);
 
   const filtered = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return grns.filter((g) => {
-      return (
-        String(g.grn_no || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(g.supplier_name || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(g.status || "")
-          .toLowerCase()
-          .includes(q)
-      );
+    const base = grns.slice();
+    if (!searchTerm.trim()) return base;
+    return filterAndSort(base, {
+      query: searchTerm,
+      getKeys: (g) => [g.grn_no, g.supplier_name, g.warehouse_name, g.status],
     });
   }, [grns, searchTerm]);
 
@@ -506,6 +502,7 @@ export default function GRNImportList() {
                   <th>Supplier</th>
                   <th>Warehouse</th>
                   <th>Status</th>
+                  <th>Attachments</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -546,6 +543,18 @@ export default function GRNImportList() {
                       <span className="badge badge-info">
                         {g.status || "DRAFT"}
                       </span>
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn-outline text-xs"
+                        onClick={() => {
+                          setActiveDocId(g.id);
+                          setShowAttach(true);
+                        }}
+                      >
+                        Attachments
+                      </button>
                     </td>
                     <td>
                       <div className="flex items-center gap-2">
@@ -777,6 +786,15 @@ export default function GRNImportList() {
           </div>
         </div>
       ) : null}
+      <DocumentAttachmentsModal
+        open={showAttach}
+        onClose={() => {
+          setShowAttach(false);
+          setActiveDocId(null);
+        }}
+        docType="grn-import"
+        docId={activeDocId}
+      />
       {showViewModal ? (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-[900px] max-w-[95%]">

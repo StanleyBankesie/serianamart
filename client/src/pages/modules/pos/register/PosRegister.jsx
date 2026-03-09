@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import api from "../../../../api/client.js";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 function FilterableSelect({
   value,
@@ -153,17 +154,18 @@ export default function PosRegister() {
     items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   const filtered = useMemo(() => {
-    const term = String(searchTerm || "").toLowerCase();
-    return transactions.filter((t) => {
+    const q = String(searchTerm || "").trim();
+    let base = transactions.filter((t) => {
       const okDate =
         (!dateFrom || t.date >= dateFrom) && (!dateTo || t.date <= dateTo);
       const okStatus = !statusFilter || t.status === statusFilter;
       const okPayment = !paymentFilter || t.payment === paymentFilter;
-      const okSearch =
-        !term ||
-        t.receiptNo.toLowerCase().includes(term) ||
-        t.customer.toLowerCase().includes(term);
-      return okDate && okStatus && okPayment && okSearch;
+      return okDate && okStatus && okPayment;
+    });
+    if (!q) return base;
+    return filterAndSort(base, {
+      query: q,
+      getKeys: (t) => [t.receiptNo, t.customer],
     });
   }, [transactions, dateFrom, dateTo, statusFilter, paymentFilter, searchTerm]);
 

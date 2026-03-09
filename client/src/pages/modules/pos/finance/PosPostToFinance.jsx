@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../../../api/client.js";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 const DENOMINATIONS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2];
 
@@ -113,15 +114,12 @@ export default function PosPostToFinance() {
   }, [warehouseOptions, warehouse]);
 
   const filteredTransactions = useMemo(() => {
-    const q = String(search || "")
-      .trim()
-      .toLowerCase();
-    if (!q) return transactions;
-    return transactions.filter((t) =>
-      String(t.account || "")
-        .toLowerCase()
-        .includes(q),
-    );
+    const q = String(search || "").trim();
+    if (!q) return transactions.slice();
+    return filterAndSort(transactions, {
+      query: q,
+      getKeys: (t) => [t.account],
+    });
   }, [transactions, search]);
 
   const visibleTransactions = useMemo(() => {

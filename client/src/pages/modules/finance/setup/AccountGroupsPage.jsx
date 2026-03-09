@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 
 import { api } from "api/client";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function AccountGroupsPage() {
   const [items, setItems] = useState([]);
@@ -150,6 +151,15 @@ export default function AccountGroupsPage() {
     }
   }
 
+  const rankedItems = useMemo(() => {
+    const q = String(searchTerm || "").trim();
+    if (!q) return items.slice();
+    return filterAndSort(items, {
+      query: q,
+      getKeys: (g) => [g.code, g.name],
+    });
+  }, [items, searchTerm]);
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -234,7 +244,7 @@ export default function AccountGroupsPage() {
                 onChange={(e) => setParentId(e.target.value)}
               >
                 <option value="">None</option>
-                {items.map((g) => (
+                {rankedItems.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.code} - {g.name}
                   </option>
@@ -268,7 +278,7 @@ export default function AccountGroupsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((g) => (
+                  {rankedItems.map((g) => (
                     <tr key={g.id}>
                       {String(editId) === String(g.id) ? (
                         <>
@@ -306,7 +316,7 @@ export default function AccountGroupsPage() {
                               onChange={(e) => setEditParentId(e.target.value)}
                             >
                               <option value="">None</option>
-                              {items.map((pg) => (
+                              {rankedItems.map((pg) => (
                                 <option key={`p-${pg.id}`} value={pg.id}>
                                   {pg.code} - {pg.name}
                                 </option>

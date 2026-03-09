@@ -5,6 +5,7 @@ import { api } from "api/client";
 import { toast } from "react-toastify";
 import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
 import { Search } from "lucide-react";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function SalesReturnList() {
   const location = useLocation();
@@ -115,12 +116,10 @@ export default function SalesReturnList() {
   ]);
 
   const filtered = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return items.filter((r) => {
-      const no = String(r.return_no || "").toLowerCase();
-      const cust = String(r.customer_name || "").toLowerCase();
-      const inv = String(r.invoice_id || "").toLowerCase();
-      return no.includes(q) || cust.includes(q) || inv.includes(q);
+    if (!searchTerm.trim()) return items.slice();
+    return filterAndSort(items, {
+      query: searchTerm,
+      getKeys: (r) => [r.return_no, r.customer_name, r.invoice_id],
     });
   }, [items, searchTerm]);
 

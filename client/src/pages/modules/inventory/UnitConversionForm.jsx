@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function UnitConversionForm() {
   const [activeTab, setActiveTab] = useState("conversions");
@@ -88,30 +89,28 @@ export default function UnitConversionForm() {
   };
 
   const filteredConversions = useMemo(() => {
-    const q = searchItem.toLowerCase();
-    return conversions
-      .filter((c) => {
-        const matchSearch =
-          String(c.item_code || "")
-            .toLowerCase()
-            .includes(q) ||
-          String(c.item_name || "")
-            .toLowerCase()
-            .includes(q);
-        const matchFrom = filterFromUom
-          ? String(c.from_uom || "") === filterFromUom
-          : true;
-        const matchStatus =
-          filterStatus === ""
-            ? true
-            : filterStatus === "Y"
-            ? Boolean(c.is_active)
-            : !Boolean(c.is_active);
-        return matchSearch && matchFrom && matchStatus;
-      })
-      .sort((a, b) =>
-        String(a.item_name || "").localeCompare(String(b.item_name || ""))
-      );
+    let base = conversions.filter((c) => {
+      const matchFrom = filterFromUom
+        ? String(c.from_uom || "") === filterFromUom
+        : true;
+      const matchStatus =
+        filterStatus === ""
+          ? true
+          : filterStatus === "Y"
+          ? Boolean(c.is_active)
+          : !Boolean(c.is_active);
+      return matchFrom && matchStatus;
+    });
+    const q = String(searchItem || "").trim();
+    if (q) {
+      base = filterAndSort(base, {
+        query: q,
+        getKeys: (c) => [c.item_code, c.item_name],
+      });
+    }
+    return base.sort((a, b) =>
+      String(a.item_name || "").localeCompare(String(b.item_name || ""))
+    );
   }, [conversions, searchItem, filterFromUom, filterStatus]);
 
   const openConversionModal = (mode, existing = null) => {

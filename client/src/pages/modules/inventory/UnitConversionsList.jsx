@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { api } from "api/client";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function UnitConversionsList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -38,22 +39,10 @@ export default function UnitConversionsList() {
   }, []);
 
   const filtered = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return items.filter((c) => {
-      return (
-        String(c.item_code || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(c.item_name || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(c.from_uom || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(c.to_uom || "")
-          .toLowerCase()
-          .includes(q)
-      );
+    if (!searchTerm.trim()) return items.slice();
+    return filterAndSort(items, {
+      query: searchTerm,
+      getKeys: (c) => [c.item_code, c.item_name, c.from_uom, c.to_uom],
     });
   }, [items, searchTerm]);
 

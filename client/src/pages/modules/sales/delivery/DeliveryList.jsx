@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { filterAndSort } from "@/utils/searchUtils.js";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
 import jsPDF from "jspdf";
@@ -260,13 +261,16 @@ export default function DeliveryList() {
   };
 
   const filtered = items.filter((r) => {
-    const s = search.trim().toLowerCase();
-    return (
-      !s ||
-      String(r.delivery_no).toLowerCase().includes(s) ||
-      String(r.customer_name).toLowerCase().includes(s)
-    );
+    return true;
   });
+  const filteredSorted = useMemo(() => {
+    const s = String(search || "").trim();
+    if (!s) return filtered;
+    return filterAndSort(filtered, {
+      query: s,
+      getKeys: (r) => [r.delivery_no, r.customer_name],
+    });
+  }, [filtered, search]);
 
   async function markDelivered(id) {
     try {
@@ -474,7 +478,13 @@ export default function DeliveryList() {
   async function printDelivery(id) {
     try {
       setError("");
-      const html = await buildPrintHtmlFor(id);
+      const resp = await api.post(
+        `/documents/delivery-note/${id}/render`,
+        { format: "html" },
+        { headers: { "Content-Type": "application/json" } },
+      );
+      const html =
+        typeof resp.data === "string" ? resp.data : String(resp.data || "");
       const iframe = document.createElement("iframe");
       iframe.style.position = "fixed";
       iframe.style.right = "0";
@@ -512,49 +522,23 @@ export default function DeliveryList() {
   async function downloadDelivery(id) {
     try {
       setError("");
-      const res = await api.get(`/sales/deliveries/${id}`);
-      const header = res.data?.item || {};
-      const details = Array.isArray(res.data?.details) ? res.data.details : [];
-      const customer =
-        (await fetchCustomerFromHeader(header)) ||
-        (await fetchCustomerById(header.customer_id)) ||
-        null;
-      const data = buildDeliveryNoteTemplateData(header, details, customer);
-      const html = renderDeliveryNoteHtml(data);
-      const container = document.createElement("div");
-      container.style.position = "fixed";
-      container.style.left = "-10000px";
-      container.style.top = "0";
-      container.style.width = "794px";
-      container.style.background = "white";
-      container.style.padding = "32px";
-      container.innerHTML = html;
-      document.body.appendChild(container);
-      try {
-        await waitForImages(container);
-        const canvas = await html2canvas(container, {
-          scale: 2,
-          useCORS: true,
-        });
-        const imgData = canvas.toDataURL("image/png");
-        const pdf = new jsPDF("p", "mm", "a4");
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const imgWidth = pageWidth;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        let rendered = 0;
-        while (rendered < imgHeight) {
-          pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
-          rendered += pageHeight;
-          if (rendered < imgHeight) pdf.addPage();
-        }
-        const num = String(header.delivery_no || "DN").replaceAll(" ", "_");
-        pdf.save(`delivery-${num}.pdf`);
-      } finally {
-        document.body.removeChild(container);
-      }
+      const resp = await api.post(
+        `/documents/delivery-note/${id}/render?format=pdf`,
+        {},
+        { responseType: "blob" },
+      );
+      const blob = resp.data;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `delivery-note-${id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (err) {
-      setError(err?.response?.data?.message || "Failed to download delivery");
+      setError(
+        err?.response?.data?.message ||
+          "Failed to download delivery (default template missing)",
+      );
       console.error(err);
     }
   }
@@ -627,7 +611,7 @@ export default function DeliveryList() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((r) => (
+                  {filteredSorted.map((r) => (
                     <tr key={r.id}>
                       <td className="font-medium">{r.delivery_no}</td>
                       <td>{new Date(r.delivery_date).toLocaleDateString()}</td>
@@ -635,6 +619,17 @@ export default function DeliveryList() {
                       <td>{r.status}</td>
                       <td>
                         <div className="flex gap-2">
+                          {canPerformAction("sales:delivery", "view") && (
+                            <button
+                              type="button"
+                              className="text-brand hover:text-brand-600 font-medium text-sm"
+                              onClick={() =>
+                                navigate(`/sales/delivery/${r.id}?mode=view`)
+                              }
+                            >
+                              View
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="ml-2 btn-primary text-xs px-3 py-1.5 gap-1"
@@ -651,18 +646,7 @@ export default function DeliveryList() {
                             <Download className="w-4 h-4" />
                             Download
                           </button>
-                          {String(r.status || "").toUpperCase() !==
-                            "DELIVERED" &&
-                            canPerformAction("sales:delivery", "edit") && (
-                              <button
-                                className="text-blue-600 hover:text-blue-700 font-medium text-sm"
-                                onClick={() =>
-                                  navigate(`/sales/delivery/${r.id}`)
-                                }
-                              >
-                                Edit
-                              </button>
-                            )}
+                          {/* Edit removed by request */}
                         </div>
                       </td>
                     </tr>

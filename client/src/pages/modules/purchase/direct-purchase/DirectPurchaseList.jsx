@@ -3,6 +3,7 @@ import { api } from "../../../../api/client.js";
 import { useNavigate, useLocation } from "react-router-dom";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { Link } from "react-router-dom";
+import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 
 export default function DirectPurchaseList() {
   const navigate = useNavigate();
@@ -12,6 +13,8 @@ export default function DirectPurchaseList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -98,6 +101,7 @@ export default function DirectPurchaseList() {
                     <th>Date</th>
                     <th>Supplier</th>
                     <th className="text-right">Amount</th>
+                    <th>Attachments</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -115,6 +119,18 @@ export default function DirectPurchaseList() {
                         {fmtCurrency(
                           it.grand_total ?? it.total_amount ?? it.amount ?? 0,
                         )}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn-outline text-xs"
+                          onClick={() => {
+                            setActiveDocId(it.id);
+                            setShowAttach(true);
+                          }}
+                        >
+                          Attachments
+                        </button>
                       </td>
                       <td>
                         <div className="flex items-center gap-2">
@@ -157,6 +173,15 @@ export default function DirectPurchaseList() {
           )}
         </div>
       </div>
+      <DocumentAttachmentsModal
+        open={showAttach}
+        onClose={() => {
+          setShowAttach(false);
+          setActiveDocId(null);
+        }}
+        docType="direct-purchase"
+        docId={activeDocId}
+      />
     </div>
   );
 }

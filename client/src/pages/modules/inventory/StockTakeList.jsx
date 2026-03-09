@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { api } from "api/client";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function StockTakeList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -36,16 +37,10 @@ export default function StockTakeList() {
   }, []);
 
   const filtered = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return items.filter((s) => {
-      return (
-        String(s.stock_take_no || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(s.status || "")
-          .toLowerCase()
-          .includes(q)
-      );
+    if (!searchTerm.trim()) return items.slice();
+    return filterAndSort(items, {
+      query: searchTerm,
+      getKeys: (s) => [s.stock_take_no, s.status],
     });
   }, [items, searchTerm]);
 

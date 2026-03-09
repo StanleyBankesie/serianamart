@@ -5,6 +5,7 @@ import { toast } from "react-toastify";
 import { api } from "api/client";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 function emptyLine() {
   return { accountId: "", description: "", debit: "", credit: "" };
@@ -760,17 +761,12 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         String(a.group_name || "").toUpperCase(),
       ),
     );
-    if (!payToSearch) return base;
-    const q = String(payToSearch).toLowerCase();
-    return base.filter(
-      (a) =>
-        String(a.name || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(a.code || "")
-          .toLowerCase()
-          .includes(q),
-    );
+    const q = String(payToSearch || "").trim();
+    if (!q) return base;
+    return filterAndSort(base, {
+      query: q,
+      getKeys: (a) => [a.name, a.code],
+    });
   }, [accounts, payToSearch]);
 
   const rvTaxComponentsTotals = useMemo(() => {

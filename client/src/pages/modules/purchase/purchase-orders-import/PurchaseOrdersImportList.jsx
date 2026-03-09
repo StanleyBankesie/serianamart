@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
 import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function PurchaseOrdersImportList() {
   const location = useLocation();
@@ -138,17 +139,14 @@ export default function PurchaseOrdersImportList() {
   };
 
   const filteredOrders = useMemo(() => {
-    return purchaseOrders.filter((po) => {
-      const matchesSearch =
-        String(po.po_no || "")
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase()) ||
-        String(po.supplier_name || "")
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase());
-      const matchesStatus =
-        statusFilter === "ALL" || po.status === statusFilter;
-      return matchesSearch && matchesStatus;
+    const base =
+      statusFilter === "ALL"
+        ? purchaseOrders.slice()
+        : purchaseOrders.filter((po) => po.status === statusFilter);
+    if (!searchTerm.trim()) return base;
+    return filterAndSort(base, {
+      query: searchTerm,
+      getKeys: (po) => [po.po_no, po.supplier_name],
     });
   }, [purchaseOrders, searchTerm, statusFilter]);
 

@@ -4,6 +4,7 @@ import jsPDF from "jspdf";
 import api from "../../../../api/client.js";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 function FilterableSelect({
   value,
@@ -196,17 +197,10 @@ export default function CashCollectionDetails() {
   }, [collectorOptions]);
 
   const filtered = useMemo(() => {
-    const q = String(searchNo || "")
-      .trim()
-      .toLowerCase();
+    const q = String(searchNo || "").trim();
     const collectorKey =
       collector === "ALL" ? "" : String(collector || "").trim();
-    return items.filter((it) => {
-      const noMatch = q
-        ? String(it.sale_no || "")
-            .toLowerCase()
-            .includes(q)
-        : true;
+    let base = items.filter((it) => {
       const statusMatch =
         status === "ALL" ? true : String(it.payment_status || "") === status;
       const dateVal = String(it.sale_date || "").slice(0, 10);
@@ -216,8 +210,10 @@ export default function CashCollectionDetails() {
         it.collector_username || it.collector_full_name || "",
       ).trim();
       const collectorMatch = collectorKey ? coll === collectorKey : true;
-      return noMatch && statusMatch && fromOk && toOk && collectorMatch;
+      return statusMatch && fromOk && toOk && collectorMatch;
     });
+    if (!q) return base;
+    return filterAndSort(base, { query: q, getKeys: (it) => [it.sale_no] });
   }, [items, searchNo, status, fromDate, toDate, collector]);
 
   const totals = useMemo(() => {

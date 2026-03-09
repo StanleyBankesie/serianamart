@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import "../../../../styles/UserManagement.css";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function UserList() {
   const [users, setUsers] = useState([]);
@@ -39,29 +40,24 @@ export default function UserList() {
     }
   };
 
-  const filteredUsers = users.filter((user) => {
-    const matchesSearch =
-      String(user.full_name || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase()) ||
-      String(user.username || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase()) ||
-      String(user.email || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase());
-    const matchesStatus =
-      statusFilter === "all" ||
-      (statusFilter === "active" && user.is_active) ||
-      (statusFilter === "inactive" && !user.is_active);
-
-    const matchesType =
-      typeFilter === "all" ||
-      (user.user_type &&
-        user.user_type.toLowerCase() === typeFilter.toLowerCase());
-
-    return matchesSearch && matchesStatus && matchesType;
-  });
+  const filteredUsers = (() => {
+    const base = users.filter((user) => {
+      const matchesStatus =
+        statusFilter === "all" ||
+        (statusFilter === "active" && user.is_active) ||
+        (statusFilter === "inactive" && !user.is_active);
+      const matchesType =
+        typeFilter === "all" ||
+        (user.user_type &&
+          user.user_type.toLowerCase() === typeFilter.toLowerCase());
+      return matchesStatus && matchesType;
+    });
+    if (!searchTerm.trim()) return base;
+    return filterAndSort(base, {
+      query: searchTerm,
+      getKeys: (u) => [u.full_name, u.username, u.email],
+    });
+  })();
 
   const handleDelete = async (id) => {
     if (!window.confirm("Are you sure you want to delete this user?")) return;

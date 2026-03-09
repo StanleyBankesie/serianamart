@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 
 import { api } from "api/client";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function AccountsPage() {
   const [items, setItems] = useState([]);
@@ -43,7 +44,8 @@ export default function AccountsPage() {
         api.get("/finance/account-groups"),
         api.get("/finance/currencies"),
       ]);
-      setItems(accRes.data?.items || []);
+      const arr = accRes.data?.items || [];
+      setItems(arr);
       setGroups(gRes.data?.items || []);
       setCurrencies(cRes.data?.items || []);
     } catch (e) {
@@ -205,6 +207,15 @@ export default function AccountsPage() {
     }
   }
 
+  const rankedItems = useMemo(() => {
+    const q = String(searchTerm || "").trim();
+    if (!q) return items.slice();
+    return filterAndSort(items, {
+      query: q,
+      getKeys: (a) => [a.code, a.name],
+    });
+  }, [items, searchTerm]);
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -340,7 +351,7 @@ export default function AccountsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((a) => (
+                  {rankedItems.map((a) => (
                     <tr key={a.id}>
                       {String(editId) === String(a.id) ? (
                         <>

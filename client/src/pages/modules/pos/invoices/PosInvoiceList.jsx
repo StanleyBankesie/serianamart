@@ -6,6 +6,7 @@ import api from "../../../../api/client.js";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 // POS receipt settings are loaded from the database (company/branch scoped)
 
@@ -242,24 +243,19 @@ export default function PosInvoiceList() {
   }, []);
 
   const filtered = useMemo(() => {
-    const q = String(searchTerm || "")
-      .trim()
-      .toLowerCase();
-    return items.filter((it) => {
-      const noMatch =
-        !q ||
-        String(it.sale_no || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(it.customer_id || "")
-          .toLowerCase()
-          .includes(q);
+    let base = items.filter((it) => {
       const statusMatch =
         status === "ALL" ? true : String(it.payment_status || "") === status;
       const d = String(it.sale_date || "").slice(0, 10);
       const fromOk = fromDate ? d >= fromDate : true;
       const toOk = toDate ? d <= toDate : true;
-      return noMatch && statusMatch && fromOk && toOk;
+      return statusMatch && fromOk && toOk;
+    });
+    const q = String(searchTerm || "").trim();
+    if (!q) return base;
+    return filterAndSort(base, {
+      query: q,
+      getKeys: (it) => [it.sale_no, it.customer_id],
     });
   }, [items, searchTerm, status, fromDate, toDate]);
 

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function WarehousesList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -35,19 +36,10 @@ export default function WarehousesList() {
   }, []);
 
   const filtered = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return warehouses.filter((w) => {
-      return (
-        String(w.warehouse_code || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(w.warehouse_name || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(w.location || "")
-          .toLowerCase()
-          .includes(q)
-      );
+    if (!searchTerm.trim()) return warehouses.slice();
+    return filterAndSort(warehouses, {
+      query: searchTerm,
+      getKeys: (w) => [w.warehouse_code, w.warehouse_name, w.location],
     });
   }, [warehouses, searchTerm]);
 

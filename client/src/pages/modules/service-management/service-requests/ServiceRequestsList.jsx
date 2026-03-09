@@ -4,6 +4,7 @@ import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function ServiceRequestsList() {
   const location = useLocation();
@@ -102,26 +103,16 @@ export default function ServiceRequestsList() {
   }, []);
 
   const filtered = useMemo(() => {
-    const q = String(searchTerm || "").toLowerCase();
-    if (!q) return items;
-    return items.filter((r) => {
-      return (
-        String(r.request_no || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(r.requester_company || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(r.requester_full_name || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(r.service_type || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(r.status || "")
-          .toLowerCase()
-          .includes(q)
-      );
+    if (!searchTerm.trim()) return items.slice();
+    return filterAndSort(items, {
+      query: searchTerm,
+      getKeys: (r) => [
+        r.request_no,
+        r.requester_company,
+        r.requester_full_name,
+        r.service_type,
+        r.status,
+      ],
     });
   }, [items, searchTerm]);
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 function toYmd(date) {
   const d = date instanceof Date ? date : new Date(date);
@@ -72,14 +73,13 @@ export default function ServiceExecutionForm() {
   const [executionNumber, setExecutionNumber] = useState("");
 
   const filteredOrders = useMemo(() => {
-    const s = search.toLowerCase();
-    return orders.filter(
-      (o) =>
-        o.orderNumber.toLowerCase().includes(s) ||
-        o.customer.toLowerCase().includes(s) ||
-        o.serviceType.toLowerCase().includes(s),
-    );
-  }, [search]);
+    const s = String(search || "").trim();
+    if (!s) return orders.slice();
+    return filterAndSort(orders, {
+      query: s,
+      getKeys: (o) => [o.orderNumber, o.customer, o.serviceType],
+    });
+  }, [search, orders]);
 
   useEffect(() => {
     let mounted = true;

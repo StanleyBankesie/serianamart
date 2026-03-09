@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function ShippingAdviceList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -51,12 +52,10 @@ export default function ShippingAdviceList() {
   };
 
   const filtered = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return items.filter((r) => {
-      const no = String(r.advice_no || "").toLowerCase();
-      const po = String(r.po_no || "").toLowerCase();
-      const bl = String(r.bill_of_lading || "").toLowerCase();
-      return no.includes(q) || po.includes(q) || bl.includes(q);
+    if (!searchTerm.trim()) return items.slice();
+    return filterAndSort(items, {
+      query: searchTerm,
+      getKeys: (r) => [r.advice_no, r.po_no, r.bill_of_lading],
     });
   }, [items, searchTerm]);
 

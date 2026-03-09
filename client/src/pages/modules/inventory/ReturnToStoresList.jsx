@@ -5,6 +5,7 @@ import { toast } from "react-toastify";
 import { api } from "api/client";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
 import ReverseApprovalButton from "../../../components/ReverseApprovalButton.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function ReturnToStoresList() {
   const location = useLocation();
@@ -139,11 +140,10 @@ export default function ReturnToStoresList() {
   }, [docs]);
 
   const filtered = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return docs.filter((d) => {
-      const no = String(d.rts_no || "").toLowerCase();
-      const wh = String(d.warehouse_name || "").toLowerCase();
-      return no.includes(q) || wh.includes(q);
+    if (!searchTerm.trim()) return docs.slice();
+    return filterAndSort(docs, {
+      query: searchTerm,
+      getKeys: (d) => [d.rts_no, d.warehouse_name],
     });
   }, [docs, searchTerm]);
 

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../api/client";
+import { filterAndSort } from "@/utils/searchUtils.js";
 import * as XLSX from "xlsx";
 
 export default function ItemsList() {
@@ -101,41 +102,36 @@ export default function ItemsList() {
   }, [items]);
 
   const filtered = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return items
-      .filter((it) => {
-        if (itemType && String(it.item_type || "") !== itemType) return false;
-        if (status && (status === "Y" ? !it.is_active : it.is_active))
-          return false;
-        if (hasBarcode === "Y" && !it.barcode) return false;
-        if (hasBarcode === "N" && it.barcode) return false;
-        return (
-          String(it.item_code || "")
-            .toLowerCase()
-            .includes(q) ||
-          String(it.item_name || "")
-            .toLowerCase()
-            .includes(q) ||
-          String(it.barcode || "")
-            .toLowerCase()
-            .includes(q)
-        );
-      })
-      .sort((a, b) => {
-        const av = a[sort.key];
-        const bv = b[sort.key];
-        if (av == null && bv == null) return 0;
-        if (av == null) return sort.asc ? -1 : 1;
-        if (bv == null) return sort.asc ? 1 : -1;
-        if (typeof av === "number" && typeof bv === "number") {
-          return sort.asc ? av - bv : bv - av;
-        }
-        const as = String(av).toLowerCase();
-        const bs = String(bv).toLowerCase();
-        if (as < bs) return sort.asc ? -1 : 1;
-        if (as > bs) return sort.asc ? 1 : -1;
-        return 0;
+    let base = items.filter((it) => {
+      if (itemType && String(it.item_type || "") !== itemType) return false;
+      if (status && (status === "Y" ? !it.is_active : it.is_active))
+        return false;
+      if (hasBarcode === "Y" && !it.barcode) return false;
+      if (hasBarcode === "N" && it.barcode) return false;
+      return true;
+    });
+    if (searchTerm && searchTerm.trim()) {
+      base = filterAndSort(base, {
+        query: searchTerm,
+        getKeys: (it) => [it.item_name, it.item_code, it.barcode],
       });
+      return base;
+    }
+    return base.sort((a, b) => {
+      const av = a[sort.key];
+      const bv = b[sort.key];
+      if (av == null && bv == null) return 0;
+      if (av == null) return sort.asc ? -1 : 1;
+      if (bv == null) return sort.asc ? 1 : -1;
+      if (typeof av === "number" && typeof bv === "number") {
+        return sort.asc ? av - bv : bv - av;
+      }
+      const as = String(av).toLowerCase();
+      const bs = String(bv).toLowerCase();
+      if (as < bs) return sort.asc ? -1 : 1;
+      if (as > bs) return sort.asc ? 1 : -1;
+      return 0;
+    });
   }, [items, searchTerm, itemType, status, hasBarcode, sort]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));

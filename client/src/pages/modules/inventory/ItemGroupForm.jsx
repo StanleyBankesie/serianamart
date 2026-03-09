@@ -14,6 +14,7 @@ import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
 import { useItemCategories } from "@/hooks/useItemCategories";
 import { useItemTypes } from "@/hooks/useItemTypes";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 const ItemGroupForm = () => {
   const [activeTab, setActiveTab] = useState("groups");
@@ -281,28 +282,28 @@ const ItemGroupForm = () => {
     return uomTypes.find((t) => t.value === type)?.label || type;
   };
 
-  const filterData = (data, searchTerm) => {
-    return data.filter((item) => {
-      const searchFields = [
-        item.group_code || "",
-        item.group_name || "",
-        item.category_code || "",
-        item.category_name || "",
-        item.uom_code || "",
-        item.uom_name || "",
-        item.type_code || "",
-        item.type_name || "",
-      ];
-      return searchFields.some((field) =>
-        field.toLowerCase().includes(searchTerm.toLowerCase()),
-      );
-    });
+  const filterData = (data, term, getKeys) => {
+    const q = String(term || "").trim();
+    if (!q) return data.slice();
+    return filterAndSort(data, { query: q, getKeys });
   };
 
-  const filteredGroups = filterData(itemGroups, searchTerm);
-  const filteredCategories = filterData(categoryList, searchTerm);
-  const filteredUoms = filterData(uomList, searchTerm);
-  const filteredTypes = filterData(itemTypeList, searchTerm);
+  const filteredGroups = filterData(itemGroups, searchTerm, (it) => [
+    it.group_code,
+    it.group_name,
+  ]);
+  const filteredCategories = filterData(itemCategories, searchTerm, (it) => [
+    it.category_code,
+    it.category_name,
+  ]);
+  const filteredUoms = filterData(uomList, searchTerm, (it) => [
+    it.uom_code,
+    it.uom_name,
+  ]);
+  const filteredTypes = filterData(itemTypes, searchTerm, (it) => [
+    it.type_code,
+    it.type_name,
+  ]);
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -528,14 +529,6 @@ const ItemGroupForm = () => {
                             >
                               <Edit className="w-5 h-5" />
                             </button>
-                            <button
-                              onClick={() =>
-                                handleDelete("group", group.group_id)
-                              }
-                              className="text-red-600 hover:text-red-900"
-                            >
-                              <Trash2 className="w-5 h-5" />
-                            </button>
                           </div>
                         </td>
                       </tr>
@@ -597,14 +590,6 @@ const ItemGroupForm = () => {
                             className="text-blue-600 hover:text-blue-900"
                           >
                             <Edit className="w-5 h-5" />
-                          </button>
-                          <button
-                            onClick={() =>
-                              handleDelete("category", category.category_id)
-                            }
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            <Trash2 className="w-5 h-5" />
                           </button>
                         </div>
                       </td>

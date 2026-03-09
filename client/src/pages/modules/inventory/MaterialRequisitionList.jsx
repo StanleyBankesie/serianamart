@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../api/client";
 import { toast } from "react-toastify";
 import { usePermission } from "../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function MaterialRequisitionList() {
   const location = useLocation();
@@ -131,11 +132,10 @@ export default function MaterialRequisitionList() {
   };
 
   const filteredRequisitions = useMemo(() => {
-    return requisitions.filter((req) => {
-      const no = String(req.requisition_no || "").toLowerCase();
-      const by = String(req.requested_by || "").toLowerCase();
-      const q = searchTerm.toLowerCase();
-      return no.includes(q) || by.includes(q);
+    if (!searchTerm.trim()) return requisitions.slice();
+    return filterAndSort(requisitions, {
+      query: searchTerm,
+      getKeys: (r) => [r.requisition_no, r.requested_by],
     });
   }, [requisitions, searchTerm]);
 

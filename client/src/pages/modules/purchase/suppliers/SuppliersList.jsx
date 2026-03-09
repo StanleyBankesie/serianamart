@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 
 import { api } from "../../../../api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function SuppliersList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -51,22 +52,10 @@ export default function SuppliersList() {
   }, [location.state]);
 
   const filtered = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return suppliers.filter((s) => {
-      return (
-        String(s.supplier_code || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(s.supplier_name || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(s.phone || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(s.email || "")
-          .toLowerCase()
-          .includes(q)
-      );
+    if (!searchTerm.trim()) return suppliers.slice();
+    return filterAndSort(suppliers, {
+      query: searchTerm,
+      getKeys: (s) => [s.supplier_code, s.supplier_name, s.phone, s.email],
     });
   }, [suppliers, searchTerm]);
 

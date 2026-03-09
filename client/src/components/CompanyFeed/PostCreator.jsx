@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import "./PostCreator.css";
 import { toast } from "react-toastify";
+import api from "../../api/client";
 
 export default function PostCreator({ onPostCreated }) {
   const { user } = useAuth();
@@ -20,12 +21,9 @@ export default function PostCreator({ onPostCreated }) {
     const fetchUserProfile = async () => {
       try {
         const userId = Number(user?.sub || user?.id) || 0;
-        const token = localStorage.getItem("token");
-        const headers = { Authorization: `Bearer ${token}` };
-        const resMe = await fetch(`/api/admin/me`, { headers });
-        if (resMe.ok) {
-          const data = await resMe.json();
-          const ctx = data?.data || data || null;
+        const resMe = await api.get(`/admin/me`);
+        if (resMe?.status === 200) {
+          const ctx = resMe.data?.data || resMe.data || null;
           const url =
             ctx?.user?.profile_picture_url || ctx?.profile_picture_url || null;
           if (url) {
@@ -34,13 +32,14 @@ export default function PostCreator({ onPostCreated }) {
           }
         }
         if (userId > 0) {
-          const resUser = await fetch(`/api/admin/users/${userId}`, {
-            headers,
-          });
-          if (resUser.ok) {
-            const data2 = await resUser.json();
+          const resUser = await api.get(`/admin/users/${userId}`);
+          if (resUser?.status === 200) {
             const item =
-              data2?.data?.item || data2?.item || data2?.data || data2 || null;
+              resUser.data?.data?.item ||
+              resUser.data?.item ||
+              resUser.data?.data ||
+              resUser.data ||
+              null;
             const url2 = item?.profile_picture_url || null;
             setUserProfilePic(url2 || "/default-avatar.png");
             return;
@@ -83,24 +82,12 @@ export default function PostCreator({ onPostCreated }) {
     formData.append("file", file);
 
     setLoading(true);
-    fetch("/api/upload", {
-      method: "POST",
-      body: formData,
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem("token")}`,
-      },
-    })
-      .then(async (res) => {
-        let payload = null;
-        try {
-          payload = await res.json();
-        } catch {}
-        if (!res.ok) {
-          const msg =
-            (payload && (payload.message || payload.error)) || "Upload failed";
-          setError(msg);
-          return;
-        }
+    api
+      .post(`/upload`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+      .then((res) => {
+        const payload = res?.data || {};
         const url =
           payload?.url ||
           payload?.data?.url ||
@@ -111,7 +98,6 @@ export default function PostCreator({ onPostCreated }) {
           return;
         }
         setImageUrl(url);
-        // Move preview to final URL if absolute arrives
         if (typeof url === "string" && /^(data:|https?:)/i.test(url)) {
           setPreviewUrl(url);
         }
@@ -147,35 +133,16 @@ export default function PostCreator({ onPostCreated }) {
 
     try {
       const uid = Number(user?.sub || user?.id) || "";
-      const response = await fetch("/api/social-feed", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-          "x-user-id": String(uid),
-        },
-        body: JSON.stringify({
+      const response = await api.post(
+        `/social-feed`,
+        {
           content,
           image_url: imageUrl,
           visibility_type: visibilityType,
-        }),
-      });
-
-      if (!response.ok) {
-        let message = "Failed to create post";
-        try {
-          const text = await response.text();
-          try {
-            const parsed = JSON.parse(text);
-            message = parsed.message || message;
-          } catch {
-            message = text || message;
-          }
-        } catch {}
-        throw new Error(message);
-      }
-
-      const data = await response.json();
+        },
+        { headers: { "x-user-id": String(uid) } },
+      );
+      const data = response?.data || {};
       onPostCreated(data.data);
       try {
         toast.success("Post created successfully");

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function ServiceOrdersList() {
   const location = useLocation();
@@ -36,21 +37,17 @@ export default function ServiceOrdersList() {
   }, []);
 
   const filtered = useMemo(() => {
-    const q = String(search || "").toLowerCase();
-    if (!q) return items;
-    return (items || []).filter((it) => {
-      const text =
-        [
-          it.order_no,
-          it.customer_name,
-          it.service_type,
-          it.status,
-          it.work_location,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase() || "";
-      return text.includes(q);
+    const q = String(search || "").trim();
+    if (!q) return items.slice();
+    return filterAndSort(items || [], {
+      query: q,
+      getKeys: (it) => [
+        it.order_no,
+        it.customer_name,
+        it.service_type,
+        it.status,
+        it.work_location,
+      ],
     });
   }, [items, search]);
 

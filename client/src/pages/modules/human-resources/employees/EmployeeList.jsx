@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function EmployeeList() {
   const navigate = useNavigate();
@@ -52,24 +53,21 @@ export default function EmployeeList() {
     return <span className={typeClasses[type] || "badge"}>{type}</span>;
   };
 
-  const filteredEmployees = employees.filter((emp) => {
-    const matchesSearch =
-      String(emp.emp_no || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase()) ||
-      String(emp.full_name || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase()) ||
-      String(emp.email || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase());
-    const matchesStatus =
-      statusFilter === "ALL" ||
-      (statusFilter === "ACTIVE" ? emp.is_active : !emp.is_active);
-    const matchesDepartment =
-      departmentFilter === "ALL" || emp.department === departmentFilter;
-    return matchesSearch && matchesStatus && matchesDepartment;
-  });
+  const filteredEmployees = (() => {
+    const base = employees.filter((emp) => {
+      const matchesStatus =
+        statusFilter === "ALL" ||
+        (statusFilter === "ACTIVE" ? emp.is_active : !emp.is_active);
+      const matchesDepartment =
+        departmentFilter === "ALL" || emp.department === departmentFilter;
+      return matchesStatus && matchesDepartment;
+    });
+    if (!searchTerm.trim()) return base;
+    return filterAndSort(base, {
+      query: searchTerm,
+      getKeys: (emp) => [emp.emp_no, emp.full_name, emp.email],
+    });
+  })();
 
   const departments = [
     "ALL",

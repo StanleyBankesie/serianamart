@@ -1,4 +1,5 @@
 import { createSelector } from "@reduxjs/toolkit";
+import { filterAndSort } from "../../utils/searchUtils.js";
 import { customerAdapter } from "./customerSlice.js";
 
 const selectSlice = (state) => state.entities?.customers;
@@ -14,14 +15,13 @@ export const selectCustomersError = (state) => state.entities?.customers?.error;
 
 export const makeSelectCustomersBySearch = () =>
   createSelector(
-    [selectAllCustomers, (_, term) => String(term || "").toLowerCase()],
-    (items, term) =>
-      items.filter((r) => {
-        const code = String(r.customer_code || "").toLowerCase();
-        const name = String(r.customer_name || "").toLowerCase();
-        const email = String(r.email || "").toLowerCase();
-        return (
-          code.includes(term) || name.includes(term) || email.includes(term)
-        );
-      }),
+    [selectAllCustomers, (_, term) => String(term || "")],
+    (items, term) => {
+      const t = String(term || "").trim();
+      if (!t) return items.slice();
+      return filterAndSort(items, {
+        query: t,
+        getKeys: (r) => [r.customer_code, r.customer_name, r.email],
+      });
+    },
   );

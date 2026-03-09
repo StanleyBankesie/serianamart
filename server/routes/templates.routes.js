@@ -8,6 +8,104 @@ import { ensureTemplateTables, toNumber } from "../utils/dbUtils.js";
 
 const router = express.Router();
 
+function canonicalDocumentType(type) {
+  const t = String(type || "").trim().toLowerCase();
+  if (t === "sales-order" || t === "sales order" || t === "sales_order" || t === "so") {
+    return "sales-order";
+  }
+  if (
+    t === "invoice" ||
+    t === "sales-invoice" ||
+    t === "sales invoice" ||
+    t === "sales_invoice"
+  ) {
+    return "invoice";
+  }
+  if (
+    t === "delivery-note" ||
+    t === "delivery note" ||
+    t === "delivery_note" ||
+    t === "dn"
+  ) {
+    return "delivery-note";
+  }
+  if (t === "quotation" || t === "quote" || t === "sales-quotation") {
+    return "quotation";
+  }
+  return String(type || "").trim();
+}
+
+function docTypeSynonymsLower(type) {
+  const c = canonicalDocumentType(type).toLowerCase();
+  if (c === "sales-order") {
+    return [
+      "sales-order",
+      "sales order",
+      "sales_order",
+      "sales-orders",
+      "sales orders",
+      "sales_orders",
+      "salesorder",
+      "salesorders",
+      "salesorder(s)",
+      "so",
+      "sales_order(s)",
+      "sales-order(s)",
+      "sales order(s)",
+      "sales order document",
+    ];
+  }
+  if (c === "invoice") {
+    return [
+      "invoice",
+      "invoices",
+      "sales-invoice",
+      "sales invoice",
+      "sales_invoice",
+      "sales-invoices",
+      "sales invoices",
+      "sales_invoices",
+      "salesinvoice",
+      "salesinvoices",
+      "sales invoice document",
+    ];
+  }
+  if (c === "delivery-note") {
+    return [
+      "delivery-note",
+      "delivery note",
+      "delivery_note",
+      "delivery-notes",
+      "delivery notes",
+      "delivery_notes",
+      "deliverynote",
+      "deliverynotes",
+      "dn",
+      "delivery note document",
+    ];
+  }
+  if (c === "quotation") {
+    return [
+      "quotation",
+      "quotations",
+      "sales-quotation",
+      "sales quotation",
+      "sales_quotation",
+      "sales-quotations",
+      "sales quotations",
+      "sales_quotations",
+      "quote",
+      "quotes",
+      "sales quote",
+      "sales quotes",
+      "sales_quote",
+      "sales_quote(s)",
+      "quotation document",
+    ];
+  }
+  return [c];
+}
+
 router.get(
   "/:documentType",
   requireAuth,
@@ -19,12 +117,17 @@ router.get(
       const document_type = String(req.params.documentType || "").trim();
       if (!document_type)
         throw httpError(400, "VALIDATION_ERROR", "Invalid type");
+      // Search by synonyms (case-insensitive) so admin can see templates even if type naming differs
+      const aliases = docTypeSynonymsLower(document_type);
+      const placeholders = aliases.map((_, i) => `:dt${i}`).join(", ");
+      const params = { companyId };
+      aliases.forEach((val, i) => (params[`dt${i}`] = val));
       const items = await query(
-        `SELECT id, name, document_type, is_default, created_at, updated_at 
-         FROM document_templates 
-         WHERE company_id = :companyId AND document_type = :document_type 
-         ORDER BY is_default DESC, updated_at DESC`,
-        { companyId, document_type },
+        `SELECT id, name, document_type, is_default, created_at, updated_at
+           FROM document_templates
+          WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholders})
+          ORDER BY is_default DESC, updated_at DESC`,
+        params,
       ).catch(() => []);
       res.json({ items: Array.isArray(items) ? items : [] });
     } catch (err) {

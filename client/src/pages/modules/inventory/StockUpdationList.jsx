@@ -4,6 +4,7 @@ import { toast } from "react-toastify";
 
 import { api } from "api/client";
 import { usePermission } from "@/auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function StockUpdationList() {
   const location = useLocation();
@@ -131,11 +132,11 @@ export default function StockUpdationList() {
   };
 
   const filteredAdjustments = useMemo(() => {
-    return adjustments.filter((adj) =>
-      String(adj.adjustment_no || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase()),
-    );
+    if (!searchTerm.trim()) return adjustments.slice();
+    return filterAndSort(adjustments, {
+      query: searchTerm,
+      getKeys: (adj) => [adj.adjustment_no],
+    });
   }, [adjustments, searchTerm]);
 
   const formatDateOnly = (v) => {

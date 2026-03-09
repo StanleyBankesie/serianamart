@@ -4,6 +4,7 @@ import { api } from "api/client";
 import { toast } from "react-toastify";
 import ReverseApprovalButton from "../../../components/ReverseApprovalButton.jsx";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function StockAdjustmentList() {
   const location = useLocation();
@@ -129,11 +130,11 @@ export default function StockAdjustmentList() {
   };
 
   const filteredAdjustments = useMemo(() => {
-    return adjustments.filter((adj) =>
-      String(adj.adjustment_no || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase()),
-    );
+    if (!searchTerm.trim()) return adjustments.slice();
+    return filterAndSort(adjustments, {
+      query: searchTerm,
+      getKeys: (adj) => [adj.adjustment_no, adj.status],
+    });
   }, [adjustments, searchTerm]);
 
   const formatDateOnly = (v) => {

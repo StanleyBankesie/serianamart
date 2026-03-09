@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { usePermission } from "../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function JournalVoucherList() {
   const { canPerformAction } = usePermission();
@@ -43,18 +44,17 @@ export default function JournalVoucherList() {
     return badges[status] || "badge";
   };
 
-  const filteredVouchers = vouchers.filter((voucher) => {
-    const matchesSearch =
-      String(voucher.voucher_no || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase()) ||
-      String(voucher.narration || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase());
-    const matchesStatus =
-      statusFilter === "ALL" || voucher.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredVouchers = (() => {
+    const base =
+      statusFilter === "ALL"
+        ? vouchers.slice()
+        : vouchers.filter((v) => v.status === statusFilter);
+    if (!searchTerm.trim()) return base;
+    return filterAndSort(base, {
+      query: searchTerm,
+      getKeys: (v) => [v.voucher_no, v.narration],
+    });
+  })();
 
   if (loading) {
     return <div className="text-center py-8">Loading vouchers...</div>;

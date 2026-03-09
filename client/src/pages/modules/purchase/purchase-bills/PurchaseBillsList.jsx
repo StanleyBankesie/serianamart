@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 
 import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function PurchaseBillsList() {
   const location = useLocation();
@@ -60,12 +61,10 @@ export default function PurchaseBillsList() {
   };
 
   const filtered = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return items.filter((r) => {
-      const no = String(r.bill_no || "").toLowerCase();
-      const sup = String(r.supplier_name || "").toLowerCase();
-      const po = String(r.po_no || "").toLowerCase();
-      return no.includes(q) || sup.includes(q) || po.includes(q);
+    if (!searchTerm.trim()) return items.slice();
+    return filterAndSort(items, {
+      query: searchTerm,
+      getKeys: (r) => [r.bill_no, r.supplier_name, r.po_no],
     });
   }, [items, searchTerm]);
 

@@ -6,6 +6,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { toast } from "react-toastify";
 import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function SalesOrderList() {
   const navigate = useNavigate();
@@ -386,13 +387,13 @@ export default function SalesOrderList() {
   }
   async function printSalesOrder(id) {
     try {
-      const resp = await api.get(`/sales/orders/${id}`);
-      const header = resp.data?.item || {};
-      const details = Array.isArray(resp.data?.details)
-        ? resp.data.details
-        : [];
-      const data = buildSalesOrderTemplateDataFromApi(header, details);
-      const html = wrapDoc(renderSalesOrderHtml(data));
+      const resp = await api.post(
+        `/documents/sales-order/${id}/render`,
+        { format: "html" },
+        { headers: { "Content-Type": "application/json" } },
+      );
+      const html =
+        typeof resp.data === "string" ? resp.data : String(resp.data || "");
       const iframe = document.createElement("iframe");
       iframe.style.position = "fixed";
       iframe.style.right = "0";
@@ -421,54 +422,30 @@ export default function SalesOrderList() {
         }, 100);
       };
       setTimeout(doPrint, 200);
-    } catch {}
+    } catch (e) {
+      toast.error("Failed to render template for print");
+    }
   }
   async function downloadSalesOrderPdf(id) {
     try {
-      const resp = await api.get(`/sales/orders/${id}`);
-      const header = resp.data?.item || {};
-      const details = Array.isArray(resp.data?.details)
-        ? resp.data.details
-        : [];
-      const data = buildSalesOrderTemplateDataFromApi(header, details);
-      const html = renderSalesOrderHtml(data);
-      const container = document.createElement("div");
-      container.style.position = "fixed";
-      container.style.left = "-10000px";
-      container.style.top = "0";
-      container.style.width = "794px";
-      container.style.background = "white";
-      container.style.padding = "32px";
-      container.innerHTML = html;
-      document.body.appendChild(container);
-      try {
-        await waitForImages(container);
-        const canvas = await html2canvas(container, {
-          scale: 2,
-          useCORS: true,
-        });
-        const imgData = canvas.toDataURL("image/png");
-        const pdf = new jsPDF("p", "mm", "a4");
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const imgWidth = pageWidth;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        let rendered = 0;
-        while (rendered < imgHeight) {
-          pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
-          rendered += pageHeight;
-          if (rendered < imgHeight) pdf.addPage();
-        }
-        const fname =
-          "SalesOrder_" +
-          (String(header.order_no || "").replaceAll(" ", "_") ||
-            new Date().toISOString().slice(0, 10)) +
-          ".pdf";
-        pdf.save(fname);
-      } finally {
-        document.body.removeChild(container);
-      }
-    } catch {}
+      const resp = await api.post(
+        `/documents/sales-order/${id}/render?format=pdf`,
+        {},
+        { responseType: "blob" },
+      );
+      const blob = resp.data;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `sales-order-${id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(
+        err?.response?.data?.message ||
+          "Failed to download PDF (default template missing)",
+      );
+    }
   }
 
   useEffect(() => {
@@ -523,18 +500,17 @@ export default function SalesOrderList() {
     return <span className={statusClasses[status] || "badge"}>{status}</span>;
   };
 
-  const filteredOrders = orders.filter((order) => {
-    const matchesSearch =
-      String(order.order_no || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase()) ||
-      String(order.customer_name || "")
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase());
-    const matchesStatus =
-      statusFilter === "ALL" || order.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredOrders = (() => {
+    const base =
+      statusFilter === "ALL"
+        ? orders.slice()
+        : orders.filter((order) => order.status === statusFilter);
+    if (!searchTerm.trim()) return base;
+    return filterAndSort(base, {
+      query: searchTerm,
+      getKeys: (order) => [order.order_no, order.customer_name],
+    });
+  })();
 
   const openForwardModal = async (order) => {
     setSelectedOrder(order);

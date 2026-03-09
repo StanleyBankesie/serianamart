@@ -121,9 +121,8 @@ export default function PostCard({
     const uid = Number(user?.sub || user?.id) || "";
     if (post.user_liked) {
       // Unlike
-      await fetch(`/api/social-feed/${post.id}/like`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}`, "x-user-id": String(uid) },
+      await api.delete(`/social-feed/${post.id}/like`, {
+        headers: { "x-user-id": String(uid) },
       });
       setPosts((prev) =>
         prev.map((p) =>
@@ -134,10 +133,11 @@ export default function PostCard({
       );
     } else {
       // Like
-      await fetch(`/api/social-feed/${post.id}/like`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "x-user-id": String(uid) },
-      });
+      await api.post(
+        `/social-feed/${post.id}/like`,
+        {},
+        { headers: { "x-user-id": String(uid) } },
+      );
       setPosts((prev) =>
         prev.map((p) =>
           p.id === post.id
@@ -155,31 +155,24 @@ export default function PostCard({
     setLoading(true);
     try {
       const uid = Number(user?.sub || user?.id) || "";
-      const response = await fetch(`/api/social-feed/${post.id}/comments`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          "x-user-id": String(uid),
-        },
-        body: JSON.stringify({ comment_text: newComment }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setPosts((prev) =>
-          prev.map((p) =>
-            p.id === post.id
-              ? {
-                  ...p,
-                  comments: [...p.comments, data.data],
-                  comment_count: p.comment_count + 1,
-                }
-              : p,
-          ),
-        );
-        setNewComment("");
-      }
+      const response = await api.post(
+        `/social-feed/${post.id}/comments`,
+        { comment_text: newComment },
+        { headers: { "x-user-id": String(uid) } },
+      );
+      const data = response?.data || {};
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === post.id
+            ? {
+                ...p,
+                comments: [...p.comments, data.data],
+                comment_count: p.comment_count + 1,
+              }
+            : p,
+        ),
+      );
+      setNewComment("");
     } catch (err) {
       console.error("Error adding comment:", err);
     } finally {
@@ -198,17 +191,11 @@ export default function PostCard({
         return;
       }
       setLoading(true);
-      const res = await fetch(
-        `/api/social-feed/${post.id}/comments?offset=${already}&limit=${remaining}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "x-user-id": String(uid),
-          },
-        },
-      );
-      if (!res.ok) throw new Error("Failed to load comments");
-      const data = await res.json();
+      const res = await api.get(`/social-feed/${post.id}/comments`, {
+        params: { offset: already, limit: remaining },
+        headers: { "x-user-id": String(uid) },
+      });
+      const data = res?.data || {};
       const more = Array.isArray(data.data) ? data.data : [];
       setPosts((prev) =>
         prev.map((p) => {
@@ -236,13 +223,10 @@ export default function PostCard({
       if (!Number.isFinite(key) || key <= 0) return null;
       if (avatarCache.has(key)) return avatarCache.get(key);
       try {
-        const res = await fetch(`/api/admin/users/${key}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) return null;
-        const data = await res.json();
+        const res = await api.get(`/admin/users/${key}`);
+        if (res?.status !== 200) return null;
         const item =
-          data?.data?.item || data?.item || data?.data || data || null;
+          res.data?.data?.item || res.data?.item || res.data?.data || res.data || null;
         const url = item?.profile_picture_url || null;
         if (url) avatarCache.set(key, url);
         return url;

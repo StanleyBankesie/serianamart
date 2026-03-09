@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function ItemGroupsList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -57,36 +58,18 @@ export default function ItemGroupsList() {
   }, []);
 
   const filtered = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return items.filter((g) => {
-      return (
-        String(g.group_code || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(g.group_name || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(g.parent_group_name || "")
-          .toLowerCase()
-          .includes(q)
-      );
+    if (!searchTerm.trim()) return items.slice();
+    return filterAndSort(items, {
+      query: searchTerm,
+      getKeys: (g) => [g.group_code, g.group_name, g.parent_group_name],
     });
   }, [items, searchTerm]);
 
   const filteredCategories = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return categories.filter((c) => {
-      return (
-        String(c.category_code || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(c.category_name || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(c.parent_category_name || "")
-          .toLowerCase()
-          .includes(q)
-      );
+    if (!searchTerm.trim()) return categories.slice();
+    return filterAndSort(categories, {
+      query: searchTerm,
+      getKeys: (c) => [c.category_code, c.category_name, c.parent_category_name],
     });
   }, [categories, searchTerm]);
 

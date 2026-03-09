@@ -3,6 +3,7 @@ import { toast } from "react-toastify";
 import * as XLSX from "xlsx";
 import { api } from "api/client";
 import { Link } from "react-router-dom";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function OpeningBalancesPage() {
   const [fiscalYears, setFiscalYears] = useState([]);
@@ -70,14 +71,11 @@ export default function OpeningBalancesPage() {
   }, [selectedFyId]);
 
   const rows = useMemo(() => {
-    const term = String(searchTerm || "")
-      .trim()
-      .toLowerCase();
+    const term = String(searchTerm || "").trim();
     const src = term
-      ? (accounts || []).filter((a) => {
-          const code = String(a.code || "").toLowerCase();
-          const name = String(a.name || "").toLowerCase();
-          return code.includes(term) || name.includes(term);
+      ? filterAndSort(accounts || [], {
+          query: term,
+          getKeys: (a) => [a.code, a.name],
         })
       : accounts || [];
     return src.map((a) => {

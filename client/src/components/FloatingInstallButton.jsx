@@ -20,14 +20,9 @@ export default function FloatingInstallButton() {
   }, []);
 
   useEffect(() => {
-    // Only show if PWA is supported AND not already installed
-    // AND we either have the install prompt OR are on a browser that *might* show it
-    // Do not show on small/medium devices (<= 1024px)
-    const shouldShow =
-      isPWASupported &&
-      !isInstalled &&
-      isInstallable &&
-      viewportWidth > 1024;
+    // Show whenever supported and not yet installed.
+    // If installPrompt is not available (iOS/Safari), show help to guide manual install.
+    const shouldShow = isPWASupported && !isInstalled;
     setVisible(shouldShow);
   }, [isInstallable, isInstalled, isPWASupported, viewportWidth]);
 
@@ -61,7 +56,7 @@ export default function FloatingInstallButton() {
         onClick={async () => {
           if (isInstallable) {
             const accepted = await handleInstall();
-            if (!accepted) setShowHelp(true); // user dismissed prompt
+            if (!accepted) setShowHelp(true);
           } else {
             setShowHelp(true);
             setTimeout(() => setShowHelp(false), 4000);

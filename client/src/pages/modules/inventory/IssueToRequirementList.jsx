@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { api } from "api/client";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function IssueToRequirementList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -47,11 +48,10 @@ export default function IssueToRequirementList() {
   };
 
   const filtered = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return docs.filter((d) => {
-      const no = String(d.issue_no || "").toLowerCase();
-      const dept = String(d.department_name || "").toLowerCase();
-      return no.includes(q) || dept.includes(q);
+    if (!searchTerm.trim()) return docs.slice();
+    return filterAndSort(docs, {
+      query: searchTerm,
+      getKeys: (d) => [d.issue_no, d.department_name, d.warehouse_name],
     });
   }, [docs, searchTerm]);
 

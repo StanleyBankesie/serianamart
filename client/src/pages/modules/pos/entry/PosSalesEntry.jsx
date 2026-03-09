@@ -5,6 +5,7 @@ import api from "../../../../api/client.js";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 function FilterableSelect({
   value,
@@ -84,12 +85,12 @@ export default function PosSalesEntry() {
     logoUrl: defaultLogo,
   });
   const filtered = useMemo(() => {
-    const q = String(search || "").toLowerCase();
+    const q = String(search || "").trim();
     if (!q) return products;
-    return products.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q),
-    );
+    return filterAndSort(products, {
+      query: q,
+      getKeys: (p) => [p.name, p.code],
+    });
   }, [products, search]);
 
   const itemSelectOptions = useMemo(() => {
@@ -99,18 +100,12 @@ export default function PosSalesEntry() {
     }));
   }, [products]);
   const itemSearchResults = useMemo(() => {
-    const q = String(entryItemQuery || "")
-      .trim()
-      .toLowerCase();
+    const q = String(entryItemQuery || "").trim();
     if (!q) return [];
-    return itemSelectOptions
-      .filter((o) =>
-        String(o.label || "")
-          .trim()
-          .toLowerCase()
-          .includes(q),
-      )
-      .slice(0, 10);
+    return filterAndSort(itemSelectOptions, {
+      query: q,
+      getKeys: (o) => [o.label],
+    }).slice(0, 10);
   }, [entryItemQuery, itemSelectOptions]);
 
   useEffect(() => {

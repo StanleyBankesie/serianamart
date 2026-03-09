@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function TransferAcceptanceList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -35,22 +36,15 @@ export default function TransferAcceptanceList() {
   }, []);
 
   const filtered = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    return items.filter((t) => {
-      return (
-        String(t.transfer_no || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(t.from_warehouse_name || t.from_warehouse_id || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(t.to_warehouse_name || t.to_warehouse_id || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(t.status || "")
-          .toLowerCase()
-          .includes(q)
-      );
+    if (!searchTerm.trim()) return items.slice();
+    return filterAndSort(items, {
+      query: searchTerm,
+      getKeys: (t) => [
+        t.transfer_no,
+        t.from_warehouse_name || t.from_warehouse_id,
+        t.to_warehouse_name || t.to_warehouse_id,
+        t.status,
+      ],
     });
   }, [items, searchTerm]);
 

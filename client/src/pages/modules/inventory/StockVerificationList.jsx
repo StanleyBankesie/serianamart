@@ -9,6 +9,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { api } from "../../../api/client";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function StockVerificationList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -115,18 +116,14 @@ export default function StockVerificationList() {
   };
 
   const filteredVerifications = useMemo(() => {
-    return verifications.filter((v) => {
-      const matchesSearch =
-        String(v.adjustment_no || "")
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase()) ||
-        // Assuming v.warehouse_id is available in adjustment list, if not this might fail
-        // We'll skip warehouse search if data not present
-        false;
-
-      const matchesStatus = filterStatus === "ALL" || v.status === filterStatus;
-
-      return matchesSearch && matchesStatus;
+    const base =
+      filterStatus === "ALL"
+        ? verifications.slice()
+        : verifications.filter((v) => v.status === filterStatus);
+    if (!searchTerm.trim()) return base;
+    return filterAndSort(base, {
+      query: searchTerm,
+      getKeys: (v) => [v.adjustment_no],
     });
   }, [verifications, searchTerm, filterStatus]);
 

@@ -7,6 +7,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 function StatusBadge({ status }) {
   const cls =
@@ -233,18 +234,15 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
   }, []);
 
   const filtered = useMemo(() => {
-    return items.filter((v) => {
-      const s = search.trim().toLowerCase();
-      const matchesSearch =
-        !s ||
-        String(v.voucher_no || "")
-          .toLowerCase()
-          .includes(s) ||
-        String(v.narration || "")
-          .toLowerCase()
-          .includes(s);
-      const matchesStatus = status === "ALL" || v.status === status;
-      return matchesSearch && matchesStatus;
+    const base =
+      status === "ALL"
+        ? items.slice()
+        : items.filter((v) => v.status === status);
+    const q = String(search || "").trim();
+    if (!q) return base;
+    return filterAndSort(base, {
+      query: q,
+      getKeys: (v) => [v.voucher_no, v.narration],
     });
   }, [items, search, status]);
 

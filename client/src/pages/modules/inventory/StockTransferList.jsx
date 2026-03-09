@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { api } from "api/client";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function StockTransferList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -47,11 +48,10 @@ export default function StockTransferList() {
   };
 
   const filteredTransfers = useMemo(() => {
-    return transfers.filter((t) => {
-      const hay = `${t.transfer_no || ""} ${t.from_branch || ""} ${
-        t.to_branch || ""
-      }`.toLowerCase();
-      return hay.includes(searchTerm.toLowerCase());
+    if (!searchTerm.trim()) return transfers.slice();
+    return filterAndSort(transfers, {
+      query: searchTerm,
+      getKeys: (t) => [t.transfer_no, t.from_branch, t.to_branch],
     });
   }, [transfers, searchTerm]);
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
+import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function RequestForQuotationList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -46,16 +47,14 @@ export default function RequestForQuotationList() {
   };
 
   const filteredRfqs = useMemo(() => {
-    return rfqs.filter((rfq) => {
-      const matchesSearch =
-        String(rfq.rfq_no || "")
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase()) ||
-        String(rfq.delivery_terms || "")
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase());
-      const matchesStatus = statusFilter === "ALL" || rfq.status === statusFilter;
-      return matchesSearch && matchesStatus;
+    const base =
+      statusFilter === "ALL"
+        ? rfqs.slice()
+        : rfqs.filter((rfq) => rfq.status === statusFilter);
+    if (!searchTerm.trim()) return base;
+    return filterAndSort(base, {
+      query: searchTerm,
+      getKeys: (rfq) => [rfq.rfq_no, rfq.delivery_terms],
     });
   }, [rfqs, searchTerm, statusFilter]);
 
