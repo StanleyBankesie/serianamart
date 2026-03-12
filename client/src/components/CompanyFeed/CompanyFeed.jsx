@@ -30,14 +30,13 @@ export default function CompanyFeed({
         setLoading(true);
         const uid = Number(user?.sub || user?.id) || "";
         const isFocus = Number.isFinite(focusId) && focusId > 0;
-        const config =
-          isFocus
-            ? { method: "get", url: `/social-feed/${focusId}` }
-            : {
-                method: "get",
-                url: `/social-feed`,
-                params: { offset: pageOffset, limit: 20 },
-              };
+        const config = isFocus
+          ? { method: "get", url: `/social-feed/${focusId}` }
+          : {
+              method: "get",
+              url: `/social-feed`,
+              params: { offset: pageOffset, limit: 20 },
+            };
         const resp = await api.request({
           ...config,
           headers: { "x-user-id": String(uid) },
@@ -145,7 +144,9 @@ export default function CompanyFeed({
     const isFocus = Number.isFinite(focusId) && focusId > 0;
     const current = posts[0];
     if (!isFocus || !current) return;
-    const already = Array.isArray(current.comments) ? current.comments.length : 0;
+    const already = Array.isArray(current.comments)
+      ? current.comments.length
+      : 0;
     const total = Number(current.comment_count || already);
     if (autoLoadedRef.current) return;
     if (total > already) {
@@ -158,6 +159,25 @@ export default function CompanyFeed({
       })();
     }
   }, [focusId, posts]);
+
+  // Listen for post image updates (background upload completion)
+  useEffect(() => {
+    function onPostImageUpdated(e) {
+      const detail = e?.detail || {};
+      const id = Number(detail.postId || detail.id);
+      const image_url = detail.image_url || null;
+      if (!Number.isFinite(id) || !image_url) return;
+      setPosts((prev) =>
+        prev.map((p) => (Number(p.id) === id ? { ...p, image_url } : p)),
+      );
+    }
+    window.addEventListener("omni.social.postImageUpdated", onPostImageUpdated);
+    return () =>
+      window.removeEventListener(
+        "omni.social.postImageUpdated",
+        onPostImageUpdated,
+      );
+  }, []);
 
   if (!user) {
     return (
@@ -204,7 +224,7 @@ export default function CompanyFeed({
           <PostList
             posts={posts}
             setPosts={setPosts}
-            defaultShowComments={false}
+            defaultShowComments={Number.isFinite(focusId) && focusId > 0}
             forceOpenComments={forceOpenComments}
           />
           <button

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import * as XLSX from "xlsx";
+import { autosizeWorksheetColumns } from "../../../utils/xlsxUtils";
 import { api } from "../../../api/client.js";
 import { Download } from "lucide-react";
 
@@ -43,6 +44,7 @@ export default function StockUploadPage() {
         NEW_QTY: "",
       }));
       const ws = XLSX.utils.json_to_sheet(data, { header });
+      autosizeWorksheetColumns(ws);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "StockUpload");
       XLSX.writeFile(wb, "stock_upload_template.xlsx");

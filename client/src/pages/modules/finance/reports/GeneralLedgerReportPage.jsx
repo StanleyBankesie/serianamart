@@ -4,6 +4,7 @@ import { api } from "api/client";
 import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
 
 export default function GeneralLedgerReportPage() {
   const [from, setFrom] = useState("");
@@ -216,6 +217,7 @@ export default function GeneralLedgerReportPage() {
                   const rows = Array.isArray(items) ? items : [];
                   if (!rows.length) return;
                   const ws = XLSX.utils.json_to_sheet(rows);
+                  autosizeWorksheetColumns(ws);
                   const wb = XLSX.utils.book_new();
                   XLSX.utils.book_append_sheet(wb, ws, "GeneralLedger");
                   XLSX.writeFile(wb, "general-ledger.xlsx");

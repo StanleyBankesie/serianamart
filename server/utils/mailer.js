@@ -53,16 +53,35 @@ export async function verifyMailer() {
   }
 }
 
-export async function sendMail({ to, subject, text, html }) {
+export async function sendMail({ to, subject, text, html, cc }) {
   if (!configured || !transporter) {
+    console.warn(
+      "[SENDMAIL] Mailer not configured. Host:",
+      host,
+      "From:",
+      from,
+    );
     return false;
   }
-  await transporter.sendMail({
-    from,
-    to,
-    subject,
-    text,
-    html,
-  });
-  return true;
+  try {
+    const result = await transporter.sendMail({
+      from,
+      to,
+      cc,
+      subject,
+      text,
+      html,
+    });
+    console.log(
+      `[SENDMAIL] Email sent successfully to ${to}. MessageId: ${result.messageId}`,
+    );
+    return true;
+  } catch (err) {
+    console.error(
+      `[SENDMAIL] Failed to send email to ${to}:`,
+      err.message,
+      err,
+    );
+    throw err;
+  }
 }

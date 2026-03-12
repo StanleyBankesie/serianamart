@@ -1181,6 +1181,20 @@ export default function AppShell() {
 
         <main className="bg-slate-50 dark:bg-slate-900">
           <div className="w-full max-w-full lg:max-w-[1200px] mx-auto p-2 md:p-2 lg:p-3">
+            {!online && !isRootPage ? (
+              <div className="min-h-[60vh] flex items-center justify-center">
+                <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-6 max-w-lg w-full text-center">
+                  <div className="text-4xl mb-2">📡</div>
+                  <div className="text-lg font-semibold mb-1">Offline</div>
+                  <div className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                    This module requires a network connection. Return to Home or reconnect to continue.
+                  </div>
+                  <div className="flex items-center justify-center gap-2">
+                    <Link to="/" className="btn">Home</Link>
+                  </div>
+                </div>
+              </div>
+            ) : (
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
@@ -1227,6 +1241,7 @@ export default function AppShell() {
                 element={<UserPermissions />}
               />
             </Routes>
+            )}
           </div>
         </main>
       </div>

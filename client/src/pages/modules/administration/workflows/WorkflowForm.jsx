@@ -87,6 +87,7 @@ const WorkflowForm = () => {
     module_key: "",
     document_type: "",
     document_route: "",
+    email_notify: true,
     is_active: true,
     steps: [],
   });
@@ -209,6 +210,7 @@ const WorkflowForm = () => {
       setFormData({
         ...data,
         is_active: !!data.is_active,
+        email_notify: data.email_notify == null ? true : Boolean(data.email_notify),
         steps: mappedSteps,
       });
       const initialCode = toCode(
@@ -506,6 +508,18 @@ const WorkflowForm = () => {
               />
               <label className="ml-2 block text-sm text-gray-900">
                 Is Active
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                id="email_notify"
+                type="checkbox"
+                name="email_notify"
+                checked={!!formData.email_notify}
+                onChange={handleChange}
+              />
+              <label htmlFor="email_notify" className="text-sm text-gray-700">
+                Send email notifications to approvers
               </label>
             </div>
           </div>

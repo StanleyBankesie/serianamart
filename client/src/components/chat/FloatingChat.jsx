@@ -2,11 +2,15 @@ import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import useSocket from "../../hooks/useSocket";
 import ChatModal from "./ChatModal.jsx";
+import { useAuth } from "../../auth/AuthContext";
 
 export default function FloatingChat() {
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const socket = useSocket();
+  const { user } = useAuth();
+  const [lastSent, setLastSent] = useState({}); // { [conversation_id]: timestamp }
+  const SENT_TTL_MS = 12000;
   function playChatTone() {
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext || null;
@@ -52,6 +56,35 @@ export default function FloatingChat() {
     return () => window.removeEventListener("omni.chat.open", onOpenFromPush);
   }, []);
   useEffect(() => {
+    function onSent(e) {
+      try {
+        const cid = Number(e?.detail?.conversation_id || 0);
+        if (!Number.isFinite(cid) || cid <= 0) return;
+        setLastSent((prev) => ({ ...prev, [cid]: Date.now() }));
+      } catch {}
+    }
+    window.addEventListener("omni.chat.sent", onSent);
+    return () => window.removeEventListener("omni.chat.sent", onSent);
+  }, []);
+  useEffect(() => {
+    const t = setInterval(() => {
+      setLastSent((prev) => {
+        const now = Date.now();
+        const next = {};
+        let changed = false;
+        for (const [k, v] of Object.entries(prev)) {
+          if (now - v < SENT_TTL_MS) {
+            next[k] = v;
+          } else {
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 5000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
     function onRefresh() {
       loadUnread();
     }
@@ -61,7 +94,20 @@ export default function FloatingChat() {
   }, []);
   useEffect(() => {
     if (!socket) return;
-    const onReceive = () => {
+    const onReceive = (m) => {
+      try {
+        const uid = Number(user?.sub || user?.id) || 0;
+        const senderId = Number(m?.sender_id || 0);
+        // If I am the sender, don't reload unread or play tone
+        if (uid && senderId && uid === senderId) return;
+        const cid = Number(m?.conversation_id || 0);
+        if (Number.isFinite(cid) && cid > 0) {
+          const ts = lastSent[cid];
+          if (ts && Date.now() - ts < SENT_TTL_MS) {
+            return;
+          }
+        }
+      } catch {}
       loadUnread();
       try {
         const hidden =
@@ -78,7 +124,7 @@ export default function FloatingChat() {
       socket.off("message_delivered", onReceive);
       socket.off("message_read", onReceive);
     };
-  }, [socket]);
+  }, [socket, user?.sub, user?.id, open, lastSent]);
 
   const badge = useMemo(() => {
     if (!unread) return null;

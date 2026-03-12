@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
@@ -14,6 +14,8 @@ export default function PostCard({
   forceOpenComments = false,
 }) {
   const [newComment, setNewComment] = useState("");
+  const [newCommentFile, setNewCommentFile] = useState(null);
+  const [newCommentPreview, setNewCommentPreview] = useState(null);
   const [loading, setLoading] = useState(false);
   const [authorAvatar, setAuthorAvatar] = useState(null);
   const [commenterAvatars, setCommenterAvatars] = useState({});
@@ -21,6 +23,7 @@ export default function PostCard({
   const token = localStorage.getItem("token");
   const { user } = useAuth();
   const navigate = useNavigate();
+  const commentFileRef = useRef(null);
   const resolveImageUrl = (u) => {
     if (!u) return null;
     if (/^(data:|https?:)/i.test(u)) return u;
@@ -161,18 +164,60 @@ export default function PostCard({
         { headers: { "x-user-id": String(uid) } },
       );
       const data = response?.data || {};
+      const createdComment = data.data;
+      // If an attachment is selected, upload and attach
+      if (newCommentFile && createdComment?.id) {
+        try {
+          const fd = new FormData();
+          fd.append("file", newCommentFile);
+          const up = await api.post(`/upload`, fd, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+          const url =
+            up?.data?.url || up?.data?.data?.url || up?.data?.path || null;
+          if (url) {
+            await api.post(
+              `/documents/social-comment/${createdComment.id}/attachments`,
+              {
+                url,
+                name: newCommentFile.name,
+                title: newCommentFile.name,
+                mime_type: newCommentFile.type || null,
+                file_size: newCommentFile.size || null,
+              },
+            );
+            // Attach a minimal attachment object to the new comment for UI
+            createdComment.attachments = [
+              {
+                id: Math.random(),
+                file_url: url,
+                file_name: newCommentFile.name,
+                mime_type: newCommentFile.type || "",
+              },
+            ];
+          }
+        } catch {}
+      }
       setPosts((prev) =>
         prev.map((p) =>
           p.id === post.id
             ? {
                 ...p,
-                comments: [...p.comments, data.data],
+                comments: [...p.comments, createdComment],
                 comment_count: p.comment_count + 1,
               }
             : p,
         ),
       );
       setNewComment("");
+      if (commentFileRef.current) commentFileRef.current.value = "";
+      try {
+        if (newCommentPreview && newCommentPreview.startsWith("blob:")) {
+          URL.revokeObjectURL(newCommentPreview);
+        }
+      } catch {}
+      setNewCommentPreview(null);
+      setNewCommentFile(null);
     } catch (err) {
       console.error("Error adding comment:", err);
     } finally {
@@ -226,7 +271,11 @@ export default function PostCard({
         const res = await api.get(`/admin/users/${key}`);
         if (res?.status !== 200) return null;
         const item =
-          res.data?.data?.item || res.data?.item || res.data?.data || res.data || null;
+          res.data?.data?.item ||
+          res.data?.item ||
+          res.data?.data ||
+          res.data ||
+          null;
         const url = item?.profile_picture_url || null;
         if (url) avatarCache.set(key, url);
         return url;
@@ -248,11 +297,7 @@ export default function PostCard({
       const ids = comments
         .map(
           (c) =>
-            c.user_id ||
-            c.userId ||
-            c.author_user_id ||
-            c.authorId ||
-            null,
+            c.user_id || c.userId || c.author_user_id || c.authorId || null,
         )
         .filter((x) => Number.isFinite(Number(x)) && Number(x) > 0);
       const unique = Array.from(new Set(ids));
@@ -368,51 +413,202 @@ export default function PostCard({
 
       {showComments && (
         <div className="comments-section-inline">
-        <div className="comments-list">
-          {post.comments &&
-            post.comments.length > 0 &&
-            post.comments.map((comment) => (
-              <div key={comment.id} className="comment">
-                <img
-                  src={
-                    commenterAvatars[
-                      Number(
-                        comment.user_id ||
-                          comment.userId ||
-                          comment.author_user_id ||
-                          comment.authorId ||
-                          0,
-                      )
-                    ] || comment.profile_picture_url || "/default-avatar.png"
-                  }
-                  alt={comment.full_name}
-                  className="avatar-small"
-                />
-                <div className="comment-content">
-                  <h5>{comment.full_name}</h5>
-                  <p>{comment.comment_text}</p>
-                  <span className="comment-time">
-                    {formatDistanceToNow(new Date(comment.created_at), {
-                      addSuffix: true,
-                    })}
-                  </span>
+          <div className="comments-list">
+            {post.comments &&
+              post.comments.length > 0 &&
+              post.comments.map((comment) => (
+                <div key={comment.id} className="comment">
+                  <img
+                    src={
+                      commenterAvatars[
+                        Number(
+                          comment.user_id ||
+                            comment.userId ||
+                            comment.author_user_id ||
+                            comment.authorId ||
+                            0,
+                        )
+                      ] ||
+                      comment.profile_picture_url ||
+                      "/default-avatar.png"
+                    }
+                    alt={comment.full_name}
+                    className="avatar-small"
+                  />
+                  <div className="comment-content">
+                    <h5>{comment.full_name}</h5>
+                    <p>{comment.comment_text}</p>
+                    <span className="comment-time">
+                      {formatDistanceToNow(new Date(comment.created_at), {
+                        addSuffix: true,
+                      })}
+                    </span>
+                    {Array.isArray(comment.attachments) &&
+                    comment.attachments.length > 0 ? (
+                      <div style={{ marginTop: 8 }}>
+                        {comment.attachments.map((att) => {
+                          const mt = String(att.mime_type || "");
+                          if (mt.startsWith("image/")) {
+                            return (
+                              <img
+                                key={att.id}
+                                src={att.file_url}
+                                alt={att.file_name || "attachment"}
+                                style={{
+                                  width: 120,
+                                  height: 120,
+                                  objectFit: "contain",
+                                  border: "1px solid #eee",
+                                  borderRadius: 4,
+                                  marginRight: 8,
+                                }}
+                              />
+                            );
+                          }
+                          if (mt.startsWith("video/")) {
+                            return (
+                              <video
+                                key={att.id}
+                                src={att.file_url}
+                                style={{
+                                  width: 180,
+                                  height: 120,
+                                  objectFit: "contain",
+                                  border: "1px solid #eee",
+                                  borderRadius: 4,
+                                  marginRight: 8,
+                                }}
+                                controls
+                              />
+                            );
+                          }
+                          return (
+                            <a
+                              key={att.id}
+                              href={att.file_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{
+                                display: "inline-block",
+                                marginRight: 8,
+                              }}
+                            >
+                              {att.file_name || "Download"}
+                            </a>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            ))}
-        </div>
+              ))}
+          </div>
 
-        <form onSubmit={handleComment} className="comment-form">
-          <input
-            type="text"
-            placeholder="Write a comment..."
-            value={newComment}
-            onChange={(e) => setNewComment(e.target.value)}
-            disabled={loading}
-          />
-          <button type="submit" disabled={loading || !newComment.trim()}>
-            {loading ? "..." : "Post"}
-          </button>
-        </form>
+          <form
+            onSubmit={handleComment}
+            className="p-2 border-t border-slate-200 flex items-center gap-2 flex-wrap md:flex-nowrap w-full"
+          >
+            <div className="relative">
+              <button
+                type="button"
+                className="w-10 h-10 rounded-full flex items-center justify-center shadow bg-white border border-slate-300 hover:bg-slate-100"
+                title="Attach"
+                onClick={() => commentFileRef.current?.click()}
+                disabled={loading}
+              >
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 1 1-8.49-8.49l9.19-9.19a4 4 0 1 1 5.66 5.66l-9.2 9.2a2 2 0 1 1-2.83-2.83l8.49-8.49" />
+                </svg>
+              </button>
+              <input
+                ref={commentFileRef}
+                type="file"
+                className="hidden"
+                accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] || null;
+                  setNewCommentFile(f);
+                  try {
+                    if (
+                      newCommentPreview &&
+                      newCommentPreview.startsWith("blob:")
+                    ) {
+                      URL.revokeObjectURL(newCommentPreview);
+                    }
+                  } catch {}
+                  if (f && (f.type || "").startsWith("image/")) {
+                    try {
+                      const u = URL.createObjectURL(f);
+                      setNewCommentPreview(u);
+                    } catch {
+                      setNewCommentPreview(null);
+                    }
+                  } else if (f && (f.type || "").startsWith("video/")) {
+                    try {
+                      const u = URL.createObjectURL(f);
+                      setNewCommentPreview(u);
+                    } catch {
+                      setNewCommentPreview(null);
+                    }
+                  } else {
+                    setNewCommentPreview(null);
+                  }
+                }}
+                disabled={loading}
+              />
+            </div>
+            <input
+              type="text"
+              placeholder="Type a message"
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              disabled={loading}
+              className="input flex-1 w-full min-w-0"
+            />
+            {newCommentPreview ? (
+              (newCommentFile?.type || "").startsWith("image/") ? (
+                <img
+                  src={newCommentPreview}
+                  alt="preview"
+                  style={{
+                    width: 40,
+                    height: 40,
+                    objectFit: "cover",
+                    borderRadius: 4,
+                  }}
+                />
+              ) : (newCommentFile?.type || "").startsWith("video/") ? (
+                <video
+                  src={newCommentPreview}
+                  style={{
+                    width: 60,
+                    height: 40,
+                    objectFit: "cover",
+                    borderRadius: 4,
+                  }}
+                  muted
+                  autoPlay
+                  loop
+                />
+              ) : null
+            ) : null}
+            <button
+              type="submit"
+              className="btn"
+              disabled={loading || !newComment.trim()}
+            >
+              {loading ? "..." : "Post"}
+            </button>
+          </form>
         </div>
       )}
     </div>

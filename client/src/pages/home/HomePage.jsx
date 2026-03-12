@@ -388,7 +388,8 @@ export default function HomePage() {
       ];
       const aid = candidates.find((x) => Number.isFinite(x) && x > 0) ?? null;
       if (!Number.isFinite(uid) || uid <= 0) return true;
-      return aid == null || aid === uid;
+      // Exclude documents where current user is an authorized approver
+      return aid == null || aid !== uid;
     });
   }, [uniquePending, user?.sub, user?.id]);
   const groupedPending = useMemo(() => {
@@ -678,7 +679,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/50 p-2 md:p-3 font-sans text-slate-900">
+    <div className="min-h-screen p-2 md:p-3 font-sans text-slate-900 bg-slate-50 dark:bg-transparent">
       <div className="max-w-7xl mx-auto space-y-4 fullbleed-sm">
         {/* Header Section */}
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-brand-900 to-brand-800 p-8 shadow-erp text-white">

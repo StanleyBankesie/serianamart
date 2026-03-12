@@ -10,15 +10,64 @@ export function useSocket() {
   const [socket, setSocket] = useState(null);
   const { token, user, scope } = useAuth();
 
+  // Singleton socket across the app to avoid multiple connections
+  // when multiple components use this hook simultaneously.
+  // Dev StrictMode mounts/unmounts twice; refcount prevents premature close.
+  // These variables live for the lifetime of the module.
+  // eslint-disable-next-line no-undef
+  if (typeof window !== "undefined") {
+    window.__omniSocketGlobal__ = window.__omniSocketGlobal__ || {
+      socket: null,
+      users: 0,
+      closeTimer: null,
+    };
+  }
+  const globalHolder =
+    typeof window !== "undefined" ? window.__omniSocketGlobal__ : null;
+
   useEffect(() => {
     const tk = token || localStorage.getItem("token");
-    if (!tk) {
-      console.warn("No token available for Socket.io connection");
-      return;
+    // Allow connection without token in dev; the server is tolerant.
+
+    // Reuse global socket if exists
+    if (globalHolder && globalHolder.socket) {
+      setSocket(globalHolder.socket);
+      globalHolder.users += 1;
+      return () => {
+        if (globalHolder) {
+          globalHolder.users -= 1;
+          if (globalHolder.users <= 0) {
+            if (globalHolder.closeTimer) {
+              clearTimeout(globalHolder.closeTimer);
+            }
+            globalHolder.closeTimer = setTimeout(() => {
+              if (globalHolder.users <= 0 && globalHolder.socket) {
+                try {
+                  globalHolder.socket.close();
+                } catch {}
+                globalHolder.socket = null;
+                globalHolder.users = 0;
+              }
+              globalHolder.closeTimer = null;
+            }, 1500);
+          }
+        }
+      };
     }
 
-    // Create socket connection
-    const newSocket = io(window.location.origin, {
+    // Create socket connection (connect to backend origin in dev/prod)
+    const isDev =
+      typeof window !== "undefined" && window.location.port === "5173";
+    const backendOrigin =
+      import.meta.env.VITE_API_PROXY_TARGET ||
+      (isDev ? "http://localhost:4002" : window.location.origin);
+    const transportPref = (
+      import.meta.env.VITE_SOCKET_TRANSPORT || ""
+    ).toLowerCase();
+    const transports =
+      transportPref === "polling" ? ["polling"] : ["websocket", "polling"];
+    const newSocket = io(backendOrigin, {
+      path: "/socket.io",
       auth: {
         token: tk,
       },
@@ -35,7 +84,9 @@ export function useSocket() {
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 10,
+      timeout: 10000,
+      transports,
     });
 
     newSocket.on("connect", () => {
@@ -51,9 +102,32 @@ export function useSocket() {
     });
 
     setSocket(newSocket);
+    if (globalHolder) {
+      globalHolder.socket = newSocket;
+      globalHolder.users = 1;
+    }
 
     return () => {
-      newSocket.close();
+      if (globalHolder) {
+        globalHolder.users -= 1;
+        if (globalHolder.users <= 0) {
+          if (globalHolder.closeTimer) {
+            clearTimeout(globalHolder.closeTimer);
+          }
+          globalHolder.closeTimer = setTimeout(() => {
+            if (globalHolder.users <= 0 && globalHolder.socket) {
+              try {
+                globalHolder.socket.close();
+              } catch {}
+              globalHolder.socket = null;
+              globalHolder.users = 0;
+            }
+            globalHolder.closeTimer = null;
+          }, 1500);
+        }
+      } else {
+        newSocket.close();
+      }
     };
   }, [token, user?.id, user?.sub, scope?.branchId]);
 

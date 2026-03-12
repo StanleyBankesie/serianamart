@@ -37,6 +37,32 @@
   resize: vertical;
 }
 
+/* Tablet responsiveness (medium devices) */
+@media (max-width: 768px) {
+  .post-creator-header {
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+  }
+  .post-form {
+    width: 100%;
+  }
+  .post-input {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .post-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .left-actions {
+    flex-wrap: wrap;
+  }
+  .btn-post {
+    width: 100%;
+  }
+}
+
 .post-input:focus {
   outline: none;
   border-color: #007bff;

@@ -522,6 +522,55 @@ export const getPostComments = async (req, res) => {
   }
 };
 
+// ============================================
+// 🖼️ UPDATE POST IMAGE
+// ============================================
+export const updatePostImage = async (req, res) => {
+  try {
+    const userId =
+      Number(req.user?.id) ||
+      Number(req.user?.sub) ||
+      Number(req.headers["x-user-id"]) ||
+      null;
+    const { postId } = req.params;
+    const image_url = String(req.body?.image_url || "").trim();
+    if (!image_url) {
+      return res
+        .status(400)
+        .json({ success: false, message: "image_url is required" });
+    }
+    const connection = await pool.getConnection();
+    try {
+      // Only the owner can update the image
+      const [rows] = await connection.query(
+        `SELECT id, user_id FROM posts WHERE id = ? LIMIT 1`,
+        [postId],
+      );
+      if (!rows.length) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Post not found" });
+      }
+      const ownerId = Number(rows[0].user_id);
+      if (!userId || userId !== ownerId) {
+        return res
+          .status(403)
+          .json({ success: false, message: "Not allowed" });
+      }
+      await connection.query(
+        `UPDATE posts SET image_url = ? WHERE id = ?`,
+        [image_url, postId],
+      );
+      res.json({ success: true, message: "Image updated", image_url });
+    } finally {
+      await connection.release();
+    }
+  } catch (error) {
+    console.error("Error updating post image:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const getPostLikes = async (req, res) => {
   try {
     const { postId } = req.params;

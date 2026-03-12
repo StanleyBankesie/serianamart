@@ -8,6 +8,7 @@ import {
   getPostById,
   getPostComments,
   getPostLikes,
+  updatePostImage,
 } from "../controllers/social-feed.controller.js";
 import {
   requireAuth,
@@ -36,6 +37,9 @@ router.get("/:postId/likes", getPostLikes);
 
 // Create post
 router.post("/", createPost);
+
+// Update post image
+router.put("/:postId/image", updatePostImage);
 
 // ============================================
 // ❤️ LIKES

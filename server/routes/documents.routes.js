@@ -8,7 +8,7 @@ import {
 } from "../middleware/auth.js";
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
-import { ensureTemplateTables, toNumber } from "../utils/dbUtils.js";
+import { ensureTemplateTables, toNumber, hasColumn } from "../utils/dbUtils.js";
 
 const router = express.Router();
 
@@ -2091,6 +2091,37 @@ async function ensureDocumentAttachmentsTable() {
       KEY idx_doc (company_id, branch_id, document_type, document_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  // Backward-compatible metadata columns
+  if (!(await hasColumn("adm_document_attachments", "title"))) {
+    await query(
+      `ALTER TABLE adm_document_attachments ADD COLUMN title VARCHAR(255) NULL AFTER file_name`,
+    );
+  }
+  if (!(await hasColumn("adm_document_attachments", "description"))) {
+    await query(
+      `ALTER TABLE adm_document_attachments ADD COLUMN description TEXT NULL AFTER title`,
+    );
+  }
+  if (!(await hasColumn("adm_document_attachments", "category"))) {
+    await query(
+      `ALTER TABLE adm_document_attachments ADD COLUMN category VARCHAR(100) NULL AFTER description`,
+    );
+  }
+  if (!(await hasColumn("adm_document_attachments", "tags"))) {
+    await query(
+      `ALTER TABLE adm_document_attachments ADD COLUMN tags TEXT NULL AFTER category`,
+    );
+  }
+  if (!(await hasColumn("adm_document_attachments", "mime_type"))) {
+    await query(
+      `ALTER TABLE adm_document_attachments ADD COLUMN mime_type VARCHAR(100) NULL AFTER tags`,
+    );
+  }
+  if (!(await hasColumn("adm_document_attachments", "file_size"))) {
+    await query(
+      `ALTER TABLE adm_document_attachments ADD COLUMN file_size BIGINT NULL AFTER mime_type`,
+    );
+  }
 }
 
 router.get(
@@ -2105,9 +2136,10 @@ router.get(
       const type = String(req.params.type || "").trim();
       const id = toNumber(req.params.id);
       if (!type || !id) throw httpError(400, "VALIDATION_ERROR", "Invalid request");
-      const items = await query(
+      const rawItems = await query(
         `
         SELECT id, file_url, file_name, uploaded_by, created_at
+               , title, description, category, tags, mime_type, file_size
         FROM adm_document_attachments
         WHERE company_id = :companyId
           AND branch_id = :branchId
@@ -2117,7 +2149,29 @@ router.get(
         `,
         { companyId, branchId, type, id },
       ).catch(() => []);
-      res.json({ items: Array.isArray(items) ? items : [] });
+      const origin = `${req.protocol}://${req.get("host")}`;
+      const items = Array.isArray(rawItems) ? rawItems.map((r) => {
+        try {
+          const s = String(r.file_url || "");
+          if (/^https?:\/\//i.test(s)) {
+            return r;
+          }
+          if (s.startsWith("/uploads")) {
+            return { ...r, file_url: `${origin}${s}` };
+          }
+          if (s.startsWith("uploads")) {
+            return { ...r, file_url: `${origin}/${s}` };
+          }
+          // Legacy rows may contain only the bare filename like "file-123.png"
+          if (s && !s.includes("/") && !s.includes("\\")) {
+            return { ...r, file_url: `${origin}/uploads/${s}` };
+          }
+          return { ...r, file_url: s };
+        } catch {
+          return r;
+        }
+      }) : [];
+      res.json({ items });
     } catch (err) {
       next(err);
     }
@@ -2139,27 +2193,41 @@ router.post(
       const body = req.body || {};
       const fileUrl = String(body.url || body.file_url || "").trim();
       const fileName = body.name || body.file_name || null;
+      const title = body.title ? String(body.title).trim() : null;
+      const description = body.description ? String(body.description).trim() : null;
+      const category = body.category ? String(body.category).trim() : null;
+      const tags = body.tags ? String(body.tags).trim() : null;
+      const mimeType = body.mime_type ? String(body.mime_type).trim() : null;
+      const fileSize = body.file_size != null ? Number(body.file_size) : null;
       const uploadedBy = req.user?.sub ? Number(req.user.sub) : null;
       if (!fileUrl) throw httpError(400, "VALIDATION_ERROR", "url required");
       const result = await query(
         `
         INSERT INTO adm_document_attachments
-          (company_id, branch_id, document_type, document_id, file_url, file_name, uploaded_by)
+          (company_id, branch_id, document_type, document_id, file_url, file_name, uploaded_by, title, description, category, tags, mime_type, file_size)
         VALUES
-          (:companyId, :branchId, :type, :id, :fileUrl, :fileName, :uploadedBy)
+          (:companyId, :branchId, :type, :id, :fileUrl, :fileName, :uploadedBy, :title, :description, :category, :tags, :mimeType, :fileSize)
         `,
-        { companyId, branchId, type, id, fileUrl, fileName, uploadedBy },
+        { companyId, branchId, type, id, fileUrl, fileName, uploadedBy, title, description, category, tags, mimeType, fileSize },
       ).catch(() => null);
       res.status(201).json({
         id: result?.insertId || null,
         file_url: fileUrl,
         file_name: fileName,
+        title,
+        description,
+        category,
+        tags,
+        mime_type: mimeType,
+        file_size: fileSize,
       });
     } catch (err) {
       next(err);
     }
   },
 );
+
+import crypto from "crypto";
 
 router.delete(
   "/:type/:id/attachments/:attId",
@@ -2175,6 +2243,19 @@ router.delete(
       const attId = toNumber(req.params.attId);
       if (!type || !id || !attId)
         throw httpError(400, "VALIDATION_ERROR", "Invalid request");
+      const rows = await query(
+        `
+        SELECT file_url FROM adm_document_attachments
+        WHERE id = :attId
+          AND company_id = :companyId
+          AND branch_id = :branchId
+          AND document_type = :type
+          AND document_id = :id
+        LIMIT 1
+        `,
+        { attId, companyId, branchId, type, id },
+      );
+      const fileUrl = rows?.[0]?.file_url || null;
       await query(
         `
         DELETE FROM adm_document_attachments
@@ -2186,6 +2267,67 @@ router.delete(
         `,
         { attId, companyId, branchId, type, id },
       ).catch(() => null);
+
+      // Attempt Cloudinary deletion if URL is a Cloudinary asset
+      try {
+        if (fileUrl && /^https?:\/\/res\.cloudinary\.com\//i.test(String(fileUrl))) {
+          async function getSetting(key) {
+            const r = await query(
+              `
+              SELECT setting_value FROM adm_system_settings
+              WHERE setting_key = :key
+                AND (company_id = :companyId OR company_id IS NULL)
+                AND (branch_id = :branchId OR branch_id IS NULL)
+              ORDER BY company_id DESC, branch_id DESC
+              LIMIT 1
+              `,
+              { key, companyId: companyId ?? null, branchId: branchId ?? null },
+            ).catch(() => []);
+            return r?.[0]?.setting_value || null;
+          }
+          const cloud_name = await getSetting("CLOUDINARY_CLOUD_NAME");
+          const api_key = await getSetting("CLOUDINARY_API_KEY");
+          const api_secret = await getSetting("CLOUDINARY_API_SECRET");
+          if (cloud_name && api_key && api_secret) {
+            const url = new URL(fileUrl);
+            const parts = url.pathname.split("/").filter(Boolean);
+            const idxUpload = parts.findIndex((p) => p === "upload");
+            const resourceType = parts.find((p) => p === "image" || p === "video") || "image";
+            let remainder = parts.slice(idxUpload + 1);
+            if (remainder[0] && /^v\d+$/i.test(remainder[0])) {
+              remainder = remainder.slice(1);
+            }
+            const last = remainder[remainder.length - 1] || "";
+            const withoutExt = last.includes(".")
+              ? last.slice(0, last.lastIndexOf("."))
+              : last;
+            const public_id =
+              remainder.length > 1
+                ? remainder.slice(0, -1).concat(withoutExt).join("/")
+                : withoutExt;
+            if (public_id) {
+              const timestamp = Math.floor(Date.now() / 1000);
+              const signatureBase = `public_id=${public_id}&timestamp=${timestamp}`;
+              const signature = crypto
+                .createHash("sha1")
+                .update(signatureBase + api_secret)
+                .digest("hex");
+              const destroyEndpoint = `https://api.cloudinary.com/v1_1/${cloud_name}/${resourceType}/destroy`;
+              const body = new URLSearchParams();
+              body.append("public_id", public_id);
+              body.append("api_key", api_key);
+              body.append("timestamp", String(timestamp));
+              body.append("signature", signature);
+              await fetch(destroyEndpoint, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: body.toString(),
+              }).catch(() => null);
+            }
+          }
+        }
+      } catch {}
+
       res.json({ ok: true });
     } catch (err) {
       next(err);

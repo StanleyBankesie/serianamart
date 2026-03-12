@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
+import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
 import jsPDF from "jspdf";
 
 export default function AccountsReceivableAgingReportPage() {
@@ -65,7 +66,9 @@ export default function AccountsReceivableAgingReportPage() {
       items.map((r) => ({
         customer: r.customer_name,
         invoice_no: r.invoice_no,
-        invoice_date: r.invoice_date ? new Date(r.invoice_date).toLocaleDateString() : "-",
+        invoice_date: r.invoice_date
+          ? new Date(r.invoice_date).toLocaleDateString()
+          : "-",
         due_date: r.due_date || "-",
         amount: Number(r.amount || 0),
         "0_30": Number(r.d0_30 || 0),
@@ -74,6 +77,7 @@ export default function AccountsReceivableAgingReportPage() {
         "90_plus": Number(r.d90_plus || 0),
       })),
     );
+    autosizeWorksheetColumns(ws);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "ARAging");
     XLSX.writeFile(wb, "accounts-receivable-aging.xlsx");
@@ -133,19 +137,33 @@ export default function AccountsReceivableAgingReportPage() {
             <Link to="/sales" className="btn btn-secondary">
               Return to Menu
             </Link>
-            <button className="btn-success" onClick={exportCSV} disabled={loading || items.length === 0}>
+            <button
+              className="btn-success"
+              onClick={exportCSV}
+              disabled={loading || items.length === 0}
+            >
               Export CSV
             </button>
-            <button className="btn-secondary" onClick={exportExcel} disabled={loading || items.length === 0}>
+            <button
+              className="btn-secondary"
+              onClick={exportExcel}
+              disabled={loading || items.length === 0}
+            >
               Export Excel
             </button>
-            <button className="btn-primary" onClick={exportPDF} disabled={loading || items.length === 0}>
+            <button
+              className="btn-primary"
+              onClick={exportPDF}
+              disabled={loading || items.length === 0}
+            >
               Export PDF
             </button>
           </div>
         </div>
         <div className="card-body">
-          {error ? <div className="text-red-600 text-sm mb-3">{error}</div> : null}
+          {error ? (
+            <div className="text-red-600 text-sm mb-3">{error}</div>
+          ) : null}
           <div className="overflow-x-auto">
             <table className="table">
               <thead>
@@ -166,18 +184,49 @@ export default function AccountsReceivableAgingReportPage() {
                   <tr key={i}>
                     <td className="font-medium">{r.customer_name}</td>
                     <td>{r.invoice_no}</td>
-                    <td>{r.invoice_date ? new Date(r.invoice_date).toLocaleDateString() : "-"}</td>
+                    <td>
+                      {r.invoice_date
+                        ? new Date(r.invoice_date).toLocaleDateString()
+                        : "-"}
+                    </td>
                     <td>{r.due_date || "-"}</td>
-                    <td className="text-right">{Number(r.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="text-right">{Number(r.d0_30 || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="text-right">{Number(r.d31_60 || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="text-right">{Number(r.d61_90 || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="text-right">{Number(r.d90_plus || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="text-right">
+                      {Number(r.amount || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.d0_30 || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.d31_60 || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.d61_90 || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.d90_plus || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
                   </tr>
                 ))}
                 {!items.length && !loading ? (
                   <tr>
-                    <td colSpan="9" className="text-center py-8 text-slate-500">No records</td>
+                    <td colSpan="9" className="text-center py-8 text-slate-500">
+                      No records
+                    </td>
                   </tr>
                 ) : null}
               </tbody>
@@ -188,4 +237,3 @@ export default function AccountsReceivableAgingReportPage() {
     </div>
   );
 }
-

@@ -37,6 +37,12 @@ router.get(
   requireCompanyScope,
   workflowController.getApprovalInstanceDetail,
 );
+router.get(
+  "/debug/:instanceId/email",
+  requireAuth,
+  requireCompanyScope,
+  workflowController.debugWorkflowEmailStatus,
+);
 
 // Reverse Approval (Exceptional Permission)
 router.post(

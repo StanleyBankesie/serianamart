@@ -3,7 +3,7 @@ import { api } from "../../../../api/client.js";
 import { useNavigate, useLocation } from "react-router-dom";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { Link } from "react-router-dom";
-import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
+import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 
 export default function DirectPurchaseList() {
   const navigate = useNavigate();
@@ -181,6 +181,7 @@ export default function DirectPurchaseList() {
         }}
         docType="direct-purchase"
         docId={activeDocId}
+        allowPreview={true}
       />
     </div>
   );

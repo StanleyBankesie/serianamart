@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
+import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
 import jsPDF from "jspdf";
 
 export default function PurchaseAgingReportPage() {
@@ -28,7 +29,17 @@ export default function PurchaseAgingReportPage() {
 
   function exportCSV() {
     if (!items.length) return;
-    const headers = ["Supplier", "Bill No", "Bill Date", "Due Date", "Amount", "0–30", "31–60", "61–90", "90+"];
+    const headers = [
+      "Supplier",
+      "Bill No",
+      "Bill Date",
+      "Due Date",
+      "Amount",
+      "0–30",
+      "31–60",
+      "61–90",
+      "90+",
+    ];
     const rows = items.map((r) => [
       r.supplier_name || "-",
       r.bill_no || "-",
@@ -55,7 +66,9 @@ export default function PurchaseAgingReportPage() {
       items.map((r) => ({
         supplier: r.supplier_name,
         bill_no: r.bill_no,
-        bill_date: r.bill_date ? new Date(r.bill_date).toLocaleDateString() : "-",
+        bill_date: r.bill_date
+          ? new Date(r.bill_date).toLocaleDateString()
+          : "-",
         due_date: r.due_date || "-",
         amount: Number(r.amount || 0),
         "0_30": Number(r.d0_30 || 0),
@@ -64,6 +77,7 @@ export default function PurchaseAgingReportPage() {
         "90_plus": Number(r.d90_plus || 0),
       })),
     );
+    autosizeWorksheetColumns(ws);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "PurchaseAging");
     XLSX.writeFile(wb, "purchase-aging.xlsx");
@@ -93,11 +107,17 @@ export default function PurchaseAgingReportPage() {
       }
       doc.text(String(r.supplier_name || "-").slice(0, 50), 10, y);
       doc.text(String(r.bill_no || "-").slice(0, 16), 70, y);
-      doc.text(r.bill_date ? new Date(r.bill_date).toLocaleDateString() : "-", 100, y);
+      doc.text(
+        r.bill_date ? new Date(r.bill_date).toLocaleDateString() : "-",
+        100,
+        y,
+      );
       doc.text(String(Number(r.d0_30 || 0).toFixed(2)), 130, y);
       doc.text(String(Number(r.d31_60 || 0).toFixed(2)), 150, y);
       doc.text(String(Number(r.d61_90 || 0).toFixed(2)), 170, y);
-      doc.text(String(Number(r.d90_plus || 0).toFixed(2)), 200, y, { align: "right" });
+      doc.text(String(Number(r.d90_plus || 0).toFixed(2)), 200, y, {
+        align: "right",
+      });
       y += 5;
     });
     doc.save("purchase-aging.pdf");
@@ -108,18 +128,42 @@ export default function PurchaseAgingReportPage() {
       <div className="card">
         <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-bold dark:text-brand-300">Purchase Aging</h1>
+            <h1 className="text-2xl font-bold dark:text-brand-300">
+              Purchase Aging
+            </h1>
             <p className="text-sm mt-1">Track overdue purchase bills</p>
           </div>
           <div className="flex gap-2">
-            <Link to="/purchase" className="btn btn-secondary">Return to Menu</Link>
-            <button className="btn-success" onClick={exportCSV} disabled={loading || items.length === 0}>Export CSV</button>
-            <button className="btn-secondary" onClick={exportExcel} disabled={loading || items.length === 0}>Export Excel</button>
-            <button className="btn-primary" onClick={exportPDF} disabled={loading || items.length === 0}>Export PDF</button>
+            <Link to="/purchase" className="btn btn-secondary">
+              Return to Menu
+            </Link>
+            <button
+              className="btn-success"
+              onClick={exportCSV}
+              disabled={loading || items.length === 0}
+            >
+              Export CSV
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={exportExcel}
+              disabled={loading || items.length === 0}
+            >
+              Export Excel
+            </button>
+            <button
+              className="btn-primary"
+              onClick={exportPDF}
+              disabled={loading || items.length === 0}
+            >
+              Export PDF
+            </button>
           </div>
         </div>
         <div className="card-body">
-          {error ? <div className="text-red-600 text-sm mb-3">{error}</div> : null}
+          {error ? (
+            <div className="text-red-600 text-sm mb-3">{error}</div>
+          ) : null}
           <div className="overflow-x-auto">
             <table className="table">
               <thead>
@@ -140,18 +184,49 @@ export default function PurchaseAgingReportPage() {
                   <tr key={i}>
                     <td className="font-medium">{r.supplier_name}</td>
                     <td>{r.bill_no}</td>
-                    <td>{r.bill_date ? new Date(r.bill_date).toLocaleDateString() : "-"}</td>
+                    <td>
+                      {r.bill_date
+                        ? new Date(r.bill_date).toLocaleDateString()
+                        : "-"}
+                    </td>
                     <td>{r.due_date || "-"}</td>
-                    <td className="text-right">{Number(r.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="text-right">{Number(r.d0_30 || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="text-right">{Number(r.d31_60 || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="text-right">{Number(r.d61_90 || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="text-right">{Number(r.d90_plus || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="text-right">
+                      {Number(r.amount || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.d0_30 || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.d31_60 || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.d61_90 || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.d90_plus || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
                   </tr>
                 ))}
                 {!items.length && !loading ? (
                   <tr>
-                    <td colSpan="9" className="text-center py-8 text-slate-500">No records</td>
+                    <td colSpan="9" className="text-center py-8 text-slate-500">
+                      No records
+                    </td>
                   </tr>
                 ) : null}
               </tbody>
@@ -162,4 +237,3 @@ export default function PurchaseAgingReportPage() {
     </div>
   );
 }
-

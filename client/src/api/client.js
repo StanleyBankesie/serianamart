@@ -4,6 +4,7 @@ import {
   startSyncEngine,
   getQueueSnapshot,
 } from "../offline/syncEngine.js";
+import { putCache, getCache } from "../offline/cache.js";
 
 export const api = axios.create({
   headers: {
@@ -51,7 +52,23 @@ startSyncEngine();
 
 api.interceptors.request.use(
   async (config) => {
+    // Attach a cache key for GET requests
     const method = String(config.method || "get").toLowerCase();
+    if (method === "get") {
+      try {
+        const base = api.defaults.baseURL || "";
+        const url = new URL(
+          config.url.startsWith("http") ? config.url : `${base}${config.url}`,
+          window.location.origin,
+        );
+        if (config.params && typeof config.params === "object") {
+          Object.entries(config.params).forEach(([k, v]) =>
+            url.searchParams.set(k, String(v)),
+          );
+        }
+        config.__cacheKey = `GET:${url.toString()}`;
+      } catch {}
+    }
     if (["post", "put", "patch", "delete"].includes(method)) {
       const skipOffline =
         config?.__skipOfflineQueue === true ||
@@ -70,6 +87,16 @@ api.interceptors.request.use(
           queued,
           config,
           snapshot: getQueueSnapshot(),
+        });
+      }
+    }
+    if (method === "get" && !navigator.onLine && config.__cacheKey) {
+      const cached = await getCache(config.__cacheKey);
+      if (cached && cached.data) {
+        return Promise.reject({
+          isOfflineCached: true,
+          cached: cached.data,
+          config,
         });
       }
     }
@@ -93,6 +120,13 @@ api.interceptors.request.use(
 
 api.interceptors.response.use(
   (response) => {
+    // Cache GET responses for offline usage
+    try {
+      const method = String(response?.config?.method || "get").toLowerCase();
+      if (method === "get" && response?.config?.__cacheKey) {
+        putCache(response.config.__cacheKey, response.data || null);
+      }
+    } catch {}
     if (response && typeof response === "object") {
       return response;
     }
@@ -115,6 +149,15 @@ api.interceptors.response.use(
         },
         status: 202,
         statusText: "Accepted (queued)",
+        headers: {},
+        config: error.config,
+      });
+    }
+    if (error && error.isOfflineCached) {
+      return Promise.resolve({
+        data: error.cached,
+        status: 200,
+        statusText: "OK (cached)",
         headers: {},
         config: error.config,
       });

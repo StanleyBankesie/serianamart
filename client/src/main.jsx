@@ -57,6 +57,34 @@ if (import.meta.env.DEV) {
   } catch {}
 })();
 
+// Silence React's "Download the React DevTools" tip in dev console
+if (import.meta.env.DEV) {
+  try {
+    const originalInfo = console.info;
+    const originalLog = console.log;
+    console.info = function (...args) {
+      const msg = args?.[0];
+      if (
+        typeof msg === "string" &&
+        msg.includes("Download the React DevTools")
+      ) {
+        return;
+      }
+      return originalInfo.apply(this, args);
+    };
+    console.log = function (...args) {
+      const msg = args?.[0];
+      if (
+        typeof msg === "string" &&
+        msg.includes("Download the React DevTools")
+      ) {
+        return;
+      }
+      return originalLog.apply(this, args);
+    };
+  } catch {}
+}
+
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <App />

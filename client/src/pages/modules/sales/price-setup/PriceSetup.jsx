@@ -96,10 +96,11 @@ export default function PriceSetup() {
     let headers = [];
     let filename = "";
     let rows = [];
-
     if (activeTab === "standard") {
       headers = [
         "Item Code",
+        "Item Name",
+        "Group Name",
         "Cost Price",
         "Selling Price",
         "Margin %",
@@ -109,25 +110,59 @@ export default function PriceSetup() {
         "Currency Name",
       ];
       filename = "standard_prices_template.xlsx";
+      const d = new Date();
+      const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       rows = data.map((item) => {
         const product = products.find((p) => p.id === item.product_id);
         const priceType = priceTypes.find((pt) => pt.id === item.price_type_id);
-        const currency = currencies.find((c) => c.id === item.currency_id);
+        const prodCurrency = product
+          ? currencies.find((c) => c.id === product.currency_id) ||
+            currencies.find(
+              (c) =>
+                String(c.code || "").toUpperCase() ===
+                String(product.currency_code || "").toUpperCase(),
+            ) ||
+            currencies.find(
+              (c) =>
+                String(c.name || "").toUpperCase() ===
+                String(product.currency_name || "").toUpperCase(),
+            )
+          : null;
+        const uom =
+          item.uom || (product && (product.uom || product.default_uom)) || "";
+        const groupName =
+          (product &&
+            (product.group_name ||
+              product.group ||
+              product.category_name ||
+              product.category)) ||
+          "";
+        const costPrice =
+          item.cost_price ??
+          (product &&
+            (product.standard_cost ||
+              product.cost_price ||
+              product.purchase_price)) ??
+          "";
         return [
           product ? product.item_code : "",
-          item.cost_price,
-          item.selling_price,
-          item.margin_percent,
-          item.effective_date ? item.effective_date.split("T")[0] : "",
+          product ? product.item_name : "",
+          groupName,
+          costPrice,
+          "",
+          "",
+          todayStr,
           priceType ? priceType.name : "",
-          item.uom,
-          currency ? currency.name : "",
+          uom,
+          prodCurrency ? prodCurrency.name : product?.currency_name || "",
         ];
       });
     } else {
       headers = [
         "Customer Name",
         "Item Code",
+        "Item Name",
+        "Group Name",
         "Standard Price",
         "Customer Price",
         "Discount %",
@@ -143,10 +178,33 @@ export default function PriceSetup() {
         const product = products.find((p) => p.id === item.product_id);
         const customer = customers.find((c) => c.id === item.customer_id);
         const priceType = priceTypes.find((pt) => pt.id === item.price_type_id);
-        const currency = currencies.find((c) => c.id === item.currency_id);
+        const prodCurrency = product
+          ? currencies.find((c) => c.id === product.currency_id) ||
+            currencies.find(
+              (c) =>
+                String(c.code || "").toUpperCase() ===
+                String(product.currency_code || "").toUpperCase(),
+            ) ||
+            currencies.find(
+              (c) =>
+                String(c.name || "").toUpperCase() ===
+                String(product.currency_name || "").toUpperCase(),
+            )
+          : null;
+        const uom =
+          item.uom || (product && (product.uom || product.default_uom)) || "";
+        const groupName =
+          (product &&
+            (product.group_name ||
+              product.group ||
+              product.category_name ||
+              product.category)) ||
+          "";
         return [
           customer ? customer.customer_name : "",
           product ? product.item_code : "",
+          product ? product.item_name : "",
+          groupName,
           item.standard_price,
           item.customer_price,
           item.discount_percent,
@@ -154,14 +212,47 @@ export default function PriceSetup() {
           item.effective_from ? item.effective_from.split("T")[0] : "",
           item.effective_to ? item.effective_to.split("T")[0] : "",
           priceType ? priceType.name : "",
-          item.uom,
-          currency ? currency.name : "",
+          uom,
+          prodCurrency ? prodCurrency.name : product?.currency_name || "",
         ];
       });
     }
-
     const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    if (activeTab === "standard") {
+      const totalRows = rows.length;
+      for (let r = 2; r <= totalRows + 1; r++) {
+        const addr = `F${r}`;
+        // Keep blank unless both D and E are valid numbers > 0
+        // Use N() to coerce non-numeric to 0 to avoid #VALUE!
+        const formula = `IF(AND(N(E${r})>0,N(D${r})>=0),ROUND((E${r}-D${r})/E${r}*100,2),"")`;
+        ws[addr] = { f: formula };
+      }
+    }
+    try {
+      const allRows = [headers, ...rows];
+      const colCount = headers.length;
+      const widths = [];
+      for (let c = 0; c < colCount; c++) {
+        let maxLen = String(headers[c] || "").length;
+        for (let r = 0; r < rows.length; r++) {
+          const val = allRows[r + 1]?.[c];
+          const s =
+            val == null
+              ? ""
+              : typeof val === "number"
+                ? String(val)
+                : String(val);
+          if (s.length > maxLen) maxLen = s.length;
+        }
+        widths.push({ wch: Math.min(Math.max(maxLen + 2, 12), 40) });
+      }
+      ws["!cols"] = widths;
+    } catch {}
     const wb = XLSX.utils.book_new();
+    try {
+      wb.Workbook = wb.Workbook || {};
+      wb.Workbook.CalcPr = { fullCalcOnLoad: true };
+    } catch {}
     XLSX.utils.book_append_sheet(wb, ws, "Prices");
     XLSX.writeFile(wb, filename);
   };
@@ -221,6 +312,15 @@ export default function PriceSetup() {
     try {
       let endpoint = "";
       const payload = { ...formData };
+
+      // Ensure margin_percent is consistent with cost & selling if both provided
+      const cpN = Number(payload.cost_price);
+      const spN = Number(payload.selling_price);
+      if (Number.isFinite(cpN) && Number.isFinite(spN) && spN > 0 && cpN >= 0) {
+        payload.margin_percent = Number((((spN - cpN) / spN) * 100).toFixed(2));
+      } else if (!payload.margin_percent) {
+        payload.margin_percent = 0;
+      }
 
       // Sanitize numeric fields
       const numericFields = [
@@ -475,15 +575,19 @@ export default function PriceSetup() {
             <label className="required">Cost Price</label>
             <input
               type="number"
+              step="0.01"
               value={formData.cost_price || ""}
               onChange={(e) => {
                 const cp = Number(e.target.value || 0);
-                const mp = Number(formData.margin_percent || 0);
-                const sp = Number((cp + (cp * mp) / 100).toFixed(2));
+                const sp = Number(formData.selling_price || 0);
+                const both = cp > 0 && sp > 0;
+                const mp = both
+                  ? Number(((sp - cp) / sp) * 100).toFixed(2)
+                  : "";
                 setFormData({
                   ...formData,
                   cost_price: e.target.value,
-                  selling_price: sp,
+                  margin_percent: mp === "" ? "" : Number(mp),
                 });
               }}
             />
@@ -492,15 +596,17 @@ export default function PriceSetup() {
             <label className="required">Selling Price</label>
             <input
               type="number"
+              step="0.01"
               value={formData.selling_price || ""}
               onChange={(e) => {
                 const sp = Number(e.target.value || 0);
                 const cp = Number(formData.cost_price || 0);
-                const mp = cp > 0 ? Number(((sp - cp) / cp) * 100) : 0;
+                const both = cp > 0 && sp > 0;
+                const mp = both ? Number(((sp - cp) / sp) * 100) : "";
                 setFormData({
                   ...formData,
                   selling_price: e.target.value,
-                  margin_percent: Number(mp.toFixed(2)),
+                  margin_percent: mp === "" ? "" : Number(mp.toFixed(2)),
                 });
               }}
             />
@@ -509,17 +615,19 @@ export default function PriceSetup() {
             <label>Margin %</label>
             <input
               type="number"
-              value={formData.margin_percent || ""}
-              onChange={(e) => {
-                const mp = Number(e.target.value || 0);
-                const cp = Number(formData.cost_price || 0);
-                const sp = Number((cp + (cp * mp) / 100).toFixed(2));
-                setFormData({
-                  ...formData,
-                  margin_percent: e.target.value,
-                  selling_price: sp,
-                });
-              }}
+              step="0.01"
+              value={
+                Number(formData.selling_price || 0) > 0 &&
+                Number(formData.cost_price || 0) > 0
+                  ? Number(
+                      ((Number(formData.selling_price || 0) -
+                        Number(formData.cost_price || 0)) /
+                        Number(formData.selling_price || 0)) *
+                        100,
+                    ).toFixed(2)
+                  : ""
+              }
+              readOnly
             />
           </div>
           <div className="form-group">

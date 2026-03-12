@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
+import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
 import jsPDF from "jspdf";
 
 export default function PriceListReportPage() {
@@ -28,11 +29,19 @@ export default function PriceListReportPage() {
 
   function exportCSV() {
     if (!items.length) return;
-    const headers = ["Product", "Standard Price", "Customer-Specific Price", "Effective Date", "Last Updated By"];
+    const headers = [
+      "Product",
+      "Standard Price",
+      "Customer-Specific Price",
+      "Effective Date",
+      "Last Updated By",
+    ];
     const rows = items.map((r) => [
       r.product || "-",
       Number(r.standard_price || 0).toFixed(2),
-      r.customer_specific_price == null ? "-" : Number(r.customer_specific_price || 0).toFixed(2),
+      r.customer_specific_price == null
+        ? "-"
+        : Number(r.customer_specific_price || 0).toFixed(2),
       r.effective_date || "-",
       r.last_updated_by || "-",
     ]);
@@ -51,11 +60,15 @@ export default function PriceListReportPage() {
       items.map((r) => ({
         product: r.product,
         standard_price: Number(r.standard_price || 0),
-        customer_price: r.customer_specific_price == null ? null : Number(r.customer_specific_price || 0),
+        customer_price:
+          r.customer_specific_price == null
+            ? null
+            : Number(r.customer_specific_price || 0),
         effective_date: r.effective_date,
         last_updated_by: r.last_updated_by,
       })),
     );
+    autosizeWorksheetColumns(ws);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "PriceList");
     XLSX.writeFile(wb, "price-list.xlsx");
@@ -83,7 +96,9 @@ export default function PriceListReportPage() {
       doc.text(String(r.product || "-").slice(0, 90), 10, y);
       doc.text(String(Number(r.standard_price || 0).toFixed(2)), 120, y);
       doc.text(
-        r.customer_specific_price == null ? "-" : String(Number(r.customer_specific_price || 0).toFixed(2)),
+        r.customer_specific_price == null
+          ? "-"
+          : String(Number(r.customer_specific_price || 0).toFixed(2)),
         160,
         y,
       );
@@ -98,18 +113,42 @@ export default function PriceListReportPage() {
       <div className="card">
         <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-bold dark:text-brand-300">Price List / Price Setup</h1>
+            <h1 className="text-2xl font-bold dark:text-brand-300">
+              Price List / Price Setup
+            </h1>
             <p className="text-sm mt-1">Monitor product pricing</p>
           </div>
           <div className="flex gap-2">
-            <Link to="/sales" className="btn btn-secondary">Return to Menu</Link>
-            <button className="btn-success" onClick={exportCSV} disabled={loading || items.length === 0}>Export CSV</button>
-            <button className="btn-secondary" onClick={exportExcel} disabled={loading || items.length === 0}>Export Excel</button>
-            <button className="btn-primary" onClick={exportPDF} disabled={loading || items.length === 0}>Export PDF</button>
+            <Link to="/sales" className="btn btn-secondary">
+              Return to Menu
+            </Link>
+            <button
+              className="btn-success"
+              onClick={exportCSV}
+              disabled={loading || items.length === 0}
+            >
+              Export CSV
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={exportExcel}
+              disabled={loading || items.length === 0}
+            >
+              Export Excel
+            </button>
+            <button
+              className="btn-primary"
+              onClick={exportPDF}
+              disabled={loading || items.length === 0}
+            >
+              Export PDF
+            </button>
           </div>
         </div>
         <div className="card-body">
-          {error ? <div className="text-red-600 text-sm mb-3">{error}</div> : null}
+          {error ? (
+            <div className="text-red-600 text-sm mb-3">{error}</div>
+          ) : null}
           <div className="overflow-x-auto">
             <table className="table">
               <thead>
@@ -125,11 +164,22 @@ export default function PriceListReportPage() {
                 {items.map((r, i) => (
                   <tr key={i}>
                     <td className="font-medium">{r.product}</td>
-                    <td className="text-right">{Number(r.standard_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="text-right">
+                      {Number(r.standard_price || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
                     <td className="text-right">
                       {r.customer_specific_price == null
                         ? "-"
-                        : Number(r.customer_specific_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        : Number(r.customer_specific_price || 0).toLocaleString(
+                            undefined,
+                            {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            },
+                          )}
                     </td>
                     <td>{r.effective_date || "-"}</td>
                     <td>{r.last_updated_by || "-"}</td>
@@ -137,7 +187,9 @@ export default function PriceListReportPage() {
                 ))}
                 {!items.length && !loading ? (
                   <tr>
-                    <td colSpan="5" className="text-center py-8 text-slate-500">No records</td>
+                    <td colSpan="5" className="text-center py-8 text-slate-500">
+                      No records
+                    </td>
                   </tr>
                 ) : null}
               </tbody>
@@ -148,4 +200,3 @@ export default function PriceListReportPage() {
     </div>
   );
 }
-

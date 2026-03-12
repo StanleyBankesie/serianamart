@@ -213,7 +213,7 @@ router.get("/conversations", async (req, res, next) => {
       JOIN chat_conversation_participants p
         ON p.conversation_id = c.id AND p.user_id = :me
       WHERE c.company_id = :companyId
-      ORDER BY last_time DESC NULLS LAST, c.id DESC
+      ORDER BY (CASE WHEN last_time IS NULL THEN 1 ELSE 0 END), last_time DESC, c.id DESC
       `,
       { me, companyId },
     );
@@ -449,8 +449,13 @@ router.post("/conversations/:id/read", async (req, res, next) => {
         { lastId, id, me },
       );
       await query(
-        `UPDATE chat_messages SET status = 'read', read_at = NOW() WHERE conversation_id = :id AND id <= :lastId`,
-        { id, lastId },
+        `UPDATE chat_messages 
+         SET status = 'read', read_at = NOW() 
+         WHERE conversation_id = :id 
+           AND id <= :lastId
+           AND receiver_id = :me
+           AND status <> 'read'`,
+        { id, lastId, me },
       );
       const io = ioInstance;
       if (io)
@@ -481,6 +486,7 @@ router.get("/unread-count", async (req, res, next) => {
         JOIN chat_messages m
           ON m.conversation_id = c.id
         WHERE m.id > COALESCE(p.last_read_message_id, 0)
+          AND m.sender_id <> :me
       ) t
       `,
       { me },

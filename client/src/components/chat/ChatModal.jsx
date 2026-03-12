@@ -113,8 +113,7 @@ function MessageList({ items, myId, bgUrl }) {
     >
       {items.map((m, idx) => {
         const outgoing = Number(m.sender_id) === Number(myId);
-        const ticks =
-          m.status === "read" ? "✔✔" : m.status === "delivered" ? "✔✔" : "✔";
+        const ticks = m.status === "read" ? "✔✔" : "✔";
         const tickClass =
           m.status === "read" ? "text-blue-500" : "text-slate-400";
         const type = String(m.message_type || "text").toLowerCase();
@@ -380,6 +379,10 @@ export default function ChatModal({ onClose }) {
       if (active && Number(m.conversation_id) === Number(active.id)) {
         setMessages((prev) => prev.concat(m));
       }
+      const senderId = Number(m?.sender_id || 0);
+      if (Number.isFinite(senderId) && senderId === myId) {
+        return;
+      }
       loadConvos();
       (async () => {
         try {
@@ -394,6 +397,34 @@ export default function ChatModal({ onClose }) {
           setUnreadByUser(map);
         } catch {}
       })();
+    };
+    const onRead = ({ conversation_id, last_read_id, user_id }) => {
+      if (!active || Number(conversation_id) !== Number(active.id)) return;
+      if (Number(user_id) === Number(myId)) return;
+      setMessages((prev) =>
+        prev.map((msg) => {
+          const mid = Number(msg.id);
+          if (
+            Number(msg.sender_id) === Number(myId) &&
+            Number.isFinite(mid) &&
+            mid <= Number(last_read_id || 0)
+          ) {
+            return { ...msg, status: "read" };
+          }
+          return msg;
+        }),
+      );
+    };
+    const onDelivered = ({ message_id }) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          Number(m.id) === Number(message_id) &&
+          Number(m.sender_id) === Number(myId) &&
+          String(m.status) !== "read"
+            ? { ...m, status: "delivered" }
+            : m,
+        ),
+      );
     };
     const onTypingStart = ({ conversation_id, user_id }) => {
       if (!active || Number(conversation_id) !== Number(active.id)) return;
@@ -410,10 +441,14 @@ export default function ChatModal({ onClose }) {
     };
     socket.on("receive_message", onRecv);
     socket.on("typing_start", onTypingStart);
+    socket.on("message_read", onRead);
+    socket.on("message_delivered", onDelivered);
     socket.on("typing_stop", onTypingStop);
     return () => {
       socket.off("receive_message", onRecv);
       socket.off("typing_start", onTypingStart);
+      socket.off("message_read", onRead);
+      socket.off("message_delivered", onDelivered);
       socket.off("typing_stop", onTypingStop);
     };
   }, [socket, active, myId]);
@@ -433,6 +468,13 @@ export default function ChatModal({ onClose }) {
     setMessages((prev) => prev.concat(optimistic));
     setText("");
     try {
+      try {
+        window.dispatchEvent(
+          new CustomEvent("omni.chat.sent", {
+            detail: { conversation_id: active.id, type: "text" },
+          }),
+        );
+      } catch {}
       await api.post("/chat/messages", {
         conversation_id: active.id,
         content,
@@ -561,6 +603,13 @@ export default function ChatModal({ onClose }) {
           sent_at: new Date().toISOString(),
         }),
       );
+      try {
+        window.dispatchEvent(
+          new CustomEvent("omni.chat.sent", {
+            detail: { conversation_id: active.id, type },
+          }),
+        );
+      } catch {}
       await api.post("/chat/messages", {
         conversation_id: active.id,
         content: url,
@@ -605,7 +654,7 @@ export default function ChatModal({ onClose }) {
               </button>
               <button
                 onClick={onClose}
-                className="rounded px-2 py-1 text-sm hover:bg-slate-100"
+                className="rounded px-2 py-1 text-sm bg-white/10 hover:bg-white/20 text-white"
               >
                 Close
               </button>
@@ -831,7 +880,10 @@ export default function ChatModal({ onClose }) {
                   placeholder="Type a message"
                   className="input flex-1"
                 />
-                <button className="btn" onClick={sendText}>
+                <button
+                  className="btn-primary dark:bg-brand-600 dark:border-brand-600"
+                  onClick={sendText}
+                >
                   Send
                 </button>
               </>

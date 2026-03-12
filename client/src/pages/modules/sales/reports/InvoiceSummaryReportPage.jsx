@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
+import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
 import jsPDF from "jspdf";
 
 export default function InvoiceSummaryReportPage() {
@@ -87,6 +88,7 @@ export default function InvoiceSummaryReportPage() {
         status: r.status,
       })),
     );
+    autosizeWorksheetColumns(ws);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "InvoiceSummary");
     XLSX.writeFile(wb, "invoice-summary.xlsx");
@@ -144,35 +146,68 @@ export default function InvoiceSummaryReportPage() {
             <Link to="/sales" className="btn btn-secondary">
               Return to Menu
             </Link>
-            <button className="btn-success" onClick={exportCSV} disabled={loading || items.length === 0}>
+            <button
+              className="btn-success"
+              onClick={exportCSV}
+              disabled={loading || items.length === 0}
+            >
               Export CSV
             </button>
-            <button className="btn-secondary" onClick={exportExcel} disabled={loading || items.length === 0}>
+            <button
+              className="btn-secondary"
+              onClick={exportExcel}
+              disabled={loading || items.length === 0}
+            >
               Export Excel
             </button>
-            <button className="btn-primary" onClick={exportPDF} disabled={loading || items.length === 0}>
+            <button
+              className="btn-primary"
+              onClick={exportPDF}
+              disabled={loading || items.length === 0}
+            >
               Export PDF
             </button>
           </div>
         </div>
         <div className="card-body">
-          {error ? <div className="text-red-600 text-sm mb-3">{error}</div> : null}
+          {error ? (
+            <div className="text-red-600 text-sm mb-3">{error}</div>
+          ) : null}
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
             <div>
               <label className="label">From</label>
-              <input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+              <input
+                className="input"
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+              />
             </div>
             <div>
               <label className="label">To</label>
-              <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+              <input
+                className="input"
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+              />
             </div>
             <div>
               <label className="label">Customer</label>
-              <input className="input" value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="Customer contains..." />
+              <input
+                className="input"
+                value={customer}
+                onChange={(e) => setCustomer(e.target.value)}
+                placeholder="Customer contains..."
+              />
             </div>
             <div>
               <label className="label">Payment Status</label>
-              <select className="input" value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)}>
+              <select
+                className="input"
+                value={paymentStatus}
+                onChange={(e) => setPaymentStatus(e.target.value)}
+              >
                 <option value="">All</option>
                 <option value="UNPAID">Unpaid</option>
                 <option value="PARTIAL">Partial</option>
@@ -180,7 +215,14 @@ export default function InvoiceSummaryReportPage() {
               </select>
             </div>
             <div className="md:col-span-1 flex items-end">
-              <button type="button" className="btn" onClick={run} disabled={loading}>{loading ? "Running..." : "Run"}</button>
+              <button
+                type="button"
+                className="btn"
+                onClick={run}
+                disabled={loading}
+              >
+                {loading ? "Running..." : "Run"}
+              </button>
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -202,12 +244,36 @@ export default function InvoiceSummaryReportPage() {
                 {items.map((r, i) => (
                   <tr key={i}>
                     <td className="font-medium">{r.invoice_no}</td>
-                    <td>{r.invoice_date ? new Date(r.invoice_date).toLocaleDateString() : "-"}</td>
+                    <td>
+                      {r.invoice_date
+                        ? new Date(r.invoice_date).toLocaleDateString()
+                        : "-"}
+                    </td>
                     <td>{r.customer_name}</td>
-                    <td className="text-right">{Number(r.total_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="text-right">{Number(r.vat_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="text-right">{Number(r.paid_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="text-right">{Number(r.balance_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="text-right">
+                      {Number(r.total_amount || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.vat_amount || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.paid_amount || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.balance_amount || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
                     <td>{r.payment_status}</td>
                     <td>{r.status}</td>
                   </tr>
@@ -227,4 +293,3 @@ export default function InvoiceSummaryReportPage() {
     </div>
   );
 }
-

@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { ensureUploadDir, uploadFile } from "../controllers/upload.controller.js";
+import { requireAuth, requireCompanyScope } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -49,6 +50,13 @@ const upload = multer({
 });
 
 // Route: POST /api/upload
-router.post('/', upload.single('file'), (req, res, next) => uploadFile(req, res, next));
+// Requires auth so company/branch scope is available for Cloudinary config
+router.post(
+  '/',
+  requireAuth,
+  requireCompanyScope,
+  upload.single('file'),
+  (req, res, next) => uploadFile(req, res, next),
+);
 
 export default router;

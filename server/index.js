@@ -35,6 +35,7 @@ import documentsRoutes from "./routes/documents.routes.js";
 import socialFeedRoutes from "./routes/social-feed.routes.js";
 import accessRoutes from "./routes/access.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
+import emailTestRoutes from "./routes/email-test.routes.js";
 import { initializeSocket } from "./utils/socket.js";
 import { ensureExceptionalPermissionsTable } from "./utils/dbUtils.js";
 
@@ -124,6 +125,13 @@ app.use(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "uploads"),
   ),
 );
+// Expose uploads also under /api/uploads so dev proxies can access files
+app.use(
+  "/api/uploads",
+  express.static(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "uploads"),
+  ),
+);
 app.use("/api/admin", adminRoutes);
 app.use("/api/workflows", workflowRoutes);
 app.use("/api/upload", uploadRoutes);
@@ -146,6 +154,7 @@ app.use("/api/documents", documentsRoutes);
 app.use("/api/social-feed", socialFeedRoutes);
 app.use("/api/access", accessRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/email-test", emailTestRoutes);
 
 /* ---------------- STATIC FILES & SPA FALLBACK ---------------- */
 const serveFrontendFlag = (() => {

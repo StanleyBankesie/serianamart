@@ -4,6 +4,7 @@ import { toast } from "react-toastify";
 import { api } from "../../../api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import * as XLSX from "xlsx";
+import { autosizeWorksheetColumns } from "../../../utils/xlsxUtils";
 
 export default function ItemsList() {
   const [items, setItems] = useState([]);
@@ -974,6 +975,7 @@ export default function ItemsList() {
       ],
     ];
     const ws = XLSX.utils.aoa_to_sheet([headers, ...sample]);
+    autosizeWorksheetColumns(ws);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "ItemsTemplate");
     XLSX.writeFile(wb, "items_bulk_upload_template.xlsx");
@@ -1007,6 +1009,7 @@ export default function ItemsList() {
       it.is_active ? "Y" : "N",
     ]);
     const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    autosizeWorksheetColumns(ws);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Items");
     XLSX.writeFile(wb, "items_export.xlsx");

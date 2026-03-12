@@ -3,6 +3,7 @@ import { toast } from "react-toastify";
 import { api } from "api/client";
 import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
+import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
 import jsPDF from "jspdf";
 
 export default function TrialBalanceReportPage() {
@@ -132,6 +133,7 @@ export default function TrialBalanceReportPage() {
                   const rows = Array.isArray(items) ? items : [];
                   if (!rows.length) return;
                   const ws = XLSX.utils.json_to_sheet(rows);
+                  autosizeWorksheetColumns(ws);
                   const wb = XLSX.utils.book_new();
                   XLSX.utils.book_append_sheet(wb, ws, "TrialBalance");
                   XLSX.writeFile(wb, "trial-balance.xlsx");

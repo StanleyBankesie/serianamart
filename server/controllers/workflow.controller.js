@@ -1,6 +1,8 @@
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { isMailerConfigured, sendMail } from "../utils/mailer.js";
+import { sendDocumentForwardNotification } from "../utils/documentNotification.js";
+import { sendPushToUser } from "../routes/push.routes.js";
 
 const toNumber = (v, fallback = null) => {
   const n = Number(v);
@@ -56,6 +58,7 @@ const ensureWorkflowTables = async () => {
       min_amount DECIMAL(18,2) DEFAULT NULL,
       max_amount DECIMAL(18,2) DEFAULT NULL,
       default_behavior VARCHAR(20) DEFAULT NULL,
+      email_notify TINYINT(1) NOT NULL DEFAULT 1,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -89,6 +92,11 @@ const ensureWorkflowTables = async () => {
   if (!(await hasColumn("adm_workflows", "default_behavior"))) {
     await query(
       `ALTER TABLE adm_workflows ADD COLUMN default_behavior VARCHAR(20) DEFAULT NULL`,
+    );
+  }
+  if (!(await hasColumn("adm_workflows", "email_notify"))) {
+    await query(
+      `ALTER TABLE adm_workflows ADD COLUMN email_notify TINYINT(1) NOT NULL DEFAULT 1`,
     );
   }
   await query(`
@@ -473,6 +481,12 @@ export const reverseByDocument = async (req, res, next) => {
   }
 };
 
+function envTrue(v) {
+  if (v == null) return false;
+  const s = String(v).toLowerCase().trim();
+  return s === "1" || s === "true" || s === "yes" || s === "on";
+}
+
 export const getWorkflow = async (req, res, next) => {
   try {
     await ensureWorkflowTables();
@@ -533,6 +547,81 @@ export const getWorkflow = async (req, res, next) => {
   }
 };
 
+export const debugWorkflowEmailStatus = async (req, res, next) => {
+  try {
+    await ensureWorkflowTables();
+    const instanceId = toNumber(req.params.instanceId);
+    const { companyId } = req.scope;
+    if (!instanceId) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+    const instRows = await query(
+      `SELECT dw.*, w.email_notify, w.workflow_name
+       FROM adm_document_workflows dw
+       JOIN adm_workflows w ON w.id = dw.workflow_id
+       WHERE dw.id = :id`,
+      { id: instanceId },
+    );
+    if (!instRows.length)
+      throw httpError(404, "NOT_FOUND", "Workflow instance not found");
+    const inst = instRows[0];
+    const userId = Number(inst.assigned_to_user_id);
+    const wfEmailFlag = inst.email_notify;
+    const emailNotifyEnabled =
+      (wfEmailFlag === null || wfEmailFlag === undefined
+        ? 1
+        : Number(wfEmailFlag)) === 1;
+    const userRows = await query(
+      `SELECT id, username, email, is_active, company_id 
+       FROM adm_users WHERE id = :id LIMIT 1`,
+      { id: userId },
+    );
+    const user = userRows[0] || null;
+    const prefRows = await query(
+      `
+      SELECT pref_key, email_enabled 
+      FROM adm_notification_prefs 
+      WHERE user_id = :uid AND pref_key IN ('workflow-approvals','workflow')
+      ORDER BY CASE pref_key WHEN 'workflow-approvals' THEN 0 ELSE 1 END
+      LIMIT 1
+      `,
+      { uid: userId },
+    ).catch(() => []);
+    const pref = prefRows[0] || null;
+    const userEmailAllowed =
+      !pref || Number(pref.email_enabled) === 1 ? true : false;
+    res.json({
+      instance: {
+        id: inst.id,
+        workflow_id: inst.workflow_id,
+        workflow_name: inst.workflow_name || null,
+        current_step_order: inst.current_step_order,
+        assigned_to_user_id: inst.assigned_to_user_id,
+      },
+      workflow: {
+        email_notify_flag: wfEmailFlag,
+        email_notify_enabled: emailNotifyEnabled,
+      },
+      assigned_user: {
+        id: user?.id || null,
+        username: user?.username || null,
+        email: user?.email || null,
+        is_active: user ? Number(user.is_active) === 1 : null,
+        company_id: user?.company_id || null,
+      },
+      user_pref: {
+        pref_key: pref?.pref_key || null,
+        email_enabled: pref?.email_enabled ?? null,
+        allows_email: userEmailAllowed,
+      },
+      mailer: {
+        configured: isMailerConfigured(),
+      },
+      scope: { companyId },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const createWorkflow = async (req, res, next) => {
   try {
     await ensureWorkflowTables();
@@ -554,8 +643,8 @@ export const createWorkflow = async (req, res, next) => {
 
     const result = await query(
       `INSERT INTO adm_workflows 
-       (company_id, workflow_code, workflow_name, module_key, document_type, document_route, default_behavior, is_active)
-       VALUES (:companyId, :workflow_code, :workflow_name, :module_key, :document_type, :document_route, :default_behavior, :is_active)`,
+       (company_id, workflow_code, workflow_name, module_key, document_type, document_route, default_behavior, email_notify, is_active)
+       VALUES (:companyId, :workflow_code, :workflow_name, :module_key, :document_type, :document_route, :default_behavior, :email_notify, :is_active)`,
       {
         companyId,
         workflow_code:
@@ -577,6 +666,10 @@ export const createWorkflow = async (req, res, next) => {
           )
             ? default_behavior.toUpperCase()
             : null,
+        email_notify:
+          req.body?.email_notify == null
+            ? 1
+            : Number(Boolean(req.body.email_notify)),
         is_active: is_active === undefined ? 1 : Number(Boolean(is_active)),
       },
     );
@@ -660,6 +753,7 @@ export const updateWorkflow = async (req, res, next) => {
            document_type = :document_type,
            document_route = :document_route,
            default_behavior = :default_behavior,
+           email_notify = :email_notify,
            is_active = :is_active
        WHERE id = :id`,
       {
@@ -679,6 +773,10 @@ export const updateWorkflow = async (req, res, next) => {
           )
             ? default_behavior.toUpperCase()
             : null,
+        email_notify:
+          req.body?.email_notify == null
+            ? 1
+            : Number(Boolean(req.body.email_notify)),
         is_active: is_active === undefined ? 1 : Number(Boolean(is_active)),
       },
     );
@@ -841,6 +939,27 @@ export const startWorkflow = async (req, res, next) => {
         userId: req.user.sub,
       },
     );
+    // Send email and push notifications when workflow starts
+    try {
+      if (firstAssigned) {
+        const senderName = req.user?.name || req.user?.username || "System";
+        await sendDocumentForwardNotification({
+          userId: firstAssigned,
+          companyId: req.scope.companyId,
+          documentType: document_type || workflow.document_type,
+          documentId: document_id,
+          documentRef: document_id,
+          title: "Document Forwarded For Approval",
+          message: `Document #${document_id} has been forwarded to you for your approval.`,
+          actionType: "APPROVE",
+          senderName,
+          workflowInstanceId: result.insertId,
+          req,
+        });
+      }
+    } catch (err) {
+      console.error("Error sending workflow start notifications:", err);
+    }
 
     res.status(201).json({
       message: "Workflow started",
@@ -1096,25 +1215,232 @@ export const performAction = async (req, res, next) => {
           link: `/administration/workflows/approvals/${instance.id}`,
         },
       );
+
+      // Send push notification
+      try {
+        const pushPayload = {
+          title: title || "Workflow Action Required",
+          message: message || "A workflow document requires your attention.",
+          type: "workflow",
+          link: `/administration/workflows/approvals/${instance.id}`,
+          icon: "/OMNISUITE_ICON_CLEAR.png",
+          badge: "/OMNISUITE_ICON_CLEAR.png",
+          tag: `workflow-${instance.id}`,
+          timestamp: new Date().toISOString(),
+        };
+        await sendPushToUser(targetUserId, pushPayload);
+      } catch (err) {
+        console.error("Error sending push notification:", err);
+      }
+
+      // Send email notification for workflow status updates
+      const wfRows = await query(
+        "SELECT email_notify FROM adm_workflows WHERE id = :id LIMIT 1",
+        { id: instance.workflow_id },
+      ).catch(() => []);
+      const emailFlag = wfRows.length ? wfRows[0].email_notify : 1;
+      const emailEnabled =
+        (emailFlag === null || emailFlag === undefined
+          ? 1
+          : Number(emailFlag)) === 1;
+      const forceEmail = envTrue(process.env.WORKFLOW_FORCE_EMAIL);
+      if (!emailEnabled && !forceEmail) {
+        // Email disabled, skip
+        return;
+      }
+
+      let userEmailEnabled = 1;
+      try {
+        const prefRows = await query(
+          `
+          SELECT email_enabled 
+          FROM adm_notification_prefs 
+          WHERE user_id = :uid AND pref_key IN ('workflow-approvals','workflow')
+          ORDER BY CASE pref_key WHEN 'workflow-approvals' THEN 0 ELSE 1 END
+          LIMIT 1
+          `,
+          { uid: targetUserId },
+        );
+        if (prefRows.length) {
+          userEmailEnabled = Number(prefRows[0].email_enabled) === 1 ? 1 : 0;
+        }
+      } catch (err) {
+        console.warn(
+          `Error fetching notification prefs for user ${targetUserId}:`,
+          err,
+        );
+      }
+
+      if (!userEmailEnabled && !forceEmail) {
+        try {
+          await query(
+            `INSERT INTO adm_system_logs (company_id, user_id, module_name, action, message, url_path)
+             VALUES (:companyId, :userId, 'Workflow', 'EMAIL_SKIPPED', 'Email disabled by user preference', :url)`,
+            {
+              companyId: req.scope.companyId,
+              userId: targetUserId,
+              url: `/administration/workflows/approvals/${instance.id}`,
+            },
+          );
+        } catch (err) {
+          console.warn("Error logging email skip:", err);
+        }
+        return;
+      }
+
       const userRes = await query(
-        "SELECT email FROM adm_users WHERE id = :id",
-        { id: targetUserId },
-      );
-      if (userRes.length && userRes[0].email) {
-        const to = userRes[0].email;
-        const subject = title;
-        const text = `${message} View: ${req.protocol}://${req.headers.host}/administration/workflows/approvals/${instance.id}`;
-        const html = `<p>${message}</p><p><a href="/administration/workflows/approvals/${instance.id}">Open Approval</a></p>`;
+        "SELECT username, email FROM adm_users WHERE id = :id AND company_id = :companyId AND is_active = 1 LIMIT 1",
+        { id: targetUserId, companyId: req.scope.companyId },
+      ).catch(() => []);
+
+      if (!userRes.length || !userRes[0].email) {
+        console.log(
+          `[notifyUser] User ${targetUserId} has no email, skipping email`,
+        );
+        return;
+      }
+
+      const to = userRes[0].email;
+      const subject = "Workflow Document - Action Required";
+      const docType = instance.document_type || "Workflow Document";
+      const refNo =
+        instance.document_id != null ? String(instance.document_id) : "-";
+
+      const senderRows = await query(
+        "SELECT username AS name FROM adm_users WHERE id = :id LIMIT 1",
+        { id: req.user?.sub || null },
+      ).catch(() => []);
+      const senderName = senderRows.length ? senderRows[0].name : "System";
+
+      const actionLabel = /approval/i.test(title)
+        ? "Approval"
+        : /review/i.test(title)
+          ? "Review"
+          : "Action Required";
+
+      const linkAbs = `${req.protocol}://${req.headers.host}/administration/workflows/approvals/${instance.id}`;
+      const nowStr = new Date().toISOString();
+
+      const textContent =
+        `Hello,\n\n` +
+        `${message}\n\n` +
+        `Document Type: ${docType}\n` +
+        `Reference No: ${refNo}\n` +
+        `Sent By: ${senderName}\n` +
+        `Action Required: ${actionLabel}\n` +
+        `Date & Time: ${nowStr}\n\n` +
+        `Open Document:\n${linkAbs}\n\n` +
+        `Thank you.\nERP Notification System`;
+
+      const htmlContent =
+        `<p>Hello,</p>` +
+        `<p>${message}</p>` +
+        `<div style="background-color: #f5f5f5; padding: 12px; border-radius: 4px; margin: 16px 0;">` +
+        `<p><strong>Document Type:</strong> ${docType}<br/>` +
+        `<strong>Reference No:</strong> ${refNo}<br/>` +
+        `<strong>Sent By:</strong> ${senderName}<br/>` +
+        `<strong>Action Required:</strong> ${actionLabel}<br/>` +
+        `<strong>Date & Time:</strong> ${nowStr}</p>` +
+        `</div>` +
+        `<p><a href="${linkAbs}" style="background-color: #0066cc; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">View Document</a></p>` +
+        `<p>Thank you.<br/>ERP Notification System</p>`;
+
+      // Check for duplicate emails in last 10 seconds
+      const dupRows = await query(
+        `SELECT id 
+           FROM adm_system_logs 
+          WHERE company_id = :companyId 
+            AND user_id = :userId 
+            AND module_name = 'Workflow' 
+            AND action = 'EMAIL_SENT' 
+            AND url_path = :url 
+            AND event_time >= DATE_SUB(NOW(), INTERVAL 10 SECOND)
+          LIMIT 1`,
+        {
+          companyId: req.scope.companyId,
+          userId: targetUserId,
+          url: `/administration/workflows/approvals/${instance.id}`,
+        },
+      ).catch(() => []);
+
+      if (dupRows.length) {
+        console.log(
+          `[notifyUser] Duplicate email detected for user ${targetUserId}, skipping`,
+        );
+        return;
+      }
+
+      // Send email - using await instead of Promise.then() for proper error handling
+      try {
+        console.log(`[notifyUser] Sending email to ${to}`);
+
         if (isMailerConfigured()) {
+          console.log(
+            `[notifyUser] Mailer is configured, proceeding with send`,
+          );
+
+          await sendMail({
+            to,
+            cc: process.env.WORKFLOW_EMAIL_CC || undefined,
+            subject,
+            text: textContent,
+            html: htmlContent,
+          });
+
+          console.log(`[notifyUser] ✓ Email sent successfully to ${to}`);
+
+          // Log successful email send
           try {
-            await sendMail({ to, subject, text, html });
-          } catch (e) {
-            console.log(`[EMAIL ERROR] ${e?.message || e}`);
+            await query(
+              `INSERT INTO adm_system_logs (company_id, user_id, module_name, action, message, url_path)
+               VALUES (:companyId, :userId, 'Workflow', 'EMAIL_SENT', :message, :url)`,
+              {
+                companyId: req.scope.companyId,
+                userId: targetUserId,
+                message: `Workflow email sent to ${to}`,
+                url: `/administration/workflows/approvals/${instance.id}`,
+              },
+            );
+          } catch (err) {
+            console.warn("Error logging email sent:", err);
           }
         } else {
-          console.log(
-            `[MOCK EMAIL] To: ${to} | Subject: ${subject} | Body: ${text}`,
+          console.log(`[MOCK EMAIL] To: ${to} | Subject: ${subject}`);
+          try {
+            await query(
+              `INSERT INTO adm_system_logs (company_id, user_id, module_name, action, message, url_path)
+               VALUES (:companyId, :userId, 'Workflow', 'EMAIL_MOCK', :message, :url)`,
+              {
+                companyId: req.scope.companyId,
+                userId: targetUserId,
+                message: `Mock email to ${to}`,
+                url: `/administration/workflows/approvals/${instance.id}`,
+              },
+            );
+          } catch (err) {
+            console.warn("Error logging mock email:", err);
+          }
+        }
+      } catch (err) {
+        console.error(
+          `[notifyUser] Error sending email to ${to}:`,
+          err.message,
+        );
+
+        // Log email error
+        try {
+          await query(
+            `INSERT INTO adm_system_logs (company_id, user_id, module_name, action, message, url_path)
+             VALUES (:companyId, :userId, 'Workflow', 'EMAIL_ERROR', :message, :url)`,
+            {
+              companyId: req.scope.companyId,
+              userId: targetUserId,
+              message: `Email error: ${err?.message || err}`,
+              url: `/administration/workflows/approvals/${instance.id}`,
+            },
           );
+        } catch (logErr) {
+          console.warn("Error logging email error:", logErr);
         }
       }
     };
@@ -1193,6 +1519,29 @@ export const performAction = async (req, res, next) => {
           "Approval Required",
           `Document #${instance.document_id} requires your approval.`,
         );
+        // Send push notification for document forwarding
+        try {
+          const senderRows = await query(
+            "SELECT username AS name FROM adm_users WHERE id = :id LIMIT 1",
+            { id: req.user?.sub || null },
+          ).catch(() => []);
+          const senderName = senderRows.length ? senderRows[0].name : "System";
+          await sendDocumentForwardNotification({
+            userId: nextAssigned,
+            companyId: req.scope.companyId,
+            documentType: instance.document_type,
+            documentId: instance.document_id,
+            documentRef: instance.document_id,
+            title: "Document Forwarded For Approval",
+            message: `Document #${instance.document_id} has been forwarded to you for approval.`,
+            actionType: "APPROVE",
+            senderName,
+            workflowInstanceId: instance.id,
+            req,
+          });
+        } catch (err) {
+          console.error("Error sending push notification:", err);
+        }
       } else {
         await query(
           `UPDATE adm_document_workflows SET status = 'APPROVED', assigned_to_user_id = NULL WHERE id = :id`,

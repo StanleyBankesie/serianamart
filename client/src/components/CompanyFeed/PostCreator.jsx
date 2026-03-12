@@ -133,23 +133,72 @@ export default function PostCreator({ onPostCreated }) {
 
     try {
       const uid = Number(user?.sub || user?.id) || "";
+      // Step 1: Create post quickly (without waiting for image upload)
       const response = await api.post(
         `/social-feed`,
         {
           content,
-          image_url: imageUrl,
+          image_url: null,
           visibility_type: visibilityType,
         },
         { headers: { "x-user-id": String(uid) } },
       );
       const data = response?.data || {};
-      onPostCreated(data.data);
+      const created = data.data;
+      onPostCreated(created);
       try {
-        toast.success("Post created successfully");
+        toast.success("Post created");
       } catch {}
 
-      // Reset form
+      // Step 2: Finalize image (Cloudinary) and record attachment
+      try {
+        let url = imageUrl || null;
+        let fileName = null;
+        let mimeType = null;
+        let fileSize = null;
+        const file = fileInputRef.current?.files?.[0] || null;
+        if (!url && file) {
+          const formData = new FormData();
+          formData.append("file", file);
+          const up = await api.post(`/upload`, formData, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+          url = up?.data?.url || up?.data?.data?.url || up?.data?.path || null;
+          fileName = up?.data?.file_name || file.name;
+          mimeType = file.type || null;
+          fileSize = file.size || null;
+        } else if (file) {
+          fileName = file.name;
+          mimeType = file.type || null;
+          fileSize = file.size || null;
+        }
+        if (url && created?.id) {
+          await api.put(`/social-feed/${created.id}/image`, {
+            image_url: url,
+          });
+          // Save into attachments table for traceability
+          try {
+            await api.post(`/documents/social-post/${created.id}/attachments`, {
+              url,
+              name: fileName || "image",
+              title: fileName || "image",
+              mime_type: mimeType || null,
+              file_size: fileSize || null,
+            });
+          } catch {}
+          try {
+            window.dispatchEvent(
+              new CustomEvent("omni.social.postImageUpdated", {
+                detail: { postId: created.id, image_url: url },
+              }),
+            );
+          } catch {}
+        }
+      } catch {}
+
+      // Reset form quickly so the UI feels instant
       setContent("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
       setImageUrl(null);
       try {
         if (previewUrl && previewUrl.startsWith("blob:")) {

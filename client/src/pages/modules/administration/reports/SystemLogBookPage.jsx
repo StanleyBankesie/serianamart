@@ -9,6 +9,8 @@ export default function SystemLogBookPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
+  const [quickFilter, setQuickFilter] = useState("all");
+  const [userId, setUserId] = useState("");
   const [status, setStatus] = useState({
     startedAt: "",
     uptimeSeconds: 0,
@@ -25,9 +27,13 @@ export default function SystemLogBookPage() {
   async function run() {
     try {
       setLoading(true);
-      const res = await api.get("/admin/reports/system-log-book", {
-        params: { from: from || null, to: to || null },
-      });
+      const params = { from: from || null, to: to || null };
+      if (quickFilter === "email") {
+        params.module = "DocumentForward,Workflow";
+        params.action = "EMAIL_SENT,EMAIL_ERROR,EMAIL_SKIPPED,EMAIL_MOCK";
+      }
+      if (userId) params.user_id = userId;
+      const res = await api.get("/admin/reports/system-log-book", { params });
       setItems(res.data?.items || []);
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to load report");
@@ -149,13 +155,26 @@ export default function SystemLogBookPage() {
               <label className="label">To</label>
               <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
             </div>
-            <div className="md:col-span-2 flex items-end gap-2">
+            <div>
+              <label className="label">Quick Filter</label>
+              <select className="input" value={quickFilter} onChange={(e) => setQuickFilter(e.target.value)}>
+                <option value="all">All Logs</option>
+                <option value="email">Email Notifications Only</option>
+              </select>
+            </div>
+            <div className="md:col-span-1 flex items-end gap-2">
               <button type="button" className="btn-success" onClick={run} disabled={loading}>
                 {loading ? "Running..." : "Run Report"}
               </button>
               <button type="button" className="btn-success" onClick={() => { setFrom(""); setTo(""); }} disabled={loading}>
                 Clear
               </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div>
+              <label className="label">Filter by User ID</label>
+              <input className="input" type="number" value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="e.g., 1" />
             </div>
           </div>
 
@@ -192,4 +211,3 @@ export default function SystemLogBookPage() {
     </div>
   );
 }
-

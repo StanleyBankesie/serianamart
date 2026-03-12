@@ -39,6 +39,17 @@ export default function SettingsPage() {
   const [companyLogoDataUrl, setCompanyLogoDataUrl] = useState("");
   const [companyLogoObjectUrl, setCompanyLogoObjectUrl] = useState("");
   const logoObjectUrlRef = useRef(null);
+  const [cloud, setCloud] = useState({
+    cloud_name: "",
+    api_key: "",
+    api_secret: "",
+    folder: "",
+    has_secret: false,
+  });
+  const [cloudLoading, setCloudLoading] = useState(false);
+  const [cloudSaving, setCloudSaving] = useState(false);
+  const [emailTestTo, setEmailTestTo] = useState("");
+  const [emailTesting, setEmailTesting] = useState(false);
 
   function setLogoObjectUrl(nextUrl) {
     try {
@@ -63,6 +74,70 @@ export default function SettingsPage() {
       localStorage.setItem("push_enabled", pushEnabled ? "1" : "0");
     } catch {}
   }, [pushEnabled]);
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        setCloudLoading(true);
+        const res = await api.get("/admin/settings/cloudinary");
+        const d = res?.data?.data || {};
+        if (!mounted) return;
+        setCloud((p) => ({
+          ...p,
+          cloud_name: d.cloud_name || "",
+          api_key: d.api_key || "",
+          folder: d.folder || "",
+          has_secret: !!d.has_secret,
+        }));
+      } catch {
+      } finally {
+        if (mounted) setCloudLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+  async function saveCloudinary() {
+    try {
+      setCloudSaving(true);
+      await api.post("/admin/settings/cloudinary", {
+        cloud_name: cloud.cloud_name,
+        api_key: cloud.api_key,
+        api_secret: cloud.api_secret || undefined,
+        folder: cloud.folder || undefined,
+      });
+      toast.success("Cloudinary settings saved");
+      setCloud((p) => ({ ...p, has_secret: true, api_secret: "" }));
+    } catch (e) {
+      toast.error(
+        e?.response?.data?.message || e?.message || "Failed to save settings",
+      );
+    } finally {
+      setCloudSaving(false);
+    }
+  }
+  async function sendTestEmail() {
+    try {
+      setEmailTesting(true);
+      const res = await api.post("/admin/email/test", {
+        to: emailTestTo || undefined,
+      });
+      const configured = !!res?.data?.configured;
+      const sent = !!res?.data?.sent;
+      if (!configured) {
+        toast.error("Mailer not configured");
+      } else if (sent) {
+        toast.success("Test email sent");
+      } else {
+        toast.error("Mailer configured but send failed");
+      }
+    } catch (e) {
+      toast.error("Failed to send test email");
+    } finally {
+      setEmailTesting(false);
+    }
+  }
   async function requestPushPermission() {
     try {
       if (typeof window === "undefined" || !("Notification" in window)) return;
@@ -251,6 +326,23 @@ export default function SettingsPage() {
   return (
     <div className="space-y-4">
       <div className="card">
+        <div className="card-header bg-brand text-white rounded-t-lg">
+          <div className="flex justify-between items-center text-white">
+            <div>
+              <h1 className="text-2xl font-bold dark:text-brand-300">
+                Administration Settings
+              </h1>
+              <p className="text-sm mt-1">Notifications and document setup</p>
+            </div>
+            <div className="flex gap-2">
+              <Link to="/administration" className="btn btn-secondary">
+                Return to Menu
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="card">
         <div className="card-body space-y-3">
           <div className="flex justify-between items-center">
             <div>
@@ -296,23 +388,6 @@ export default function SettingsPage() {
           <div className="text-xs text-slate-500">
             When enabled, the app registers for push after login and delivers
             background alerts.
-          </div>
-        </div>
-      </div>
-      <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg">
-          <div className="flex justify-between items-center text-white">
-            <div>
-              <h1 className="text-2xl font-bold dark:text-brand-300">
-                Administration Settings
-              </h1>
-              <p className="text-sm mt-1">Notifications and document setup</p>
-            </div>
-            <div className="flex gap-2">
-              <Link to="/administration" className="btn btn-secondary">
-                Return to Menu
-              </Link>
-            </div>
           </div>
         </div>
       </div>
@@ -365,6 +440,116 @@ export default function SettingsPage() {
             >
               Quotation
             </Link>
+          </div>
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-body space-y-3">
+          <div className="text-lg font-semibold">Email</div>
+          <div className="text-sm text-slate-500 dark:text-slate-400">
+            Send a test email to verify SMTP settings.
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-slate-700">
+                Recipient
+              </label>
+              <input
+                className="input w-full"
+                value={emailTestTo}
+                onChange={(e) => setEmailTestTo(e.target.value)}
+                placeholder="user@example.com (optional)"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={sendTestEmail}
+              disabled={emailTesting}
+            >
+              {emailTesting ? "Sending..." : "Send Test Email"}
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-body space-y-3">
+          <div className="text-lg font-semibold">Cloudinary Storage</div>
+          <div className="text-sm text-slate-500 dark:text-slate-400">
+            Store attachments in Cloudinary; links are saved to document
+            records.
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-slate-700">
+                Cloud Name
+              </label>
+              <input
+                className="input w-full"
+                value={cloud.cloud_name}
+                onChange={(e) =>
+                  setCloud((p) => ({ ...p, cloud_name: e.target.value }))
+                }
+                disabled={cloudLoading || cloudSaving}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-700">
+                API Key
+              </label>
+              <input
+                className="input w-full"
+                value={cloud.api_key}
+                onChange={(e) =>
+                  setCloud((p) => ({ ...p, api_key: e.target.value }))
+                }
+                disabled={cloudLoading || cloudSaving}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-700">
+                API Secret
+              </label>
+              <input
+                type="password"
+                placeholder={
+                  cloud.has_secret && !cloud.api_secret
+                    ? "•••••••• (unchanged)"
+                    : ""
+                }
+                className="input w-full"
+                value={cloud.api_secret}
+                onChange={(e) =>
+                  setCloud((p) => ({ ...p, api_secret: e.target.value }))
+                }
+                disabled={cloudLoading || cloudSaving}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-700">
+                Folder (optional)
+              </label>
+              <input
+                className="input w-full"
+                value={cloud.folder}
+                onChange={(e) =>
+                  setCloud((p) => ({ ...p, folder: e.target.value }))
+                }
+                disabled={cloudLoading || cloudSaving}
+              />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={saveCloudinary}
+              disabled={cloudSaving}
+            >
+              {cloudSaving ? "Saving..." : "Save Cloudinary Settings"}
+            </button>
           </div>
         </div>
       </div>

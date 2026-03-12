@@ -1,5 +1,5 @@
 const DB_NAME = "omnisuite_offline";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const QUEUE_STORE = "queue";
 
 export function openDB() {
@@ -12,6 +12,7 @@ export function openDB() {
         store.createIndex("status", "status", { unique: false });
         store.createIndex("createdAt", "createdAt", { unique: false });
       }
+      // No need to create cache store here; managed by offline/cache.js upgrader
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);

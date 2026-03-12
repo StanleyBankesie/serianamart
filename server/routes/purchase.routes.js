@@ -11,6 +11,7 @@ import {
 } from "../middleware/requirePermission.js";
 import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
+import { updateItemAverageCostTx } from "../services/costing.service.js";
 import {
   listServiceConfirmations,
   getServiceConfirmationById,
@@ -1254,12 +1255,14 @@ router.put(
             lineTotal: d.lineTotal,
           },
         );
-        await conn.execute(
-          `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
-           VALUES (:companyId, :branchId, :warehouseId, :itemId, :qty)
-           ON DUPLICATE KEY UPDATE qty = qty + :qty`,
-          { companyId, branchId, warehouseId, itemId: d.itemId, qty: d.qty },
-        );
+        await updateItemAverageCostTx(conn, {
+          companyId,
+          branchId,
+          warehouseId,
+          itemId: d.itemId,
+          purchaseQty: d.qty,
+          purchaseUnitCost: d.unitPrice,
+        });
       }
       const { voucherId: grnVoucherId, voucherNo: grnVoucherNo } =
         await postGrnAccrualTx(conn, {
@@ -4423,6 +4426,7 @@ router.put(
         "DELETE FROM inv_goods_receipt_note_details WHERE grn_id = ?",
         [id],
       );
+      const purchaseAgg = new Map();
       for (const d of cleanDetails) {
         await conn.execute(
           `INSERT INTO inv_goods_receipt_note_details
@@ -4435,6 +4439,10 @@ router.put(
           d.itemId,
           Number(newMap.get(d.itemId) || 0) + Number(d.qtyAccepted),
         );
+        const agg = purchaseAgg.get(d.itemId) || { qty: 0, value: 0 };
+        agg.qty += Number(d.qtyAccepted || 0);
+        agg.value += Number(d.qtyAccepted || 0) * Number(d.unitPrice || 0);
+        purchaseAgg.set(d.itemId, agg);
       }
 
       const keys = new Set([...prevMap.keys(), ...newMap.keys()]);
@@ -4442,7 +4450,19 @@ router.put(
         const before = Number(prevMap.get(itemId) || 0);
         const after = Number(newMap.get(itemId) || 0);
         const delta = after - before;
-        if (delta !== 0) {
+        if (delta > 0) {
+          const agg = purchaseAgg.get(itemId) || { qty: 0, value: 0 };
+          const avgUnit =
+            agg.qty > 0 ? Number((agg.value / agg.qty).toFixed(2)) : 0;
+          await updateItemAverageCostTx(conn, {
+            companyId,
+            branchId,
+            warehouseId,
+            itemId,
+            purchaseQty: delta,
+            purchaseUnitCost: avgUnit,
+          });
+        } else if (delta < 0) {
           await conn.execute(
             `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
              VALUES (:companyId, :branchId, :warehouseId, :itemId, :delta)
@@ -5497,18 +5517,14 @@ router.post(
            (:grnId, :itemId, :qtyOrdered, :qtyReceived, :qtyAccepted, :qtyRejected, :uom, :unitPrice, :lineAmount, :remarks, :inputUom, :inputQty)`,
           { grnId, ...d },
         );
-        await conn.execute(
-          `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
-           VALUES (:companyId, :branchId, :warehouseId, :itemId, :qtyAccepted)
-           ON DUPLICATE KEY UPDATE qty = qty + :qtyAccepted`,
-          {
-            companyId,
-            branchId,
-            warehouseId,
-            itemId: d.itemId,
-            qtyAccepted: d.qtyAccepted,
-          },
-        );
+        await updateItemAverageCostTx(conn, {
+          companyId,
+          branchId,
+          warehouseId,
+          itemId: d.itemId,
+          purchaseQty: d.qtyAccepted,
+          purchaseUnitCost: d.unitPrice,
+        });
       }
 
       await conn.commit();
@@ -7530,18 +7546,14 @@ router.post(
             lineTotal: d.lineTotal,
           },
         );
-        await conn.execute(
-          `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
-           VALUES (:companyId, :branchId, :warehouseId, :itemId, :qty)
-           ON DUPLICATE KEY UPDATE qty = qty + :qty`,
-          {
-            companyId,
-            branchId,
-            warehouseId,
-            itemId: d.itemId,
-            qty: d.qty,
-          },
-        );
+        await updateItemAverageCostTx(conn, {
+          companyId,
+          branchId,
+          warehouseId,
+          itemId: d.itemId,
+          purchaseQty: d.qty,
+          purchaseUnitCost: d.unitPrice,
+        });
       }
       const { voucherId: grnVoucherId, voucherNo: grnVoucherNo } =
         await postGrnAccrualTx(conn, {

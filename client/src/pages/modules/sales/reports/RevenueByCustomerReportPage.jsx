@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
+import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
 import jsPDF from "jspdf";
 
 export default function RevenueByCustomerReportPage() {
@@ -28,7 +29,13 @@ export default function RevenueByCustomerReportPage() {
 
   function exportCSV() {
     if (!items.length) return;
-    const headers = ["Customer", "Total Orders", "Total Invoices", "Total Revenue", "Outstanding Balance"];
+    const headers = [
+      "Customer",
+      "Total Orders",
+      "Total Invoices",
+      "Total Revenue",
+      "Outstanding Balance",
+    ];
     const rows = items.map((r) => [
       r.customer_name || "-",
       Number(r.total_orders || 0),
@@ -56,6 +63,7 @@ export default function RevenueByCustomerReportPage() {
         outstanding: Number(r.outstanding_balance || 0),
       })),
     );
+    autosizeWorksheetColumns(ws);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "RevenueByCustomer");
     XLSX.writeFile(wb, "sales-revenue-by-customer.xlsx");
@@ -85,7 +93,9 @@ export default function RevenueByCustomerReportPage() {
       doc.text(String(Number(r.total_orders || 0)), 100, y);
       doc.text(String(Number(r.total_invoices || 0)), 125, y);
       doc.text(String(Number(r.total_revenue || 0).toFixed(2)), 155, y);
-      doc.text(String(Number(r.outstanding_balance || 0).toFixed(2)), 200, y, { align: "right" });
+      doc.text(String(Number(r.outstanding_balance || 0).toFixed(2)), 200, y, {
+        align: "right",
+      });
       y += 5;
     });
     doc.save("sales-revenue-by-customer.pdf");
@@ -96,18 +106,42 @@ export default function RevenueByCustomerReportPage() {
       <div className="card">
         <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-bold dark:text-brand-300">Sales Revenue by Customer</h1>
+            <h1 className="text-2xl font-bold dark:text-brand-300">
+              Sales Revenue by Customer
+            </h1>
             <p className="text-sm mt-1">Identify top customers</p>
           </div>
           <div className="flex gap-2">
-            <Link to="/sales" className="btn btn-secondary">Return to Menu</Link>
-            <button className="btn-success" onClick={exportCSV} disabled={loading || items.length === 0}>Export CSV</button>
-            <button className="btn-secondary" onClick={exportExcel} disabled={loading || items.length === 0}>Export Excel</button>
-            <button className="btn-primary" onClick={exportPDF} disabled={loading || items.length === 0}>Export PDF</button>
+            <Link to="/sales" className="btn btn-secondary">
+              Return to Menu
+            </Link>
+            <button
+              className="btn-success"
+              onClick={exportCSV}
+              disabled={loading || items.length === 0}
+            >
+              Export CSV
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={exportExcel}
+              disabled={loading || items.length === 0}
+            >
+              Export Excel
+            </button>
+            <button
+              className="btn-primary"
+              onClick={exportPDF}
+              disabled={loading || items.length === 0}
+            >
+              Export PDF
+            </button>
           </div>
         </div>
         <div className="card-body">
-          {error ? <div className="text-red-600 text-sm mb-3">{error}</div> : null}
+          {error ? (
+            <div className="text-red-600 text-sm mb-3">{error}</div>
+          ) : null}
           <div className="overflow-x-auto">
             <table className="table">
               <thead>
@@ -123,15 +157,31 @@ export default function RevenueByCustomerReportPage() {
                 {items.map((r, i) => (
                   <tr key={i}>
                     <td className="font-medium">{r.customer_name}</td>
-                    <td className="text-right">{Number(r.total_orders || 0)}</td>
-                    <td className="text-right">{Number(r.total_invoices || 0)}</td>
-                    <td className="text-right">{Number(r.total_revenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="text-right">{Number(r.outstanding_balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="text-right">
+                      {Number(r.total_orders || 0)}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.total_invoices || 0)}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.total_revenue || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.outstanding_balance || 0).toLocaleString(
+                        undefined,
+                        { minimumFractionDigits: 2, maximumFractionDigits: 2 },
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {!items.length && !loading ? (
                   <tr>
-                    <td colSpan="5" className="text-center py-8 text-slate-500">No records</td>
+                    <td colSpan="5" className="text-center py-8 text-slate-500">
+                      No records
+                    </td>
                   </tr>
                 ) : null}
               </tbody>
@@ -142,4 +192,3 @@ export default function RevenueByCustomerReportPage() {
     </div>
   );
 }
-

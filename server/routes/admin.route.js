@@ -77,6 +77,7 @@ import {
   getRoleFeatures,
   saveRoleFeatures,
 } from "../controllers/rbac.controller.js";
+import { isMailerConfigured, sendMail } from "../utils/mailer.js";
 
 const router = express.Router();
 
@@ -113,11 +114,24 @@ async function ensureSystemLogsTable() {
       message VARCHAR(255) NULL,
       url_path VARCHAR(255) NULL,
       event_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       KEY idx_sys_logs_time (event_time),
       KEY idx_sys_logs_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  try {
+    const hasCreatedAt = await hasColumn("adm_system_logs", "created_at");
+    if (!hasCreatedAt) {
+      await query(
+        "ALTER TABLE adm_system_logs ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER event_time",
+      );
+      // Best-effort: backfill created_at from event_time
+      await query(
+        "UPDATE adm_system_logs SET created_at = event_time WHERE created_at IS NULL",
+      );
+    }
+  } catch {}
 }
 async function ensureLoginLogsTable() {
   await query(`
@@ -1873,7 +1887,7 @@ router.get("/reports/system-log-book", requireAuth, async (req, res, next) => {
   try {
     await ensureSystemLogsTable();
     await ensureLoginLogsTable();
-    const { from, to } = req.query || {};
+    const { from, to, module, action, user_id } = req.query || {};
     const p = {};
     const clauses = [];
     if (from) {
@@ -1883,6 +1897,32 @@ router.get("/reports/system-log-book", requireAuth, async (req, res, next) => {
     if (to) {
       clauses.push("event_time < DATE_ADD(:to, INTERVAL 1 DAY)");
       p.to = new Date(String(to));
+    }
+    if (user_id) {
+      clauses.push("user_id = :uid");
+      p.uid = Number(user_id);
+    }
+    if (module) {
+      const modules = String(module)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (modules.length) {
+        const placeholders = modules.map((_, i) => `:m${i}`).join(", ");
+        clauses.push(`module_name IN (${placeholders})`);
+        modules.forEach((m, i) => (p[`m${i}`] = m));
+      }
+    }
+    if (action) {
+      const actions = String(action)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (actions.length) {
+        const placeholders = actions.map((_, i) => `:a${i}`).join(", ");
+        clauses.push(`action IN (${placeholders})`);
+        actions.forEach((a, i) => (p[`a${i}`] = a));
+      }
     }
     const whereSys = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const whereLogin = clauses.length
@@ -2139,6 +2179,131 @@ router.get("/user-permissions", requireAuth, async (req, res, next) => {
       permissions: permissions,
       role_features: roleFeatures.map((rf) => String(rf.feature_key)),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===== System Settings (Cloudinary) =====
+async function ensureSystemSettingsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS adm_system_settings (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NULL,
+      branch_id BIGINT UNSIGNED NULL,
+      setting_key VARCHAR(150) NOT NULL,
+      setting_value TEXT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_setting (company_id, branch_id, setting_key),
+      KEY idx_setting_key (setting_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+router.get(
+  "/settings/cloudinary",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureSystemSettingsTable();
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT setting_key, setting_value
+        FROM adm_system_settings
+        WHERE (company_id = :companyId OR company_id IS NULL)
+          AND (branch_id = :branchId OR branch_id IS NULL)
+          AND setting_key IN ('CLOUDINARY_CLOUD_NAME','CLOUDINARY_API_KEY','CLOUDINARY_API_SECRET','CLOUDINARY_UPLOAD_FOLDER')
+        ORDER BY company_id DESC, branch_id DESC
+        `,
+        { companyId: companyId ?? null, branchId: branchId ?? null },
+      );
+      const map = {};
+      for (const r of rows) map[r.setting_key] = r.setting_value;
+      res.json({
+        data: {
+          cloud_name: map.CLOUDINARY_CLOUD_NAME || "",
+          api_key: map.CLOUDINARY_API_KEY || "",
+          has_secret: map.CLOUDINARY_API_SECRET != null,
+          folder: map.CLOUDINARY_UPLOAD_FOLDER || "",
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/settings/cloudinary",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureSystemSettingsTable();
+      const { companyId, branchId } = req.scope;
+      const body = req.body || {};
+      const cloud_name = String(body.cloud_name || "").trim();
+      const api_key = String(body.api_key || "").trim();
+      const api_secret = String(body.api_secret || "").trim();
+      const folder = String(body.folder || "").trim();
+      if (!cloud_name || !api_key || !api_secret) {
+        return res
+          .status(400)
+          .json({ message: "cloud_name, api_key and api_secret are required" });
+      }
+      await query(
+        `
+        INSERT INTO adm_system_settings (company_id, branch_id, setting_key, setting_value)
+        VALUES 
+          (:companyId, :branchId, 'CLOUDINARY_CLOUD_NAME', :cloud_name),
+          (:companyId, :branchId, 'CLOUDINARY_API_KEY', :api_key),
+          (:companyId, :branchId, 'CLOUDINARY_API_SECRET', :api_secret)
+        ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
+        `,
+        {
+          companyId: companyId ?? null,
+          branchId: branchId ?? null,
+          cloud_name,
+          api_key,
+          api_secret,
+        },
+      );
+      await query(
+        `
+        INSERT INTO adm_system_settings (company_id, branch_id, setting_key, setting_value)
+        VALUES (:companyId, :branchId, 'CLOUDINARY_UPLOAD_FOLDER', :folder)
+        ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
+        `,
+        { companyId: companyId ?? null, branchId: branchId ?? null, folder },
+      );
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post("/email/test", requireAuth, async (req, res, next) => {
+  try {
+    const to =
+      String(req.body?.to || "").trim() || String(req.user?.email || "");
+    const configured = isMailerConfigured();
+    if (!to) {
+      return res.status(400).json({ message: "Recipient email required" });
+    }
+    let sent = false;
+    if (configured) {
+      try {
+        const subject = "Test Email";
+        const text = "Test email from OmniSuite";
+        const html = "<p>Test email from OmniSuite</p>";
+        sent = await sendMail({ to, subject, text, html });
+      } catch {}
+    }
+    res.json({ configured, sent });
   } catch (err) {
     next(err);
   }

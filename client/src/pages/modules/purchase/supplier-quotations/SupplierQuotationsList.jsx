@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 
 export default function SupplierQuotationsList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -11,6 +12,8 @@ export default function SupplierQuotationsList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const { canPerformAction } = usePermission();
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -25,7 +28,7 @@ export default function SupplierQuotationsList() {
       .catch((e) => {
         if (!mounted) return;
         setError(
-          e?.response?.data?.message || "Failed to load supplier quotations"
+          e?.response?.data?.message || "Failed to load supplier quotations",
         );
       })
       .finally(() => {
@@ -69,16 +72,17 @@ export default function SupplierQuotationsList() {
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
             Supplier Quotations
           </h1>
-          <p className="text-sm mt-1">
-            Receive and manage supplier quotations
-          </p>
+          <p className="text-sm mt-1">Receive and manage supplier quotations</p>
         </div>
         <div className="flex gap-2">
           <Link to="/purchase" className="btn btn-secondary">
             Return to Menu
           </Link>
           {canPerformAction("purchase:supplier-quotations", "create") && (
-            <Link to="/purchase/supplier-quotations/new" className="btn-success">
+            <Link
+              to="/purchase/supplier-quotations/new"
+              className="btn-success"
+            >
               + New Quotation
             </Link>
           )}
@@ -125,6 +129,7 @@ export default function SupplierQuotationsList() {
                 <th>Valid Until</th>
                 <th className="text-right">Total Amount</th>
                 <th>Status</th>
+                <th>Attachments</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -181,8 +186,28 @@ export default function SupplierQuotationsList() {
                       </span>
                     </td>
                     <td>
+                      {canPerformAction(
+                        "purchase:supplier-quotations",
+                        "view",
+                      ) ? (
+                        <button
+                          type="button"
+                          className="btn-outline text-xs"
+                          onClick={() => {
+                            setActiveDocId(quotation.id);
+                            setShowAttach(true);
+                          }}
+                        >
+                          Attachments
+                        </button>
+                      ) : null}
+                    </td>
+                    <td>
                       <div className="flex gap-2">
-                        {canPerformAction("purchase:supplier-quotations", "view") && (
+                        {canPerformAction(
+                          "purchase:supplier-quotations",
+                          "view",
+                        ) && (
                           <Link
                             to={`/purchase/supplier-quotations/${quotation.id}`}
                             className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
@@ -190,7 +215,10 @@ export default function SupplierQuotationsList() {
                             View
                           </Link>
                         )}
-                        {canPerformAction("purchase:supplier-quotations", "edit") && (
+                        {canPerformAction(
+                          "purchase:supplier-quotations",
+                          "edit",
+                        ) && (
                           <Link
                             to={`/purchase/supplier-quotations/${quotation.id}/edit`}
                             className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
@@ -223,13 +251,16 @@ export default function SupplierQuotationsList() {
           </div>
         </div>
       </div>
+      <DocumentAttachmentsModal
+        open={showAttach}
+        onClose={() => {
+          setShowAttach(false);
+          setActiveDocId(null);
+        }}
+        docType="supplier-quotation"
+        docId={activeDocId}
+        readOnly={!canPerformAction("purchase:supplier-quotations", "edit")}
+      />
     </div>
   );
 }
-
-
-
-
-
-
-
