@@ -5,6 +5,8 @@
   border: 1px solid #e5e7eb;
   padding: 20px;
   margin: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .post-creator-header {
@@ -25,10 +27,13 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  max-width: 100%;
 }
 
 .post-input {
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 12px;
   border: 1px solid #ddd;
   border-radius: 6px;
@@ -105,12 +110,16 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .left-actions {
   display: flex;
   gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .btn-icon {
@@ -151,6 +160,7 @@
   font-weight: 600;
   transition: all 0.3s ease;
   box-shadow: 0 2px 8px rgba(14, 54, 70, 0.3);
+  max-width: 100%;
 }
 
 .btn-post:hover:not(:disabled) {
@@ -207,6 +217,23 @@
   }
   .image-preview {
     max-width: 100%;
+  }
+}
+
+/* Medium screens: keep controls within card width and wrap when needed */
+@media (max-width: 1200px) {
+  .post-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .left-actions {
+    flex-wrap: wrap;
+    width: 100%;
+    justify-content: space-between;
+  }
+  .btn-post {
+    width: 100%;
+    flex: 1 1 100%;
   }
 }
 
