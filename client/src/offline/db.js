@@ -8,14 +8,14 @@ export function openDB() {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = (e) => {
       const db = req.result;
-      
+
       // Create queue store if missing
       if (!db.objectStoreNames.contains(QUEUE_STORE)) {
         const store = db.createObjectStore(QUEUE_STORE, { keyPath: "id" });
         store.createIndex("status", "status", { unique: false });
         store.createIndex("createdAt", "createdAt", { unique: false });
       }
-      
+
       // Create cache store if missing
       if (!db.objectStoreNames.contains(CACHE_STORE)) {
         const store = db.createObjectStore(CACHE_STORE, { keyPath: "key" });
