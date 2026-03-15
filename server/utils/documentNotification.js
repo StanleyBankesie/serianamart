@@ -39,6 +39,25 @@ export async function sendDocumentForwardNotification(options) {
   }
 
   try {
+    const link = workflowInstanceId
+      ? `/administration/workflows/approvals/${workflowInstanceId}`
+      : `/notifications`;
+    try {
+      await query(
+        `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
+         VALUES (:companyId, :userId, :title, :message, :link, 0)`,
+        {
+          companyId,
+          userId,
+          title: title || "Document Forwarded",
+          message:
+            message ||
+            `A ${documentType} ${documentRef || documentId} has been forwarded to you.`,
+          link,
+        },
+      );
+    } catch {}
+
     // Get user details
     console.log(
       `[DocumentNotification] Fetching user ${userId} for company ${companyId}`,
@@ -302,6 +321,7 @@ async function sendDocumentForwardEmail(options) {
       subject,
       text: textContent,
       html: htmlContent,
+      meta: { suppressLog: true },
     });
 
     console.log(

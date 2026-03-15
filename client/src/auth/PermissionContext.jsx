@@ -500,9 +500,6 @@ export const PermissionProvider = ({ children }) => {
         if (typeof perms?.[k] === "boolean") {
           return perms[k] === true;
         }
-      } else if (ensurePagePerms && base) {
-        // Fire-and-forget fetch to populate, re-render will occur on update
-        ensurePagePerms(base);
       }
     } catch {}
     const sess = sessionOverrides.get(fk);

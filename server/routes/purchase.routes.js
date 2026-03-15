@@ -126,6 +126,30 @@ async function ensureGrnUomConversionColumns() {
   }
 }
 
+async function ensurePurchaseOrderPaymentTypeColumn() {
+  if (!(await hasColumn("pur_orders", "payment_type"))) {
+    await pool.query(
+      "ALTER TABLE pur_orders ADD COLUMN payment_type ENUM('CASH','CREDIT') NOT NULL DEFAULT 'CASH' AFTER status",
+    );
+  }
+}
+
+async function userHasExceptionalAllow(userId, permissionCode = null) {
+  const rows = await query(
+    `
+    SELECT 1
+      FROM adm_exceptional_permissions
+     WHERE user_id = :uid
+       AND effect = 'ALLOW'
+       AND is_active = 1
+       ${permissionCode ? "AND permission_code = :code" : ""}
+     LIMIT 1
+    `,
+    { uid: userId, code: permissionCode || undefined },
+  ).catch(() => []);
+  return rows.length > 0;
+}
+
 async function ensureUnitConversionsTable() {
   if (!(await hasTable("inv_unit_conversions"))) {
     await pool.query(`
@@ -1039,6 +1063,7 @@ router.get(
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       await ensureDirectPurchaseTables();
+      await ensureDirectPurchasePaymentTypeColumn();
       const [hdrRows] = await pool.execute(
         `SELECT h.*, s.supplier_name
            FROM pur_direct_purchase_hdr h
@@ -1064,6 +1089,7 @@ router.get(
         warehouse_id: hdr.warehouse_id,
         currency_id: hdr.currency_id,
         exchange_rate: hdr.exchange_rate,
+        payment_type: hdr.payment_type,
         payment_terms: hdr.payment_terms,
         remarks: hdr.remarks,
         subtotal: hdr.subtotal,
@@ -1098,6 +1124,7 @@ router.put(
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
+      await ensureDirectPurchasePaymentTypeColumn();
       const status = String(body.status || "DRAFT").toUpperCase();
       function normalizeYmd(input) {
         if (!input) return toYmd(new Date());
@@ -1115,6 +1142,10 @@ router.put(
       const warehouseId = toNumber(body.warehouse_id);
       const currencyId = toNumber(body.currency_id) || null;
       const exchangeRate = Number(body.exchange_rate || 1) || 1;
+      const paymentType =
+        String(body.payment_type || "CASH").toUpperCase() === "CREDIT"
+          ? "CREDIT"
+          : "CASH";
       const paymentTerms = toNumber(body.payment_terms) || null;
       const remarks = body.remarks || null;
       const details = Array.isArray(body.details) ? body.details : [];
@@ -1174,7 +1205,7 @@ router.put(
       await conn.execute(
         `UPDATE pur_direct_purchase_hdr
             SET dp_date = :dpDate, supplier_id = :supplierId, warehouse_id = :warehouseId,
-                currency_id = :currencyId, exchange_rate = :exchangeRate, payment_terms = :paymentTerms,
+                currency_id = :currencyId, exchange_rate = :exchangeRate, payment_type = :paymentType, payment_terms = :paymentTerms,
                 remarks = :remarks, subtotal = :subtotal, discount_amount = :discountAmount,
                 tax_amount = :taxAmount, net_amount = :netAmount
           WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
@@ -1184,6 +1215,7 @@ router.put(
           warehouseId,
           currencyId,
           exchangeRate,
+          paymentType,
           paymentTerms,
           remarks,
           subtotal,
@@ -1683,6 +1715,7 @@ router.get(
     try {
       const { companyId, branchId } = req.scope;
       await ensureDirectPurchaseTables();
+      await ensureDirectPurchasePaymentTypeColumn();
       const items =
         (await query(
           `
@@ -1692,6 +1725,7 @@ router.get(
             h.dp_date AS purchase_date,
             h.supplier_id,
             s.supplier_name,
+            h.payment_type,
             h.net_amount AS grand_total,
             h.grn_id,
             g.grn_no,
@@ -5224,6 +5258,66 @@ router.put(
   (req, res, next) => updateShippingAdvice(req, res, next),
 );
 
+router.delete(
+  "/shipping-advices/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const userId = Number(req.user?.sub);
+      if (!Number.isFinite(userId) || userId <= 0)
+        throw httpError(401, "UNAUTHORIZED", "Invalid user");
+      if (
+        !(await userHasExceptionalAllow(
+          userId,
+          "PURCHASE.SHIPPING_ADVICE.CANCEL",
+        ))
+      ) {
+        throw httpError(403, "FORBIDDEN", "Exceptional permission required");
+      }
+      const rows = await query(
+        `SELECT id FROM pur_shipping_advices WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        { id, companyId, branchId },
+      ).catch(() => []);
+      if (!rows.length)
+        throw httpError(404, "NOT_FOUND", "Shipping Advice not found");
+      const refs = await query(
+        `SELECT id FROM pur_port_clearances WHERE company_id = :companyId AND branch_id = :branchId AND advice_id = :id LIMIT 1`,
+        { companyId, branchId, id },
+      ).catch(() => []);
+      if (refs.length) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "Cannot cancel: advice linked to a port clearance",
+        );
+      }
+      await conn.beginTransaction();
+      await conn.execute(
+        `DELETE FROM pur_shipping_advice_details WHERE advice_id = :id`,
+        { id },
+      );
+      await conn.execute(
+        `DELETE FROM pur_shipping_advices WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
+      );
+      await conn.commit();
+      res.json({ success: true, id });
+    } catch (e) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(e);
+    } finally {
+      conn.release();
+    }
+  },
+);
 // --- PORT CLEARANCES ---
 
 router.get(
@@ -5270,6 +5364,54 @@ router.put(
   (req, res, next) => updatePortClearance(req, res, next),
 );
 
+router.delete(
+  "/port-clearances/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const userId = Number(req.user?.sub);
+      if (!Number.isFinite(userId) || userId <= 0)
+        throw httpError(401, "UNAUTHORIZED", "Invalid user");
+      if (
+        !(await userHasExceptionalAllow(
+          userId,
+          "PURCHASE.CLEARING_AT_PORT.CANCEL",
+        ))
+      ) {
+        throw httpError(403, "FORBIDDEN", "Exceptional permission required");
+      }
+      const rows = await query(
+        `SELECT id FROM pur_port_clearances WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        { id, companyId, branchId },
+      ).catch(() => []);
+      if (!rows.length)
+        throw httpError(404, "NOT_FOUND", "Port Clearance not found");
+      const refs = await query(
+        `SELECT id FROM inv_goods_receipt_notes WHERE company_id = :companyId AND branch_id = :branchId AND port_clearance_id = :id LIMIT 1`,
+        { companyId, branchId, id },
+      ).catch(() => []);
+      if (refs.length) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "Cannot cancel: clearance linked to a GRN",
+        );
+      }
+      await query(
+        `DELETE FROM pur_port_clearances WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
+      );
+      res.json({ success: true, id });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 // --- PURCHASE ORDERS ---
 
 router.get(
@@ -5316,6 +5458,18 @@ router.get(
       let sql = `
         SELECT p.id, p.po_no, p.po_date, p.supplier_id, s.supplier_name, 
                p.total_amount, p.status, p.po_type,
+               EXISTS(
+                 SELECT 1 FROM inv_goods_receipt_notes g
+                  WHERE g.company_id = :companyId
+                    AND g.po_id = p.id
+                  LIMIT 1
+               ) AS has_grn,
+               EXISTS(
+                 SELECT 1 FROM pur_shipping_advices sa
+                  WHERE sa.company_id = p.company_id
+                    AND sa.po_id = p.id
+                  LIMIT 1
+               ) AS has_shipping_advice,
                u.username AS forwarded_to_username
         FROM pur_orders p
         JOIN pur_suppliers s ON s.id = p.supplier_id
@@ -5344,6 +5498,91 @@ router.get(
   },
 );
 
+router.delete(
+  "/orders/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const userId = Number(req.user?.sub);
+      if (!Number.isFinite(userId) || userId <= 0)
+        throw httpError(401, "UNAUTHORIZED", "Invalid user");
+      if (!(await userHasExceptionalAllow(userId, "PURCHASE.ORDER.CANCEL"))) {
+        throw httpError(403, "FORBIDDEN", "Exceptional permission required");
+      }
+      const rows = await query(
+        `
+        SELECT id, po_type
+          FROM pur_orders
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+         LIMIT 1
+        `,
+        { id, companyId, branchId },
+      ).catch(() => []);
+      if (!rows.length) throw httpError(404, "NOT_FOUND", "PO not found");
+      const poType = String(rows[0].po_type || "").toUpperCase();
+      if (poType === "LOCAL") {
+        const refs = await query(
+          `
+          SELECT id
+            FROM inv_goods_receipt_notes
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND po_id = :id
+           LIMIT 1
+          `,
+          { companyId, branchId, id },
+        ).catch(() => []);
+        if (refs.length) {
+          throw httpError(
+            400,
+            "VALIDATION_ERROR",
+            "Cannot cancel: PO linked to GRN",
+          );
+        }
+      } else if (poType === "IMPORT") {
+        const refs = await query(
+          `
+          SELECT id
+            FROM pur_shipping_advices
+           WHERE company_id = :companyId
+             AND po_id = :id
+           LIMIT 1
+          `,
+          { companyId, id },
+        ).catch(() => []);
+        if (refs.length) {
+          throw httpError(
+            400,
+            "VALIDATION_ERROR",
+            "Cannot cancel: PO linked to Shipping Advice",
+          );
+        }
+      }
+      await conn.beginTransaction();
+      await conn.execute("DELETE FROM pur_order_details WHERE po_id = :id", {
+        id,
+      });
+      await conn.execute(
+        "DELETE FROM pur_orders WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
+        { id, companyId, branchId },
+      );
+      await conn.commit();
+      res.json({ success: true, id });
+    } catch (e) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(e);
+    } finally {
+      conn.release();
+    }
+  },
+);
 router.post(
   "/grns",
   requireAuth,
@@ -5972,6 +6211,7 @@ router.post(
     try {
       const { companyId, branchId } = req.scope;
       const body = req.body || {};
+      await ensurePurchaseOrderPaymentTypeColumn();
       const poNo = body.po_no || nextDocNo("PO");
       const poDate = body.po_date || new Date();
       const supplierId = toNumber(body.supplier_id);
@@ -5998,9 +6238,13 @@ router.post(
       }
 
       await conn.beginTransaction();
+      const paymentType =
+        String(body.payment_type || "CASH").toUpperCase() === "CREDIT"
+          ? "CREDIT"
+          : "CASH";
       const [ins] = await conn.execute(
-        `INSERT INTO pur_orders (company_id, branch_id, po_no, po_date, supplier_id, po_type, status, total_amount, created_by, quotation_id, remarks)
-         VALUES (:companyId, :branchId, :poNo, :poDate, :supplierId, :poType, 'DRAFT', :totalAmount, :createdBy, :quotationId, :remarks)`,
+        `INSERT INTO pur_orders (company_id, branch_id, po_no, po_date, supplier_id, po_type, status, payment_type, total_amount, created_by, quotation_id, remarks)
+         VALUES (:companyId, :branchId, :poNo, :poDate, :supplierId, :poType, 'DRAFT', :paymentType, :totalAmount, :createdBy, :quotationId, :remarks)`,
         {
           companyId,
           branchId,
@@ -6008,6 +6252,7 @@ router.post(
           poDate,
           supplierId,
           poType: body.po_type || "LOCAL",
+          paymentType,
           totalAmount,
           createdBy: req.user.sub,
           quotationId: toNumber(body.quotation_id),
@@ -6241,9 +6486,55 @@ router.get(
       const { companyId, branchId } = req.scope;
       const { status, type } = req.query;
       let sql = `
-        SELECT p.id, p.po_no, p.po_date, p.po_type, p.supplier_id, p.status, p.total_amount, s.supplier_name
+        SELECT 
+          p.id, 
+          p.po_no, 
+          p.po_date, 
+          p.po_type, 
+          p.supplier_id, 
+          CASE 
+            WHEN a.has_approved = 1 THEN 'APPROVED'
+            WHEN x.assigned_to_user_id IS NOT NULL THEN 'PENDING_APPROVAL'
+            ELSE p.status
+          END AS status, 
+          p.total_amount, 
+          s.supplier_name,
+          u.username AS forwarded_to_username
         FROM pur_orders p
         JOIN pur_suppliers s ON s.id = p.supplier_id
+        LEFT JOIN (
+          SELECT t.document_id, t.assigned_to_user_id
+          FROM adm_document_workflows t
+          JOIN (
+            SELECT document_id, MAX(id) AS max_id
+            FROM adm_document_workflows
+            WHERE company_id = :companyId
+              AND status = 'PENDING'
+              AND (
+                document_type = 'PURCHASE_ORDER' OR 
+                document_type = 'Purchase Order' OR
+                document_type LIKE 'PURCHASE_ORDER:%'
+              )
+            GROUP BY document_id
+          ) m ON m.max_id = t.id
+        ) x ON x.document_id = p.id
+        LEFT JOIN (
+          SELECT t.document_id, 1 AS has_approved
+          FROM adm_document_workflows t
+          JOIN (
+            SELECT document_id, MAX(id) AS max_id
+            FROM adm_document_workflows
+            WHERE company_id = :companyId
+              AND status = 'APPROVED'
+              AND (
+                document_type = 'PURCHASE_ORDER' OR 
+                document_type = 'Purchase Order' OR
+                document_type LIKE 'PURCHASE_ORDER:%'
+              )
+            GROUP BY document_id
+          ) m ON m.max_id = t.id
+        ) a ON a.document_id = p.id
+        LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
         WHERE p.company_id = :companyId AND p.branch_id = :branchId
       `;
       const params = { companyId, branchId };
@@ -7384,6 +7675,14 @@ async function ensureDirectPurchaseTables() {
   `);
 }
 
+async function ensureDirectPurchasePaymentTypeColumn() {
+  if (!(await hasColumn("pur_direct_purchase_hdr", "payment_type"))) {
+    await pool.query(
+      "ALTER TABLE pur_direct_purchase_hdr ADD COLUMN payment_type ENUM('CASH','CREDIT') NOT NULL DEFAULT 'CASH' AFTER exchange_rate",
+    );
+  }
+}
+
 router.post(
   "/direct-purchases",
   requireAuth,
@@ -7399,6 +7698,7 @@ router.post(
     try {
       const { companyId, branchId } = req.scope;
       const body = req.body || {};
+      await ensureDirectPurchasePaymentTypeColumn();
       const status = String(body.status || "DRAFT").toUpperCase();
       const supplierId = toNumber(body.supplier_id);
       const warehouseId = toNumber(body.warehouse_id);
@@ -7417,6 +7717,10 @@ router.post(
       const currencyId = toNumber(body.currency_id) || null;
       const exchangeRate = Number(body.exchange_rate || 1) || 1;
       const paymentTerms = toNumber(body.payment_terms) || null;
+      const paymentType =
+        String(body.payment_type || "CASH").toUpperCase() === "CREDIT"
+          ? "CREDIT"
+          : "CASH";
       const remarks = body.remarks || null;
       const details = Array.isArray(body.details) ? body.details : [];
       if (!supplierId)
@@ -7467,9 +7771,9 @@ router.post(
       await conn.beginTransaction();
       const [hdrIns] = await conn.execute(
         `INSERT INTO pur_direct_purchase_hdr
-         (company_id, branch_id, dp_no, dp_date, supplier_id, warehouse_id, currency_id, exchange_rate, payment_terms, remarks, subtotal, discount_amount, tax_amount, net_amount, status, created_by)
+         (company_id, branch_id, dp_no, dp_date, supplier_id, warehouse_id, currency_id, exchange_rate, payment_type, payment_terms, remarks, subtotal, discount_amount, tax_amount, net_amount, status, created_by)
          VALUES
-         (:companyId, :branchId, :dpNo, :dpDate, :supplierId, :warehouseId, :currencyId, :exchangeRate, :paymentTerms, :remarks, :subtotal, :discountAmount, :taxAmount, :netAmount, 'DRAFT', :createdBy)`,
+         (:companyId, :branchId, :dpNo, :dpDate, :supplierId, :warehouseId, :currencyId, :exchangeRate, :paymentType, :paymentTerms, :remarks, :subtotal, :discountAmount, :taxAmount, :netAmount, 'DRAFT', :createdBy)`,
         {
           companyId,
           branchId,
@@ -7479,6 +7783,7 @@ router.post(
           warehouseId,
           currencyId,
           exchangeRate,
+          paymentType,
           paymentTerms,
           remarks,
           subtotal,

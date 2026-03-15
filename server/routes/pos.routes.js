@@ -277,6 +277,59 @@ async function resolveDefaultSalesAccountId(conn, { companyId }) {
   return Number(rows?.[0]?.id || 0) || 0;
 }
 
+async function ensureCustomerFinAccountIdTx(conn, { companyId, customerId }) {
+  const [custRows] = await conn.execute(
+    "SELECT id, customer_code, customer_name, currency_id FROM sal_customers WHERE company_id = :companyId AND id = :id LIMIT 1",
+    { companyId, id: customerId },
+  );
+  const cust = custRows?.[0] || null;
+  if (!cust) return 0;
+  const code =
+    cust.customer_code && String(cust.customer_code).trim()
+      ? String(cust.customer_code).trim()
+      : `C${String(Number(cust.id || 0)).padStart(5, "0")}`;
+  const [accRows] = await conn.execute(
+    "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
+    { companyId, code },
+  );
+  const accIdExisting = Number(accRows?.[0]?.id || 0) || 0;
+  if (accIdExisting) return accIdExisting;
+  // Create the customer AR account under Debtors group
+  const [grpRows] = await conn.execute(
+    "SELECT id FROM fin_account_groups WHERE company_id = :companyId AND code = 'DEBTORS' LIMIT 1",
+    { companyId },
+  );
+  let debtorsGroupId = Number(grpRows?.[0]?.id || 0) || 0;
+  if (!debtorsGroupId) {
+    const [gIns] = await conn.execute(
+      `INSERT INTO fin_account_groups (company_id, code, name, nature, is_active)
+       VALUES (:companyId, 'DEBTORS', 'Debtors', 'ASSET', 1)`,
+      { companyId },
+    );
+    debtorsGroupId = Number(gIns?.insertId || 0) || 0;
+  }
+  let currencyId = cust.currency_id || null;
+  if (!currencyId) {
+    const [curRows] = await conn.execute(
+      "SELECT id FROM fin_currencies WHERE company_id = :companyId AND is_base = 1 LIMIT 1",
+      { companyId },
+    );
+    currencyId = Number(curRows?.[0]?.id || 0) || null;
+  }
+  const [ins] = await conn.execute(
+    `INSERT INTO fin_accounts (company_id, group_id, code, name, currency_id, is_control_account, is_postable, is_active)
+     VALUES (:companyId, :groupId, :code, :name, :currencyId, 0, 1, 1)`,
+    {
+      companyId,
+      groupId: debtorsGroupId,
+      code,
+      name: cust.customer_name,
+      currencyId,
+    },
+  );
+  return Number(ins?.insertId || 0) || 0;
+}
+
 async function fetchItemSalesAccountMap(conn, { companyId, itemIds }) {
   const ids = Array.from(
     new Set((Array.isArray(itemIds) ? itemIds : []).map((n) => Number(n))),
@@ -1422,6 +1475,7 @@ router.post(
       const {
         payment_method,
         payment_mode_id,
+        customer_id,
         customer_name,
         lines,
         status,
@@ -1620,12 +1674,14 @@ router.post(
           );
         }
         let paymentAccId = 0;
+        let pmType = "";
         if (Number(payment_mode_id || 0) > 0) {
           const [pmRows] = await conn.execute(
-            `SELECT account FROM pos_payment_modes 
+            `SELECT type, account FROM pos_payment_modes 
              WHERE company_id = :companyId AND branch_id = :branchId AND id = :id LIMIT 1`,
             { companyId, branchId, id: Number(payment_mode_id) },
           );
+          pmType = String(pmRows?.[0]?.type || "").toUpperCase();
           const pmAccRef = String(pmRows?.[0]?.account || "").trim();
           if (pmAccRef) {
             paymentAccId = await resolveFinAccountId(conn, {
@@ -1633,6 +1689,24 @@ router.post(
               accountRef: pmAccRef,
             });
           }
+        }
+        // If "On Account" (AR) payment mode is used, post to customer's AR account
+        const isArMode =
+          pmType === "AR" || pm === "AR" || pmType === "ON_ACCOUNT";
+        if (isArMode) {
+          const custIdNum = Number(customer_id || 0);
+          if (!custIdNum) {
+            throw httpError(
+              400,
+              "VALIDATION_ERROR",
+              "customer_id is required for On Account sales",
+            );
+          }
+          paymentAccId =
+            (await ensureCustomerFinAccountIdTx(conn, {
+              companyId,
+              customerId: custIdNum,
+            })) || 0;
         }
         if (!paymentAccId) {
           const fallbackRef = pm === "CASH" ? "1000" : "1000";
@@ -1676,7 +1750,7 @@ router.post(
             voucherTypeId,
             voucherNo,
             voucherDate,
-            narration: `POS Receipt ${receipt_no}`,
+            narration: `POS Receipt ${receipt_no}${customer_name ? " • " + String(customer_name) : ""}`,
             totalDebit: net,
             totalCredit: roundTo2(baseSales + tax),
             createdBy,
@@ -1696,7 +1770,9 @@ router.post(
             voucherId,
             lineNo: lineNo++,
             accountId: paymentAccId,
-            description: "POS receipt payment",
+            description: isArMode
+              ? `Accounts Receivable${customer_name ? " • " + String(customer_name) : ""}`
+              : "POS receipt payment",
             debit: net,
             credit: 0,
             referenceNo: receipt_no,
@@ -2107,8 +2183,7 @@ router.post(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
-      const { terminal, openingDateTime, openingFloat, supervisor, notes } =
-        req.body || {};
+      const { terminal, openingDateTime, openingFloat, notes } = req.body || {};
       if (!terminal || !openingDateTime) {
         throw httpError(
           400,
@@ -2155,7 +2230,7 @@ router.post(
           businessDate,
           open_datetime: openDate,
           opening_float: Number(openingFloat || 0),
-          supervisor_name: supervisor || null,
+          supervisor_name: null,
           open_notes: notes || null,
         },
       );

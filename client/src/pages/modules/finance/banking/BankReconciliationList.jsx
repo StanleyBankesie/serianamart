@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 
@@ -7,6 +7,8 @@ export default function BankReconciliationList() {
   const [bankAccounts, setBankAccounts] = useState([]);
   const [recons, setRecons] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedBankId = searchParams.get("bankId") || "";
 
   const [bankAccountId, setBankAccountId] = useState("");
   const [statementFrom, setStatementFrom] = useState("");
@@ -25,7 +27,7 @@ export default function BankReconciliationList() {
     } catch (e) {
       toast.error(
         e?.response?.data?.message ||
-          "Failed to load bank accounts / reconciliations"
+          "Failed to load bank accounts / reconciliations",
       );
     } finally {
       setLoading(false);
@@ -35,6 +37,12 @@ export default function BankReconciliationList() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (selectedBankId) {
+      setBankAccountId(selectedBankId);
+    }
+  }, [selectedBankId]);
 
   async function create(e) {
     e.preventDefault();
@@ -63,7 +71,7 @@ export default function BankReconciliationList() {
       load();
     } catch (e2) {
       toast.error(
-        e2?.response?.data?.message || "Failed to create reconciliation"
+        e2?.response?.data?.message || "Failed to create reconciliation",
       );
     }
   }
@@ -77,7 +85,7 @@ export default function BankReconciliationList() {
       load();
     } catch (e2) {
       toast.error(
-        e2?.response?.data?.message || "Failed to complete reconciliation"
+        e2?.response?.data?.message || "Failed to complete reconciliation",
       );
     }
   }
@@ -110,118 +118,53 @@ export default function BankReconciliationList() {
       </div>
 
       <div className="card">
-        <div className="card-body">
-          <form
-            onSubmit={create}
-            className="grid grid-cols-1 md:grid-cols-6 gap-3"
-          >
-            <div className="md:col-span-2">
-              <label className="label">Bank Account *</label>
-              <select
-                className="input"
-                value={bankAccountId}
-                onChange={(e) => setBankAccountId(e.target.value)}
-                required
-              >
-                <option value="">Select</option>
-                {bankAccounts.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name} ({b.account_number || "No Acc"})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="label">Statement From *</label>
-              <input
-                className="input"
-                type="date"
-                value={statementFrom}
-                onChange={(e) => setStatementFrom(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className="label">Statement To *</label>
-              <input
-                className="input"
-                type="date"
-                value={statementTo}
-                onChange={(e) => setStatementTo(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className="label">Ending Balance</label>
-              <input
-                className="input"
-                type="number"
-                step="0.01"
-                value={endingBalance}
-                onChange={(e) => setEndingBalance(e.target.value)}
-              />
-            </div>
-            <div className="flex items-end">
-              <button className="btn-success">Create</button>
-            </div>
-          </form>
+        <div className="card-header">
+          <h2 className="text-lg font-semibold">Bank Accounts</h2>
+          <p className="text-sm text-slate-600">
+            Click a bank to view and reconcile transactions
+          </p>
         </div>
-      </div>
-
-      <div className="card">
         <div className="card-body">
           <div className="overflow-x-auto">
             <table className="table">
               <thead>
                 <tr>
                   <th>Bank</th>
-                  <th>From</th>
-                  <th>To</th>
-                  <th className="text-right">Ending Balance</th>
+                  <th>Account No</th>
+                  <th>Currency</th>
                   <th>Status</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {recons.map((r) => (
-                  <tr key={r.id}>
-                    <td className="font-medium">{r.bank_account_name}</td>
-                    <td>{String(r.statement_from).slice(0, 10)}</td>
-                    <td>{String(r.statement_to).slice(0, 10)}</td>
-                    <td className="text-right">
-                      {Number(r.statement_ending_balance || 0).toLocaleString(
-                        "en-US",
-                        { minimumFractionDigits: 2 }
-                      )}
+                {bankAccounts.map((b) => (
+                  <tr key={b.id}>
+                    <td className="font-medium">{b.name}</td>
+                    <td>{b.account_number || "No Account No."}</td>
+                    <td>
+                      {b.currency_code || b.currency_id || b.currencyId || "-"}
                     </td>
                     <td>
-                      {r.status === "COMPLETED" ? (
-                        <span className="badge badge-success">Completed</span>
+                      {Number(b.is_active ?? b.isActive ?? 1) === 1 ? (
+                        <span className="badge badge-success">Active</span>
                       ) : (
-                        <span className="badge badge-info">Draft</span>
+                        <span className="badge badge-error">Inactive</span>
                       )}
                     </td>
                     <td className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Link
-                          to={`/finance/bank-reconciliation/${r.id}`}
-                          className="btn btn-secondary"
-                        >
-                          Open
-                        </Link>
-                        {r.status !== "COMPLETED" && (
-                          <button className="btn" onClick={() => complete(r)}>
-                            Complete
-                          </button>
-                        )}
-                      </div>
+                      <Link
+                        to={`/finance/bank-reconciliation/bank/${b.id}`}
+                        className="btn btn-secondary"
+                      >
+                        Open
+                      </Link>
                     </td>
                   </tr>
                 ))}
-                {recons.length === 0 && !loading && (
+                {bankAccounts.length === 0 && !loading && (
                   <tr>
-                    <td colSpan={6} className="text-center py-6 text-slate-600">
-                      No reconciliations found
+                    <td colSpan={3} className="text-center py-6 text-slate-600">
+                      No bank accounts found
                     </td>
                   </tr>
                 )}

@@ -37,7 +37,10 @@ import accessRoutes from "./routes/access.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
 import emailTestRoutes from "./routes/email-test.routes.js";
 import { initializeSocket } from "./utils/socket.js";
-import { ensureExceptionalPermissionsTable } from "./utils/dbUtils.js";
+import {
+  ensureExceptionalPermissionsTable,
+  ensureSystemLogsTable,
+} from "./utils/dbUtils.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -277,6 +280,9 @@ if (process.env.NODE_ENV !== "test") {
         try {
           await ensureExceptionalPermissionsTable();
         } catch {}
+        try {
+          await ensureSystemLogsTable();
+        } catch {}
         const admin = await query(
           "SELECT id, is_active FROM adm_users WHERE username = :u LIMIT 1",
           { u: "admin" },
@@ -405,7 +411,21 @@ if (process.env.NODE_ENV !== "test") {
               u.email
             ) {
               try {
-                await sendMail({ to: u.email, subject, text, html });
+                await sendMail({
+                  to: u.email,
+                  subject,
+                  text,
+                  html,
+                  meta: {
+                    moduleName: "Inventory",
+                    action: "EMAIL_SENT",
+                    userId: u.id,
+                    companyId,
+                    branchId,
+                    message: `Low stock alert email sent to ${u.email}`,
+                    urlPath: "/inventory/alerts/low-stock",
+                  },
+                });
               } catch (e) {
                 console.log(`[EMAIL ERROR] ${e?.message || e}`);
               }

@@ -1459,16 +1459,30 @@ export default function InvoiceForm() {
               </div>
               <div>
                 <label className="label">Payment Type</label>
-                <select
-                  className="input"
-                  value={form.payment_type}
-                  onChange={(e) => update("payment_type", e.target.value)}
-                  disabled={readOnly}
-                >
-                  <option value="CASH">Cash</option>
-                  <option value="CHEQUE">Cheque</option>
-                  <option value="CREDIT">Credit</option>
-                </select>
+                <div className="flex items-center gap-6">
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="payment_type"
+                      value="CASH"
+                      checked={(form.payment_type || "CASH") === "CASH"}
+                      onChange={(e) => update("payment_type", e.target.value)}
+                      disabled={readOnly}
+                    />
+                    <span>Cash</span>
+                  </label>
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="payment_type"
+                      value="CREDIT"
+                      checked={form.payment_type === "CREDIT"}
+                      onChange={(e) => update("payment_type", e.target.value)}
+                      disabled={readOnly}
+                    />
+                    <span>Credit</span>
+                  </label>
+                </div>
               </div>
               <div>
                 <label className="label">Currency</label>

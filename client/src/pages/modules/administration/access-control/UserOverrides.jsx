@@ -13,6 +13,8 @@ export default function UserOverrides() {
     { code: "SALES.INVOICE.CANCEL", label: "Invoice Cancellations" },
     { code: "PURCHASE.GRN.REVERSE", label: "GRN Reversal" },
     { code: "PURCHASE.BILL.CANCEL", label: "Purchase Bill Cancellation" },
+    { code: "PURCHASE.SHIPPING_ADVICE.CANCEL", label: "Cancel Shipping Advice" },
+    { code: "PURCHASE.CLEARING_AT_PORT.CANCEL", label: "Cancel Clearing at Port" },
   ];
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);

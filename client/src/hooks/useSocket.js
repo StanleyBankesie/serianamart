@@ -19,7 +19,6 @@ export function useSocket() {
     window.__omniSocketGlobal__ = window.__omniSocketGlobal__ || {
       socket: null,
       users: 0,
-      closeTimer: null,
     };
   }
   const globalHolder =
@@ -35,22 +34,7 @@ export function useSocket() {
       globalHolder.users += 1;
       return () => {
         if (globalHolder) {
-          globalHolder.users -= 1;
-          if (globalHolder.users <= 0) {
-            if (globalHolder.closeTimer) {
-              clearTimeout(globalHolder.closeTimer);
-            }
-            globalHolder.closeTimer = setTimeout(() => {
-              if (globalHolder.users <= 0 && globalHolder.socket) {
-                try {
-                  globalHolder.socket.close();
-                } catch {}
-                globalHolder.socket = null;
-                globalHolder.users = 0;
-              }
-              globalHolder.closeTimer = null;
-            }, 1500);
-          }
+          globalHolder.users = Math.max(0, globalHolder.users - 1);
         }
       };
     }
@@ -65,7 +49,7 @@ export function useSocket() {
       import.meta.env.VITE_SOCKET_TRANSPORT || ""
     ).toLowerCase();
     const transports =
-      transportPref === "polling" ? ["polling"] : ["websocket", "polling"];
+      transportPref === "polling" ? ["polling"] : ["websocket"];
     const newSocket = io(backendOrigin, {
       path: "/socket.io",
       auth: {
@@ -83,23 +67,49 @@ export function useSocket() {
       },
       reconnection: true,
       reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      reconnectionAttempts: 10,
-      timeout: 10000,
+      reconnectionDelayMax: 10000,
+      reconnectionAttempts: Infinity,
+      timeout: 20000,
       transports,
     });
 
     newSocket.on("connect", () => {
       console.log("✅ Connected to Socket.io");
+      try {
+        if (typeof window !== "undefined") {
+          window.__omniSocketConnected = true;
+        }
+      } catch {}
     });
 
     newSocket.on("disconnect", () => {
       console.log("❌ Disconnected from Socket.io");
+      try {
+        if (typeof window !== "undefined") {
+          window.__omniSocketConnected = false;
+        }
+      } catch {}
     });
 
     newSocket.on("error", (error) => {
       console.error("Socket.io error:", error);
     });
+
+    // Keep socket stable across SPA navigation; only close on full unload
+    if (typeof window !== "undefined") {
+      const unloadHandler = () => {
+        try {
+          newSocket.close();
+        } catch {}
+      };
+      window.addEventListener("beforeunload", unloadHandler);
+      newSocket.on("connect_error", () => {
+        // Soft nudge to reconnect faster
+        try {
+          newSocket.io.opts.reconnectionDelayMax = 10000;
+        } catch {}
+      });
+    }
 
     setSocket(newSocket);
     if (globalHolder) {
@@ -109,24 +119,7 @@ export function useSocket() {
 
     return () => {
       if (globalHolder) {
-        globalHolder.users -= 1;
-        if (globalHolder.users <= 0) {
-          if (globalHolder.closeTimer) {
-            clearTimeout(globalHolder.closeTimer);
-          }
-          globalHolder.closeTimer = setTimeout(() => {
-            if (globalHolder.users <= 0 && globalHolder.socket) {
-              try {
-                globalHolder.socket.close();
-              } catch {}
-              globalHolder.socket = null;
-              globalHolder.users = 0;
-            }
-            globalHolder.closeTimer = null;
-          }, 1500);
-        }
-      } else {
-        newSocket.close();
+        globalHolder.users = Math.max(0, globalHolder.users - 1);
       }
     };
   }, [token, user?.id, user?.sub, scope?.branchId]);

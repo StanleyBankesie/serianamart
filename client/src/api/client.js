@@ -124,9 +124,17 @@ api.interceptors.response.use(
     try {
       const method = String(response?.config?.method || "get").toLowerCase();
       if (method === "get" && response?.config?.__cacheKey) {
-        putCache(response.config.__cacheKey, response.data || null);
+        // Fire and forget - don't await caching, just attempt it
+        putCache(response.config.__cacheKey, response.data || null)
+          .catch((error) => {
+            // Silently ignore caching errors - don't block response
+            console.debug("Cache store error (non-critical):", error.message);
+          });
       }
-    } catch {}
+    } catch (error) {
+      // Silently ignore cache setup errors
+      console.debug("Cache setup error (non-critical):", error.message);
+    }
     if (response && typeof response === "object") {
       return response;
     }

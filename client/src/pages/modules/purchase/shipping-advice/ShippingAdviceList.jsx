@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import { toast } from "react-toastify";
 
 export default function ShippingAdviceList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -11,7 +12,76 @@ export default function ShippingAdviceList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [items, setItems] = useState([]);
-  const { canPerformAction } = usePermission();
+  const { canPerformAction, ensurePagePerms, hasExceptional } = usePermission();
+  const [exceptionalAllowed, setExceptionalAllowed] = useState(false);
+  const [cancelDenied, setCancelDenied] = useState(false);
+
+  useEffect(() => {
+    try {
+      const path =
+        (typeof window !== "undefined" &&
+          window.location &&
+          window.location.pathname) ||
+        "/purchase/shipping-advice";
+      ensurePagePerms && ensurePagePerms(path);
+    } catch {}
+  }, [ensurePagePerms]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkExceptional() {
+      try {
+        const me = await api.get("/admin/me");
+        const uid = Number(me?.data?.user?.id || me?.data?.user?.sub || 0);
+        if (!uid || cancelled) return;
+        const resp = await api.get(
+          `/admin/users/${uid}/exceptional-permissions`,
+        );
+        const items = Array.isArray(resp?.data?.data?.items)
+          ? resp.data.data.items
+          : Array.isArray(resp?.data?.items)
+            ? resp.data.items
+            : [];
+        let allowed = items.some((p) => {
+          const effect = String(p.effect || "").toUpperCase();
+          const active = Number(p.is_active || p.isActive) === 1;
+          const code = String(
+            p.permission_code || p.permissionCode || "",
+          ).toUpperCase();
+          const codeOk = code === "PURCHASE.SHIPPING_ADVICE.CANCEL";
+          return effect === "ALLOW" && active && codeOk;
+        });
+        const denied = items.some((p) => {
+          const effect = String(p.effect || "").toUpperCase();
+          const active = Number(p.is_active || p.isActive) === 1;
+          const code = String(
+            p.permission_code || p.permissionCode || "",
+          ).toUpperCase();
+          return (
+            effect === "DENY" &&
+            active &&
+            code === "PURCHASE.SHIPPING_ADVICE.CANCEL"
+          );
+        });
+        if (!allowed) {
+          allowed = items.some((p) => {
+            const effect = String(p.effect || "").toUpperCase();
+            const active = Number(p.is_active || p.isActive) === 1;
+            return effect === "ALLOW" && active;
+          });
+        }
+        if (!cancelled) setExceptionalAllowed(allowed);
+        if (!cancelled) setCancelDenied(denied);
+      } catch {
+        if (!cancelled) setExceptionalAllowed(false);
+        if (!cancelled) setCancelDenied(false);
+      }
+    }
+    checkExceptional();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -27,7 +97,7 @@ export default function ShippingAdviceList() {
       .catch((e) => {
         if (!mounted) return;
         setError(
-          e?.response?.data?.message || "Failed to load shipping advice"
+          e?.response?.data?.message || "Failed to load shipping advice",
         );
       })
       .finally(() => {
@@ -72,11 +142,9 @@ export default function ShippingAdviceList() {
           <Link to="/purchase" className="btn btn-secondary">
             Return to Menu
           </Link>
-          {canPerformAction("purchase:shipping-advice", "create") && (
-            <Link to="/purchase/shipping-advice/new" className="btn-success">
-              + New Shipping Advice
-            </Link>
-          )}
+          <Link to="/purchase/shipping-advice/new" className="btn-success">
+            + New Shipping Advice
+          </Link>
         </div>
       </div>
 
@@ -163,22 +231,49 @@ export default function ShippingAdviceList() {
                       </span>
                     </td>
                     <td>
-                      {canPerformAction("purchase:shipping-advice", "view") && (
-                        <Link
-                          to={`/purchase/shipping-advice/${r.id}?mode=view`}
-                          className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
+                      <Link
+                        to={`/purchase/shipping-advice/${r.id}?mode=view`}
+                        className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
+                      >
+                        View
+                      </Link>
+                      <Link
+                        to={`/purchase/shipping-advice/${r.id}?mode=edit`}
+                        className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium ml-2"
+                      >
+                        Edit
+                      </Link>
+                      {hasExceptional("PURCHASE.SHIPPING_ADVICE.CANCEL") &&
+                      !r.has_clearing ? (
+                        <button
+                          type="button"
+                          className="inline-flex items-center px-3 py-1.5 rounded bg-[#A30000] hover:bg-[#7B0000] text-white text-xs font-semibold ml-2"
+                          onClick={async () => {
+                            if (
+                              !window.confirm(
+                                `Cancel this Shipping Advice (${r.advice_no})?`,
+                              )
+                            )
+                              return;
+                            try {
+                              await api.delete(
+                                `/purchase/shipping-advices/${r.id}`,
+                              );
+                              toast.success("Shipping advice cancelled");
+                              setItems((prev) =>
+                                prev.filter((x) => x.id !== r.id),
+                              );
+                            } catch (e) {
+                              toast.error(
+                                e?.response?.data?.message ||
+                                  "Unable to cancel shipping advice",
+                              );
+                            }
+                          }}
                         >
-                          View
-                        </Link>
-                      )}
-                      {canPerformAction("purchase:shipping-advice", "edit") && (
-                        <Link
-                          to={`/purchase/shipping-advice/${r.id}?mode=edit`}
-                          className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium ml-2"
-                        >
-                          Edit
-                        </Link>
-                      )}
+                          Cancel
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                 ))

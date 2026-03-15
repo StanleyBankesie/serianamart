@@ -1,4 +1,6 @@
 import nodemailer from "nodemailer";
+import { query } from "../db/pool.js";
+import { ensureSystemLogsTable } from "./dbUtils.js";
 
 function bool(v) {
   if (typeof v === "boolean") return v;
@@ -53,7 +55,7 @@ export async function verifyMailer() {
   }
 }
 
-export async function sendMail({ to, subject, text, html, cc }) {
+export async function sendMail({ to, subject, text, html, cc, meta }) {
   if (!configured || !transporter) {
     console.warn(
       "[SENDMAIL] Mailer not configured. Host:",
@@ -61,6 +63,30 @@ export async function sendMail({ to, subject, text, html, cc }) {
       "From:",
       from,
     );
+    const m = meta || {};
+    if (!m.suppressLog) {
+      try {
+        await ensureSystemLogsTable();
+        const moduleName = m.moduleName || "Email";
+        const ref_no = m.refNo || null;
+        const url_path = m.urlPath || null;
+        await query(
+          `INSERT INTO adm_system_logs (company_id, branch_id, user_id, module_name, action, ref_no, message, url_path)
+           VALUES (:company_id, :branch_id, :user_id, :module_name, 'EMAIL_MOCK', :ref_no, :message, :url_path)`,
+          {
+            company_id: Number(m.companyId) || null,
+            branch_id: Number(m.branchId) || null,
+            user_id: Number(m.userId) || null,
+            module_name: moduleName,
+            ref_no,
+            message:
+              m.message ||
+              `Mailer not configured; email not sent to ${Array.isArray(to) ? to.join(",") : to || "(unknown)"}`,
+            url_path,
+          },
+        );
+      } catch {}
+    }
     return false;
   }
   try {
@@ -75,6 +101,32 @@ export async function sendMail({ to, subject, text, html, cc }) {
     console.log(
       `[SENDMAIL] Email sent successfully to ${to}. MessageId: ${result.messageId}`,
     );
+    const m = meta || {};
+    if (!m.suppressLog) {
+      try {
+        await ensureSystemLogsTable();
+        const moduleName = m.moduleName || "Email";
+        const action = m.action || "EMAIL_SENT";
+        const ref_no = m.refNo || null;
+        const message =
+          m.message || `Email sent to ${Array.isArray(to) ? to.join(",") : to}`;
+        const url_path = m.urlPath || null;
+        await query(
+          `INSERT INTO adm_system_logs (company_id, branch_id, user_id, module_name, action, ref_no, message, url_path)
+           VALUES (:company_id, :branch_id, :user_id, :module_name, :action, :ref_no, :message, :url_path)`,
+          {
+            company_id: Number(m.companyId) || null,
+            branch_id: Number(m.branchId) || null,
+            user_id: Number(m.userId) || null,
+            module_name: moduleName,
+            action,
+            ref_no,
+            message,
+            url_path,
+          },
+        );
+      } catch {}
+    }
     return true;
   } catch (err) {
     console.error(
@@ -82,6 +134,28 @@ export async function sendMail({ to, subject, text, html, cc }) {
       err.message,
       err,
     );
+    const m = meta || {};
+    if (!m.suppressLog) {
+      try {
+        await ensureSystemLogsTable();
+        const moduleName = m.moduleName || "Email";
+        const ref_no = m.refNo || null;
+        const url_path = m.urlPath || null;
+        await query(
+          `INSERT INTO adm_system_logs (company_id, branch_id, user_id, module_name, action, ref_no, message, url_path)
+           VALUES (:company_id, :branch_id, :user_id, :module_name, 'EMAIL_ERROR', :ref_no, :message, :url_path)`,
+          {
+            company_id: Number(m.companyId) || null,
+            branch_id: Number(m.branchId) || null,
+            user_id: Number(m.userId) || null,
+            module_name: moduleName,
+            ref_no,
+            message: `Email error: ${err?.message || err}`,
+            url_path,
+          },
+        );
+      } catch {}
+    }
     throw err;
   }
 }

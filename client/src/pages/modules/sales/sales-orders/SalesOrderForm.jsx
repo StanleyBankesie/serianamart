@@ -882,11 +882,17 @@ export default function SalesOrderForm() {
 
     let finalOrderNo = formData.order_no;
     if (!finalOrderNo) {
-      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-      const randomSuffix = Math.floor(Math.random() * 1000)
-        .toString()
-        .padStart(3, "0");
-      finalOrderNo = `SO-${dateStr}-${randomSuffix}`;
+      try {
+        const next = await generateNextOrderNo();
+        finalOrderNo = next || finalOrderNo;
+      } catch {}
+      if (!finalOrderNo) {
+        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+        const randomSuffix = Math.floor(Math.random() * 1000)
+          .toString()
+          .padStart(3, "0");
+        finalOrderNo = `SO-${dateStr}-${randomSuffix}`;
+      }
     }
 
     try {
@@ -897,6 +903,23 @@ export default function SalesOrderForm() {
         quotation_id: formData.quotation_id
           ? Number(formData.quotation_id)
           : null,
+        priority: String(formData.priority || "MEDIUM"),
+        currency_id:
+          formData.currency_id != null
+            ? Number(formData.currency_id)
+            : undefined,
+        exchange_rate:
+          formData.exchange_rate != null
+            ? Number(formData.exchange_rate)
+            : undefined,
+        warehouse_id:
+          formData.warehouse_id != null && formData.warehouse_id !== ""
+            ? Number(formData.warehouse_id)
+            : null,
+        sales_person_id:
+          formData.sales_person_id != null && formData.sales_person_id !== ""
+            ? Number(formData.sales_person_id)
+            : null,
         total_amount: totals.total,
         sub_total: totals.sub,
         tax_amount: totals.tax,
@@ -906,7 +929,7 @@ export default function SalesOrderForm() {
             (t) => String(t.value) === String(taxIdEff),
           );
           return {
-            item_id: item.item_id,
+            item_id: Number(item.item_id),
             quantity: Number(item.qty),
             unit_price: Number(item.unit_price),
             discount_percent: Number(item.discount_percent),
@@ -914,9 +937,9 @@ export default function SalesOrderForm() {
             tax_rate: taxEntry
               ? taxEntry.rate
               : Number(item.tax_rate || 0) || 0,
-            tax_amount: item.taxAmt,
-            total_amount: item.total,
-            net_amount: item.net,
+            tax_amount: Number(item.taxAmt || 0),
+            total_amount: Number(item.total || 0),
+            net_amount: Number(item.net || 0),
             uom: String(item.uom || defaultUomCode),
           };
         }),
@@ -1301,16 +1324,28 @@ export default function SalesOrderForm() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Payment Type
                     </label>
-                    <select
-                      name="payment_type"
-                      value={formData.payment_type}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                    >
-                      <option value="CASH">Cash</option>
-                      <option value="CHEQUE">Cheque</option>
-                      <option value="CREDIT">Credit</option>
-                    </select>
+                    <div className="flex items-center gap-6">
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="payment_type"
+                          value="CASH"
+                          checked={(formData.payment_type || "CASH") === "CASH"}
+                          onChange={handleInputChange}
+                        />
+                        <span>Cash</span>
+                      </label>
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="payment_type"
+                          value="CREDIT"
+                          checked={formData.payment_type === "CREDIT"}
+                          onChange={handleInputChange}
+                        />
+                        <span>Credit</span>
+                      </label>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">

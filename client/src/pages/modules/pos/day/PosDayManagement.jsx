@@ -126,11 +126,31 @@ export default function PosDayManagement() {
   }, []);
 
   useEffect(() => {
-    const uname = String(user?.username || "").trim();
-    if (uname && !openData.supervisor) {
-      setOpenData((prev) => ({ ...prev, supervisor: uname }));
+    // Ensure supervisor stays empty until explicitly chosen
+    if (openData.supervisor && supervisorUsers.length) {
+      const exists = supervisorUsers.some(
+        (u) =>
+          String(u.username || u.name || u.full_name || "").trim() ===
+          String(openData.supervisor || "").trim(),
+      );
+      if (!exists) {
+        setOpenData((prev) => ({ ...prev, supervisor: "" }));
+      }
     }
-  }, [user?.username]);
+  }, [supervisorUsers, openData.supervisor]);
+
+  useEffect(() => {
+    // Auto-select first available supervisor (excluding current user) when empty
+    if (!openData.supervisor && supervisorUsers.length) {
+      const first = supervisorUsers[0];
+      const value = String(
+        first.username || first.name || first.full_name || "",
+      ).trim();
+      if (value) {
+        setOpenData((prev) => ({ ...prev, supervisor: value }));
+      }
+    }
+  }, [supervisorUsers, openData.supervisor]);
 
   useEffect(() => {
     let cancelled = false;
@@ -199,9 +219,18 @@ export default function PosDayManagement() {
           },
         });
         if (cancelled) return;
-        setSupervisorUsers(
-          Array.isArray(res.data?.items) ? res.data.items : [],
+        const all = Array.isArray(res.data?.items) ? res.data.items : [];
+        const meName = String(user?.username || "").trim();
+        const filtered = all.filter(
+          (u) =>
+            Number(u?.id || 0) !== Number(userId || 0) &&
+            String(u?.username || "").trim() !== meName &&
+            String(u?.username || "").trim() !== "",
         );
+        const fallback = all.filter(
+          (u) => String(u?.username || "").trim() !== "",
+        );
+        setSupervisorUsers(filtered.length ? filtered : fallback);
       } catch {
         if (cancelled) return;
         setSupervisorUsers([]);
@@ -264,7 +293,6 @@ export default function PosDayManagement() {
             item.opening_float === null || item.opening_float === undefined
               ? ""
               : String(item.opening_float),
-          supervisor: item.supervisor_name || "",
           notes: item.open_notes || "",
         });
         setClosing((prev) => ({
@@ -359,13 +387,8 @@ export default function PosDayManagement() {
 
   async function handleOpenSubmit(e) {
     e.preventDefault();
-    const allChecked = openChecklist.every(Boolean);
-    if (!allChecked) {
-      toast.warn("Complete all opening checklist items");
-      return;
-    }
-    if (!openData.dateTime || !openData.supervisor) {
-      toast.warn("Provide opening date/time and supervisor");
+    if (!openData.dateTime) {
+      toast.warn("Provide opening date/time");
       return;
     }
     try {
@@ -373,7 +396,7 @@ export default function PosDayManagement() {
         terminal: terminalId,
         openingDateTime: openData.dateTime,
         openingFloat: Number(openData.float || 0),
-        supervisor: openData.supervisor,
+        supervisor: undefined,
         notes: openData.notes,
       };
       const res = await api.post("/pos/day/open", payload);
@@ -387,7 +410,6 @@ export default function PosDayManagement() {
             item.opening_float === null || item.opening_float === undefined
               ? String(openData.float || "")
               : String(item.opening_float),
-          supervisor: item.supervisor_name || openData.supervisor,
           notes: item.open_notes || openData.notes,
         });
         setSessionHistory([
@@ -859,37 +881,6 @@ export default function PosDayManagement() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="label">Supervisor Name</label>
-                    <select
-                      className="input"
-                      value={openData.supervisor}
-                      onChange={(e) =>
-                        setOpenData((p) => ({
-                          ...p,
-                          supervisor: e.target.value,
-                        }))
-                      }
-                      required
-                    >
-                      <option value="">Select supervisor</option>
-                      {openData.supervisor &&
-                        !supervisorUsers.some(
-                          (u) =>
-                            String(u?.username || "") ===
-                            String(openData.supervisor),
-                        ) && (
-                          <option value={openData.supervisor}>
-                            {openData.supervisor}
-                          </option>
-                        )}
-                      {supervisorUsers.map((u) => (
-                        <option key={u.id} value={String(u.username || "")}>
-                          {String(u.username || "")}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
                     <label className="label">Notes</label>
                     <textarea
                       className="input"
@@ -902,55 +893,7 @@ export default function PosDayManagement() {
                   </div>
                 </div>
 
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="font-semibold text-slate-700">
-                      Opening Checklist
-                    </div>
-                    <div className="font-semibold text-brand-700">
-                      {openProgress}%
-                    </div>
-                  </div>
-                  <div className="w-full h-3 bg-slate-200 rounded">
-                    <div
-                      className="h-3 rounded bg-gradient-to-r from-brand-700 to-brand-500"
-                      style={{ width: `${openProgress}%` }}
-                    />
-                  </div>
-                  <ul className="mt-3 space-y-2">
-                    {[
-                      "Verify cash float count",
-                      "Check POS system connectivity",
-                      "Verify printer and receipt paper",
-                      "Test card payment terminal",
-                      "Review pending transactions",
-                      "Confirm inventory sync",
-                    ].map((label, idx) => (
-                      <li
-                        key={idx}
-                        className={`flex items-center gap-3 p-3 rounded-lg border ${
-                          openChecklist[idx]
-                            ? "bg-green-50 border-green-200"
-                            : "bg-slate-50 border-slate-200"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          className="checkbox"
-                          checked={openChecklist[idx]}
-                          onChange={() => handleOpenChecklistToggle(idx)}
-                        />
-                        <div
-                          className={`text-sm ${
-                            openChecklist[idx] ? "line-through" : ""
-                          }`}
-                        >
-                          {label}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                {/* Opening Checklist removed as requested; proceed directly to Open Day */}
 
                 <button type="submit" className="btn-success w-full">
                   🌅 Open Day
@@ -1116,12 +1059,12 @@ export default function PosDayManagement() {
               </div>
 
               <div className="flex gap-2">
-                <button type="submit" className="btn-danger flex-1">
+                <button type="submit" className="btn-danger flex-1 px-4 py-2">
                   🌙 Close Day
                 </button>
                 <button
                   type="button"
-                  className="btn-info flex-1"
+                  className="btn-info flex-1 px-4 py-2"
                   onClick={handlePrint}
                 >
                   🖨️ Print Report

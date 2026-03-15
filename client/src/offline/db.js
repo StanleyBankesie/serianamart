@@ -1,18 +1,26 @@
 const DB_NAME = "omnisuite_offline";
-const DB_VERSION = 2;
+const DB_VERSION = 3; // Incremented to force upgrade
 const QUEUE_STORE = "queue";
+const CACHE_STORE = "cache";
 
 export function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = (e) => {
       const db = req.result;
+      
+      // Create queue store if missing
       if (!db.objectStoreNames.contains(QUEUE_STORE)) {
         const store = db.createObjectStore(QUEUE_STORE, { keyPath: "id" });
         store.createIndex("status", "status", { unique: false });
         store.createIndex("createdAt", "createdAt", { unique: false });
       }
-      // No need to create cache store here; managed by offline/cache.js upgrader
+      
+      // Create cache store if missing
+      if (!db.objectStoreNames.contains(CACHE_STORE)) {
+        const store = db.createObjectStore(CACHE_STORE, { keyPath: "key" });
+        store.createIndex("updatedAt", "updatedAt", { unique: false });
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);

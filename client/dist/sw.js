@@ -1,8 +1,14 @@
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const ASSET_CACHE = "omnisuite-assets-" + CACHE_VERSION;
 const API_CACHE = "omnisuite-api-" + CACHE_VERSION;
+const DEV_MODE =
+  typeof self !== "undefined" &&
+  typeof self.location !== "undefined" &&
+  (self.location.port === "5173" ||
+    (self.location.hostname === "localhost" && self.location.port !== ""));
 
-self.addEventListener("install", (event) => {
+if (!DEV_MODE) {
+  self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(ASSET_CACHE);
@@ -19,16 +25,19 @@ self.addEventListener("install", (event) => {
     })(),
   );
 });
+}
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
-      const keys = await caches.keys();
-      await Promise.all(
-        keys
-          .filter((k) => k !== ASSET_CACHE && k !== API_CACHE)
-          .map((k) => caches.delete(k)),
-      );
+      try {
+        const keys = await caches.keys();
+        await Promise.all(
+          keys
+            .filter((k) => k !== ASSET_CACHE && k !== API_CACHE)
+            .map((k) => caches.delete(k)),
+        );
+      } catch {}
       await self.clients.claim();
     })(),
   );
@@ -65,7 +74,8 @@ async function staleWhileRevalidate(cacheName, request) {
   return cached || networkPromise;
 }
 
-self.addEventListener("fetch", (event) => {
+if (!DEV_MODE) {
+  self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
@@ -104,7 +114,8 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(staleWhileRevalidate(API_CACHE, req));
     return;
   }
-});
+  });
+}
 
 self.addEventListener("push", (event) => {
   try {
@@ -129,16 +140,21 @@ self.addEventListener("push", (event) => {
       (async () => {
         await self.registration.showNotification(title, options);
         try {
-          if (String(data?.type || "").toLowerCase() === "chat") {
+          const t = String(data?.type || "").toLowerCase();
+          if (t === "chat" || t === "workflow" || t === "workflow-forward") {
             const clients = await self.clients.matchAll({
               type: "window",
               includeUncontrolled: true,
             });
             for (const c of clients) {
               c.postMessage({
-                type: "chat_push",
+                type: t === "chat" ? "chat_push" : "workflow_push",
                 url: link,
-                cid: data?.cid || null,
+                id:
+                  data?.cid ||
+                  data?.workflowInstanceId ||
+                  data?.documentId ||
+                  null,
                 title,
                 body,
               });

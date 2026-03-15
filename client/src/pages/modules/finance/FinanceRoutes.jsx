@@ -27,9 +27,11 @@ import CostCentersPage from "./setup/CostCentersPage.jsx";
 import OpeningBalancesPage from "./setup/OpeningBalancesPage.jsx";
 import BankReconciliationList from "./banking/BankReconciliationList.jsx";
 import BankReconciliationForm from "./banking/BankReconciliationForm.jsx";
+import BankReconciliationForBank from "./banking/BankReconciliationForBank.jsx";
 import PdcPostingsList from "./banking/PdcPostingsList.jsx";
 import PdcPostingForm from "./banking/PdcPostingForm.jsx";
 import FinanceDashboardPage from "./FinanceDashboardPage.jsx";
+import BankReconciliationsReportPage from "./banking/reports/BankReconciliationsReportPage.jsx";
 
 export default function FinanceRoutes() {
   return (
@@ -181,11 +183,19 @@ export default function FinanceRoutes() {
       <Route path="/opening-balances" element={<OpeningBalancesPage />} />
       <Route path="/bank-reconciliation" element={<BankReconciliationList />} />
       <Route
+        path="/bank-reconciliation/bank/:bankId"
+        element={<BankReconciliationForBank />}
+      />
+      <Route
         path="/bank-reconciliation/:id"
         element={<BankReconciliationForm />}
       />
       <Route path="/pdc-postings" element={<PdcPostingsList />} />
       <Route path="/pdc-postings/:id" element={<PdcPostingForm />} />
+      <Route
+        path="/bank-reconciliation/reports"
+        element={<BankReconciliationsReportPage />}
+      />
 
       <Route path="/reports" element={<VoucherRegisterReportPage />} />
       <Route

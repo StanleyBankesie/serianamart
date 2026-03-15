@@ -432,6 +432,22 @@ async function nextSalesReturnNo(companyId, branchId) {
   }
   return `SR-${String(nextNum).padStart(6, "0")}`;
 }
+
+async function userHasExceptionalAllow(userId, permissionCode = null) {
+  const rows = await query(
+    `
+    SELECT 1
+      FROM adm_exceptional_permissions
+     WHERE user_id = :uid
+       AND effect = 'ALLOW'
+       AND is_active = 1
+       ${permissionCode ? "AND permission_code = :code" : ""}
+     LIMIT 1
+    `,
+    { uid: userId, code: permissionCode || undefined },
+  ).catch(() => []);
+  return rows.length > 0;
+}
 function toYmd(d) {
   const dt = d instanceof Date ? d : new Date(d);
   const y = dt.getFullYear();
@@ -1198,8 +1214,22 @@ router.get(
           o.order_no, 
           o.order_date, 
           o.customer_id, 
-          o.status, 
+          c.customer_name AS customer_name,
+          o.priority,
+          CASE 
+            WHEN a.has_approved = 1 THEN 'APPROVED'
+            WHEN x.assigned_to_user_id IS NOT NULL THEN 'PENDING_APPROVAL'
+            ELSE o.status
+          END AS status, 
           o.total_amount,
+          EXISTS(
+            SELECT 1
+              FROM sal_invoices i
+             WHERE i.company_id = :companyId
+               AND i.branch_id = :branchId
+               AND i.sales_order_id = o.id
+             LIMIT 1
+          ) AS has_invoice,
           u.username AS forwarded_to_username
         FROM sal_orders o
         LEFT JOIN (
@@ -1218,6 +1248,24 @@ router.get(
             GROUP BY document_id
           ) m ON m.max_id = t.id
         ) x ON x.document_id = o.id
+        LEFT JOIN (
+          SELECT t.document_id, 1 AS has_approved
+          FROM adm_document_workflows t
+          JOIN (
+            SELECT document_id, MAX(id) AS max_id
+            FROM adm_document_workflows
+            WHERE company_id = :companyId
+              AND status = 'APPROVED'
+              AND (
+                document_type = 'SALES_ORDER' OR 
+                document_type = 'Sales Order' OR
+                document_type LIKE 'SALES_ORDER:%'
+              )
+            GROUP BY document_id
+          ) m ON m.max_id = t.id
+        ) a ON a.document_id = o.id
+        LEFT JOIN sal_customers c
+          ON c.id = o.customer_id AND c.company_id = :companyId
         LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
         WHERE o.company_id = :companyId AND o.branch_id = :branchId
         ORDER BY o.order_date DESC, o.id DESC
@@ -1231,6 +1279,61 @@ router.get(
   },
 );
 
+router.delete(
+  "/orders/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0)
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const userId = Number(req.user?.sub);
+      if (!Number.isFinite(userId) || userId <= 0)
+        throw httpError(401, "UNAUTHORIZED", "Invalid user");
+      if (!(await userHasExceptionalAllow(userId, "SALES.ORDER.CANCEL"))) {
+        throw httpError(403, "FORBIDDEN", "Exceptional permission required");
+      }
+      const rows = await query(
+        `
+        SELECT id
+          FROM sal_orders
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+         LIMIT 1
+        `,
+        { id, companyId, branchId },
+      ).catch(() => []);
+      if (!rows.length) throw httpError(404, "NOT_FOUND", "Order not found");
+      const invRef = await query(
+        `
+        SELECT id
+          FROM sal_invoices
+         WHERE company_id = :companyId AND branch_id = :branchId
+           AND sales_order_id = :id
+         LIMIT 1
+        `,
+        { companyId, branchId, id },
+      ).catch(() => []);
+      if (invRef.length) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "Cannot cancel: order linked to an invoice",
+        );
+      }
+      await query("DELETE FROM sal_order_details WHERE order_id = :id", { id });
+      await query(
+        "DELETE FROM sal_orders WHERE id = :id AND company_id = :companyId AND branch_id = :BranchId",
+        { id, companyId, BranchId: branchId },
+      );
+      res.json({ success: true, id });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 router.get(
   "/orders/:id",
   requireAuth,
@@ -3148,7 +3251,9 @@ router.get(
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
       const status = req.query.status ? String(req.query.status) : null;
-      const salesperson = req.query.salesperson ? String(req.query.salesperson) : null;
+      const salesperson = req.query.salesperson
+        ? String(req.query.salesperson)
+        : null;
       const rows = await query(
         `
         SELECT q.quotation_no,
@@ -3222,7 +3327,8 @@ router.get(
       ).catch(() => []);
       const total = Number(totalRows?.[0]?.c || 0);
       const converted = Number(convRows?.[0]?.c || 0);
-      const conversion_rate = total > 0 ? Math.round((converted * 100) / total) : 0;
+      const conversion_rate =
+        total > 0 ? Math.round((converted * 100) / total) : 0;
       res.json({
         metrics: {
           total_quotations: total,
@@ -3250,7 +3356,9 @@ router.get(
       const to = req.query.to ? String(req.query.to) : null;
       const status = req.query.status ? String(req.query.status) : null;
       const customer = req.query.customer ? String(req.query.customer) : null;
-      const salesperson = req.query.salesperson ? String(req.query.salesperson) : null;
+      const salesperson = req.query.salesperson
+        ? String(req.query.salesperson)
+        : null;
       const rows = await query(
         `
         SELECT o.order_no,
@@ -3304,7 +3412,9 @@ router.get(
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
       const customer = req.query.customer ? String(req.query.customer) : null;
-      const paymentStatus = req.query.paymentStatus ? String(req.query.paymentStatus) : null;
+      const paymentStatus = req.query.paymentStatus
+        ? String(req.query.paymentStatus)
+        : null;
       const rows = await query(
         `
         SELECT i.invoice_no,
@@ -3561,7 +3671,11 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requireAnyPermission(["SAL.QUOTATION.VIEW", "SAL.ORDER.VIEW", "SAL.INVOICE.VIEW"]),
+  requireAnyPermission([
+    "SAL.QUOTATION.VIEW",
+    "SAL.ORDER.VIEW",
+    "SAL.INVOICE.VIEW",
+  ]),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -3597,7 +3711,12 @@ router.get(
         WHERE (:customer IS NULL OR t.customer_name LIKE :customerLike)
         ORDER BY t.txn_date DESC
         `,
-        { companyId, branchId, customer, customerLike: customer ? `%${customer}%` : null },
+        {
+          companyId,
+          branchId,
+          customer,
+          customerLike: customer ? `%${customer}%` : null,
+        },
       ).catch(() => []);
       res.json({ items: items || [] });
     } catch (e) {

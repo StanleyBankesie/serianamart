@@ -1179,7 +1179,8 @@ export default function DocumentReview() {
                 disabled={
                   processing ||
                   (data.is_last_step &&
-                    data.approval_limit !== null &&
+                    data.approval_limit != null &&
+                    Number(data.approval_limit) > 0 &&
                     data.amount > data.approval_limit)
                 }
                 className="btn btn-primary w-full justify-center disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1187,7 +1188,8 @@ export default function DocumentReview() {
                 {data.is_last_step ? "Final Approve" : "Forward to Next Stage"}
               </button>
               {data.is_last_step &&
-                data.approval_limit !== null &&
+                data.approval_limit != null &&
+                Number(data.approval_limit) > 0 &&
                 data.amount > data.approval_limit && (
                   <p className="text-red-500 text-xs text-center">
                     Amount exceeds your approval limit of{" "}
@@ -1204,25 +1206,7 @@ export default function DocumentReview() {
               >
                 Return for Revision
               </button>
-              {canReverseApproval() ? (
-                <button
-                  onClick={async () => {
-                    try {
-                      await client.post(`/workflows/${instanceId}/reverse`);
-                      toast.success("Approval reversed and document returned");
-                      navigate("/administration/workflows/approvals");
-                    } catch (e) {
-                      toast.error(
-                        e?.response?.data?.message || "Reverse approval failed",
-                      );
-                    }
-                  }}
-                  disabled={processing}
-                  className="btn btn-outline w-full justify-center"
-                >
-                  Reverse Approval
-                </button>
-              ) : null}
+              {/* Reverse Approval intentionally removed globally per requirements */}
               <button
                 onClick={() => handleAction("REJECT")}
                 disabled={processing}

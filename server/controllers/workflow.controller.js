@@ -939,22 +939,21 @@ export const startWorkflow = async (req, res, next) => {
         userId: req.user.sub,
       },
     );
-    // Send email and push notifications when workflow starts
+    // Send unified notifications when workflow starts
     try {
       if (firstAssigned) {
-        const senderName = req.user?.name || req.user?.username || "System";
-        await sendDocumentForwardNotification({
-          userId: firstAssigned,
+        const { notifyWorkflowForward } =
+          await import("../services/notifications/workflowNotify.js");
+        await notifyWorkflowForward({
           companyId: req.scope.companyId,
-          documentType: document_type || workflow.document_type,
+          userId: firstAssigned,
+          workflowInstanceId: result.insertId,
           documentId: document_id,
-          documentRef: document_id,
+          documentType: document_type || workflow.document_type,
           title: "Document Forwarded For Approval",
           message: `Document #${document_id} has been forwarded to you for your approval.`,
-          actionType: "APPROVE",
-          senderName,
-          workflowInstanceId: result.insertId,
-          req,
+          action: "APPROVE",
+          senderName: req.user?.name || req.user?.username || "System",
         });
       }
     } catch (err) {
@@ -1345,104 +1344,19 @@ export const performAction = async (req, res, next) => {
         `<p><a href="${linkAbs}" style="background-color: #0066cc; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">View Document</a></p>` +
         `<p>Thank you.<br/>ERP Notification System</p>`;
 
-      // Check for duplicate emails in last 10 seconds
-      const dupRows = await query(
-        `SELECT id 
-           FROM adm_system_logs 
-          WHERE company_id = :companyId 
-            AND user_id = :userId 
-            AND module_name = 'Workflow' 
-            AND action = 'EMAIL_SENT' 
-            AND url_path = :url 
-            AND event_time >= DATE_SUB(NOW(), INTERVAL 10 SECOND)
-          LIMIT 1`,
+      await query(
+        `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
+         VALUES (:companyId, :userId, :title, :message, :link, 0)`,
         {
           companyId: req.scope.companyId,
           userId: targetUserId,
-          url: `/administration/workflows/approvals/${instance.id}`,
+          title: title || "Document Update",
+          message:
+            message ||
+            `A ${docType} ${refNo} requires your action.`,
+          link: `/administration/workflows/approvals/${instance.id}`,
         },
-      ).catch(() => []);
-
-      if (dupRows.length) {
-        console.log(
-          `[notifyUser] Duplicate email detected for user ${targetUserId}, skipping`,
-        );
-        return;
-      }
-
-      // Send email - using await instead of Promise.then() for proper error handling
-      try {
-        console.log(`[notifyUser] Sending email to ${to}`);
-
-        if (isMailerConfigured()) {
-          console.log(
-            `[notifyUser] Mailer is configured, proceeding with send`,
-          );
-
-          await sendMail({
-            to,
-            cc: process.env.WORKFLOW_EMAIL_CC || undefined,
-            subject,
-            text: textContent,
-            html: htmlContent,
-          });
-
-          console.log(`[notifyUser] ✓ Email sent successfully to ${to}`);
-
-          // Log successful email send
-          try {
-            await query(
-              `INSERT INTO adm_system_logs (company_id, user_id, module_name, action, message, url_path)
-               VALUES (:companyId, :userId, 'Workflow', 'EMAIL_SENT', :message, :url)`,
-              {
-                companyId: req.scope.companyId,
-                userId: targetUserId,
-                message: `Workflow email sent to ${to}`,
-                url: `/administration/workflows/approvals/${instance.id}`,
-              },
-            );
-          } catch (err) {
-            console.warn("Error logging email sent:", err);
-          }
-        } else {
-          console.log(`[MOCK EMAIL] To: ${to} | Subject: ${subject}`);
-          try {
-            await query(
-              `INSERT INTO adm_system_logs (company_id, user_id, module_name, action, message, url_path)
-               VALUES (:companyId, :userId, 'Workflow', 'EMAIL_MOCK', :message, :url)`,
-              {
-                companyId: req.scope.companyId,
-                userId: targetUserId,
-                message: `Mock email to ${to}`,
-                url: `/administration/workflows/approvals/${instance.id}`,
-              },
-            );
-          } catch (err) {
-            console.warn("Error logging mock email:", err);
-          }
-        }
-      } catch (err) {
-        console.error(
-          `[notifyUser] Error sending email to ${to}:`,
-          err.message,
-        );
-
-        // Log email error
-        try {
-          await query(
-            `INSERT INTO adm_system_logs (company_id, user_id, module_name, action, message, url_path)
-             VALUES (:companyId, :userId, 'Workflow', 'EMAIL_ERROR', :message, :url)`,
-            {
-              companyId: req.scope.companyId,
-              userId: targetUserId,
-              message: `Email error: ${err?.message || err}`,
-              url: `/administration/workflows/approvals/${instance.id}`,
-            },
-          );
-        } catch (logErr) {
-          console.warn("Error logging email error:", logErr);
-        }
-      }
+      );
     };
     if (action === "APPROVE") {
       const nextSteps = await query(
@@ -1519,28 +1433,28 @@ export const performAction = async (req, res, next) => {
           "Approval Required",
           `Document #${instance.document_id} requires your approval.`,
         );
-        // Send push notification for document forwarding
+        // Unified forward notifications
         try {
+          const { notifyWorkflowForward } =
+            await import("../services/notifications/workflowNotify.js");
           const senderRows = await query(
             "SELECT username AS name FROM adm_users WHERE id = :id LIMIT 1",
             { id: req.user?.sub || null },
           ).catch(() => []);
           const senderName = senderRows.length ? senderRows[0].name : "System";
-          await sendDocumentForwardNotification({
-            userId: nextAssigned,
+          await notifyWorkflowForward({
             companyId: req.scope.companyId,
-            documentType: instance.document_type,
+            userId: nextAssigned,
+            workflowInstanceId: instance.id,
             documentId: instance.document_id,
-            documentRef: instance.document_id,
+            documentType: instance.document_type,
             title: "Document Forwarded For Approval",
             message: `Document #${instance.document_id} has been forwarded to you for approval.`,
-            actionType: "APPROVE",
+            action: "APPROVE",
             senderName,
-            workflowInstanceId: instance.id,
-            req,
           });
         } catch (err) {
-          console.error("Error sending push notification:", err);
+          console.error("Error sending forward notifications:", err);
         }
       } else {
         await query(

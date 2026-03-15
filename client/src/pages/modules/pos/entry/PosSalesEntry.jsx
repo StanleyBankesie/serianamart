@@ -71,6 +71,8 @@ export default function PosSalesEntry() {
   const [dayLoading, setDayLoading] = useState(true);
   const [terminalCode, setTerminalCode] = useState("");
   const [amountPaid, setAmountPaid] = useState("");
+  const [customers, setCustomers] = useState([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [companyInfo, setCompanyInfo] = useState({
     name: "",
     address: "",
@@ -429,6 +431,24 @@ export default function PosSalesEntry() {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    api
+      .get("/sales/customers")
+      .then((res) => {
+        if (!mounted) return;
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        setCustomers(items);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setCustomers([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const gross = useMemo(() => {
     return cart.reduce((sum, i) => {
       const qty = Number(i.quantity || 0);
@@ -466,6 +486,9 @@ export default function PosSalesEntry() {
     const diff = tendered - total;
     return Number.isFinite(diff) ? diff : 0;
   }, [tendered, total]);
+  useEffect(() => {
+    setAmountPaid(String(total.toFixed(2)));
+  }, [total]);
   const cartRef = useRef(null);
   const barcodeDebounceRef = useRef(null);
   const barcodeInputRef = useRef(null);
@@ -867,11 +890,17 @@ export default function PosSalesEntry() {
         price: Number(it.price || 0),
         discount: Number(it.discount || 0),
       }));
+      const chosenCustomer =
+        customers.find((c) => String(c.id) === String(selectedCustomerId)) ||
+        null;
       const method = resolvePaymentMethodForSale(selectedPaymentMode);
       const payload = {
         payment_method: method,
         payment_mode_id: Number(effectivePaymentModeId),
-        customer_name: null,
+        customer_id: chosenCustomer ? Number(chosenCustomer.id) : null,
+        customer_name: chosenCustomer
+          ? String(chosenCustomer.customer_name || chosenCustomer.name || "")
+          : null,
         lines,
         status: "COMPLETED",
         terminal: terminalCode || "",
@@ -899,6 +928,8 @@ export default function PosSalesEntry() {
     setCart([]);
     setSelectedItems([]);
     setReceiptNo("");
+    setAmountPaid("");
+    setSelectedCustomerId("");
     setEntryBarcode("");
     setEntryItemId("");
     setEntryQty(1);
@@ -1002,6 +1033,15 @@ export default function PosSalesEntry() {
       : "";
 
     const rateDisplay = taxActive ? Number(taxRatePercent || 0) : 0;
+    const customerNameSelected = selectedCustomerId
+      ? String(
+          customers.find((c) => String(c.id) === String(selectedCustomerId))
+            ?.customer_name ||
+            customers.find((c) => String(c.id) === String(selectedCustomerId))
+              ?.name ||
+            "",
+        )
+      : "";
     const linesHtml = cart
       .map((it) => {
         const qty = Number(it.quantity || 0);
@@ -1055,6 +1095,11 @@ export default function PosSalesEntry() {
         <div class="row"><span>Date:</span><span>${dateStr}</span></div>
         <div class="row"><span>Cashier:</span><span>${cashierName}</span></div>
         <div class="row"><span>Payment:</span><span>${method}</span></div>
+        ${
+          customerNameSelected
+            ? `<div class="row"><span>Customer:</span><span>${customerNameSelected}</span></div>`
+            : ""
+        }
         <table>
           <thead>
             <tr>
@@ -1190,13 +1235,30 @@ export default function PosSalesEntry() {
                   Review collections and close day when ready.
                 </div>
               </div>
-              <Link
-                to="/pos/cash-collection"
-                className="btn btn-primary"
-                title="Go to Cash Collection to close day"
-              >
-                Check Account &amp; Close Day
-              </Link>
+              <div className="flex items-center gap-2">
+                <div style={{ minWidth: 220 }}>
+                  <FilterableSelect
+                    value={selectedCustomerId}
+                    onChange={setSelectedCustomerId}
+                    options={(Array.isArray(customers) ? customers : []).map(
+                      (c) => ({
+                        value: String(c.id),
+                        label: String(c.customer_name || c.name || ""),
+                      }),
+                    )}
+                    placeholder="Select customer"
+                    disabled={false}
+                    filterPlaceholder="Filter customers..."
+                  />
+                </div>
+                <Link
+                  to="/pos/cash-collection"
+                  className="btn btn-primary"
+                  title="Go to Cash Collection to close day"
+                >
+                  Check Account &amp; Close Day
+                </Link>
+              </div>
             </div>
           ) : null}
           <div className="card">
@@ -1427,6 +1489,18 @@ export default function PosSalesEntry() {
             <div className="card-body space-y-3 text-base" ref={cartRef}>
               {/* Selected items list hidden per requirement */}
               <div className="space-y-2">
+                <div className="flex justify-between">
+                  <div>Customer</div>
+                  <div>
+                    {selectedCustomerId
+                      ? String(
+                          customers.find(
+                            (c) => String(c.id) === String(selectedCustomerId),
+                          )?.customer_name || "",
+                        )
+                      : "-"}
+                  </div>
+                </div>
                 <div className="flex justify-between">
                   <div>Discount</div>
                   <div>{`GH₵ ${discountTotal.toFixed(2)}`}</div>

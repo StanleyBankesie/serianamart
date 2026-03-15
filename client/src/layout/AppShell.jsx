@@ -43,6 +43,7 @@ import { toast } from "react-toastify";
 import { Bell } from "lucide-react";
 import FloatingChat from "../components/chat/FloatingChat.jsx";
 import FloatingCreateButton from "../components/FloatingCreateButton.jsx";
+import useSocket from "../hooks/useSocket.js";
 
 const modules = [
   {
@@ -243,6 +244,141 @@ export default function AppShell() {
   const [lowStockPrompted, setLowStockPrompted] = useState(false);
   const [lowStockCount, setLowStockCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
+  useEffect(() => {
+    try {
+      const raw =
+        typeof localStorage !== "undefined"
+          ? localStorage.getItem("omni.unread_notification_count")
+          : null;
+      if (raw != null && raw !== "") {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n >= 0) {
+          setUnreadCount(n);
+        }
+      }
+    } catch {}
+  }, []);
+  const socket = useSocket();
+  useEffect(() => {
+    if (!socket) return;
+    function onNewNotif(payload) {
+      try {
+        setUnreadCount((n) => {
+          const next = (n || 0) + 1;
+          try {
+            if (typeof localStorage !== "undefined") {
+              localStorage.setItem(
+                "omni.unread_notification_count",
+                String(next),
+              );
+            }
+          } catch {}
+          return next;
+        });
+      } catch {}
+    }
+    socket.on("notifications:new", onNewNotif);
+    return () => {
+      socket.off("notifications:new", onNewNotif);
+    };
+  }, [socket]);
+
+  const [pushPromptVisible, setPushPromptVisible] = useState(false);
+  useEffect(() => {
+    try {
+      const raw =
+        typeof localStorage !== "undefined"
+          ? localStorage.getItem("push_enabled")
+          : null;
+      const enabled = raw === "1";
+      const perm =
+        typeof window !== "undefined" && "Notification" in window
+          ? window.Notification.permission
+          : "denied";
+      const canPrompt =
+        typeof window !== "undefined" &&
+        "serviceWorker" in navigator &&
+        "PushManager" in window &&
+        "Notification" in window;
+      setPushPromptVisible(canPrompt && !enabled && perm !== "granted");
+    } catch {
+      setPushPromptVisible(false);
+    }
+  }, [token]);
+
+  async function enablePushNow() {
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem("push_enabled", "1");
+      }
+      if (
+        typeof window === "undefined" ||
+        !("serviceWorker" in navigator) ||
+        !("PushManager" in window) ||
+        !("Notification" in window)
+      ) {
+        setPushPromptVisible(false);
+        return;
+      }
+      if (window.Notification.permission !== "granted") {
+        try {
+          const perm = await window.Notification.requestPermission();
+          if (perm !== "granted") {
+            setPushPromptVisible(true);
+            return;
+          }
+        } catch {
+          setPushPromptVisible(true);
+          return;
+        }
+      }
+      const reg = await navigator.serviceWorker.ready;
+      let publicKey = "";
+      try {
+        const res = await api.get("/push/public-key");
+        publicKey = String(res.data?.publicKey || "");
+      } catch {
+        publicKey = "";
+      }
+      if (!publicKey) {
+        setPushPromptVisible(false);
+        return;
+      }
+      function urlBase64ToUint8Array(base64String) {
+        const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+        const base64 = (base64String + padding)
+          .replace(/-/g, "+")
+          .replace(/_/g, "/");
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) {
+          outputArray[i] = rawData.charCodeAt(i);
+        }
+        return outputArray;
+      }
+      const applicationServerKey = urlBase64ToUint8Array(publicKey);
+      const existing = await reg.pushManager.getSubscription();
+      if (existing && existing.endpoint) {
+        try {
+          await api.post("/push/subscribe", {
+            subscription: existing.toJSON(),
+          });
+        } catch {}
+        setPushPromptVisible(false);
+        return;
+      }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey,
+      });
+      try {
+        await api.post("/push/subscribe", { subscription: sub.toJSON() });
+      } catch {}
+      setPushPromptVisible(false);
+    } catch {
+      setPushPromptVisible(false);
+    }
+  }
 
   const profile = useMemo(() => {
     const username = user?.username || user?.name || "Guest";
@@ -311,9 +447,6 @@ export default function AppShell() {
     let cancelled = false;
     async function subscribePush() {
       try {
-        if (import.meta && import.meta.env && import.meta.env.DEV) {
-          return;
-        }
         const raw =
           typeof localStorage !== "undefined"
             ? localStorage.getItem("push_enabled")
@@ -324,7 +457,14 @@ export default function AppShell() {
         if (!("serviceWorker" in navigator)) return;
         if (!("PushManager" in window)) return;
         if (!("Notification" in window)) return;
-        if (window.Notification.permission !== "granted") return;
+        if (window.Notification.permission !== "granted") {
+          try {
+            const perm = await window.Notification.requestPermission();
+            if (perm !== "granted") return;
+          } catch {
+            return;
+          }
+        }
         const reg = await navigator.serviceWorker.ready;
         let publicKey = "";
         try {
@@ -382,6 +522,14 @@ export default function AppShell() {
         const items = Array.isArray(res.data?.items) ? res.data.items : [];
         const unread = items.filter((n) => Number(n.is_read) !== 1).length;
         setUnreadCount(unread);
+        try {
+          if (typeof localStorage !== "undefined") {
+            localStorage.setItem(
+              "omni.unread_notification_count",
+              String(unread),
+            );
+          }
+        } catch {}
         if (typeof window !== "undefined") {
           try {
             const storeKey = "notified_notification_ids";
@@ -450,6 +598,33 @@ export default function AppShell() {
       if (pollTimer) clearInterval(pollTimer);
     };
   }, [scope?.companyId, scope?.branchId, lowStockPrompted, token, online]);
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    function onSwMessage(ev) {
+      try {
+        const t = String(ev?.data?.type || "");
+        if (t === "workflow_push") {
+          if (!window.__omniSocketConnected) {
+            setUnreadCount((n) => {
+              const next = (n || 0) + 1;
+              try {
+                if (typeof localStorage !== "undefined") {
+                  localStorage.setItem(
+                    "omni.unread_notification_count",
+                    String(next),
+                  );
+                }
+              } catch {}
+              return next;
+            });
+          }
+        }
+      } catch {}
+    }
+    navigator.serviceWorker.addEventListener("message", onSwMessage);
+    return () =>
+      navigator.serviceWorker.removeEventListener("message", onSwMessage);
+  }, []);
   useEffect(() => {
     if (typeof window !== "undefined" && "Notification" in window) {
       if (window.Notification.permission === "default") {
@@ -854,6 +1029,19 @@ export default function AppShell() {
             Role-based + Branch-based
           </div> */}
           <ThemeToggle />
+          <Link
+            to="/notifications"
+            className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
+            aria-label="Notifications"
+            title="Notifications"
+          >
+            <Bell className="w-5 h-5" />
+            {unreadCount > 0 ? (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-5 px-1 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            ) : null}
+          </Link>
 
           <div className="relative" ref={profileRef}>
             <button
@@ -1181,66 +1369,87 @@ export default function AppShell() {
 
         <main className="bg-slate-50 dark:bg-slate-900">
           <div className="w-full max-w-full lg:max-w-[1200px] mx-auto p-2 md:p-2 lg:p-3">
+            {pushPromptVisible ? (
+              <div className="mb-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 flex items-center justify-between">
+                <div className="text-sm">
+                  Enable push notifications to receive approval alerts.
+                </div>
+                <div className="flex gap-2">
+                  <button className="btn" onClick={enablePushNow}>
+                    Enable Push
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => setPushPromptVisible(false)}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {!online && !isRootPage ? (
               <div className="min-h-[60vh] flex items-center justify-center">
                 <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-6 max-w-lg w-full text-center">
                   <div className="text-4xl mb-2">📡</div>
                   <div className="text-lg font-semibold mb-1">Offline</div>
                   <div className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                    This module requires a network connection. Return to Home or reconnect to continue.
+                    This module requires a network connection. Return to Home or
+                    reconnect to continue.
                   </div>
                   <div className="flex items-center justify-center gap-2">
-                    <Link to="/" className="btn">Home</Link>
+                    <Link to="/" className="btn">
+                      Home
+                    </Link>
                   </div>
                 </div>
               </div>
             ) : (
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route
-                path="/administration/*"
-                element={<AdministrationHome />}
-              />
-              <Route path="/sales/*" element={<SalesHome />} />
-              <Route path="/inventory/*" element={<InventoryHome />} />
-              <Route path="/purchase/*" element={<PurchaseHome />} />
-              <Route path="/finance/*" element={<FinanceRoutes />} />
-              <Route
-                path="/human-resources/*"
-                element={<HumanResourcesHome />}
-              />
-              <Route path="/maintenance/*" element={<MaintenanceHome />} />
-              <Route
-                path="/project-management/*"
-                element={<ProjectManagementHome />}
-              />
-              <Route path="/production/*" element={<ProductionHome />} />
-              <Route path="/pos/*" element={<PosHome />} />
-              <Route
-                path="/business-intelligence/*"
-                element={<BusinessIntelligenceHome />}
-              />
-              <Route
-                path="/service-management/*"
-                element={<ServiceManagementHome />}
-              />
-              <Route
-                path="/administration/access/dashboard-permissions"
-                element={<DashboardPermissions />}
-              />
-              <Route path="/notifications" element={<NotificationsPage />} />
-              <Route path="/social-feed" element={<SocialFeedPage />} />
-              <Route path="/social-feed/:id" element={<SocialFeedPage />} />
-              {/* chat v2 renders via floating modal; legacy /chat route removed */}
+              <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/dashboard" element={<DashboardPage />} />
+                <Route
+                  path="/administration/*"
+                  element={<AdministrationHome />}
+                />
+                <Route path="/sales/*" element={<SalesHome />} />
+                <Route path="/inventory/*" element={<InventoryHome />} />
+                <Route path="/purchase/*" element={<PurchaseHome />} />
+                <Route path="/finance/*" element={<FinanceRoutes />} />
+                <Route
+                  path="/human-resources/*"
+                  element={<HumanResourcesHome />}
+                />
+                <Route path="/maintenance/*" element={<MaintenanceHome />} />
+                <Route
+                  path="/project-management/*"
+                  element={<ProjectManagementHome />}
+                />
+                <Route path="/production/*" element={<ProductionHome />} />
+                <Route path="/pos/*" element={<PosHome />} />
+                <Route
+                  path="/business-intelligence/*"
+                  element={<BusinessIntelligenceHome />}
+                />
+                <Route
+                  path="/service-management/*"
+                  element={<ServiceManagementHome />}
+                />
+                <Route
+                  path="/administration/access/dashboard-permissions"
+                  element={<DashboardPermissions />}
+                />
+                <Route path="/notifications" element={<NotificationsPage />} />
+                <Route path="/social-feed" element={<SocialFeedPage />} />
+                <Route path="/social-feed/:id" element={<SocialFeedPage />} />
+                {/* chat v2 renders via floating modal; legacy /chat route removed */}
 
-              {/* Admin Routes */}
-              <Route path="/admin/roles" element={<RoleSetup />} />
-              <Route
-                path="/admin/user-permissions"
-                element={<UserPermissions />}
-              />
-            </Routes>
+                {/* Admin Routes */}
+                <Route path="/admin/roles" element={<RoleSetup />} />
+                <Route
+                  path="/admin/user-permissions"
+                  element={<UserPermissions />}
+                />
+              </Routes>
             )}
           </div>
         </main>

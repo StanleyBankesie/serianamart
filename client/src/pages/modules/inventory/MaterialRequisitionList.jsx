@@ -509,7 +509,7 @@ export default function MaterialRequisitionList() {
                                       x.id === req.id
                                         ? {
                                             ...x,
-                                            status: "REVERSED",
+                                            status: "RETURNED",
                                             forwarded_to_username: null,
                                           }
                                         : x,

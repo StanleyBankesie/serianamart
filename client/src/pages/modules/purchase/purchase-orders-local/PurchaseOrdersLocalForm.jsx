@@ -1,13 +1,14 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { api } from "api/client";
+import useSocket from "../../../../hooks/useSocket.js";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import UnitConversionModal from "@/components/UnitConversionModal";
 import { useUoms } from "@/hooks/useUoms";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import { Printer, Download } from "lucide-react";
+import {} from "lucide-react";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function PurchaseOrdersLocalForm() {
@@ -15,6 +16,7 @@ export default function PurchaseOrdersLocalForm() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const socket = useSocket();
   const { canEditDiscount } = usePermission();
 
   const isNew = !id || id === "new";
@@ -71,6 +73,7 @@ export default function PurchaseOrdersLocalForm() {
     currency: "GHS",
     exchange_rate: 1,
     delivery_date: "",
+    payment_type: "CASH",
     payment_terms: 30,
     remarks: "",
     // Import specific fields
@@ -493,6 +496,7 @@ export default function PurchaseOrdersLocalForm() {
           currency: po.currency || "GHS",
           exchange_rate: Number(po.exchange_rate) || 1,
           delivery_date: po.delivery_date || "",
+          payment_type: po.payment_type || "CASH",
           payment_terms: po.payment_terms || 30,
           remarks: po.remarks || "",
           port_loading: po.port_loading || "",
@@ -587,6 +591,22 @@ export default function PurchaseOrdersLocalForm() {
   // Handlers
   const handleInputChange = async (e) => {
     const { name, value, type, checked } = e.target;
+    if (name === "payment_type") {
+      setFormData((prev) => {
+        const isCash = String(value).toUpperCase() === "CASH";
+        const nextTerms = isCash
+          ? 0
+          : (Number(prev.payment_terms || 0) || 0) === 0
+            ? 30
+            : prev.payment_terms;
+        return {
+          ...prev,
+          payment_type: value,
+          payment_terms: nextTerms,
+        };
+      });
+      return;
+    }
     setFormData((prev) => ({
       ...prev,
       [name]: type === "checkbox" ? checked : value,
@@ -822,6 +842,7 @@ export default function PurchaseOrdersLocalForm() {
         currency: formData.currency,
         exchange_rate: Number(formData.exchange_rate) || 1,
         delivery_date: formData.delivery_date || "",
+        payment_type: String(formData.payment_type || "CASH"),
         payment_terms: Number(formData.payment_terms) || 0,
         remarks: formData.remarks || "",
         port_loading: formData.port_loading || "",
@@ -1132,6 +1153,19 @@ export default function PurchaseOrdersLocalForm() {
       });
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
       setFormData((prev) => ({ ...prev, status: newStatus }));
+      try {
+        if (socket) {
+          socket.emit("workflow:forwarded", {
+            module: "purchase",
+            docType: "PO_LOCAL",
+            docId: Number(id),
+            target_user_id: targetApproverId || null,
+            amount: summary.grandTotal ?? null,
+            url: `/purchase/purchase-orders-local/${id}`,
+            title: "Purchase Order forwarded for approval",
+          });
+        }
+      } catch {}
       setShowForwardModal(false);
       navigate("/purchase/purchase-orders-local");
     } catch (e) {
@@ -1372,24 +1406,8 @@ export default function PurchaseOrdersLocalForm() {
               to="/purchase/purchase-orders-local"
               className="btn btn-secondary font-medium flex items-center gap-2"
             >
-              📄 View Orders
+              ⬅ Back
             </Link>
-            <button
-              type="button"
-              onClick={handleDownload}
-              className="btn-outline font-medium flex items-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              Download PDF
-            </button>
-            <button
-              type="button"
-              onClick={handlePrint}
-              className="btn-primary font-medium flex items-center gap-2"
-            >
-              <Printer className="w-4 h-4" />
-              Print
-            </button>
           </div>
         </div>
 
@@ -1575,6 +1593,33 @@ export default function PurchaseOrdersLocalForm() {
                 </div>
                 <div className="flex flex-col">
                   <label className="text-[13px] font-bold text-[#0E3646] mb-1.5">
+                    Payment Type
+                  </label>
+                  <div className="flex items-center gap-6">
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="payment_type"
+                        value="CASH"
+                        checked={(formData.payment_type || "CASH") === "CASH"}
+                        onChange={handleInputChange}
+                      />
+                      <span>Cash</span>
+                    </label>
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="payment_type"
+                        value="CREDIT"
+                        checked={formData.payment_type === "CREDIT"}
+                        onChange={handleInputChange}
+                      />
+                      <span>Credit</span>
+                    </label>
+                  </div>
+                </div>
+                <div className="flex flex-col">
+                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5">
                     Payment Terms (Days)
                   </label>
                   <input
@@ -1582,6 +1627,9 @@ export default function PurchaseOrdersLocalForm() {
                     name="payment_terms"
                     value={formData.payment_terms}
                     onChange={handleInputChange}
+                    disabled={
+                      String(formData.payment_type || "CASH") === "CASH"
+                    }
                     className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
                   />
                 </div>
@@ -1942,50 +1990,23 @@ export default function PurchaseOrdersLocalForm() {
             </div>
 
             {/* Action Buttons */}
-            <div className="flex flex-wrap justify-between items-center mt-8 gap-4">
-              <div>
-                <button
-                  type="button"
-                  className="px-5 py-2.5 bg-[#dc3545] text-white rounded hover:bg-[#c82333] transition-all font-medium flex items-center gap-2"
-                  onClick={() =>
-                    alert("Delete functionality not implemented yet")
-                  }
-                >
-                  🗑️ Delete
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  className="px-5 py-2.5 bg-[#6c757d] text-white rounded hover:bg-[#5a6268] transition-all font-medium flex items-center gap-2"
-                  onClick={() => setFormData({ ...formData, remarks: "" })} // Example clear action
-                >
-                  🔄 Clear
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  data-submit-type="draft"
-                  className="px-5 py-2.5 bg-[#0E3646] text-white rounded hover:bg-[#082330] transition-all font-medium flex items-center gap-2 disabled:opacity-70"
-                >
-                  {saving ? "Saving..." : "💾 Save as Draft"}
-                </button>
-                <button
-                  type="button"
-                  className="px-5 py-2.5 bg-[#17a2b8] text-white rounded hover:bg-[#138496] transition-all font-medium flex items-center gap-2"
-                  onClick={() => window.print()}
-                >
-                  🖨️ Print
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  data-submit-type="pending"
-                  className="px-5 py-2.5 bg-[#28a745] text-white rounded hover:bg-[#218838] transition-all font-medium flex items-center gap-2 disabled:opacity-70"
-                >
-                  ✅ Submit for Approval
-                </button>
-              </div>
+            <div className="flex flex-wrap justify-end items-center mt-8 gap-3">
+              <button
+                type="submit"
+                disabled={saving}
+                data-submit-type="draft"
+                className="px-5 py-2.5 bg-[#0E3646] text-white rounded hover:bg-[#082330] transition-all font-medium flex items-center gap-2 disabled:opacity-70"
+              >
+                {saving ? "Saving..." : "💾 Save"}
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                data-submit-type="pending"
+                className="px-5 py-2.5 bg-[#28a745] text-white rounded hover:bg-[#218838] transition-all font-medium flex items-center gap-2 disabled:opacity-70"
+              >
+                ✅ Submit for Approval
+              </button>
             </div>
           </form>
         </div>

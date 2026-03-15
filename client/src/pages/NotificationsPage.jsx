@@ -39,6 +39,22 @@ export default function NotificationsPage() {
       setItems((prev) =>
         prev.map((n) => (n.id === id ? { ...n, is_read: 1 } : n)),
       );
+      try {
+        window.dispatchEvent(
+          new CustomEvent("omni:notifications:decrement", {
+            detail: { count: 1 },
+          }),
+        );
+        const raw =
+          typeof localStorage !== "undefined"
+            ? localStorage.getItem("omni.unread_notification_count")
+            : null;
+        const cur = Number(raw || "0");
+        const next = Math.max(0, (Number.isFinite(cur) ? cur : 0) - 1);
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem("omni.unread_notification_count", String(next));
+        }
+      } catch {}
     } catch {}
   }
 
@@ -111,6 +127,30 @@ export default function NotificationsPage() {
                               x.id === n.id ? { ...x, is_read: 1 } : x,
                             ),
                           );
+                        try {
+                          window.dispatchEvent(
+                            new CustomEvent("omni:notifications:decrement", {
+                              detail: { count: 1 },
+                            }),
+                          );
+                          const raw =
+                            typeof localStorage !== "undefined"
+                              ? localStorage.getItem(
+                                  "omni.unread_notification_count",
+                                )
+                              : null;
+                          const cur = Number(raw || "0");
+                          const next = Math.max(
+                            0,
+                            (Number.isFinite(cur) ? cur : 0) - 1,
+                          );
+                          if (typeof localStorage !== "undefined") {
+                            localStorage.setItem(
+                              "omni.unread_notification_count",
+                              String(next),
+                            );
+                          }
+                        } catch {}
                         }
                       } catch {}
                       navigate(n.link);

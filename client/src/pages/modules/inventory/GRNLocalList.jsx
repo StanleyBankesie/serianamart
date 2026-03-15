@@ -605,7 +605,7 @@ export default function GRNLocalList() {
                                       x.id === g.id
                                         ? {
                                             ...x,
-                                            status: "REVERSED",
+                                            status: "RETURNED",
                                             forwarded_to_username: null,
                                           }
                                         : x,

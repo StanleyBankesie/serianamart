@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../api/client.js";
-import { useNavigate, useLocation, useParams } from "react-router-dom";
+import { useNavigate, useLocation, useParams, Link } from "react-router-dom";
 import UnitConversionModal from "../../../../components/UnitConversionModal.jsx";
 import { useUoms } from "../../../../hooks/useUoms.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
@@ -37,6 +37,7 @@ export default function DirectPurchase() {
     warehouse_id: "",
     currency_id: "",
     exchange_rate: 1,
+    payment_type: "CASH",
     payment_terms: 30,
     remarks: "",
   });
@@ -77,6 +78,7 @@ export default function DirectPurchase() {
           warehouse_id: hdr.warehouse_id || "",
           currency_id: hdr.currency_id || "",
           exchange_rate: Number(hdr.exchange_rate || 1),
+          payment_type: hdr.payment_type || "CASH",
           payment_terms: hdr.payment_terms || 30,
           remarks: hdr.remarks || "",
         });
@@ -208,6 +210,18 @@ export default function DirectPurchase() {
   }, [lines]);
 
   function updateForm(k, v) {
+    if (k === "payment_type") {
+      setForm((prev) => {
+        const isCash = String(v).toUpperCase() === "CASH";
+        const nextTerms = isCash
+          ? 0
+          : (Number(prev.payment_terms || 0) || 0) === 0
+            ? 30
+            : prev.payment_terms;
+        return { ...prev, payment_type: v, payment_terms: nextTerms };
+      });
+      return;
+    }
     setForm((prev) => ({ ...prev, [k]: v }));
   }
   function onSupplierChange(id) {
@@ -351,6 +365,7 @@ export default function DirectPurchase() {
         warehouse_id: Number(form.warehouse_id),
         currency_id: form.currency_id ? Number(form.currency_id) : null,
         exchange_rate: Number(form.exchange_rate || 1),
+        payment_type: String(form.payment_type || "CASH"),
         payment_terms: form.payment_terms ? Number(form.payment_terms) : null,
         remarks: form.remarks || null,
         status: action === "post" ? "POST" : "DRAFT",
@@ -387,11 +402,19 @@ export default function DirectPurchase() {
   return (
     <div className="p-6">
       <div className="rounded-lg border border-[#dee2e6] bg-white shadow-erp">
-        <div className="px-6 py-4 border-b bg-brand text-white rounded-t-lg">
-          <h1 className="text-2xl font-bold">Direct Purchase</h1>
-          <p className="text-sm mt-1 opacity-90">
-            Complete a full purchase in one step
-          </p>
+        <div className="px-6 py-4 border-b bg-brand text-white rounded-t-lg flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Direct Purchase</h1>
+            <p className="text-sm mt-1 opacity-90">
+              Complete a full purchase in one step
+            </p>
+          </div>
+          <Link
+            to="/purchase/direct-purchase"
+            className="px-3 py-1.5 rounded bg-white text-brand hover:bg-slate-100"
+          >
+            ← Back to List
+          </Link>
         </div>
         <div className="px-6 py-5 space-y-4">
           {error ? <div className="alert alert-error">{error}</div> : null}
@@ -474,8 +497,37 @@ export default function DirectPurchase() {
                 className="input"
                 value={form.payment_terms}
                 onChange={(e) => updateForm("payment_terms", e.target.value)}
-                disabled={isViewMode}
+                disabled={
+                  isViewMode || String(form.payment_type || "CASH") === "CASH"
+                }
               />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="label">Payment Type</label>
+              <div className="flex items-center gap-6">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="payment_type"
+                    value="CASH"
+                    checked={(form.payment_type || "CASH") === "CASH"}
+                    onChange={(e) => updateForm("payment_type", e.target.value)}
+                    disabled={isViewMode}
+                  />
+                  <span>Cash</span>
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="payment_type"
+                    value="CREDIT"
+                    checked={form.payment_type === "CREDIT"}
+                    onChange={(e) => updateForm("payment_type", e.target.value)}
+                    disabled={isViewMode}
+                  />
+                  <span>Credit</span>
+                </label>
+              </div>
             </div>
             <div className="md:col-span-3 flex flex-col gap-1">
               <label className="label">Remarks</label>

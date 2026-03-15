@@ -121,6 +121,38 @@ async function ensureSystemLogsTable() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   try {
+    const cols = [
+      {
+        name: "module_name",
+        ddl: "ALTER TABLE adm_system_logs ADD COLUMN module_name VARCHAR(100) NULL AFTER user_id",
+      },
+      {
+        name: "action",
+        ddl: "ALTER TABLE adm_system_logs ADD COLUMN action VARCHAR(100) NULL AFTER module_name",
+      },
+      {
+        name: "ref_no",
+        ddl: "ALTER TABLE adm_system_logs ADD COLUMN ref_no VARCHAR(100) NULL AFTER action",
+      },
+      {
+        name: "message",
+        ddl: "ALTER TABLE adm_system_logs ADD COLUMN message VARCHAR(255) NULL AFTER ref_no",
+      },
+      {
+        name: "url_path",
+        ddl: "ALTER TABLE adm_system_logs ADD COLUMN url_path VARCHAR(255) NULL AFTER message",
+      },
+      {
+        name: "event_time",
+        ddl: "ALTER TABLE adm_system_logs ADD COLUMN event_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER url_path",
+      },
+    ];
+    for (const c of cols) {
+      // eslint-disable-next-line no-await-in-loop
+      const has = await hasColumn("adm_system_logs", c.name);
+      // eslint-disable-next-line no-await-in-loop
+      if (!has) await query(c.ddl);
+    }
     const hasCreatedAt = await hasColumn("adm_system_logs", "created_at");
     if (!hasCreatedAt) {
       await query(
@@ -1888,19 +1920,20 @@ router.get("/reports/system-log-book", requireAuth, async (req, res, next) => {
     await ensureSystemLogsTable();
     await ensureLoginLogsTable();
     const { from, to, module, action, user_id } = req.query || {};
-    const p = {};
-    const clauses = [];
+    // Build filters for system logs
+    const pSys = {};
+    const sysClauses = [];
     if (from) {
-      clauses.push("event_time >= :from");
-      p.from = new Date(String(from));
+      sysClauses.push("event_time >= :from");
+      pSys.from = new Date(String(from));
     }
     if (to) {
-      clauses.push("event_time < DATE_ADD(:to, INTERVAL 1 DAY)");
-      p.to = new Date(String(to));
+      sysClauses.push("event_time < DATE_ADD(:to, INTERVAL 1 DAY)");
+      pSys.to = new Date(String(to));
     }
     if (user_id) {
-      clauses.push("user_id = :uid");
-      p.uid = Number(user_id);
+      sysClauses.push("user_id = :uid");
+      pSys.uid = Number(user_id);
     }
     if (module) {
       const modules = String(module)
@@ -1909,8 +1942,8 @@ router.get("/reports/system-log-book", requireAuth, async (req, res, next) => {
         .filter(Boolean);
       if (modules.length) {
         const placeholders = modules.map((_, i) => `:m${i}`).join(", ");
-        clauses.push(`module_name IN (${placeholders})`);
-        modules.forEach((m, i) => (p[`m${i}`] = m));
+        sysClauses.push(`module_name IN (${placeholders})`);
+        modules.forEach((m, i) => (pSys[`m${i}`] = m));
       }
     }
     if (action) {
@@ -1920,15 +1953,30 @@ router.get("/reports/system-log-book", requireAuth, async (req, res, next) => {
         .filter(Boolean);
       if (actions.length) {
         const placeholders = actions.map((_, i) => `:a${i}`).join(", ");
-        clauses.push(`action IN (${placeholders})`);
-        actions.forEach((a, i) => (p[`a${i}`] = a));
+        sysClauses.push(`action IN (${placeholders})`);
+        actions.forEach((a, i) => (pSys[`a${i}`] = a));
       }
     }
-    const whereSys = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const whereLogin = clauses.length
-      ? `WHERE ${clauses
-          .map((c) => c.replace(/event_time/g, "login_time"))
-          .join(" AND ")}`
+    const whereSys = sysClauses.length
+      ? `WHERE ${sysClauses.join(" AND ")}`
+      : "";
+    // Build filters for login logs (time range and optional user only)
+    const pLogin = {};
+    const loginClauses = [];
+    if (from) {
+      loginClauses.push("login_time >= :from");
+      pLogin.from = new Date(String(from));
+    }
+    if (to) {
+      loginClauses.push("login_time < DATE_ADD(:to, INTERVAL 1 DAY)");
+      pLogin.to = new Date(String(to));
+    }
+    if (user_id) {
+      loginClauses.push("user_id = :uid");
+      pLogin.uid = Number(user_id);
+    }
+    const whereLogin = loginClauses.length
+      ? `WHERE ${loginClauses.join(" AND ")}`
       : "";
     const items = await query(
       `
@@ -1946,7 +1994,7 @@ router.get("/reports/system-log-book", requireAuth, async (req, res, next) => {
         ORDER BY s.event_time DESC
         LIMIT 200
         `,
-      p,
+      pSys,
     );
     const loginItems = await query(
       `
@@ -1963,7 +2011,7 @@ router.get("/reports/system-log-book", requireAuth, async (req, res, next) => {
         ORDER BY l.login_time DESC
         LIMIT 200
         `,
-      p,
+      pLogin,
     );
     const combined = [...items, ...loginItems].sort((a, b) => {
       const ta = new Date(a.event_time).getTime();

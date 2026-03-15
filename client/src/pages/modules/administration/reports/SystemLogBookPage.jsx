@@ -11,6 +11,8 @@ export default function SystemLogBookPage() {
   const [statusLoading, setStatusLoading] = useState(false);
   const [quickFilter, setQuickFilter] = useState("all");
   const [userId, setUserId] = useState("");
+  const [moduleCsv, setModuleCsv] = useState("");
+  const [actionCsv, setActionCsv] = useState("");
   const [status, setStatus] = useState({
     startedAt: "",
     uptimeSeconds: 0,
@@ -23,14 +25,44 @@ export default function SystemLogBookPage() {
     },
     recentLogins: [],
   });
+  const [textFilter, setTextFilter] = useState("");
 
   async function run() {
     try {
       setLoading(true);
       const params = { from: from || null, to: to || null };
       if (quickFilter === "email") {
-        params.module = "DocumentForward,Workflow";
-        params.action = "EMAIL_SENT,EMAIL_ERROR,EMAIL_SKIPPED,EMAIL_MOCK";
+        params.module = [
+          "WorkflowNotify",
+          "DocumentForward",
+          "Email",
+          "Authentication",
+          "Inventory",
+          "EmailDiagnosis",
+          "Workflow",
+        ].join(",");
+        params.action = [
+          "EMAIL_SENT",
+          "EMAIL_ERROR",
+          "EMAIL_SKIPPED",
+          "EMAIL_MOCK",
+          "TEST_SEND_SUCCESS",
+          "TEST_SEND_FAIL",
+        ].join(",");
+      }
+      if (moduleCsv && moduleCsv.trim()) {
+        params.module = moduleCsv
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .join(",");
+      }
+      if (actionCsv && actionCsv.trim()) {
+        params.action = actionCsv
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .join(",");
       }
       if (userId) params.user_id = userId;
       const res = await api.get("/admin/reports/system-log-book", { params });
@@ -84,10 +116,16 @@ export default function SystemLogBookPage() {
       <div className="card">
         <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-bold dark:text-brand-300">System Log Book</h1>
-            <p className="text-sm mt-1">Application events and user activity across modules</p>
+            <h1 className="text-2xl font-bold dark:text-brand-300">
+              System Log Book
+            </h1>
+            <p className="text-sm mt-1">
+              Application events and user activity across modules
+            </p>
           </div>
-          <Link to="/administration" className="btn btn-secondary">Return to Menu</Link>
+          <Link to="/administration" className="btn btn-secondary">
+            Return to Menu
+          </Link>
         </div>
       </div>
 
@@ -97,13 +135,14 @@ export default function SystemLogBookPage() {
             <div>
               <div className="text-lg font-semibold">System Status</div>
               <div className="text-xs text-slate-500">
-                Started {status.startedAt ? new Date(status.startedAt).toLocaleString() : "-"}
+                Started{" "}
+                {status.startedAt
+                  ? new Date(status.startedAt).toLocaleString()
+                  : "-"}
               </div>
             </div>
             <div className="text-right">
-              <div className="text-sm">
-                Server Uptime
-              </div>
+              <div className="text-sm">Server Uptime</div>
               <div className="text-xl font-bold text-brand-700">
                 {statusLoading ? "…" : status.uptimeHuman || "-"}
               </div>
@@ -113,16 +152,21 @@ export default function SystemLogBookPage() {
             <div className="p-3 rounded-lg border border-slate-200 bg-white dark:bg-slate-800">
               <div className="text-sm text-slate-600">Database Load</div>
               <div className="text-2xl font-bold text-brand-700">
-                {statusLoading ? "…" : `${Number(status.database.loadPercent || 0)}%`}
+                {statusLoading
+                  ? "…"
+                  : `${Number(status.database.loadPercent || 0)}%`}
               </div>
               <div className="text-xs text-slate-500 mt-1">
-                Connected: {status.database.threadsConnected} / Max: {status.database.maxConnections}
+                Connected: {status.database.threadsConnected} / Max:{" "}
+                {status.database.maxConnections}
               </div>
             </div>
             <div className="p-3 rounded-lg border border-slate-200 bg-white dark:bg-slate-800">
               <div className="text-sm text-slate-600">Threads Running</div>
               <div className="text-2xl font-bold text-brand-700">
-                {statusLoading ? "…" : Number(status.database.threadsRunning || 0)}
+                {statusLoading
+                  ? "…"
+                  : Number(status.database.threadsRunning || 0)}
               </div>
             </div>
             <div className="p-3 rounded-lg border border-slate-200 bg-white dark:bg-slate-800">
@@ -131,13 +175,22 @@ export default function SystemLogBookPage() {
                 {statusLoading && <div>Loading…</div>}
                 {!statusLoading &&
                   (status.recentLogins.slice(0, 5).map((r) => (
-                    <div key={r.id} className="flex items-center justify-between">
+                    <div
+                      key={r.id}
+                      className="flex items-center justify-between"
+                    >
                       <span className="font-medium">{r.username || "-"}</span>
                       <span className="text-xs text-slate-500">
-                        {r.login_time ? new Date(r.login_time).toLocaleString() : "-"}
+                        {r.login_time
+                          ? new Date(r.login_time).toLocaleString()
+                          : "-"}
                       </span>
                     </div>
-                  )) || <div className="text-xs text-slate-500">No recent logins</div>)}
+                  )) || (
+                    <div className="text-xs text-slate-500">
+                      No recent logins
+                    </div>
+                  ))}
               </div>
             </div>
           </div>
@@ -149,32 +202,112 @@ export default function SystemLogBookPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             <div>
               <label className="label">From</label>
-              <input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+              <input
+                className="input"
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+              />
             </div>
             <div>
               <label className="label">To</label>
-              <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+              <input
+                className="input"
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+              />
             </div>
             <div>
               <label className="label">Quick Filter</label>
-              <select className="input" value={quickFilter} onChange={(e) => setQuickFilter(e.target.value)}>
+              <select
+                className="input"
+                value={quickFilter}
+                onChange={(e) => setQuickFilter(e.target.value)}
+              >
                 <option value="all">All Logs</option>
-                <option value="email">Email Notifications Only</option>
+                <option value="email">Email Notifications</option>
               </select>
             </div>
             <div className="md:col-span-1 flex items-end gap-2">
-              <button type="button" className="btn-success" onClick={run} disabled={loading}>
+              <button
+                type="button"
+                className="btn-success"
+                onClick={run}
+                disabled={loading}
+              >
                 {loading ? "Running..." : "Run Report"}
               </button>
-              <button type="button" className="btn-success" onClick={() => { setFrom(""); setTo(""); }} disabled={loading}>
+              <button
+                type="button"
+                className="btn-success"
+                onClick={() => {
+                  setFrom("");
+                  setTo("");
+                }}
+                disabled={loading}
+              >
                 Clear
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
             <div>
               <label className="label">Filter by User ID</label>
-              <input className="input" type="number" value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="e.g., 1" />
+              <input
+                className="input"
+                type="number"
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+                placeholder="e.g., 1"
+              />
+            </div>
+            <div>
+              <label className="label">Modules (CSV)</label>
+              <input
+                className="input"
+                type="text"
+                value={moduleCsv}
+                onChange={(e) => setModuleCsv(e.target.value)}
+                placeholder="e.g., WorkflowNotify,DocumentForward"
+              />
+            </div>
+            <div>
+              <label className="label">Actions (CSV)</label>
+              <input
+                className="input"
+                type="text"
+                value={actionCsv}
+                onChange={(e) => setActionCsv(e.target.value)}
+                placeholder="e.g., EMAIL_SENT,EMAIL_ERROR"
+              />
+            </div>
+            <div>
+              <label className="label">Text Contains</label>
+              <input
+                className="input"
+                type="text"
+                value={textFilter}
+                onChange={(e) => setTextFilter(e.target.value)}
+                placeholder="Search user/module/action/message"
+              />
+            </div>
+            <div className="flex items-end justify-end">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  setModuleCsv(
+                    "WorkflowNotify,DocumentForward,Email,Authentication,Inventory,EmailDiagnosis,Workflow",
+                  );
+                  setActionCsv(
+                    "EMAIL_SENT,EMAIL_ERROR,EMAIL_SKIPPED,EMAIL_MOCK,TEST_SEND_SUCCESS,TEST_SEND_FAIL",
+                  );
+                  setQuickFilter("email");
+                }}
+              >
+                Fill Email Filters
+              </button>
             </div>
           </div>
 
@@ -191,21 +324,49 @@ export default function SystemLogBookPage() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.event_time ? new Date(r.event_time).toLocaleString() : "-"}</td>
-                    <td>{r.user_name || "-"}</td>
-                    <td>{r.module_name || "-"}</td>
-                    <td>{r.action || "-"}</td>
-                    <td className="font-medium">{r.ref_no || "-"}</td>
-                    <td>{r.message || "-"}</td>
-                  </tr>
-                ))}
+                {items
+                  .filter((r) => {
+                    if (!textFilter.trim()) return true;
+                    const t = textFilter.toLowerCase();
+                    return (
+                      String(r.user_name || "")
+                        .toLowerCase()
+                        .includes(t) ||
+                      String(r.module_name || "")
+                        .toLowerCase()
+                        .includes(t) ||
+                      String(r.action || "")
+                        .toLowerCase()
+                        .includes(t) ||
+                      String(r.ref_no || "")
+                        .toLowerCase()
+                        .includes(t) ||
+                      String(r.message || "")
+                        .toLowerCase()
+                        .includes(t)
+                    );
+                  })
+                  .map((r) => (
+                    <tr key={r.id}>
+                      <td>
+                        {r.event_time
+                          ? new Date(r.event_time).toLocaleString()
+                          : "-"}
+                      </td>
+                      <td>{r.user_name || "-"}</td>
+                      <td>{r.module_name || "-"}</td>
+                      <td>{r.action || "-"}</td>
+                      <td className="font-medium">{r.ref_no || "-"}</td>
+                      <td>{r.message || "-"}</td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>
 
-          {items.length === 0 && !loading ? <div className="text-center py-10">No rows.</div> : null}
+          {items.length === 0 && !loading ? (
+            <div className="text-center py-10">No rows.</div>
+          ) : null}
         </div>
       </div>
     </div>

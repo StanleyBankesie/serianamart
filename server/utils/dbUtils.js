@@ -20,6 +20,70 @@ export async function hasColumn(tableName, columnName) {
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
+export async function ensureSystemLogsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS adm_system_logs (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NULL,
+      branch_id BIGINT UNSIGNED NULL,
+      user_id BIGINT UNSIGNED NULL,
+      module_name VARCHAR(100) NULL,
+      action VARCHAR(100) NULL,
+      ref_no VARCHAR(100) NULL,
+      message VARCHAR(255) NULL,
+      url_path VARCHAR(255) NULL,
+      event_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_sys_logs_time (event_time),
+      KEY idx_sys_logs_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  try {
+    const cols = [
+      {
+        name: "module_name",
+        ddl: "ALTER TABLE adm_system_logs ADD COLUMN module_name VARCHAR(100) NULL AFTER user_id",
+      },
+      {
+        name: "action",
+        ddl: "ALTER TABLE adm_system_logs ADD COLUMN action VARCHAR(100) NULL AFTER module_name",
+      },
+      {
+        name: "ref_no",
+        ddl: "ALTER TABLE adm_system_logs ADD COLUMN ref_no VARCHAR(100) NULL AFTER action",
+      },
+      {
+        name: "message",
+        ddl: "ALTER TABLE adm_system_logs ADD COLUMN message VARCHAR(255) NULL AFTER ref_no",
+      },
+      {
+        name: "url_path",
+        ddl: "ALTER TABLE adm_system_logs ADD COLUMN url_path VARCHAR(255) NULL AFTER message",
+      },
+      {
+        name: "event_time",
+        ddl: "ALTER TABLE adm_system_logs ADD COLUMN event_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER url_path",
+      },
+    ];
+    for (const c of cols) {
+      // eslint-disable-next-line no-await-in-loop
+      const has = await hasColumn("adm_system_logs", c.name);
+      // eslint-disable-next-line no-await-in-loop
+      if (!has) await query(c.ddl);
+    }
+    const hasCreatedAt = await hasColumn("adm_system_logs", "created_at");
+    if (!hasCreatedAt) {
+      await query(
+        "ALTER TABLE adm_system_logs ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER event_time",
+      );
+      await query(
+        "UPDATE adm_system_logs SET created_at = event_time WHERE created_at IS NULL",
+      );
+    }
+  } catch {}
+}
+
 export async function ensureBranchColumns() {
   const table = "adm_branches";
   if (!(await hasColumn(table, "address"))) {
@@ -1478,6 +1542,16 @@ export async function ensurePushTables() {
 export async function ensureSalesOrderColumns() {
   // Ensure columns used by Sales Orders exist to prevent runtime SQL errors
   const orders = "sal_orders";
+  if (!(await hasColumn(orders, "status"))) {
+    await query(
+      `ALTER TABLE ${orders} ADD COLUMN status VARCHAR(32) NOT NULL DEFAULT 'DRAFT'`,
+    ).catch(() => null);
+  }
+  if (!(await hasColumn(orders, "priority"))) {
+    await query(
+      `ALTER TABLE ${orders} ADD COLUMN priority VARCHAR(16) NOT NULL DEFAULT 'MEDIUM'`,
+    ).catch(() => null);
+  }
   if (!(await hasColumn(orders, "sub_total"))) {
     await query(
       `ALTER TABLE ${orders} ADD COLUMN sub_total DECIMAL(18,2) DEFAULT 0`,

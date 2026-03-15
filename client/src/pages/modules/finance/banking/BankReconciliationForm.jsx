@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
+import BankReconciliationMatchPanel from "./components/BankReconciliationMatchPanel.jsx";
 
 export default function BankReconciliationForm() {
   const { id } = useParams();
@@ -35,6 +36,26 @@ export default function BankReconciliationForm() {
   });
   const [summary, setSummary] = useState(null);
 
+  async function quickAdd(desc, amt) {
+    try {
+      const today = new Date();
+      const date =
+        header?.statement_to?.slice(0, 10) ||
+        header?.statement_from?.slice(0, 10) ||
+        today.toISOString().slice(0, 10);
+      await api.post(`/finance/bank-reconciliations/${id}/lines`, {
+        statementDate: date,
+        description: desc || undefined,
+        amount: Number(amt),
+        cleared: 0,
+      });
+      toast.success("Adjustment added");
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.message || "Failed to add adjustment");
+    }
+  }
+
   async function load() {
     try {
       setLoading(true);
@@ -45,7 +66,7 @@ export default function BankReconciliationForm() {
       setLineDraft({});
       try {
         const sRes = await api.get(
-          `/finance/bank-reconciliations/${id}/summary`
+          `/finance/bank-reconciliations/${id}/summary`,
         );
         setSummary(sRes.data || null);
       } catch {
@@ -53,7 +74,7 @@ export default function BankReconciliationForm() {
       }
     } catch (e) {
       toast.error(
-        e?.response?.data?.message || "Failed to load reconciliation"
+        e?.response?.data?.message || "Failed to load reconciliation",
       );
     } finally {
       setLoading(false);
@@ -222,7 +243,7 @@ export default function BankReconciliationForm() {
       const res = await api.post(
         `/finance/bank-reconciliations/${id}/lines/import`,
         fd,
-        { headers: { "Content-Type": "multipart/form-data" } }
+        { headers: { "Content-Type": "multipart/form-data" } },
       );
       const ins = res.data?.insertedCount || 0;
       const skp = res.data?.skippedCount || 0;
@@ -240,7 +261,7 @@ export default function BankReconciliationForm() {
     try {
       const res = await api.get(
         `/finance/bank-reconciliations/lines/import-template?format=${format}`,
-        { responseType: "blob" }
+        { responseType: "blob" },
       );
       const blob = new Blob([res.data], {
         type:
@@ -334,6 +355,13 @@ export default function BankReconciliationForm() {
         diffBankVsBook: 0,
         outstandingEstimate: 0,
       };
+  const matchPct = (() => {
+    const denom = Math.abs(totals.ending) || 1;
+    return Math.min(
+      100,
+      Math.max(0, Math.round((Math.abs(totals.cleared) / denom) * 100)),
+    );
+  })();
 
   return (
     <div className="space-y-4">
@@ -417,7 +445,7 @@ export default function BankReconciliationForm() {
                   step="0.01"
                   value={
                     hdrDraft.statement_ending_balance === undefined
-                      ? header.statement_ending_balance ?? ""
+                      ? (header.statement_ending_balance ?? "")
                       : hdrDraft.statement_ending_balance
                   }
                   onChange={(e) =>
@@ -454,10 +482,9 @@ export default function BankReconciliationForm() {
           </div>
         </div>
       )}
-
       <div className="card">
-        <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+        <div className="card-body space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <div className="label">Cleared Total</div>
               <div className="text-xl font-semibold">
@@ -478,20 +505,6 @@ export default function BankReconciliationForm() {
               <div className="label">Statement Ending Balance</div>
               <div className="text-xl font-semibold">
                 {totals.ending.toLocaleString("en-US", {
-                  minimumFractionDigits: 2,
-                })}
-              </div>
-            </div>
-            <div>
-              <div className="label">Diff (Ending − Cleared)</div>
-              <div
-                className={`text-xl font-semibold ${
-                  totals.diffBankVsCleared === 0
-                    ? "text-green-600"
-                    : "text-red-600"
-                }`}
-              >
-                {totals.diffBankVsCleared.toLocaleString("en-US", {
                   minimumFractionDigits: 2,
                 })}
               </div>
@@ -521,12 +534,24 @@ export default function BankReconciliationForm() {
               </div>
             </div>
             <div>
+              <div className="label">Diff (Ending − Cleared)</div>
+              <div
+                className={`text-xl font-semibold ${
+                  totals.diffBankVsCleared === 0
+                    ? "text-green-600"
+                    : "text-red-600"
+                }`}
+              >
+                {totals.diffBankVsCleared.toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                })}
+              </div>
+            </div>
+            <div>
               <div className="label">Diff (Ending − Book)</div>
               <div
                 className={`text-xl font-semibold ${
-                  totals.diffBankVsBook === 0
-                    ? "text-green-600"
-                    : "text-red-600"
+                  totals.diffBankVsBook === 0 ? "text-green-600" : "text-red-600"
                 }`}
               >
                 {totals.diffBankVsBook.toLocaleString("en-US", {
@@ -535,7 +560,7 @@ export default function BankReconciliationForm() {
               </div>
             </div>
             <div>
-              <div className="label">Outstanding Estimate (Book − Cleared)</div>
+              <div className="label">Outstanding Estimate</div>
               <div className="text-xl font-semibold">
                 {totals.outstandingEstimate.toLocaleString("en-US", {
                   minimumFractionDigits: 2,
@@ -543,9 +568,78 @@ export default function BankReconciliationForm() {
               </div>
             </div>
           </div>
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <div className="text-sm font-medium">Match Rate</div>
+              <div className="text-sm">{matchPct}% matched</div>
+            </div>
+            <div className="w-full h-3 bg-slate-200 rounded">
+              <div
+                className="h-3 rounded bg-green-500 transition-all"
+                style={{ width: `${matchPct}%` }}
+              />
+            </div>
+          </div>
         </div>
       </div>
-
+      <BankReconciliationMatchPanel reconId={id} bankLines={lines} />
+      <div className="card">
+        <div className="card-header bg-slate-50 rounded-t-lg">
+          <h2 className="text-lg font-semibold">Outstanding Items</h2>
+          <p className="text-sm text-slate-600">
+            Bank lines not yet cleared in this period
+          </p>
+        </div>
+        <div className="card-body">
+          {lines.filter((l) => !Number(l.cleared)).length > 0 ? (
+            <ul className="divide-y">
+              {lines
+                .filter((l) => !Number(l.cleared))
+                .map((l) => (
+                  <li key={l.id} className="py-2 flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">
+                        {String(l.statement_date || "").slice(0, 10)} •{" "}
+                        {l.description || "-"}
+                      </div>
+                      <div className="text-sm text-slate-600">
+                        {Number(l.amount || 0).toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        className="btn"
+                        onClick={async () => {
+                          try {
+                            await api.put(
+                              `/finance/bank-reconciliation-lines/${l.id}`,
+                              { cleared: 1 },
+                            );
+                            toast.success("Marked as cleared");
+                            load();
+                          } catch (e2) {
+                            toast.error(
+                              e2?.response?.data?.message || "Failed to mark cleared",
+                            );
+                          }
+                        }}
+                      >
+                        Mark Cleared
+                      </button>
+                      <button className="btn" onClick={() => deleteLine(l)}>
+                        Delete
+                      </button>
+                    </div>
+                  </li>
+                ))}
+            </ul>
+          ) : (
+            <div className="text-center py-6 text-slate-600">None</div>
+          )}
+        </div>
+      </div>
       <div className="card">
         <div className="card-header bg-slate-50 rounded-t-lg">
           <div className="flex justify-between items-center">
@@ -723,7 +817,7 @@ export default function BankReconciliationForm() {
                   ? vouchers.filter((v) =>
                       String(v.voucher_no || "")
                         .toLowerCase()
-                        .includes(voucherSearch.toLowerCase())
+                        .includes(voucherSearch.toLowerCase()),
                     )
                   : vouchers
                 )
@@ -814,7 +908,7 @@ export default function BankReconciliationForm() {
                             min="0"
                             value={
                               d.voucher_id === undefined
-                                ? l.voucher_id ?? ""
+                                ? (l.voucher_id ?? "")
                                 : d.voucher_id
                             }
                             onChange={(e) =>
@@ -863,7 +957,7 @@ export default function BankReconciliationForm() {
                             className="input"
                             value={
                               d.description === undefined
-                                ? l.description ?? ""
+                                ? (l.description ?? "")
                                 : d.description
                             }
                             onChange={(e) =>
@@ -887,7 +981,9 @@ export default function BankReconciliationForm() {
                             type="number"
                             step="0.01"
                             value={
-                              d.amount === undefined ? l.amount ?? "" : d.amount
+                              d.amount === undefined
+                                ? (l.amount ?? "")
+                                : d.amount
                             }
                             onChange={(e) =>
                               setLineDraft((p) => ({
@@ -909,7 +1005,7 @@ export default function BankReconciliationForm() {
                         {isEdit ? (
                           <select
                             className="input"
-                            value={d.cleared ?? l.cleared ? "1" : "0"}
+                            value={(d.cleared ?? l.cleared) ? "1" : "0"}
                             onChange={(e) =>
                               setLineDraft((p) => ({
                                 ...p,
@@ -940,7 +1036,7 @@ export default function BankReconciliationForm() {
                                   [l.id]: {
                                     voucher_id: l.voucher_id,
                                     statement_date: String(
-                                      l.statement_date
+                                      l.statement_date,
                                     ).slice(0, 10),
                                     description: l.description,
                                     amount: l.amount,

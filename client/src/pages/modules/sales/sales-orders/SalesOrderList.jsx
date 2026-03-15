@@ -5,14 +5,16 @@ import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { toast } from "react-toastify";
-import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import addNotification from "react-push-notification";
 
 export default function SalesOrderList() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { canPerformAction } = usePermission();
+  const { canPerformAction, hasExceptional } = usePermission();
   const [orders, setOrders] = useState([]);
+  const [exceptionalAllowed, setExceptionalAllowed] = useState(false);
+  const [cancelDenied, setCancelDenied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -28,7 +30,6 @@ export default function SalesOrderList() {
   const [submittingForward, setSubmittingForward] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [forwardedTo, setForwardedTo] = useState({});
-  const [returnedFlags, setReturnedFlags] = useState({});
   const [companyInfo, setCompanyInfo] = useState({
     name: "",
     address: "",
@@ -44,6 +45,123 @@ export default function SalesOrderList() {
     logoUrl: "",
   });
   const [preparedBy, setPreparedBy] = useState("");
+
+  async function reverseSalesOrder(id) {
+    try {
+      await api.post(`/sales/orders/${id}/reverse`, {
+        desired_status: "DRAFT",
+      });
+      setOrders((prev) =>
+        prev.map((x) =>
+          x.id === id
+            ? { ...x, status: "DRAFT", forwarded_to_username: null }
+            : x,
+        ),
+      );
+      toast.success("Sales order reversed");
+      try {
+        const so = orders.find((o) => Number(o.id) === Number(id));
+        const icon = "/OMNISUITE_ICON_CLEAR.png";
+        const link = `/sales/sales-orders/${id}?mode=edit`;
+        addNotification({
+          title: "Sales Order reversed",
+          message: `SO ${so?.order_no || id} is now ready to forward for approval`,
+          native:
+            typeof window !== "undefined" &&
+            "Notification" in window &&
+            window.Notification?.permission === "granted",
+          icon,
+          onClick: () => {
+            window.location.assign(link);
+          },
+        });
+      } catch {}
+    } catch (e1) {
+      try {
+        await api.post("/workflows/reverse-by-document", {
+          document_type: "SALES_ORDER",
+          document_id: id,
+          desired_status: "DRAFT",
+        });
+        setOrders((prev) =>
+          prev.map((x) =>
+            x.id === id
+              ? { ...x, status: "DRAFT", forwarded_to_username: null }
+              : x,
+          ),
+        );
+        toast.success("Sales order reversed");
+        try {
+          const so = orders.find((o) => Number(o.id) === Number(id));
+          const icon = "/OMNISUITE_ICON_CLEAR.png";
+          const link = `/sales/sales-orders/${id}?mode=edit`;
+          addNotification({
+            title: "Sales Order reversed",
+            message: `SO ${so?.order_no || id} is now ready to forward for approval`,
+            native:
+              typeof window !== "undefined" &&
+              "Notification" in window &&
+              window.Notification?.permission === "granted",
+            icon,
+            onClick: () => {
+              window.location.assign(link);
+            },
+          });
+        } catch {}
+      } catch (e2) {
+        toast.error(
+          e2?.response?.data?.message ||
+            e1?.response?.data?.message ||
+            "Failed to reverse sales order",
+        );
+      }
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkExceptional() {
+      try {
+        const me = await api.get("/admin/me");
+        const uid = Number(me?.data?.user?.id || me?.data?.user?.sub || 0);
+        if (!uid || cancelled) return;
+        const resp = await api.get(
+          `/admin/users/${uid}/exceptional-permissions`,
+        );
+        const items = Array.isArray(resp?.data?.data?.items)
+          ? resp.data.data.items
+          : Array.isArray(resp?.data?.items)
+            ? resp.data.items
+            : [];
+        let allowed = items.some((p) => {
+          const effect = String(p.effect || "").toUpperCase();
+          const active = Number(p.is_active || p.isActive) === 1;
+          const code = String(
+            p.permission_code || p.permissionCode || "",
+          ).toUpperCase();
+          const codeOk = code === "SALES.ORDER.CANCEL";
+          return effect === "ALLOW" && active && codeOk;
+        });
+        const denied = items.some((p) => {
+          const effect = String(p.effect || "").toUpperCase();
+          const active = Number(p.is_active || p.isActive) === 1;
+          const code = String(
+            p.permission_code || p.permissionCode || "",
+          ).toUpperCase();
+          return effect === "DENY" && active && code === "SALES.ORDER.CANCEL";
+        });
+        if (!cancelled) setExceptionalAllowed(allowed);
+        if (!cancelled) setCancelDenied(denied);
+      } catch {
+        if (!cancelled) setExceptionalAllowed(false);
+        if (!cancelled) setCancelDenied(false);
+      }
+    }
+    checkExceptional();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -135,19 +253,8 @@ export default function SalesOrderList() {
           ),
         );
       } catch {}
-      if (normalized === "DRAFT") {
-        if (action === "RETURN") {
-          setReturnedFlags((prev) => ({ ...prev, [id]: true }));
-        }
+      if (String(status).toUpperCase() === "DRAFT") {
         setForwardedTo((prev) => {
-          const next = { ...prev };
-          delete next[id];
-          return next;
-        });
-      }
-      if (normalized !== "DRAFT") {
-        setReturnedFlags((prev) => {
-          if (!prev[id]) return prev;
           const next = { ...prev };
           delete next[id];
           return next;
@@ -488,9 +595,68 @@ export default function SalesOrderList() {
     }
   };
 
+  useEffect(() => {
+    async function hydrateMissing() {
+      try {
+        const targets = orders
+          .filter(
+            (o) =>
+              !o.customer_name ||
+              o.customer_name === "" ||
+              !o.priority ||
+              o.priority === "",
+          )
+          .slice(0, 20);
+        if (!targets.length) return;
+        const updates = await Promise.all(
+          targets.map(async (o) => {
+            try {
+              const res = await api.get(`/sales/orders/${o.id}`);
+              const item = res.data?.item || {};
+              return {
+                id: o.id,
+                customer_name:
+                  item.customer_name ||
+                  item.customer?.name ||
+                  o.customer_name ||
+                  "",
+                priority: item.priority || o.priority || "",
+                status:
+                  String(item.status || o.status || "").toUpperCase() ||
+                  "DRAFT",
+              };
+            } catch {
+              return null;
+            }
+          }),
+        );
+        const valid = updates.filter(Boolean);
+        if (!valid.length) return;
+        setOrders((prev) =>
+          prev.map((x) => {
+            const u = valid.find((v) => v.id === x.id);
+            return u
+              ? {
+                  ...x,
+                  customer_name: u.customer_name,
+                  priority: u.priority,
+                  status: u.status,
+                }
+              : x;
+          }),
+        );
+      } catch {}
+    }
+    hydrateMissing();
+  }, [orders]);
+
   const getStatusBadge = (status) => {
     const statusClasses = {
       DRAFT: "badge badge-warning",
+      PENDING_APPROVAL: "badge badge-warning",
+      RETURNED: "badge badge-error",
+      REJECTED: "badge badge-error",
+      APPROVED: "badge badge-info",
       CONFIRMED: "badge badge-info",
       PROCESSING: "badge badge-primary",
       SHIPPED: "badge badge-secondary",
@@ -708,12 +874,6 @@ export default function SalesOrderList() {
         [selectedOrder.id]:
           optimisticApprover || prev[selectedOrder.id] || "Approver",
       }));
-      setReturnedFlags((prev) => {
-        if (!prev[selectedOrder.id]) return prev;
-        const next = { ...prev };
-        delete next[selectedOrder.id];
-        return next;
-      });
       setShowForwardModal(false);
 
       const amount =
@@ -739,9 +899,52 @@ export default function SalesOrderList() {
         await fetchOrders();
       } catch {}
     } catch (e) {
-      setWfError(
-        e?.response?.data?.message || "Failed to forward for approval",
-      );
+      try {
+        const amount =
+          selectedOrder.total_amount === undefined ||
+          selectedOrder.total_amount === null
+            ? null
+            : Number(selectedOrder.total_amount || 0);
+        const wfRes = await api.post("/workflows/forward-by-document", {
+          document_type: "SALES_ORDER",
+          document_id: selectedOrder.id,
+          workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
+          target_user_id: targetApproverId || null,
+          amount,
+        });
+        const newStatus = wfRes?.data?.status || "PENDING_APPROVAL";
+        setOrders((prev) =>
+          prev.map((x) =>
+            x.id === selectedOrder.id ? { ...x, status: newStatus } : x,
+          ),
+        );
+        try {
+          toast.success("Sales order forwarded for approval");
+        } catch {}
+      } catch (e2) {
+        try {
+          await api.put(`/sales/orders/${selectedOrder.id}/status`, {
+            status: "PENDING_APPROVAL",
+          });
+          setOrders((prev) =>
+            prev.map((x) =>
+              x.id === selectedOrder.id
+                ? { ...x, status: "PENDING_APPROVAL" }
+                : x,
+            ),
+          );
+          try {
+            toast.success("Sales order forwarded for approval");
+          } catch {}
+        } catch (e3) {
+          setWfError(
+            e?.response?.data?.message ||
+              e2?.response?.data?.message ||
+              e3?.response?.data?.message ||
+              "Failed to forward for approval",
+          );
+        }
+      }
       try {
         await fetchOrders();
       } catch {}
@@ -799,6 +1002,8 @@ export default function SalesOrderList() {
               >
                 <option value="ALL">All Status</option>
                 <option value="DRAFT">Draft</option>
+                <option value="PENDING_APPROVAL">Pending Approval</option>
+                <option value="APPROVED">Approved</option>
                 <option value="CONFIRMED">Confirmed</option>
                 <option value="PROCESSING">Processing</option>
                 <option value="SHIPPED">Shipped</option>
@@ -828,6 +1033,7 @@ export default function SalesOrderList() {
                     <th>Order Date</th>
                     <th>Customer</th>
                     <th>Priority</th>
+                    <th>Status</th>
                     <th>Amount</th>
                     <th>Actions</th>
                   </tr>
@@ -839,6 +1045,11 @@ export default function SalesOrderList() {
                       <td>{new Date(order.order_date).toLocaleDateString()}</td>
                       <td>{order.customer_name}</td>
                       <td>{order.priority || "-"}</td>
+                      <td>
+                        {getStatusBadge(
+                          String(order.status || "").toUpperCase(),
+                        )}
+                      </td>
                       <td className="font-semibold">
                         {order.total_amount.toLocaleString("en-US", {
                           minimumFractionDigits: 2,
@@ -873,45 +1084,41 @@ export default function SalesOrderList() {
                                 Edit
                               </button>
                             )}
-                          {["APPROVED", "CONFIRMED"].includes(
-                            String(order.status || "").toUpperCase(),
-                          ) ? (
+                          {String(order.status || "").toUpperCase() ===
+                          "APPROVED" ? (
                             <>
                               <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
                                 Approved
                               </span>
-                              <ReverseApprovalButton
-                                docType="SALES_ORDER"
-                                docId={order.id}
-                                onDone={() =>
-                                  setOrders((prev) =>
-                                    prev.map((x) =>
-                                      x.id === order.id
-                                        ? {
-                                            ...x,
-                                            status: "REVERSED",
-                                            forwarded_to_username: null,
-                                          }
-                                        : x,
-                                    ),
-                                  )
-                                }
-                              />
+                              <button
+                                type="button"
+                                className="ml-2 text-indigo-700 hover:text-indigo-800 text-sm font-medium"
+                                onClick={() => reverseSalesOrder(order.id)}
+                              >
+                                Reverse Approval
+                              </button>
                             </>
                           ) : String(order.status || "").toUpperCase() ===
                             "POSTED" ? (
                             <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-indigo-600 text-white">
                               Posted
                             </span>
-                          ) : ["DRAFT", "RETURNED", "REJECTED"].includes(
-                              String(order.status || "").toUpperCase(),
-                            ) || returnedFlags[order.id] ? (
+                          ) : String(order.status || "").toUpperCase() ===
+                            "PENDING_APPROVAL" ? (
+                            <button
+                              type="button"
+                              disabled
+                              title="Assigned approver"
+                              className="ml-3 inline-flex items-center px-3 py-1.5 rounded bg-amber-500 text-white text-xs font-semibold cursor-default select-none"
+                            >
+                              Forwarded to:{" "}
+                              {(order.forwarded_to_username ||
+                                forwardedTo[order.id] ||
+                                "Approver") + ""}
+                            </button>
+                          ) : String(order.status || "").toUpperCase() ===
+                            "DRAFT" ? (
                             <span className="ml-3 inline-flex items-center gap-2">
-                              {returnedFlags[order.id] ? (
-                                <span className="text-xs font-semibold px-2 py-0.5 rounded bg-yellow-100 text-yellow-800 border border-yellow-300">
-                                  Returned
-                                </span>
-                              ) : null}
                               <button
                                 type="button"
                                 className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 transition-colors"
@@ -921,16 +1128,7 @@ export default function SalesOrderList() {
                                 Forward for Approval
                               </button>
                             </span>
-                          ) : (
-                            <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
-                              Forwarded to{" "}
-                              {order.forwarded_to_username
-                                ? order.forwarded_to_username
-                                : forwardedTo[order.id]
-                                  ? forwardedTo[order.id]
-                                  : "Approver"}
-                            </span>
-                          )}
+                          ) : null}
                           <button
                             onClick={() => printSalesOrder(order.id)}
                             className="inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
@@ -943,6 +1141,34 @@ export default function SalesOrderList() {
                           >
                             PDF
                           </button>
+                          {!order.has_invoice &&
+                          hasExceptional("SALES.ORDER.CANCEL") ? (
+                            <button
+                              onClick={async () => {
+                                if (
+                                  !window.confirm(
+                                    `Cancel this Sales Order (${order.order_no})?`,
+                                  )
+                                )
+                                  return;
+                                try {
+                                  await api.delete(`/sales/orders/${order.id}`);
+                                  toast.success("Sales order cancelled");
+                                  setOrders((prev) =>
+                                    prev.filter((x) => x.id !== order.id),
+                                  );
+                                } catch (e) {
+                                  toast.error(
+                                    e?.response?.data?.message ||
+                                      "Unable to cancel sales order",
+                                  );
+                                }
+                              }}
+                              className="inline-flex items-center px-3 py-1.5 rounded bg-[#A30000] hover:bg-[#7B0000] text-white text-xs font-semibold"
+                            >
+                              Cancel
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>

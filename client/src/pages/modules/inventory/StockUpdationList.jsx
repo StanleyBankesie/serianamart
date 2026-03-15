@@ -523,7 +523,7 @@ export default function StockUpdationList() {
                                         x.id === adj.id
                                           ? {
                                               ...x,
-                                              status: "REVERSED",
+                                              status: "RETURNED",
                                               forwarded_to_username: null,
                                             }
                                           : x,

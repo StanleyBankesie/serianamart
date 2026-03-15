@@ -554,7 +554,14 @@ export const listShippingAdvices = async (req, res, next) => {
   try {
     const { companyId, branchId } = req.scope;
     const { status, po_type } = req.query;
-    let sql = `SELECT sa.*, s.supplier_name, p.po_no, p.po_type
+    let sql = `SELECT sa.*, s.supplier_name, p.po_no, p.po_type,
+         EXISTS(
+           SELECT 1 FROM pur_port_clearances pc
+            WHERE pc.company_id = sa.company_id 
+              AND pc.branch_id = sa.branch_id
+              AND pc.advice_id = sa.id
+            LIMIT 1
+         ) AS has_clearing
          FROM pur_shipping_advices sa
          JOIN pur_suppliers s ON s.id = sa.supplier_id
          JOIN pur_orders p ON p.id = sa.po_id
@@ -758,7 +765,14 @@ export const listPortClearances = async (req, res, next) => {
   try {
     const { companyId, branchId } = req.scope;
     const { status } = req.query;
-    let sql = `SELECT pc.*, sa.advice_no, p.po_no, s.supplier_name
+    let sql = `SELECT pc.*, sa.advice_no, p.po_no, s.supplier_name,
+         EXISTS(
+           SELECT 1 FROM inv_goods_receipt_notes g
+            WHERE g.company_id = pc.company_id
+              AND g.branch_id = pc.branch_id
+              AND g.port_clearance_id = pc.id
+            LIMIT 1
+         ) AS has_grn
          FROM pur_port_clearances pc
          LEFT JOIN pur_shipping_advices sa ON sa.id = pc.advice_id
          LEFT JOIN pur_orders p ON p.id = sa.po_id

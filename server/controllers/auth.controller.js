@@ -276,6 +276,15 @@ export const requestPasswordResetOtp = async (req, res, next) => {
       subject,
       text,
       html,
+      meta: {
+        moduleName: "Authentication",
+        action: "EMAIL_SENT",
+        userId: user.id,
+        companyId: null,
+        branchId: null,
+        message: `Password reset OTP sent to ${user.email}`,
+        urlPath: "/api/forgot-password/request-otp",
+      },
     });
     if (!mailed || !isMailerConfigured()) {
       console.log(

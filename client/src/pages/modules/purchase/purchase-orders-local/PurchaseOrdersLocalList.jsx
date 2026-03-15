@@ -3,11 +3,13 @@ import { Link, useLocation } from "react-router-dom";
 import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
-import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
+// ReverseApprovalButton removed for POs; use direct reverse like vouchers
 import { filterAndSort } from "@/utils/searchUtils.js";
+import addNotification from "react-push-notification";
 
 export default function PurchaseOrdersLocalList() {
   const location = useLocation();
+  const [exceptionalAllowed, setExceptionalAllowed] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
 
@@ -25,8 +27,95 @@ export default function PurchaseOrdersLocalList() {
   const [submittingForward, setSubmittingForward] = useState(false);
   const [selectedPO, setSelectedPO] = useState(null);
   const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
-  const { canPerformAction } = usePermission();
+  const { canPerformAction, hasExceptional } = usePermission();
+  const [cancelDenied, setCancelDenied] = useState(false);
 
+  async function reversePo(id) {
+    try {
+      await api.post(`/purchase/orders/${id}/reverse`, {
+        desired_status: "DRAFT",
+      });
+    } catch (e1) {
+      try {
+        await api.post("/workflows/reverse-by-document", {
+          document_type: "PURCHASE_ORDER",
+          document_id: id,
+          desired_status: "DRAFT",
+        });
+      } catch (e2) {
+        await api.put(`/purchase/orders/${id}/status`, { status: "DRAFT" });
+      }
+    }
+    toast.success("Purchase order reversed successfully");
+    setPurchaseOrders((prev) =>
+      prev.map((x) =>
+        x.id === id ? { ...x, status: "DRAFT", forwarded_to_username: null } : x,
+      ),
+    );
+    try {
+      const po = purchaseOrders.find((p) => Number(p.id) === Number(id));
+      const icon = "/OMNISUITE_ICON_CLEAR.png";
+      const link = `/purchase/purchase-orders-local/${id}`;
+      addNotification({
+        title: "Purchase Order reversed",
+        message: `PO ${po?.po_no || id} is now ready to forward for approval`,
+        native:
+          typeof window !== "undefined" &&
+          "Notification" in window &&
+          window.Notification?.permission === "granted",
+        icon,
+        onClick: () => {
+          window.location.assign(link);
+        },
+      });
+    } catch {}
+  }
+  useEffect(() => {
+    let cancelled = false;
+    async function checkExceptional() {
+      try {
+        const me = await api.get("/admin/me");
+        const uid = Number(me?.data?.user?.id || me?.data?.user?.sub || 0);
+        if (!uid || cancelled) return;
+        const resp = await api.get(
+          `/admin/users/${uid}/exceptional-permissions`,
+        );
+        const items = Array.isArray(resp?.data?.data?.items)
+          ? resp.data.data.items
+          : Array.isArray(resp?.data?.items)
+            ? resp.data.items
+            : [];
+        let allowed = items.some((p) => {
+          const effect = String(p.effect || "").toUpperCase();
+          const active = Number(p.is_active || p.isActive) === 1;
+          const code = String(
+            p.permission_code || p.permissionCode || "",
+          ).toUpperCase();
+          const codeOk = code === "PURCHASE.ORDER.CANCEL";
+          return effect === "ALLOW" && active && codeOk;
+        });
+        const denied = items.some((p) => {
+          const effect = String(p.effect || "").toUpperCase();
+          const active = Number(p.is_active || p.isActive) === 1;
+          const code = String(
+            p.permission_code || p.permissionCode || "",
+          ).toUpperCase();
+          return (
+            effect === "DENY" && active && code === "PURCHASE.ORDER.CANCEL"
+          );
+        });
+        if (!cancelled) setExceptionalAllowed(allowed);
+        if (!cancelled) setCancelDenied(denied);
+      } catch {
+        if (!cancelled) setExceptionalAllowed(false);
+        if (!cancelled) setCancelDenied(false);
+      }
+    }
+    checkExceptional();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   useEffect(() => {
     let mounted = true;
     setLoading(true);
@@ -418,9 +507,43 @@ export default function PurchaseOrdersLocalList() {
         toast.success("Purchase order forwarded for approval");
       } catch {}
     } catch (e) {
-      setWfError(
-        e?.response?.data?.message || "Failed to forward for approval",
-      );
+      try {
+        const amount =
+          selectedPO.total_amount === undefined ||
+          selectedPO.total_amount === null
+            ? null
+            : Number(selectedPO.total_amount || 0);
+        const wfRes = await api.post("/workflows/forward-by-document", {
+          document_type: "PURCHASE_ORDER",
+          document_id: selectedPO.id,
+          workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
+          target_user_id: targetApproverId || null,
+          amount,
+        });
+        const newStatus = wfRes?.data?.status || "PENDING_APPROVAL";
+        setPurchaseOrders((prev) =>
+          prev.map((po) =>
+            po.id === selectedPO.id ? { ...po, status: newStatus } : po,
+          ),
+        );
+        try {
+          toast.success("Purchase order forwarded for approval");
+        } catch {}
+      } catch (e2) {
+        try {
+          await api.put(`/purchase/orders/${selectedPO.id}/status`, {
+            status: "PENDING_APPROVAL",
+          });
+          toast.success("Purchase order forwarded for approval");
+        } catch (e3) {
+          setWfError(
+            e?.response?.data?.message ||
+              e2?.response?.data?.message ||
+              e3?.response?.data?.message ||
+              "Failed to forward for approval",
+          );
+        }
+      }
     } finally {
       setSubmittingForward(false);
     }
@@ -439,14 +562,12 @@ export default function PurchaseOrdersLocalList() {
           <Link to="/purchase" className="btn btn-secondary">
             Return to Menu
           </Link>
-          {canPerformAction("purchase:purchase-orders-local", "create") && (
-            <Link
-              to="/purchase/purchase-orders-local/new"
-              className="btn-success"
-            >
-              + New Purchase Order
-            </Link>
-          )}
+          <Link
+            to="/purchase/purchase-orders-local/new"
+            className="btn-success"
+          >
+            + New Purchase Order
+          </Link>
         </div>
       </div>
 
@@ -550,48 +671,30 @@ export default function PurchaseOrdersLocalList() {
                             View
                           </Link>
                         )}
-                        {po.status === "DRAFT" &&
-                          canPerformAction(
-                            "purchase:purchase-orders-local",
-                            "edit",
-                          ) && (
-                            <Link
-                              to={`/purchase/purchase-orders-local/${po.id}/edit`}
-                              className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
-                            >
-                              Edit
-                            </Link>
-                          )}
+                        <Link
+                          to={`/purchase/purchase-orders-local/${po.id}/edit`}
+                          className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
+                        >
+                          Edit
+                        </Link>
                         {po.status === "APPROVED" ? (
                           <>
                             <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
                               Approved
                             </span>
-                            {/* Reverse Approval button shown globally across modules for authorized users */}
-                            <ReverseApprovalButton
-                              docType="PURCHASE_ORDER"
-                              docId={po.id}
-                              onDone={() =>
-                                setPurchaseOrders((prev) =>
-                                  prev.map((x) =>
-                                    x.id === po.id
-                                      ? {
-                                          ...x,
-                                          status: "REVERSED",
-                                          forwarded_to_username: null,
-                                        }
-                                      : x,
-                                  ),
-                                )
-                              }
-                            />
+                            <button
+                              type="button"
+                              className="ml-2 text-indigo-700 hover:text-indigo-800 text-sm font-medium"
+                              onClick={() => reversePo(po.id)}
+                            >
+                              Reverse Approval
+                            </button>
                           </>
                         ) : po.forwarded_to_username ? (
-                          <span className="text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
+                          <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
                             Forwarded to {po.forwarded_to_username}
                           </span>
-                        ) : po.status === "DRAFT" ||
-                          po.status === "RETURNED" ? (
+                        ) : po.status === "DRAFT" ? (
                           <button
                             type="button"
                             className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 transition-colors"
@@ -599,6 +702,33 @@ export default function PurchaseOrdersLocalList() {
                             disabled={hasInactiveWorkflow}
                           >
                             Forward for Approval
+                          </button>
+                        ) : null}
+                        {hasExceptional("PURCHASE.ORDER.CANCEL") &&
+                        !po.has_grn ? (
+                          <button
+                            type="button"
+                            className="inline-flex items-center px-3 py-1.5 rounded bg-[#A30000] hover:bg-[#7B0000] text-white text-xs font-semibold"
+                            onClick={async () => {
+                              if (
+                                !window.confirm(`Cancel this PO (${po.po_no})?`)
+                              )
+                                return;
+                              try {
+                                await api.delete(`/purchase/orders/${po.id}`);
+                                toast.success("Purchase order cancelled");
+                                setPurchaseOrders((prev) =>
+                                  prev.filter((x) => x.id !== po.id),
+                                );
+                              } catch (e) {
+                                toast.error(
+                                  e?.response?.data?.message ||
+                                    "Unable to cancel purchase order",
+                                );
+                              }
+                            }}
+                          >
+                            Cancel
                           </button>
                         ) : null}
                       </div>
