@@ -1806,7 +1806,27 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
     }
     res.json(out);
   } catch (err) {
-    next(err);
+    try {
+      const reqPath = String(req.query?.path || "").trim() || "/";
+      const base = basePathFromRequestPath(reqPath);
+      // Fail-open for view so the UI doesn't break; restrict create/edit/delete by default
+      res.status(200).json({
+        path: base,
+        can_view: 1,
+        can_create: 0,
+        can_edit: 0,
+        can_delete: 0,
+      });
+    } catch {
+      // As a last resort, respond with global defaults
+      res.status(200).json({
+        path: "/",
+        can_view: 1,
+        can_create: 0,
+        can_edit: 0,
+        can_delete: 0,
+      });
+    }
   }
 });
 

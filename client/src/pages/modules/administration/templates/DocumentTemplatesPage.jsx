@@ -537,7 +537,7 @@ function getSampleTemplate(type) {
   }
   .header {
     display: grid; grid-template-columns: 100px 1fr; gap: 12px;
-    align-items: center; margin-bottom: 8px;
+    align-items: center; margin-bottom: 6px;
   }
   .logo { height: 80px; object-fit: contain; }
   .company {
@@ -545,11 +545,11 @@ function getSampleTemplate(type) {
   }
   .company .name { font-weight: 700; font-size: 16px; color: var(--brand); }
   .meta { color: var(--muted); }
-  .titlebar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; margin: 6px 0 10px 0; }
+  .titlebar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; margin: 6px 0 6px 0; }
   .line { border-top: 2px solid var(--text); height: 0; }
   .title { font-weight: 700; color: var(--brand); text-align: center; }
   .info {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0 12px 0;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 6px 0 8px 0;
   }
   .info .card {
     border: 1px solid var(--border); border-radius: 6px; padding: 8px;
@@ -565,14 +565,21 @@ function getSampleTemplate(type) {
   tbody td { border: 1px solid var(--border); padding: 6px; }
   td.num { text-align: right; }
   .totals {
-    display: grid; grid-template-columns: 1fr 220px; gap: 12px; margin-top: 10px;
+    display: grid; grid-template-columns: 1fr 220px; gap: 12px; margin-top: 8px;
   }
   .totals .box { border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
   .footer {
-    margin-top: 18px; font-size: 11px; border-top: 1px solid var(--border); padding-top: 8px;
+    margin-top: 12px; font-size: 11px; border-top: 1px solid var(--border); padding-top: 8px;
     display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
   }
   .sign { height: 40px; border-bottom: 1px solid var(--border); }
+  @media print {
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body { margin: 0 !important; padding: 0 !important; }
+    .doc { max-width: 19cm; margin: 0 auto; }
+    .header, .titlebar, .info { break-after: avoid; break-inside: avoid; }
+    table, thead, tbody, tr, td, th { page-break-inside: avoid !important; }
+  }
 </style>`;
   if (type === "sales-order") {
     return `
@@ -600,12 +607,14 @@ ${commonHead}
         <div class="row"><div class="label">City:</div><div class="value">{{customer.city}}</div></div>
         <div class="row"><div class="label">State:</div><div class="value">{{customer.state}}</div></div>
         <div class="row"><div class="label">Country:</div><div class="value">{{customer.country}}</div></div>
+        <div class="row"><div class="label">Phone:</div><div class="value">{{customer.phone}}</div></div>
+        <div class="row"><div class="label">Email:</div><div class="value">{{customer.email}}</div></div>
       </div>
     </div>
     <div class="card">
       <div class="kv">
         <div class="row"><div class="label">Order No.:</div><div class="value">{{sales_order.number}}</div></div>
-        <div class="row"><div class="label">Order Date:</div><div class="value">{{sales_order.date}}</div></div>
+        <div class="row"><div class="label">Order Date:</div><div class="value">{{formatDate sales_order.date}}</div></div>
       </div>
     </div>
   </div>
@@ -625,6 +634,7 @@ ${commonHead}
     <div></div>
     <div class="box">
       <div>Sub Total: {{sales_order.sub_total}}</div>
+      <div>Discount: {{sales_order.discount_amount}}</div>
       <div>Tax: {{sales_order.tax_amount}}</div>
       <div><strong>Total: {{sales_order.total}}</strong></div>
     </div>
@@ -669,12 +679,14 @@ ${commonHead}
         <div class="row"><div class="label">City:</div><div class="value">{{customer.city}}</div></div>
         <div class="row"><div class="label">State:</div><div class="value">{{customer.state}}</div></div>
         <div class="row"><div class="label">Country:</div><div class="value">{{customer.country}}</div></div>
+        <div class="row"><div class="label">Phone:</div><div class="value">{{customer.phone}}</div></div>
+        <div class="row"><div class="label">Email:</div><div class="value">{{customer.email}}</div></div>
       </div>
     </div>
     <div class="card">
       <div class="kv">
         <div class="row"><div class="label">Invoice No.:</div><div class="value">{{invoice.number}}</div></div>
-        <div class="row"><div class="label">Invoice Date:</div><div class="value">{{invoice.date}}</div></div>
+        <div class="row"><div class="label">Invoice Date:</div><div class="value">{{formatDate invoice.date}}</div></div>
         <div class="row"><div class="label">Payment Term:</div><div class="value">{{invoice.payment_term}}</div></div>
       </div>
     </div>
@@ -735,7 +747,7 @@ ${commonHead}
     <div class="card">
       <div><strong>Delivery Info</strong></div>
       <div>Number: {{delivery_note.number}}</div>
-      <div>Date: {{delivery_note.date}}</div>
+      <div>Date: {{formatDate delivery_note.date}}</div>
     </div>
   </div>
   <table>
@@ -785,7 +797,7 @@ ${commonHead}
     <div class="card">
       <div><strong>Voucher Info</strong></div>
       <div>Number: {{payment_voucher.number}}</div>
-      <div>Date: {{payment_voucher.date}}</div>
+      <div>Date: {{formatDate payment_voucher.date}}</div>
       <div class="meta">Type: {{payment_voucher.type_code}} • {{payment_voucher.type_name}}</div>
     </div>
     <div class="card">
@@ -856,7 +868,7 @@ ${commonHead}
     <div class="card">
       <div class="kv">
         <div class="row"><div class="label">Quotation No.:</div><div class="value">{{quotation.number}}</div></div>
-        <div class="row"><div class="label">Quotation Date:</div><div class="value">{{quotation.date}}</div></div>
+        <div class="row"><div class="label">Quotation Date:</div><div class="value">{{formatDate quotation.date}}</div></div>
       </div>
     </div>
   </div>
@@ -916,7 +928,7 @@ ${commonHead}
     <div class="card">
       <div><strong>Voucher Info</strong></div>
       <div>Number: {{receipt_voucher.number}}</div>
-      <div>Date: {{receipt_voucher.date}}</div>
+      <div>Date: {{formatDate receipt_voucher.date}}</div>
       <div class="meta">Type: {{receipt_voucher.type_code}} • {{receipt_voucher.type_name}}</div>
     </div>
     <div class="card">

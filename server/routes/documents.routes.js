@@ -12,6 +12,14 @@ import { ensureTemplateTables, toNumber, hasColumn } from "../utils/dbUtils.js";
 
 const router = express.Router();
 
+// Register Handlebars helpers
+Handlebars.registerHelper("formatDate", function (date) {
+  if (!date) return "";
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return date;
+  return d.toISOString().split("T")[0]; // Returns YYYY-MM-DD
+});
+
 function expandDocumentTypeAliases(type) {
   const t = String(type || "")
     .trim()
@@ -256,20 +264,24 @@ ${commonHead}
     <div class="title">* Sales Order *</div>
     <div class="line"></div>
   </div>
-  <div class="info">
+  <div class="info" style="grid-template-columns: 1fr 1fr;">
     <div class="card">
       <div class="kv">
-        <div class="row"><div class="label">Customer Name:</div><div class="value">{{customer.name}}</div></div>
+        <div class="row"><div class="label">Name:</div><div class="value">{{customer.name}}</div></div>
         <div class="row"><div class="label">Address:</div><div class="value">{{customer.address}}</div></div>
-        <div class="row"><div class="label">City:</div><div class="value">{{customer.city}}</div></div>
-        <div class="row"><div class="label">State:</div><div class="value">{{customer.state}}</div></div>
-        <div class="row"><div class="label">Country:</div><div class="value">{{customer.country}}</div></div>
+        <div class="row"><div class="label"></div><div class="value">{{customer.address2}}</div></div>
+        <div class="row"><div class="label">Mobile:</div><div class="value">{{customer.phone}}</div></div>
+        <div class="row"><div class="label">Email:</div><div class="value">{{customer.email}}</div></div>
       </div>
     </div>
     <div class="card">
       <div class="kv">
         <div class="row"><div class="label">Order No.:</div><div class="value">{{sales_order.number}}</div></div>
-        <div class="row"><div class="label">Order Date:</div><div class="value">{{sales_order.date}}</div></div>
+        <div class="row"><div class="label">Order Date:</div><div class="value">{{formatDate sales_order.date}}</div></div>
+        <div class="row"><div class="label">Payment Term:</div><div class="value">{{sales_order.payment_terms}}</div></div>
+      </div>
+      <div style="text-align:right;margin-top:6px;">
+        <img src="{{sales_order.qr_code}}" alt="QR" style="width:90px;height:90px;border:1px solid var(--border);" />
       </div>
     </div>
   </div>
@@ -289,8 +301,9 @@ ${commonHead}
     <div></div>
     <div class="box">
       <div>Sub Total: {{sales_order.sub_total}}</div>
+      <div>Discount: {{sales_order.discount_amount}}</div>
       <div>Tax: {{sales_order.tax_amount}}</div>
-      <div><strong>Total: {{sales_order.total}}</strong></div>
+      <div><strong>Net Amount: {{sales_order.net_amount}}</strong></div>
     </div>
   </div>
   <div class="footer">
@@ -325,21 +338,24 @@ ${commonHead}
     <div class="title">* Sales Invoice *</div>
     <div class="line"></div>
   </div>
-  <div class="info">
+  <div class="info" style="grid-template-columns: 1fr 1fr;">
     <div class="card">
       <div class="kv">
-        <div class="row"><div class="label">Customer Name:</div><div class="value">{{customer.name}}</div></div>
+        <div class="row"><div class="label">Name:</div><div class="value">{{customer.name}}</div></div>
         <div class="row"><div class="label">Address:</div><div class="value">{{customer.address}}</div></div>
-        <div class="row"><div class="label">City:</div><div class="value">{{customer.city}}</div></div>
-        <div class="row"><div class="label">State:</div><div class="value">{{customer.state}}</div></div>
-        <div class="row"><div class="label">Country:</div><div class="value">{{customer.country}}</div></div>
+        <div class="row"><div class="label"></div><div class="value">{{customer.address2}}</div></div>
+        <div class="row"><div class="label">Phone:</div><div class="value">{{customer.phone}}</div></div>
+        <div class="row"><div class="label">Email:</div><div class="value">{{customer.email}}</div></div>
       </div>
     </div>
     <div class="card">
       <div class="kv">
         <div class="row"><div class="label">Invoice No.:</div><div class="value">{{invoice.number}}</div></div>
-        <div class="row"><div class="label">Invoice Date:</div><div class="value">{{invoice.date}}</div></div>
+        <div class="row"><div class="label">Invoice Date:</div><div class="value">{{formatDate invoice.date}}</div></div>
         <div class="row"><div class="label">Payment Term:</div><div class="value">{{invoice.payment_term}}</div></div>
+      </div>
+      <div style="text-align:right;margin-top:6px;">
+        <img src="{{invoice.qr_code}}" alt="QR" style="width:90px;height:90px;border:1px solid var(--border);" />
       </div>
     </div>
   </div>
@@ -1060,6 +1076,7 @@ async function loadData(type, id, companyId, branchId) {
       customer: {
         name: order.customer_name,
         address: order.customer_address,
+        address2: '',
         city: order.customer_city,
         state: order.customer_state,
         country: order.customer_country,
@@ -1071,7 +1088,7 @@ async function loadData(type, id, companyId, branchId) {
       sales_order: {
         id: order.id,
         number: order.order_no,
-        date: order.order_date,
+        date: order.order_date ? String(order.order_date).slice(0, 10) : null,
         status: order.status,
         expected_delivery_date: order.expected_delivery_date,
         actual_delivery_date: order.actual_delivery_date,
@@ -1080,6 +1097,7 @@ async function loadData(type, id, companyId, branchId) {
         sub_total: order.sub_total,
         tax_amount: order.tax_amount,
         total: order.total_amount,
+        net_amount: order.total_amount,
         remarks: order.remarks,
         price_type: order.price_type || null,
         payment_type: order.payment_type || null,
@@ -1106,6 +1124,13 @@ async function loadData(type, id, companyId, branchId) {
         })),
       },
     };
+    // Attach QR code (unique per document) using a lightweight external generator
+    try {
+      const qrPayload = encodeURIComponent(
+        `SALES_ORDER|${order.id}|${order.order_no || ""}|${order.order_date || ""}|${order.customer_name || ""}`,
+      );
+      soObj.sales_order.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
+    } catch {}
     // Aliases for template compatibility
     soObj.document = soObj.sales_order;
     soObj.order = soObj.sales_order;
@@ -1224,6 +1249,7 @@ async function loadData(type, id, companyId, branchId) {
       customer: {
         name: inv.customer_name,
         address: inv.customer_address,
+        address2: '',
         city: inv.customer_city,
         state: inv.customer_state,
         country: inv.customer_country,
@@ -1235,7 +1261,8 @@ async function loadData(type, id, companyId, branchId) {
       invoice: {
         id: inv.id,
         number: inv.invoice_no,
-        date: inv.invoice_date,
+        date: inv.invoice_date ? String(inv.invoice_date).slice(0, 10) : null,
+        payment_term: inv.payment_type || null,
         status: inv.status,
         payment_status: inv.payment_status,
         price_type: inv.price_type || null,
@@ -1262,6 +1289,13 @@ async function loadData(type, id, companyId, branchId) {
         })),
       },
     };
+    // Attach QR code (unique per document) using a lightweight external generator
+    try {
+      const qrPayload = encodeURIComponent(
+        `INVOICE|${inv.id}|${inv.invoice_no || ""}|${inv.invoice_date || ""}|${inv.customer_name || ""}`,
+      );
+      invObj.invoice.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
+    } catch {}
     invObj.document = invObj.invoice;
     invObj.items = invObj.invoice.items;
     return invObj;
@@ -1487,6 +1521,13 @@ async function loadData(type, id, companyId, branchId) {
         })),
       },
     };
+    // Attach QR code (unique per document) using a lightweight external generator
+    try {
+      const qrPayload = encodeURIComponent(
+        `DELIVERY_NOTE|${dn.id}|${dn.delivery_no || ""}|${dn.delivery_date || ""}|${dn.customer_name || ""}`,
+      );
+      dnObj.delivery_note.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
+    } catch {}
     dnObj.document = dnObj.delivery_note;
     dnObj.delivery = dnObj.delivery_note;
     dnObj.items = dnObj.delivery_note.items;
@@ -1889,8 +1930,43 @@ router.post(
             req.user.email)) ||
         "";
       if (!data.prepared_by) data.prepared_by = preparedBy;
-      const tmpl = Handlebars.compile(String(tplObj.html_content || ""));
-      const html = tmpl(data);
+      let html = "";
+      try {
+        const tmpl = Handlebars.compile(String(tplObj.html_content || ""));
+        html = tmpl(data);
+      } catch (e) {
+        try {
+          const fallback = getDefaultSampleTemplate(type);
+          const tmpl2 = Handlebars.compile(String(fallback || ""));
+          html = tmpl2(data);
+        } catch {
+          html = `<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif}</style></head><body>
+          <h3>${String(type).toUpperCase()} Document</h3>
+          <pre>${JSON.stringify(data, null, 2)}</pre>
+          </body></html>`;
+        }
+      }
+      // Post-process to remove any "Tax ID" blocks or labels from arbitrary templates
+      try {
+        // Remove div.row blocks that contain "Tax ID"
+        html = html.replace(
+          /<div[^>]*class=["'][^"']*row[^"']*["'][^>]*>[\s\S]*?Tax\s*ID[\s\S]*?<\/div>/gi,
+          "",
+        );
+        // Remove table rows that contain "Tax ID"
+        html = html.replace(/<tr[^>]*>[\s\S]*?Tax\s*ID[\s\S]*?<\/tr>/gi, "");
+        // Remove standalone "Tax ID:" labels
+        html = html.replace(/Tax\s*ID\s*:?\s*/gi, "");
+      } catch {}
+      // Ensure background colors render in browser print and PDF
+      const printStyle = `<style>
+          @media print { * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+          * { print-color-adjust: exact; }
+          .doc { height: auto !important; min-height: auto !important; }
+          .titlebar, .title-section, .info, .info-grid { margin-top: 6px !important; margin-bottom: 6px !important; }
+          table { margin-top: 6px !important; }
+        </style>`;
+      html = printStyle + html;
       const format = String(
         req.query.format || req.body?.format || "html",
       ).toLowerCase();
@@ -1900,10 +1976,17 @@ router.post(
             allowedTags: (sanitizeHtml.defaults?.allowedTags || []).concat([
               "style",
             ]),
-            allowedAttributes: false,
+            allowedAttributes: {
+              "*": ["class", "style"],
+              img: ["src", "alt", "class", "style"],
+              a: ["href", "class", "style"],
+            },
             allowVulnerableTags: true,
           });
-          const head = `<meta charset="utf-8"><style>html,body{margin:0;padding:24px} @page{margin:12mm} img{max-width:100%}</style>`;
+          const head = `<meta charset="utf-8"><style>
+            * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            img { max-width: 100%; height: auto; }
+          </style>`;
           const doc = `<!DOCTYPE html><html><head>${head}</head><body>${cleaned}</body></html>`;
           const mod = await import("puppeteer");
           const puppeteer = mod.default || mod;
@@ -1935,7 +2018,17 @@ router.post(
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
     } catch (err) {
-      next(err);
+      try {
+        const type = String(req.params.type || "").trim();
+        const { companyId } = req.scope || {};
+        const fallback = getDefaultSampleTemplate(type);
+        const data = { company: { name: "", address: "", address2: "", phone: "", email: "", logo: `/api/admin/companies/${companyId}/logo` } };
+        const html = Handlebars.compile(String(fallback || ""))(data);
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.status(200).send(html);
+      } catch {
+        res.status(200).send("<html><body><h3>Document</h3><p>Unable to render template; minimal fallback shown.</p></body></html>");
+      }
     }
   },
 );
@@ -2024,8 +2117,78 @@ router.post(
             req.user.email)) ||
         "";
       if (!data.prepared_by) data.prepared_by = preparedBy;
-      const tmpl = Handlebars.compile(String(tplObj.html_content || ""));
-      const html = tmpl(data);
+      let html = "";
+      try {
+        const tmpl = Handlebars.compile(String(tplObj.html_content || ""));
+        html = tmpl(data);
+      } catch (e) {
+        try {
+          const fallback = getDefaultSampleTemplate(type);
+          const tmpl2 = Handlebars.compile(String(fallback || ""));
+          html = tmpl2(data);
+        } catch {
+          html = `<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif}</style></head><body>
+          <h3>${String(type).toUpperCase()} Document Preview</h3>
+          <pre>${JSON.stringify(data, null, 2)}</pre>
+          </body></html>`;
+        }
+      }
+      try {
+        html = html.replace(
+          /<div[^>]*class=["'][^"']*row[^"']*["'][^>]*>[\s\S]*?Tax\s*ID[\s\S]*?<\/div>/gi,
+          "",
+        );
+        html = html.replace(/<tr[^>]*>[\s\S]*?Tax\s*ID[\s\S]*?<\/tr>/gi, "");
+        html = html.replace(/Tax\s*ID\s*:?\s*/gi, "");
+      } catch {}
+      function esc(v) {
+        return String(v ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+      if (type === "sales-order" || type === "invoice") {
+        const cust = data?.customer || null;
+        const keyName = type === "sales-order" ? "sales_order" : "invoice";
+        const qr = data?.[keyName]?.qr_code || "";
+        const probe = String(cust?.name || "").trim();
+        if (cust && (!probe || !html.includes(probe)) && !html.includes('data-auto="customer-info"')) {
+          const block =
+            `<div data-auto="customer-info" style="margin:8px 0;font-size:12px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div>
+                  <div><strong>Name:</strong> ${esc(cust.name || "")}</div>
+                  <div><strong>Address:</strong> ${esc(cust.address || "")} ${esc(cust.address2 || "")}</div>
+                  <div><strong>Phone:</strong> ${esc(cust.phone || "")}</div>
+                  <div><strong>Email:</strong> ${esc(cust.email || "")}</div>
+                </div>
+                <div style="text-align:right">${qr ? `<img src="${esc(qr)}" style="width:90px;height:90px;border:1px solid #e5e7eb" />` : ""}</div>
+              </div>
+            </div>`;
+          const tag = '<div class="doc"';
+          const p = html.indexOf(tag);
+          if (p !== -1) {
+            const gt = html.indexOf(">", p);
+            if (gt !== -1) {
+              html = html.slice(0, gt + 1) + block + html.slice(gt + 1);
+            } else {
+              html = block + html;
+            }
+          } else {
+            html = block + html;
+          }
+        }
+      }
+      const printStyle = `<style>
+          @media print { * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+          * { print-color-adjust: exact; }
+          .doc { height: auto !important; min-height: auto !important; }
+          .titlebar, .title-section, .info, .info-grid { margin-top: 6px !important; margin-bottom: 6px !important; }
+          table { margin-top: 6px !important; }
+        </style>`;
+      html = printStyle + html;
       const format = String(
         req.query.format || req.body?.format || "html",
       ).toLowerCase();
@@ -2035,7 +2198,11 @@ router.post(
             allowedTags: (sanitizeHtml.defaults?.allowedTags || []).concat([
               "style",
             ]),
-            allowedAttributes: false,
+            allowedAttributes: {
+              "*": ["class", "style"],
+              img: ["src", "alt", "class", "style"],
+              a: ["href", "class", "style"],
+            },
             allowVulnerableTags: true,
           });
           const head = `<meta charset="utf-8"><style>html,body{margin:0;padding:24px} @page{margin:12mm} img{max-width:100%}</style>`;
@@ -2070,7 +2237,17 @@ router.post(
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
     } catch (err) {
-      next(err);
+      try {
+        const type = String(req.params.type || "").trim();
+        const { companyId } = req.scope || {};
+        const fallback = getDefaultSampleTemplate(type);
+        const data = { company: { name: "", address: "", address2: "", phone: "", email: "", logo: `/api/admin/companies/${companyId}/logo` } };
+        const html = Handlebars.compile(String(fallback || ""))(data);
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.status(200).send(html);
+      } catch {
+        res.status(200).send("<html><body><h3>Document Preview</h3><p>Unable to render template; minimal fallback shown.</p></body></html>");
+      }
     }
   },
 );
@@ -2135,7 +2312,8 @@ router.get(
       const { companyId, branchId } = req.scope;
       const type = String(req.params.type || "").trim();
       const id = toNumber(req.params.id);
-      if (!type || !id) throw httpError(400, "VALIDATION_ERROR", "Invalid request");
+      if (!type || !id)
+        throw httpError(400, "VALIDATION_ERROR", "Invalid request");
       const rawItems = await query(
         `
         SELECT id, file_url, file_name, uploaded_by, created_at
@@ -2150,27 +2328,29 @@ router.get(
         { companyId, branchId, type, id },
       ).catch(() => []);
       const origin = `${req.protocol}://${req.get("host")}`;
-      const items = Array.isArray(rawItems) ? rawItems.map((r) => {
-        try {
-          const s = String(r.file_url || "");
-          if (/^https?:\/\//i.test(s)) {
-            return r;
-          }
-          if (s.startsWith("/uploads")) {
-            return { ...r, file_url: `${origin}${s}` };
-          }
-          if (s.startsWith("uploads")) {
-            return { ...r, file_url: `${origin}/${s}` };
-          }
-          // Legacy rows may contain only the bare filename like "file-123.png"
-          if (s && !s.includes("/") && !s.includes("\\")) {
-            return { ...r, file_url: `${origin}/uploads/${s}` };
-          }
-          return { ...r, file_url: s };
-        } catch {
-          return r;
-        }
-      }) : [];
+      const items = Array.isArray(rawItems)
+        ? rawItems.map((r) => {
+            try {
+              const s = String(r.file_url || "");
+              if (/^https?:\/\//i.test(s)) {
+                return r;
+              }
+              if (s.startsWith("/uploads")) {
+                return { ...r, file_url: `${origin}${s}` };
+              }
+              if (s.startsWith("uploads")) {
+                return { ...r, file_url: `${origin}/${s}` };
+              }
+              // Legacy rows may contain only the bare filename like "file-123.png"
+              if (s && !s.includes("/") && !s.includes("\\")) {
+                return { ...r, file_url: `${origin}/uploads/${s}` };
+              }
+              return { ...r, file_url: s };
+            } catch {
+              return r;
+            }
+          })
+        : [];
       res.json({ items });
     } catch (err) {
       next(err);
@@ -2189,12 +2369,15 @@ router.post(
       const { companyId, branchId } = req.scope;
       const type = String(req.params.type || "").trim();
       const id = toNumber(req.params.id);
-      if (!type || !id) throw httpError(400, "VALIDATION_ERROR", "Invalid request");
+      if (!type || !id)
+        throw httpError(400, "VALIDATION_ERROR", "Invalid request");
       const body = req.body || {};
       const fileUrl = String(body.url || body.file_url || "").trim();
       const fileName = body.name || body.file_name || null;
       const title = body.title ? String(body.title).trim() : null;
-      const description = body.description ? String(body.description).trim() : null;
+      const description = body.description
+        ? String(body.description).trim()
+        : null;
       const category = body.category ? String(body.category).trim() : null;
       const tags = body.tags ? String(body.tags).trim() : null;
       const mimeType = body.mime_type ? String(body.mime_type).trim() : null;
@@ -2208,7 +2391,21 @@ router.post(
         VALUES
           (:companyId, :branchId, :type, :id, :fileUrl, :fileName, :uploadedBy, :title, :description, :category, :tags, :mimeType, :fileSize)
         `,
-        { companyId, branchId, type, id, fileUrl, fileName, uploadedBy, title, description, category, tags, mimeType, fileSize },
+        {
+          companyId,
+          branchId,
+          type,
+          id,
+          fileUrl,
+          fileName,
+          uploadedBy,
+          title,
+          description,
+          category,
+          tags,
+          mimeType,
+          fileSize,
+        },
       ).catch(() => null);
       res.status(201).json({
         id: result?.insertId || null,
@@ -2270,7 +2467,10 @@ router.delete(
 
       // Attempt Cloudinary deletion if URL is a Cloudinary asset
       try {
-        if (fileUrl && /^https?:\/\/res\.cloudinary\.com\//i.test(String(fileUrl))) {
+        if (
+          fileUrl &&
+          /^https?:\/\/res\.cloudinary\.com\//i.test(String(fileUrl))
+        ) {
           async function getSetting(key) {
             const r = await query(
               `
@@ -2292,7 +2492,8 @@ router.delete(
             const url = new URL(fileUrl);
             const parts = url.pathname.split("/").filter(Boolean);
             const idxUpload = parts.findIndex((p) => p === "upload");
-            const resourceType = parts.find((p) => p === "image" || p === "video") || "image";
+            const resourceType =
+              parts.find((p) => p === "image" || p === "video") || "image";
             let remainder = parts.slice(idxUpload + 1);
             if (remainder[0] && /^v\d+$/i.test(remainder[0])) {
               remainder = remainder.slice(1);
@@ -2320,7 +2521,9 @@ router.delete(
               body.append("signature", signature);
               await fetch(destroyEndpoint, {
                 method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                headers: {
+                  "Content-Type": "application/x-www-form-urlencoded",
+                },
                 body: body.toString(),
               }).catch(() => null);
             }

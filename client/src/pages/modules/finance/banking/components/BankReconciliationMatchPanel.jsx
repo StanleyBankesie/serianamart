@@ -13,11 +13,8 @@ export default function BankReconciliationMatchPanel({
   const [ledgerTx, setLedgerTx] = useState([]);
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({
-    amountFrom: "",
-    amountTo: "",
     type: "",
     matched: "",
-    ref: "",
   });
   const [selectedBank, setSelectedBank] = useState(null);
   const [selectedLedger, setSelectedLedger] = useState([]);
@@ -59,6 +56,7 @@ export default function BankReconciliationMatchPanel({
               description:
                 t.description || t.particulars || t.voucher_type_name || "",
               reference: t.voucher_no || t.reference || "",
+              type: t.voucher_type_code || "",
               amount: amt,
               matched: t.matched || false,
             };
@@ -112,13 +110,6 @@ export default function BankReconciliationMatchPanel({
       const to = periodTo ? new Date(periodTo) : null;
       if (from && d < from) return false;
       if (to && d > to) return false;
-      const amt = Number(b.amount || 0);
-      if (filters.amountFrom && amt < Number(filters.amountFrom)) return false;
-      if (filters.amountTo && amt > Number(filters.amountTo)) return false;
-      if (filters.ref) {
-        const hay = `${b.reference || ""} ${b.description || ""}`.toLowerCase();
-        if (!hay.includes(filters.ref.toLowerCase())) return false;
-      }
       return true;
     });
   }, [bankLines, filters]);
@@ -129,19 +120,12 @@ export default function BankReconciliationMatchPanel({
       const to = periodTo ? new Date(periodTo) : null;
       if (from && d < from) return false;
       if (to && d > to) return false;
-      const amt = Number(t.amount || 0);
-      if (filters.amountFrom && amt < Number(filters.amountFrom)) return false;
-      if (filters.amountTo && amt > Number(filters.amountTo)) return false;
       if (filters.type && String(t.type || "") !== filters.type) return false;
       if (filters.matched) {
         const m = String(filters.matched).toLowerCase();
         const isMatched = !!t.matched;
         if (m === "matched" && !isMatched) return false;
         if (m === "unmatched" && isMatched) return false;
-      }
-      if (filters.ref) {
-        const hay = `${t.reference || ""} ${t.description || ""}`.toLowerCase();
-        if (!hay.includes(filters.ref.toLowerCase())) return false;
       }
       return true;
     });
@@ -169,34 +153,6 @@ export default function BankReconciliationMatchPanel({
   const Content = (
     <div className="space-y-4">
       <div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
-          <input
-            className="input"
-            type="number"
-            step="0.01"
-            value={filters.amountFrom}
-            onChange={(e) =>
-              setFilters((p) => ({ ...p, amountFrom: e.target.value }))
-            }
-            placeholder="Amount from"
-          />
-          <input
-            className="input"
-            type="number"
-            step="0.01"
-            value={filters.amountTo}
-            onChange={(e) =>
-              setFilters((p) => ({ ...p, amountTo: e.target.value }))
-            }
-            placeholder="Amount to"
-          />
-          <input
-            className="input"
-            value={filters.ref}
-            onChange={(e) => setFilters((p) => ({ ...p, ref: e.target.value }))}
-            placeholder="Reference/Description"
-          />
-        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="rounded border">
             <div className="p-2 font-semibold">Bank Statement</div>
@@ -273,7 +229,8 @@ export default function BankReconciliationMatchPanel({
                     />
                     <span className="text-sm">
                       {String(t.date || "").slice(0, 10)} •{" "}
-                      {t.description || t.reference || "-"}
+                      {t.description || t.reference || "-"}{" "}
+                      {t.type ? `• ${t.type}` : ""}
                     </span>
                   </label>
                   <div className="text-right text-sm">

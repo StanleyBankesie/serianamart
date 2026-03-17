@@ -8,6 +8,7 @@ import jsPDF from "jspdf";
 export default function CreditorsLedgerReportPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [order, setOrder] = useState("old");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -24,7 +25,12 @@ export default function CreditorsLedgerReportPage() {
       const res = await api.get("/finance/reports/creditors-ledger", {
         params: { from: from || null, to: to || null },
       });
-      setItems(res.data?.items || []);
+      const rows = res.data?.items || [];
+      const openRow =
+        rows.length && rows[0]?.doc_no === "OPEN" ? rows[0] : null;
+      const body = openRow ? rows.slice(1) : rows;
+      const ordered = order === "new" ? body.slice().reverse() : body;
+      setItems(openRow ? [openRow, ...ordered] : ordered);
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to load report");
     } finally {
@@ -33,8 +39,17 @@ export default function CreditorsLedgerReportPage() {
   }
 
   useEffect(() => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const jan1 = new Date(year, 0, 1);
+    setFrom(jan1.toISOString().slice(0, 10));
+    setTo(today.toISOString().slice(0, 10));
     run();
   }, []);
+  useEffect(() => {
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to, order]);
 
   return (
     <div className="space-y-4">
@@ -57,7 +72,7 @@ export default function CreditorsLedgerReportPage() {
 
       <div className="card">
         <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
             <div>
               <label className="label">From</label>
               <input
@@ -76,15 +91,19 @@ export default function CreditorsLedgerReportPage() {
                 onChange={(e) => setTo(e.target.value)}
               />
             </div>
-            <div className="md:col-span-2 flex items-end gap-2">
+            <div className="flex items-end">
               <button
                 type="button"
-                className="btn-success"
-                onClick={run}
-                disabled={loading}
+                className="btn-secondary"
+                title={
+                  order === "new" ? "New entries first" : "Old entries first"
+                }
+                onClick={() => setOrder(order === "new" ? "old" : "new")}
               >
-                {loading ? "Running..." : "Run Report"}
+                {order === "new" ? "🔽" : "🔼"}
               </button>
+            </div>
+            <div className="md:col-span-2 flex items-end gap-2">
               <button
                 type="button"
                 className="btn-success"

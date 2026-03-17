@@ -29,6 +29,9 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("ALL");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [order, setOrder] = useState("new");
   const isPV = String(voucherTypeCode).toUpperCase() === "PV";
   const isRV = String(voucherTypeCode).toUpperCase() === "RV";
   const isCV = String(voucherTypeCode).toUpperCase() === "CV";
@@ -78,11 +81,23 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                   ? "debit-note"
                   : "credit-note";
 
+  function initDefaultDates() {
+    const today = new Date();
+    const year = today.getFullYear();
+    const jan1 = new Date(year, 0, 1);
+    setFrom((prev) => prev || jan1.toISOString().slice(0, 10));
+    setTo((prev) => prev || today.toISOString().slice(0, 10));
+  }
   async function load() {
     try {
       setLoading(true);
       const res = await api.get("/finance/vouchers", {
-        params: { voucherTypeCode },
+        params: {
+          voucherTypeCode,
+          from: from || undefined,
+          to: to || undefined,
+          order: order || undefined,
+        },
       });
       setItems(res.data?.items || []);
     } catch (e) {
@@ -118,6 +133,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
         }
       } finally {
         if (!cancelled) {
+          initDefaultDates();
           load();
           if (isCV) loadAccounts();
         }
@@ -129,6 +145,10 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [voucherTypeCode]);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to, order]);
   useEffect(() => {
     const ref = location.state?.highlightRef;
     const hid = location.state?.highlightId;
@@ -1176,8 +1196,41 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
 
       <div className="card">
         <div className="card-body">
-          <div className="flex flex-col md:flex-row gap-4 mb-6">
-            <div className="flex-1">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
+            <div>
+              <label className="label">From</label>
+              <input
+                className="input"
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label">To</label>
+              <input
+                className="input"
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                type="button"
+                className="btn-secondary"
+                title={
+                  order === "new" ? "New entries first" : "Old entries first"
+                }
+                onClick={() => {
+                  setOrder(order === "new" ? "old" : "new");
+                  load();
+                }}
+              >
+                {order === "new" ? "🔽" : "🔼"}
+              </button>
+            </div>
+            <div className="md:col-span-3">
               <input
                 className="input"
                 placeholder="Search voucher no or narration..."
@@ -1200,6 +1253,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                 <option value="CANCELLED">Cancelled</option>
               </select>
             </div>
+            <div className="md:col-span-6 flex items-end"></div>
           </div>
 
           {loading ? (
@@ -1322,7 +1376,6 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                                 disabled={
                                   submittingForward ||
                                   v.status === "POSTED" ||
-                                  v.status === "REJECTED" ||
                                   v.status === "PENDING_APPROVAL" ||
                                   v.status === "SUBMITTED"
                                 }

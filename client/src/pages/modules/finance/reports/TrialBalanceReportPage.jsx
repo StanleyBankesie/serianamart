@@ -9,6 +9,7 @@ import jsPDF from "jspdf";
 export default function TrialBalanceReportPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [order, setOrder] = useState("new");
   const [groupId, setGroupId] = useState("");
   const [groups, setGroups] = useState([]);
   const [items, setItems] = useState([]);
@@ -44,6 +45,11 @@ export default function TrialBalanceReportPage() {
   }
 
   useEffect(() => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const jan1 = new Date(year, 0, 1);
+    setFrom(jan1.toISOString().slice(0, 10));
+    setTo(today.toISOString().slice(0, 10));
     loadGroups().then(run);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -91,7 +97,7 @@ export default function TrialBalanceReportPage() {
 
       <div className="card">
         <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
             <div>
               <label className="label">From</label>
               <input
@@ -124,6 +130,18 @@ export default function TrialBalanceReportPage() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="flex items-end">
+              <button
+                type="button"
+                className="btn-secondary"
+                title={
+                  order === "new" ? "New entries first" : "Old entries first"
+                }
+                onClick={() => setOrder(order === "new" ? "old" : "new")}
+              >
+                {order === "new" ? "🔽" : "🔼"}
+              </button>
             </div>
             <div className="md:col-span-2 flex items-end gap-2">
               <button

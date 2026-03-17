@@ -49,7 +49,9 @@ export default function PurchaseOrdersLocalList() {
     toast.success("Purchase order reversed successfully");
     setPurchaseOrders((prev) =>
       prev.map((x) =>
-        x.id === id ? { ...x, status: "DRAFT", forwarded_to_username: null } : x,
+        x.id === id
+          ? { ...x, status: "DRAFT", forwarded_to_username: null }
+          : x,
       ),
     );
     try {
@@ -691,10 +693,16 @@ export default function PurchaseOrdersLocalList() {
                             </button>
                           </>
                         ) : po.forwarded_to_username ? (
-                          <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
-                            Forwarded to {po.forwarded_to_username}
-                          </span>
-                        ) : po.status === "DRAFT" ? (
+                          <button
+                            type="button"
+                            disabled
+                            title="Assigned approver"
+                            className="ml-3 inline-flex items-center px-3 py-1.5 rounded bg-amber-500 text-white text-xs font-semibold cursor-default select-none"
+                          >
+                            Forwarded to: {po.forwarded_to_username}
+                          </button>
+                        ) : po.status === "DRAFT" ||
+                          po.status === "REJECTED" ? (
                           <button
                             type="button"
                             className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 transition-colors"

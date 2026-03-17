@@ -30,9 +30,18 @@ export default function ProfitAndLossReportPage() {
   }
 
   useEffect(() => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const jan1 = new Date(year, 0, 1);
+    setFrom(jan1.toISOString().slice(0, 10));
+    setTo(today.toISOString().slice(0, 10));
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to]);
 
   return (
     <div className="space-y-4">
@@ -73,14 +82,6 @@ export default function ProfitAndLossReportPage() {
               />
             </div>
             <div className="md:col-span-2 flex items-end gap-2">
-              <button
-                type="button"
-                className="btn-success"
-                onClick={run}
-                disabled={loading}
-              >
-                {loading ? "Running..." : "Run Report"}
-              </button>
               <button
                 type="button"
                 className="btn-success"

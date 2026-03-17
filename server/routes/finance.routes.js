@@ -52,7 +52,7 @@ async function nextVoucherNo({ companyId, voucherTypeId }) {
 
     const up = String(vt.code).toUpperCase();
     const seq =
-      up === "PV" || up === "CV" || up === "RV"
+      up === "PV" || up === "CV" || up === "RV" || up === "SV"
         ? String(vt.next_number).padStart(6, "0")
         : String(vt.next_number);
     const voucherNo = `${vt.prefix}-${seq}`;
@@ -1721,6 +1721,14 @@ router.get(
       const voucherTypeCode = req.query.voucherTypeCode
         ? String(req.query.voucherTypeCode)
         : null;
+      const from = req.query.from ? String(req.query.from) : null;
+      const to = req.query.to ? String(req.query.to) : null;
+      const orderDir =
+        String(req.query.order || "")
+          .trim()
+          .toLowerCase() === "old"
+          ? "ASC"
+          : "DESC";
 
       const items = await query(
         `SELECT v.id, v.voucher_no, v.voucher_date, v.narration, v.total_debit, v.total_credit, v.status,
@@ -1748,8 +1756,10 @@ router.get(
           WHERE v.company_id = :companyId
             AND v.branch_id = :branchId
             AND (:voucherTypeCode IS NULL OR vt.code = :voucherTypeCode)
-          ORDER BY v.voucher_date DESC, v.id DESC`,
-        { companyId, branchId, voucherTypeCode },
+            AND (:from IS NULL OR v.voucher_date >= :from)
+            AND (:to IS NULL OR v.voucher_date <= :to)
+          ORDER BY v.voucher_date ${orderDir}, v.id ${orderDir}`,
+        { companyId, branchId, voucherTypeCode, from, to },
       );
       res.json({ items });
     } catch (e) {
@@ -4310,6 +4320,12 @@ router.get(
       const branchId = req.scope.branchId;
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
+      const orderDir =
+        String(req.query.order || "")
+          .trim()
+          .toLowerCase() === "old"
+          ? "ASC"
+          : "DESC";
 
       const items = await query(
         `SELECT v.id, v.voucher_no, v.voucher_date, vt.code AS voucher_type_code, vt.name AS voucher_type_name,
@@ -4320,7 +4336,7 @@ router.get(
             AND v.branch_id = :branchId
             AND (:from IS NULL OR v.voucher_date >= :from)
             AND (:to IS NULL OR v.voucher_date <= :to)
-          ORDER BY v.voucher_date DESC, v.id DESC`,
+          ORDER BY v.voucher_date ${orderDir}, v.id ${orderDir}`,
         { companyId, branchId, from, to },
       );
       res.json({ items });
@@ -4465,6 +4481,13 @@ router.get(
       const branchId = req.scope.branchId;
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
+      const type = req.query.type ? String(req.query.type).toUpperCase() : null;
+      const orderDir =
+        String(req.query.order || "")
+          .trim()
+          .toLowerCase() === "old"
+          ? "ASC"
+          : "DESC";
       const items = await query(
         `SELECT v.id, v.voucher_no, v.voucher_date, vt.code AS voucher_type_code,
                 l.line_no, a.code AS account_code, a.name AS account_name,
@@ -4475,11 +4498,11 @@ router.get(
            JOIN fin_accounts a ON a.id = l.account_id
           WHERE v.company_id = :companyId
             AND v.branch_id = :branchId
-            AND vt.code = 'JV'
+            AND (:type IS NULL OR vt.code = :type)
             AND (:from IS NULL OR v.voucher_date >= :from)
             AND (:to IS NULL OR v.voucher_date <= :to)
-          ORDER BY v.voucher_date ASC, v.id ASC, l.line_no ASC`,
-        { companyId, branchId, from, to },
+          ORDER BY v.voucher_date ${orderDir}, v.id ${orderDir}, l.line_no ${orderDir}`,
+        { companyId, branchId, from, to, type },
       );
       res.json({ items });
     } catch (e) {

@@ -8,6 +8,7 @@ import jsPDF from "jspdf";
 export default function JournalReportPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [order, setOrder] = useState("new");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -15,7 +16,7 @@ export default function JournalReportPage() {
     try {
       setLoading(true);
       const res = await api.get("/finance/reports/journals", {
-        params: { from: from || null, to: to || null },
+        params: { from: from || null, to: to || null, order },
       });
       setItems(res.data?.items || []);
     } catch (e) {
@@ -26,9 +27,18 @@ export default function JournalReportPage() {
   }
 
   useEffect(() => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const jan1 = new Date(year, 0, 1);
+    setFrom(jan1.toISOString().slice(0, 10));
+    setTo(today.toISOString().slice(0, 10));
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to, order]);
 
   return (
     <div className="space-y-4">
@@ -70,15 +80,19 @@ export default function JournalReportPage() {
                 onChange={(e) => setTo(e.target.value)}
               />
             </div>
-            <div className="md:col-span-2 flex items-end gap-2">
+            <div className="flex items-end">
               <button
                 type="button"
-                className="btn-success"
-                onClick={run}
-                disabled={loading}
+                className="btn-secondary"
+                title={
+                  order === "new" ? "New entries first" : "Old entries first"
+                }
+                onClick={() => setOrder(order === "new" ? "old" : "new")}
               >
-                {loading ? "Running..." : "Run Report"}
+                {order === "new" ? "🔽" : "🔼"}
               </button>
+            </div>
+            <div className="md:col-span-2 flex items-end gap-2">
               <button
                 type="button"
                 className="btn-success"

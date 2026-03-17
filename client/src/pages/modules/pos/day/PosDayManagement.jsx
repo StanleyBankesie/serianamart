@@ -297,7 +297,9 @@ export default function PosDayManagement() {
         });
         setClosing((prev) => ({
           ...prev,
-          dateTime: toLocalInputDateTime(item.close_datetime || ""),
+          dateTime: isOpen
+            ? toLocalInputDateTime(new Date())
+            : toLocalInputDateTime(item.close_datetime || ""),
           actualCash:
             item.actual_cash === null || item.actual_cash === undefined
               ? ""

@@ -31,9 +31,15 @@ export default function BalanceSheetReportPage() {
   }
 
   useEffect(() => {
+    const today = new Date();
+    setTo(today.toISOString().slice(0, 10));
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [to]);
 
   function Section({ title, data }) {
     return (
@@ -101,14 +107,6 @@ export default function BalanceSheetReportPage() {
               />
             </div>
             <div className="md:col-span-3 flex items-end gap-2">
-              <button
-                type="button"
-                className="btn-success"
-                onClick={run}
-                disabled={loading}
-              >
-                {loading ? "Running..." : "Run Report"}
-              </button>
               <button
                 type="button"
                 className="btn-success"

@@ -62,7 +62,17 @@ async function nextVoucherNoTx(conn, { companyId, voucherTypeId }) {
   );
   const vt = rows?.[0];
   if (!vt) throw httpError(404, "NOT_FOUND", "Voucher type not found");
-  const voucherNo = `${vt.prefix}-${vt.next_number}`;
+  const code = String(vt?.prefix || "").toUpperCase();
+  const needPad =
+    code === "PV" ||
+    code === "CV" ||
+    code === "RV" ||
+    code === "JV" ||
+    code === "SV";
+  const seq = needPad
+    ? String(vt.next_number).padStart(6, "0")
+    : String(vt.next_number);
+  const voucherNo = `${vt.prefix}-${seq}`;
   await conn.execute(
     "UPDATE fin_voucher_types SET next_number = next_number + 1 WHERE company_id = :companyId AND id = :voucherTypeId",
     { companyId, voucherTypeId },
@@ -252,6 +262,137 @@ async function resolveFinAccountId(conn, { companyId, accountRef }) {
   return Number(rows?.[0]?.id || 0) || 0;
 }
 
+async function ensureFinAccountExistsTx(
+  conn,
+  { companyId, code, name, nature },
+) {
+  const codeStr = String(code || "").trim();
+  const nameStr = String(name || "").trim() || codeStr;
+  const nat = String(nature || "")
+    .trim()
+    .toUpperCase();
+  if (!codeStr) return 0;
+  const [exists] = await conn.execute(
+    "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
+    { companyId, code: codeStr },
+  );
+  const exId = Number(exists?.[0]?.id || 0) || 0;
+  if (exId) return exId;
+  // Ensure group for the nature
+  const [grpRows] = await conn.execute(
+    "SELECT id FROM fin_account_groups WHERE company_id = :companyId AND nature = :nature LIMIT 1",
+    { companyId, nature: nat || "ASSET" },
+  );
+  let groupId = Number(grpRows?.[0]?.id || 0) || 0;
+  if (!groupId) {
+    const [gIns] = await conn.execute(
+      `INSERT INTO fin_account_groups (company_id, code, name, nature, is_active)
+       VALUES (:companyId, :code, :name, :nature, 1)`,
+      {
+        companyId,
+        code: nat || "ASSET",
+        name: nat || "ASSET",
+        nature: nat || "ASSET",
+      },
+    );
+    groupId = Number(gIns?.insertId || 0) || 0;
+  }
+  const [ins] = await conn.execute(
+    `INSERT INTO fin_accounts (company_id, group_id, code, name, is_control_account, is_postable, is_active)
+     VALUES (:companyId, :groupId, :code, :name, 0, 1, 1)`,
+    { companyId, groupId, code: codeStr, name: nameStr },
+  );
+  return Number(ins?.insertId || 0) || 0;
+}
+
+async function ensureFinanceReportingInfrastructure() {
+  try {
+    await query(
+      `CREATE OR REPLACE VIEW fin_general_ledger AS
+       SELECT 
+         v.company_id,
+         v.branch_id,
+         v.id AS voucher_id,
+         v.voucher_no,
+         v.voucher_date,
+         v.voucher_type_id,
+         l.line_no,
+         l.account_id,
+         a.code AS account_code,
+         a.name AS account_name,
+         l.description,
+         l.debit,
+         l.credit
+       FROM fin_vouchers v
+       JOIN fin_voucher_lines l ON l.voucher_id = v.id
+       LEFT JOIN fin_accounts a ON a.id = l.account_id
+      `,
+    );
+  } catch {}
+  try {
+    await query(
+      `CREATE OR REPLACE VIEW fin_journal_report AS
+       SELECT 
+         v.company_id,
+         v.branch_id,
+         v.voucher_no,
+         v.voucher_date,
+         vt.code AS voucher_type_code,
+         vt.name AS voucher_type_name,
+         l.line_no,
+         a.code AS account_code,
+         a.name AS account_name,
+         l.description,
+         l.debit,
+         l.credit
+       FROM fin_vouchers v
+       JOIN fin_voucher_lines l ON l.voucher_id = v.id
+       LEFT JOIN fin_accounts a ON a.id = l.account_id
+       LEFT JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id
+      `,
+    );
+  } catch {}
+}
+
+async function resolveFinAccountIdByLabel(conn, { companyId, label }) {
+  const raw = String(label || "").trim();
+  if (!raw) return 0;
+  let codeCandidate = null;
+  const dashMatch = raw.match(/^(\w+)\s*-\s*/);
+  if (dashMatch && dashMatch[1]) codeCandidate = dashMatch[1];
+  const parenMatch = raw.match(/\((\w+)\)\s*$/);
+  if (parenMatch && parenMatch[1])
+    codeCandidate = codeCandidate || parenMatch[1];
+  const bracketMatch = raw.match(/^\[(\w+)\]/);
+  if (bracketMatch && bracketMatch[1])
+    codeCandidate = codeCandidate || bracketMatch[1];
+  if (codeCandidate) {
+    const [cRows] = await conn.execute(
+      "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
+      { companyId, code: codeCandidate },
+    );
+    const cid = Number(cRows?.[0]?.id || 0) || 0;
+    if (cid) return cid;
+  }
+  const nameCandidate = raw
+    .replace(/^\[(\w+)\]\s*/, "")
+    .replace(/^(\w+)\s*-\s*/, "")
+    .replace(/\s*\(\w+\)\s*$/, "")
+    .trim();
+  if (nameCandidate) {
+    const [nRows] = await conn.execute(
+      "SELECT id FROM fin_accounts WHERE company_id = :companyId AND name = :name LIMIT 1",
+      { companyId, name: nameCandidate },
+    );
+    const nid = Number(nRows?.[0]?.id || 0) || 0;
+    if (nid) return nid;
+  }
+  const [rows] = await conn.execute(
+    "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
+    { companyId, code: raw },
+  );
+  return Number(rows?.[0]?.id || 0) || 0;
+}
 async function resolveDefaultSalesAccountId(conn, { companyId }) {
   const [rows] = await conn.execute(
     `
@@ -889,6 +1030,118 @@ router.get(
         { companyId, branchId },
       );
       res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/sales",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensurePosTables();
+      const date = String(req.query.date || "").trim();
+      const terminalId = toNumber(req.query.terminal_id);
+      const terminalCode = String(req.query.terminal || "").trim();
+      const warehouseName = String(req.query.warehouse || "").trim();
+      let sql = `
+        SELECT 
+          p.id,
+          p.receipt_no,
+          p.sale_datetime,
+          DATE(p.sale_datetime) AS sale_date,
+          p.customer_name,
+          p.payment_method,
+          p.gross_amount,
+          p.discount_amount,
+          p.tax_amount,
+          p.net_amount AS total_amount,
+          CASE WHEN p.status = 'COMPLETED' THEN 'PAID' ELSE 'UNPAID' END AS payment_status,
+          COALESCE(t.code, '') AS terminal_code,
+          COALESCE(t.warehouse, '') AS warehouse
+        FROM pos_sales p
+        LEFT JOIN pos_terminals t
+          ON t.id = p.terminal_id 
+         AND t.company_id = p.company_id 
+         AND t.branch_id = p.branch_id
+        WHERE p.company_id = :companyId
+          AND p.branch_id = :branchId
+      `;
+      const params = { companyId, branchId };
+      if (date) {
+        sql += ` AND DATE(p.sale_datetime) = :date`;
+        params.date = date;
+      }
+      if (terminalId) {
+        sql += ` AND p.terminal_id = :terminalId`;
+        params.terminalId = terminalId;
+      } else if (terminalCode) {
+        sql += ` AND t.code = :terminalCode`;
+        params.terminalCode = terminalCode;
+      }
+      if (warehouseName) {
+        sql += ` AND COALESCE(t.warehouse,'') = :warehouseName`;
+        params.warehouseName = warehouseName;
+      }
+      sql += ` ORDER BY p.sale_datetime DESC, p.id DESC`;
+      const rows = await query(sql, params);
+      res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/next-voucher-no",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const [seqRows] = await query(
+        `
+        SELECT prefix, next_number
+        FROM sal_invoice_sequences
+        WHERE company_id = :companyId AND branch_id = :branchId
+        LIMIT 1
+        `,
+        { companyId, branchId },
+      );
+      let nextNumber = 0;
+      if (seqRows?.length) {
+        nextNumber = Number(seqRows[0].next_number || 0) || 0;
+      } else {
+        const [maxRows] = await query(
+          `
+          SELECT invoice_no
+          FROM sal_invoices
+          WHERE company_id = :companyId
+            AND branch_id = :branchId
+            AND invoice_no REGEXP '^INV-?[0-9]{6}$'
+          ORDER BY CAST(REPLACE(invoice_no, 'INV-', '') AS UNSIGNED) DESC
+          LIMIT 1
+          `,
+          { companyId, branchId },
+        );
+        if (maxRows?.length) {
+          const prev = String(maxRows[0].invoice_no || "");
+          const numPart = prev.replace(/^INV-?/, "");
+          const n = parseInt(numPart, 10);
+          nextNumber = Number.isFinite(n) ? n + 1 : 1;
+        } else {
+          nextNumber = 1;
+        }
+      }
+      const padded = String(nextNumber).padStart(6, "0");
+      const voucherNo = `POS-${padded}`;
+      res.json({ voucher_no: voucherNo });
     } catch (err) {
       next(err);
     }
@@ -1652,7 +1905,7 @@ router.post(
         }
       }
 
-      if (finalStatus === "COMPLETED") {
+      if (false) {
         const fiscalYearId = await resolveOpenFiscalYearId(conn, {
           companyId,
         });
@@ -1663,14 +1916,14 @@ router.post(
             "No open fiscal year found for Finance",
           );
         }
-        const voucherTypeId = await ensureSalesVoucherTypeIdTx(conn, {
+        const voucherTypeId = await ensureReceiptVoucherTypeIdTx(conn, {
           companyId,
         });
         if (!voucherTypeId) {
           throw httpError(
             400,
             "VALIDATION_ERROR",
-            "Sales voucher type (SV) not configured",
+            "Receipt voucher type (RV) not configured",
           );
         }
         let paymentAccId = 0;
@@ -1927,9 +2180,11 @@ router.post(
       const mobileTotal = roundTo2(aggRows?.mobile_total || 0);
       const taxTotal = roundTo2(aggRows?.tax_total || 0);
       const netTotal = roundTo2(aggRows?.net_total || 0);
-      const baseSales = roundTo2(netTotal - taxTotal);
-      const bankTotal = roundTo2(cashTotal + cardTotal + mobileTotal);
-      if (bankTotal <= 0 || baseSales < 0) {
+      let baseSales = roundTo2(netTotal - taxTotal);
+      if (baseSales < 0) baseSales = 0;
+      let bankTotal = roundTo2(cashTotal + cardTotal + mobileTotal);
+      if (bankTotal <= 0 && netTotal > 0) bankTotal = netTotal;
+      if (bankTotal <= 0) {
         throw httpError(
           400,
           "VALIDATION_ERROR",
@@ -1944,35 +2199,41 @@ router.post(
           "No open fiscal year found for Finance",
         );
       }
-      let voucherTypeId = await ensureJournalVoucherTypeIdTx(conn, {
+      let voucherTypeId = await ensureSalesVoucherTypeIdTx(conn, {
         companyId,
       });
       if (!voucherTypeId) {
         throw httpError(
           400,
           "VALIDATION_ERROR",
-          "Journal voucher type (JV) not configured",
+          "Sales voucher type (SV) not configured",
         );
       }
-      const bankAccId = await resolveFinAccountId(conn, {
-        companyId,
-        accountRef: "1000",
-      });
-      const salesAccId = await resolveFinAccountId(conn, {
-        companyId,
-        accountRef: "4000",
-      });
-      const vatOutputAccId = await resolveFinAccountId(conn, {
-        companyId,
-        accountRef: "1310",
-      });
-      if (!bankAccId || !salesAccId || !vatOutputAccId) {
-        throw httpError(
-          400,
-          "VALIDATION_ERROR",
-          "Required Finance accounts (1000/4000/1310) not found",
-        );
-      }
+      await ensureFinanceReportingInfrastructure();
+      let bankAccId =
+        (await resolveFinAccountId(conn, { companyId, accountRef: "1000" })) ||
+        (await ensureFinAccountExistsTx(conn, {
+          companyId,
+          code: "1000",
+          name: "Cash/Bank",
+          nature: "ASSET",
+        }));
+      let salesAccId =
+        (await resolveFinAccountId(conn, { companyId, accountRef: "4000" })) ||
+        (await ensureFinAccountExistsTx(conn, {
+          companyId,
+          code: "4000",
+          name: "Sales Revenue",
+          nature: "INCOME",
+        }));
+      let vatOutputAccId =
+        (await resolveFinAccountId(conn, { companyId, accountRef: "1310" })) ||
+        (await ensureFinAccountExistsTx(conn, {
+          companyId,
+          code: "1310",
+          name: "VAT Output",
+          nature: "LIABILITY",
+        }));
       const [existingV] = await conn.execute(
         `SELECT id FROM fin_vouchers
          WHERE company_id = :companyId AND branch_id = :branchId
@@ -2262,6 +2523,311 @@ router.post(
 );
 
 router.post(
+  "/finance-post",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId } = req.scope;
+      const body = req.body || {};
+      const dateStr = String(body.date || "").trim();
+      if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "date (YYYY-MM-DD) is required",
+        );
+      }
+      const terminalId = toNumber(body.terminal_id);
+      const terminalCode = String(body.terminal || "").trim();
+      const warehouseName = String(body.warehouse || "").trim();
+      await conn.beginTransaction();
+      await ensurePosTables();
+      const startTime = new Date(`${dateStr}T00:00:00`);
+      const endTime = new Date(`${dateStr}T23:59:59`);
+      const params = { companyId, branchId, startTime, endTime };
+      const inputLines = Array.isArray(body.lines) ? body.lines : [];
+      const useCustomLines = inputLines.some(
+        (l) => Number(l?.debit || 0) > 0 || Number(l?.credit || 0) > 0,
+      );
+      let filterSql = "";
+      if (terminalId) {
+        filterSql += " AND p.terminal_id = :terminalId";
+        params.terminalId = terminalId;
+      } else if (terminalCode) {
+        filterSql += " AND t.code = :terminalCode";
+        params.terminalCode = terminalCode;
+      }
+      if (warehouseName) {
+        filterSql += " AND COALESCE(t.warehouse,'') = :warehouseName";
+        params.warehouseName = warehouseName;
+      }
+      let cashTotal = 0;
+      let cardTotal = 0;
+      let mobileTotal = 0;
+      let taxTotal = 0;
+      let netTotal = 0;
+      let baseSales = 0;
+      let bankTotal = 0;
+      let totalDebitHeader = 0;
+      let totalCreditHeader = 0;
+      if (!useCustomLines) {
+        const [aggRows] = await conn.execute(
+          `SELECT
+             SUM(CASE WHEN p.payment_method='CASH' THEN p.net_amount ELSE 0 END) AS cash_total,
+             SUM(CASE WHEN p.payment_method='CARD' THEN p.net_amount ELSE 0 END) AS card_total,
+             SUM(CASE WHEN p.payment_method='MOBILE' THEN p.net_amount ELSE 0 END) AS mobile_total,
+             SUM(p.tax_amount) AS tax_total,
+             SUM(p.discount_amount) AS discount_total,
+             SUM(p.net_amount) AS net_total
+           FROM pos_sales p
+           LEFT JOIN pos_terminals t
+             ON t.id = p.terminal_id AND t.company_id = p.company_id AND t.branch_id = p.branch_id
+           WHERE p.company_id = :companyId
+             AND p.branch_id = :branchId
+             AND p.status = 'COMPLETED'
+             AND p.sale_datetime BETWEEN :startTime AND :endTime
+             ${filterSql}`,
+          params,
+        );
+        cashTotal = roundTo2(aggRows?.cash_total || 0);
+        cardTotal = roundTo2(aggRows?.card_total || 0);
+        mobileTotal = roundTo2(aggRows?.mobile_total || 0);
+        taxTotal = roundTo2(aggRows?.tax_total || 0);
+        netTotal = roundTo2(aggRows?.net_total || 0);
+        baseSales = roundTo2(netTotal - taxTotal);
+        bankTotal = roundTo2(cashTotal + cardTotal + mobileTotal);
+        if (bankTotal <= 0 || baseSales < 0) {
+          throw httpError(
+            400,
+            "VALIDATION_ERROR",
+            "No eligible sales for posting",
+          );
+        }
+        totalDebitHeader = bankTotal;
+        totalCreditHeader = roundTo2(baseSales + taxTotal);
+      } else {
+        totalDebitHeader = roundTo2(
+          inputLines.reduce((s, l) => s + Number(l?.debit || 0), 0),
+        );
+        totalCreditHeader = roundTo2(
+          inputLines.reduce((s, l) => s + Number(l?.credit || 0), 0),
+        );
+        if (totalDebitHeader <= 0 && totalCreditHeader <= 0) {
+          throw httpError(
+            400,
+            "VALIDATION_ERROR",
+            "No eligible custom lines for posting",
+          );
+        }
+      }
+      const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
+      if (!fiscalYearId) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "No open fiscal year found for Finance",
+        );
+      }
+      const voucherTypeId = await ensureSalesVoucherTypeIdTx(conn, {
+        companyId,
+      });
+      if (!voucherTypeId) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "Sales voucher type (SV) not configured",
+        );
+      }
+      await ensureFinanceReportingInfrastructure();
+      let bankAccId = 0;
+      let salesAccId = 0;
+      let vatOutputAccId = 0;
+      if (!useCustomLines) {
+        bankAccId =
+          (await resolveFinAccountId(conn, {
+            companyId,
+            accountRef: "1000",
+          })) ||
+          (await ensureFinAccountExistsTx(conn, {
+            companyId,
+            code: "1000",
+            name: "Cash/Bank",
+            nature: "ASSET",
+          }));
+        salesAccId =
+          (await resolveFinAccountId(conn, {
+            companyId,
+            accountRef: "4000",
+          })) ||
+          (await ensureFinAccountExistsTx(conn, {
+            companyId,
+            code: "4000",
+            name: "Sales Revenue",
+            nature: "INCOME",
+          }));
+        vatOutputAccId =
+          (await resolveFinAccountId(conn, {
+            companyId,
+            accountRef: "1310",
+          })) ||
+          (await ensureFinAccountExistsTx(conn, {
+            companyId,
+            code: "1310",
+            name: "VAT Output",
+            nature: "LIABILITY",
+          }));
+      }
+      const narration = `POS Sales for Day ${dateStr}`;
+      const [existingV] = await conn.execute(
+        `SELECT id FROM fin_vouchers
+         WHERE company_id = :companyId AND branch_id = :branchId
+           AND voucher_type_id = :voucherTypeId AND voucher_date = DATE(:voucherDate)
+           AND narration = :narration
+         LIMIT 1`,
+        {
+          companyId,
+          branchId,
+          voucherTypeId,
+          voucherDate: startTime,
+          narration,
+        },
+      );
+      if (existingV?.length) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "POS finance already posted for this day/filter",
+        );
+      }
+      const voucherNo = await nextVoucherNoTx(conn, {
+        companyId,
+        voucherTypeId,
+      });
+      const voucherDate = dateStr;
+      const createdBy = req.user?.id ?? req.user?.sub ?? null;
+      const [vIns] = await conn.execute(
+        `INSERT INTO fin_vouchers
+          (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
+         VALUES
+          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
+        {
+          companyId,
+          branchId,
+          fiscalYearId,
+          voucherTypeId,
+          voucherNo,
+          voucherDate,
+          narration,
+          totalDebit: totalDebitHeader,
+          totalCredit: totalCreditHeader,
+          createdBy,
+          approvedBy: createdBy,
+          postedBy: createdBy,
+        },
+      );
+      const voucherId = Number(vIns.insertId || 0);
+      let lineNo = 1;
+      const defaultLineDesc = `pos sales made for ${dateStr}`;
+      if (useCustomLines) {
+        for (const ln of inputLines) {
+          const accId =
+            Number(ln?.account_id || 0) ||
+            (await resolveFinAccountIdByLabel(conn, {
+              companyId,
+              label: String(ln?.account || ""),
+            })) ||
+            0;
+          if (!accId) {
+            throw httpError(
+              400,
+              "VALIDATION_ERROR",
+              `Account not found for label: ${String(ln?.account || "")}`,
+            );
+          }
+          await conn.execute(
+            `INSERT INTO fin_voucher_lines
+              (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+             VALUES
+              (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, NULL, NULL, NULL)`,
+            {
+              companyId,
+              voucherId,
+              lineNo: lineNo++,
+              accountId: accId,
+              description: defaultLineDesc,
+              debit: roundTo2(Number(ln?.debit || 0)),
+              credit: roundTo2(Number(ln?.credit || 0)),
+            },
+          );
+        }
+      } else {
+        await conn.execute(
+          `INSERT INTO fin_voucher_lines
+            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+           VALUES
+            (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, NULL, NULL, NULL)`,
+          {
+            companyId,
+            voucherId,
+            lineNo: lineNo++,
+            accountId: bankAccId,
+            description: defaultLineDesc,
+            debit: bankTotal,
+            credit: 0,
+          },
+        );
+        if (roundTo2(baseSales) > 0) {
+          await conn.execute(
+            `INSERT INTO fin_voucher_lines
+              (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+             VALUES
+              (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, NULL, NULL, NULL)`,
+            {
+              companyId,
+              voucherId,
+              lineNo: lineNo++,
+              accountId: salesAccId,
+              description: defaultLineDesc,
+              debit: 0,
+              credit: baseSales,
+            },
+          );
+        }
+        if (roundTo2(taxTotal) > 0) {
+          await conn.execute(
+            `INSERT INTO fin_voucher_lines
+              (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+             VALUES
+              (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, NULL, NULL, NULL)`,
+            {
+              companyId,
+              voucherId,
+              lineNo: lineNo++,
+              accountId: vatOutputAccId,
+              description: defaultLineDesc,
+              debit: 0,
+              credit: taxTotal,
+            },
+          );
+        }
+      }
+      await conn.commit();
+      res.status(201).json({ voucher_no: voucherNo, voucher_id: voucherId });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(err);
+    } finally {
+      conn.release();
+    }
+  },
+);
+
+router.post(
   "/day/close",
   requireAuth,
   requireCompanyScope,
@@ -2367,6 +2933,28 @@ router.get(
         { companyId, branchId },
       );
       res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/terminal-users",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensurePosTables();
+      const rows = await query(
+        `SELECT id, terminal_id, user_id, is_active
+         FROM pos_terminal_users
+         WHERE company_id = :companyId AND branch_id = :branchId`,
+        { companyId, branchId },
+      );
+      res.json({ items: rows });
     } catch (err) {
       next(err);
     }

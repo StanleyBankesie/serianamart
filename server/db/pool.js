@@ -20,6 +20,21 @@ if (forceLocal && fs.existsSync(localPath)) {
 } else if (fs.existsSync(localPath)) {
   dotenv.config({ path: localPath, override: true });
 }
+try {
+  if (fs.existsSync(prodPath)) {
+    const parsed = dotenv.config({ path: prodPath }).parsed || {};
+    [
+      "SMTP_HOST",
+      "SMTP_PORT",
+      "SMTP_USER",
+      "SMTP_PASS",
+      "SMTP_FROM",
+      "SMTP_SECURE",
+    ].forEach((k) => {
+      if (parsed[k]) process.env[k] = parsed[k];
+    });
+  }
+} catch {}
 
 function requiredEnv(name) {
   const v = process.env[name];

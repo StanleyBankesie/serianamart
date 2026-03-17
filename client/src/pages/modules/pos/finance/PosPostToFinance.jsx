@@ -55,9 +55,8 @@ export default function PosPostToFinance() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    api
-      .get("/pos/terminals")
-      .then((res) => {
+    Promise.all([api.get("/pos/terminals"), api.get("/pos/next-voucher-no")])
+      .then(([res, vRes]) => {
         if (cancelled) return;
         const items = Array.isArray(res.data?.items) ? res.data.items : [];
         setTerminals(items);
@@ -66,6 +65,8 @@ export default function PosPostToFinance() {
           setTillId(String(first.id));
           setWarehouse(String(first.warehouse || ""));
         }
+        const nextVNo = String(vRes.data?.voucher_no || "").trim();
+        if (nextVNo) setVoucherNo(nextVNo);
       })
       .catch(() => {
         if (cancelled) return;
@@ -214,7 +215,13 @@ export default function PosPostToFinance() {
     try {
       const [salesRes, accountsRes, taxRes, paymentModesRes] =
         await Promise.all([
-          api.get("/pos/sales"),
+          api.get("/pos/sales", {
+            params: {
+              date: voucherDate,
+              terminal_id: tillId ? Number(tillId) : undefined,
+              warehouse: String(warehouse || "").trim() || undefined,
+            },
+          }),
           api.get("/finance/accounts", { params: { postable: 1, active: 1 } }),
           api.get("/pos/tax-settings"),
           api.get("/pos/payment-modes"),
@@ -232,11 +239,9 @@ export default function PosPostToFinance() {
         ? paymentModesRes.data.items
         : [];
 
-      const selectedDate = dateKey(voucherDate);
       const sales = allSales.filter((s) => {
-        const saleDate = dateKey(s.sale_date);
         const paid = String(s.payment_status || "").toUpperCase() === "PAID";
-        return paid && saleDate === selectedDate;
+        return paid;
       });
       if (!sales.length) {
         setTransactions([]);
@@ -374,8 +379,33 @@ export default function PosPostToFinance() {
       }\nWarehouse: ${wh}\nCash Total: GHS ${cTotal}`,
     );
     if (!ok) return;
-    window.alert("Transaction posted to finance successfully!");
-    resetForm();
+    setLoading(true);
+    api
+      .post("/pos/finance-post", {
+        date: voucherDate,
+        terminal_id: tillId ? Number(tillId) : undefined,
+        warehouse: String(warehouse || "").trim() || undefined,
+        lines: (Array.isArray(transactions) ? transactions : []).map((t) => ({
+          account: String(t.account || ""),
+          debit: Number(t.debit || 0),
+          credit: Number(t.credit || 0),
+        })),
+      })
+      .then((res) => {
+        const vn = res?.data?.voucher_no || vNo;
+        window.alert(
+          `Transaction posted to finance successfully!\nVoucher: ${vn}`,
+        );
+        resetForm();
+      })
+      .catch((e) => {
+        const msg =
+          e?.response?.data?.message ||
+          e?.response?.data?.error ||
+          "Failed to post to finance";
+        window.alert(msg);
+      })
+      .finally(() => setLoading(false));
   }
 
   const paginationText = useMemo(() => {

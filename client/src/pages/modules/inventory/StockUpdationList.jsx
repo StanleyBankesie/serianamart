@@ -546,7 +546,8 @@ export default function StockUpdationList() {
                             Forwarded to {adj.forwarded_to_username}
                           </span>
                         ) : adj.status === "DRAFT" ||
-                          adj.status === "RETURNED" ? (
+                          adj.status === "RETURNED" ||
+                          adj.status === "REJECTED" ? (
                           <button
                             type="button"
                             onClick={() => openForwardModal(adj)}

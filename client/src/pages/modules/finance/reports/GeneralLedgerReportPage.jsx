@@ -9,10 +9,12 @@ import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
 export default function GeneralLedgerReportPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [order, setOrder] = useState("old");
   const [accountId, setAccountId] = useState("");
   const [accounts, setAccounts] = useState([]);
   const [groups, setGroups] = useState([]);
   const [groupId, setGroupId] = useState("");
+  const [accountSearch, setAccountSearch] = useState("");
   const [opening, setOpening] = useState(0);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -72,7 +74,8 @@ export default function GeneralLedgerReportPage() {
         },
       });
       setOpening(Number(res.data?.opening_balance || 0));
-      setItems(res.data?.items || []);
+      const rows = res.data?.items || [];
+      setItems(order === "new" ? rows.slice().reverse() : rows);
     } catch (e) {
       toast.error(
         e?.response?.data?.message || "Failed to load general ledger",
@@ -83,9 +86,18 @@ export default function GeneralLedgerReportPage() {
   }
 
   useEffect(() => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const jan1 = new Date(year, 0, 1);
+    setFrom(jan1.toISOString().slice(0, 10));
+    setTo(today.toISOString().slice(0, 10));
     Promise.all([loadAccounts(), loadGroups()]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to, order]);
 
   // Ensure selected account belongs to selected group; otherwise pick first in filtered list
   useEffect(() => {
@@ -135,6 +147,12 @@ export default function GeneralLedgerReportPage() {
           <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
             <div className="md:col-span-2">
               <label className="label">Account</label>
+              <input
+                className="input mb-2"
+                placeholder="Search account code/name..."
+                value={accountSearch}
+                onChange={(e) => setAccountSearch(e.target.value)}
+              />
               <select
                 className="input"
                 value={accountId}
@@ -150,11 +168,18 @@ export default function GeneralLedgerReportPage() {
                             ?.name || ""),
                     )
                   : accounts
-                ).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} — {a.name}
-                  </option>
-                ))}
+                )
+                  .filter((a) => {
+                    const q = accountSearch.trim().toLowerCase();
+                    if (!q) return true;
+                    const hay = `${a.code || ""} ${a.name || ""}`.toLowerCase();
+                    return hay.includes(q);
+                  })
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} — {a.name}
+                    </option>
+                  ))}
               </select>
             </div>
             <div>
@@ -190,15 +215,19 @@ export default function GeneralLedgerReportPage() {
                 onChange={(e) => setTo(e.target.value)}
               />
             </div>
-            <div className="flex items-end gap-2">
+            <div className="flex items-end">
               <button
                 type="button"
-                className="btn-success"
-                onClick={run}
-                disabled={loading}
+                className="btn-secondary"
+                title={
+                  order === "new" ? "New entries first" : "Old entries first"
+                }
+                onClick={() => setOrder(order === "new" ? "old" : "new")}
               >
-                {loading ? "Running..." : "Run"}
+                {order === "new" ? "🔽" : "🔼"}
               </button>
+            </div>
+            <div className="flex items-end gap-2">
               <button
                 type="button"
                 className="btn-success"

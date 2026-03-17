@@ -516,7 +516,8 @@ export default function SalesOrderList() {
         return;
       }
       doc.open();
-      doc.write(html);
+      const patchCss = `<style>@media print{*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>`;
+      doc.write(patchCss + html);
       doc.close();
       const win = iframe.contentWindow || window;
       const doPrint = () => {
@@ -548,10 +549,48 @@ export default function SalesOrderList() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      toast.error(
-        err?.response?.data?.message ||
-          "Failed to download PDF (default template missing)",
-      );
+      try {
+        // Fallback: fetch HTML and render client-side PDF to avoid server PDF issues
+        const htmlRes = await api.post(
+          `/documents/sales-order/${id}/render`,
+          { format: "html" },
+          { headers: { "Content-Type": "application/json" } },
+        );
+        const html =
+          typeof htmlRes.data === "string"
+            ? htmlRes.data
+            : String(htmlRes.data || "");
+        const container = document.createElement("div");
+        container.style.position = "fixed";
+        container.style.left = "-10000px";
+        container.style.top = "0";
+        container.style.background = "white";
+        container.innerHTML = html;
+        document.body.appendChild(container);
+        const canvas = await html2canvas(container, {
+          scale: 2,
+          useCORS: true,
+        });
+        const imgData = canvas.toDataURL("image/png");
+        const pdf = new jsPDF("p", "mm", "a4");
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const imgWidth = pageWidth;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        let rendered = 0;
+        while (rendered < imgHeight) {
+          pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
+          rendered += pageHeight;
+          if (rendered < imgHeight) pdf.addPage();
+        }
+        pdf.save(`sales-order-${id}.pdf`);
+        document.body.removeChild(container);
+      } catch (e2) {
+        toast.error(
+          e2?.response?.data?.message ||
+            "Failed to download Sales Order PDF. Please try again.",
+        );
+      }
     }
   }
 
@@ -1116,8 +1155,9 @@ export default function SalesOrderList() {
                                 forwardedTo[order.id] ||
                                 "Approver") + ""}
                             </button>
-                          ) : String(order.status || "").toUpperCase() ===
-                            "DRAFT" ? (
+                          ) : ["DRAFT", "REJECTED"].includes(
+                              String(order.status || "").toUpperCase(),
+                            ) ? (
                             <span className="ml-3 inline-flex items-center gap-2">
                               <button
                                 type="button"

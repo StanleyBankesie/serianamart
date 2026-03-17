@@ -934,6 +934,18 @@ export default function PosSalesEntry() {
     setEntryItemId("");
     setEntryQty(1);
     setSaleTimestamp(null);
+    if (Array.isArray(paymentModes) && paymentModes.length) {
+      const cashMode =
+        paymentModes.find(
+          (m) =>
+            String(m.type || "")
+              .trim()
+              .toLowerCase() === "cash",
+        ) || paymentModes[0];
+      if (cashMode?.id) {
+        setSelectedPaymentModeId(String(cashMode.id));
+      }
+    }
     if (barcodeInputRef.current) {
       try {
         barcodeInputRef.current.focus();

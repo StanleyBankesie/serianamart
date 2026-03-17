@@ -1344,6 +1344,25 @@ export const performAction = async (req, res, next) => {
         `<p><a href="${linkAbs}" style="background-color: #0066cc; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">View Document</a></p>` +
         `<p>Thank you.<br/>ERP Notification System</p>`;
 
+      try {
+        await sendMail({
+          to,
+          subject,
+          text: textContent,
+          html: htmlContent,
+          meta: {
+            companyId: req.scope.companyId,
+            userId: targetUserId,
+            moduleName: "Workflow",
+            action: "EMAIL_SENT",
+            refNo: refNo,
+            urlPath: `/administration/workflows/approvals/${instance.id}`,
+          },
+        });
+      } catch (err) {
+        console.error("Error sending workflow email:", err);
+      }
+
       await query(
         `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
          VALUES (:companyId, :userId, :title, :message, :link, 0)`,
@@ -1351,9 +1370,7 @@ export const performAction = async (req, res, next) => {
           companyId: req.scope.companyId,
           userId: targetUserId,
           title: title || "Document Update",
-          message:
-            message ||
-            `A ${docType} ${refNo} requires your action.`,
+          message: message || `A ${docType} ${refNo} requires your action.`,
           link: `/administration/workflows/approvals/${instance.id}`,
         },
       );

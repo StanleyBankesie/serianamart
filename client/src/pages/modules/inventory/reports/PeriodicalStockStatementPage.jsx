@@ -11,6 +11,7 @@ export default function PeriodicalStockStatementPage() {
   const [warehouseId, setWarehouseId] = useState("");
   const [itemGroupId, setItemGroupId] = useState("");
   const [q, setQ] = useState("");
+  const [order, setOrder] = useState("new");
   const [warehouses, setWarehouses] = useState([]);
   const [groups, setGroups] = useState([]);
   const [items, setItems] = useState([]);
@@ -165,6 +166,16 @@ export default function PeriodicalStockStatementPage() {
               <button
                 type="button"
                 className="btn-secondary"
+                title={order === "new" ? "New entries first" : "Old entries first"}
+                onClick={() => setOrder(order === "new" ? "old" : "new")}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 5l-4 4h8l-4-4zm0 14l4-4H8l4 4z" fill="currentColor" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
                 onClick={() => {
                   const rows = Array.isArray(items) ? items : [];
                   if (!rows.length) return;
@@ -251,7 +262,7 @@ export default function PeriodicalStockStatementPage() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, idx) => (
+                {(order === "new" ? items.slice().reverse() : items).map((r, idx) => (
                   <tr key={r.id || idx}>
                     <td>
                       {r.txn_date

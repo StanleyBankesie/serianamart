@@ -23,7 +23,7 @@ async function nextVoucherNo({ companyId, voucherTypeId }) {
     if (!vt) throw httpError(404, "NOT_FOUND", "Voucher type not found");
     const up = String(vt.code).toUpperCase();
     const seq =
-      up === "PV" || up === "CV" || up === "RV" || up === "JV"
+      up === "PV" || up === "CV" || up === "RV" || up === "JV" || up === "SV"
         ? String(vt.next_number).padStart(6, "0")
         : String(vt.next_number);
     const voucherNo = `${vt.prefix}-${seq}`;
@@ -252,7 +252,7 @@ export const getNextVoucherNo = async (req, res, next) => {
     if (!vt) throw httpError(404, "NOT_FOUND", "Voucher type not found");
     const up = String(vt.code).toUpperCase();
     const seq =
-      up === "PV" || up === "CV" || up === "RV"
+    up === "PV" || up === "CV" || up === "RV" || up === "JV" || up === "SV"
         ? String(vt.next_number).padStart(6, "0")
         : String(vt.next_number);
     const nextNo = `${vt.prefix}-${seq}`;
