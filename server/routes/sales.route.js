@@ -14,6 +14,7 @@ import { httpError } from "../utils/httpError.js";
 import { ensureSalesOrderColumns } from "../utils/dbUtils.js";
 import { requireIdParam } from "../controllers/finance.controller.js";
 import { isMailerConfigured, sendMail } from "../utils/mailer.js";
+import * as XLSX from "xlsx";
 
 const router = express.Router();
 
@@ -38,6 +39,74 @@ async function hasColumn(tableName, columnName) {
   );
   return Number(rows?.[0]?.c || 0) > 0;
 }
+// Ensure prospective customers table exists
+async function ensureProspectiveCustomersTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS sal_prospect_customers (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      customer_code VARCHAR(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      customer_name VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+      credit_limit DECIMAL(18,2) NOT NULL DEFAULT '0.00',
+      is_active TINYINT(1) NOT NULL DEFAULT '1',
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      city VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      state VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      zone VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      country VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      price_type_id BIGINT UNSIGNED DEFAULT NULL,
+      email VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      phone VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      contact_person VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      customer_type VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      address TEXT COLLATE utf8mb4_unicode_ci,
+      mobile VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      payment_terms VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      currency_id BIGINT UNSIGNED DEFAULT NULL,
+      PRIMARY KEY (id),
+      KEY idx_prospect_customers_scope (company_id, branch_id),
+      KEY fk_prospect_customers_branch (branch_id),
+      CONSTRAINT fk_prospect_customers_branch FOREIGN KEY (branch_id) REFERENCES adm_branches (id),
+      CONSTRAINT fk_prospect_customers_company FOREIGN KEY (company_id) REFERENCES adm_companies (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `).catch(() => null);
+
+  // Migrate existing tables that were created with the old schema (missing columns)
+  const columnsToAdd = [
+    ["branch_id", "BIGINT UNSIGNED NOT NULL DEFAULT 1"],
+    ["customer_code", "VARCHAR(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL"],
+    ["customer_name", "VARCHAR(255) COLLATE utf8mb4_unicode_ci DEFAULT ''"],
+    ["credit_limit", "DECIMAL(18,2) NOT NULL DEFAULT '0.00'"],
+    ["is_active", "TINYINT(1) NOT NULL DEFAULT '1'"],
+    ["zone", "VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL"],
+    ["price_type_id", "BIGINT UNSIGNED DEFAULT NULL"],
+    ["phone", "VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL"],
+    ["contact_person", "VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL"],
+    ["customer_type", "VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL"],
+    ["mobile", "VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL"],
+    ["payment_terms", "VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL"],
+    ["currency_id", "BIGINT UNSIGNED DEFAULT NULL"],
+  ];
+  for (const [col, def] of columnsToAdd) {
+    if (!(await hasColumn("sal_prospect_customers", col))) {
+      await query(
+        `ALTER TABLE sal_prospect_customers ADD COLUMN ${col} ${def}`,
+      ).catch(() => null);
+    }
+  }
+
+  // Ensure prospect_customer is nullable if it exists, and add it if not
+  if (await hasColumn("sal_prospect_customers", "prospect_customer")) {
+    await query(
+      "ALTER TABLE sal_prospect_customers MODIFY COLUMN prospect_customer VARCHAR(200) NULL",
+    ).catch(() => null);
+  } else {
+    await query(
+      "ALTER TABLE sal_prospect_customers ADD COLUMN prospect_customer VARCHAR(200) NULL",
+    ).catch(() => null);
+  }
+}
 async function ensureQuotationTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS sal_quotations (
@@ -48,8 +117,15 @@ async function ensureQuotationTables() {
       quotation_date DATE NOT NULL,
       customer_id BIGINT UNSIGNED NULL,
       customer_name VARCHAR(255) NULL,
+      customer_address VARCHAR(255) NULL,
+      customer_city VARCHAR(100) NULL,
+      customer_state VARCHAR(100) NULL,
+      customer_country VARCHAR(100) NULL,
+      valid_days INT NULL,
       valid_until DATE NULL,
       total_amount DECIMAL(18,2) DEFAULT 0,
+      net_amount DECIMAL(18,2) DEFAULT 0,
+      tax_amount DECIMAL(18,2) DEFAULT 0,
       status VARCHAR(30) DEFAULT 'DRAFT',
       price_type ENUM('WHOLESALE','RETAIL') DEFAULT 'RETAIL',
       payment_type ENUM('CASH','CHEQUE','CREDIT') DEFAULT 'CASH',
@@ -57,6 +133,7 @@ async function ensureQuotationTables() {
       exchange_rate DECIMAL(18,6) DEFAULT 1,
       warehouse_id BIGINT UNSIGNED NULL,
       remarks TEXT NULL,
+      terms_and_conditions TEXT NULL,
       created_by BIGINT UNSIGNED NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -65,6 +142,61 @@ async function ensureQuotationTables() {
       KEY idx_quotation_scope (company_id, branch_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `).catch(() => null);
+
+  const table = "sal_quotations";
+  const ensureCol = async (col, ddl) => {
+    if (!(await hasColumn(table, col))) {
+      await query(`ALTER TABLE ${table} ADD COLUMN ${ddl}`).catch(() => null);
+    }
+  };
+  await ensureCol("customer_address", "customer_address VARCHAR(255) NULL");
+  await ensureCol("customer_city", "customer_city VARCHAR(100) NULL");
+  await ensureCol("customer_state", "customer_state VARCHAR(100) NULL");
+  await ensureCol("customer_country", "customer_country VARCHAR(100) NULL");
+  await ensureCol("valid_days", "valid_days INT NULL");
+  await ensureCol("net_amount", "net_amount DECIMAL(18,2) DEFAULT 0");
+  await ensureCol("tax_amount", "tax_amount DECIMAL(18,2) DEFAULT 0");
+  await ensureCol("terms_and_conditions", "terms_and_conditions TEXT NULL");
+}
+
+async function ensureQuotationDetailsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS sal_quotation_details (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      quotation_id BIGINT UNSIGNED NOT NULL,
+      item_id BIGINT UNSIGNED NOT NULL,
+      qty DECIMAL(18,4) NOT NULL DEFAULT 0,
+      unit_price DECIMAL(18,4) NOT NULL DEFAULT 0,
+      discount_percent DECIMAL(5,2) NOT NULL DEFAULT 0,
+      total_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
+      net_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
+      tax_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
+      tax_type BIGINT UNSIGNED NULL,
+      uom VARCHAR(20) NULL,
+      PRIMARY KEY (id),
+      KEY idx_qd_q (quotation_id),
+      KEY idx_qd_item (item_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `).catch(() => null);
+
+  const table = "sal_quotation_details";
+  const ensureCol = async (col, ddl) => {
+    if (!(await hasColumn(table, col))) {
+      await query(`ALTER TABLE ${table} ADD COLUMN ${ddl}`).catch(() => null);
+    }
+  };
+  await ensureCol(
+    "discount_percent",
+    "discount_percent DECIMAL(5,2) NOT NULL DEFAULT 0",
+  );
+  await ensureCol(
+    "total_amount",
+    "total_amount DECIMAL(18,2) NOT NULL DEFAULT 0",
+  );
+  await ensureCol("net_amount", "net_amount DECIMAL(18,2) NOT NULL DEFAULT 0");
+  await ensureCol("tax_amount", "tax_amount DECIMAL(18,2) NOT NULL DEFAULT 0");
+  await ensureCol("tax_type", "tax_type BIGINT UNSIGNED NULL");
+  await ensureCol("uom", "uom VARCHAR(20) NULL");
 }
 async function ensureInvoiceTables() {
   await query(`
@@ -746,12 +878,16 @@ router.get(
       const params = { companyId };
       let where = "company_id = :companyId";
       if (q) {
-        where += " AND prospect_customer LIKE :q";
+        where += " AND (prospect_customer LIKE :q OR customer_name LIKE :q)";
         params.q = `%${q}%`;
       }
       const items = await query(
         `
-        SELECT id, company_id, prospect_customer, address, city, state, country, telephone, email
+        SELECT id, company_id, 
+               COALESCE(customer_name, prospect_customer) AS prospect_customer, 
+               address, city, state, country, 
+               COALESCE(phone, telephone) AS telephone, 
+               email
         FROM sal_prospect_customers
         WHERE ${where}
         ORDER BY prospect_customer ASC
@@ -765,6 +901,81 @@ router.get(
   },
 );
 router.get(
+  "/customers/template",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("SAL.CUSTOMER.CREATE"),
+  async (req, res, next) => {
+    try {
+      const headers = [
+        "customer_code",
+        "customer_name",
+        "email",
+        "phone",
+        "mobile",
+        "contact_person",
+        "address",
+        "city",
+        "state",
+        "zone",
+        "country",
+        "customer_type",
+        "credit_limit",
+        "payment_terms",
+      ];
+      const ws = XLSX.utils.aoa_to_sheet([headers]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "CustomersTemplate");
+      const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+      res.setHeader(
+        "Content-Disposition",
+        "attachment; filename=CustomerTemplate.xlsx",
+      );
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+      res.send(buf);
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/customers/next-code",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("SAL.CUSTOMER.VIEW"),
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      const rows = await query(
+        `SELECT customer_code FROM sal_customers 
+         WHERE company_id = :companyId AND customer_code REGEXP '^C(-?[0-9]+)?$'
+         ORDER BY id DESC
+         LIMIT 1`,
+        { companyId },
+      ).catch(() => []);
+      let nextNum = 1;
+      if (rows.length) {
+        const prev = String(rows[0].customer_code || "");
+        const match = prev.match(/\d+$/);
+        if (match) {
+          nextNum = parseInt(match[0], 10) + 1;
+        }
+      }
+      const code = `C-${String(nextNum).padStart(6, "0")}`;
+      res.json({ code });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
   "/customers",
   requireAuth,
   requireCompanyScope,
@@ -773,10 +984,12 @@ router.get(
   async (req, res, next) => {
     try {
       const companyId = req.scope.companyId;
-      const active = String(req.query.active || "")
+      const activeParam = String(req.query.active || "")
         .trim()
         .toLowerCase();
-      const onlyActive = active === "true" || active === "1";
+      // If active=false is explicitly requested, show all. Otherwise show only active.
+      const onlyActive =
+        activeParam === "true" || activeParam === "1" || activeParam === "";
       const params = { companyId };
       const where = ["c.company_id = :companyId"];
       if (onlyActive) where.push("c.is_active = 1");
@@ -811,6 +1024,160 @@ router.get(
         params,
       ).catch(() => []);
       res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.post(
+  "/customers",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("SAL.CUSTOMER.CREATE"),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const {
+        customer_code,
+        customer_name,
+        email,
+        phone,
+        mobile,
+        contact_person,
+        address,
+        city,
+        state,
+        zone,
+        country,
+        customer_type,
+        price_type_id,
+        currency_id,
+        credit_limit,
+        payment_terms,
+        is_active,
+      } = req.body;
+
+      if (!customer_name) {
+        throw httpError(400, "VALIDATION_ERROR", "Customer name is required");
+      }
+
+      const result = await query(
+        `INSERT INTO sal_customers 
+         (company_id, branch_id, customer_code, customer_name, email, phone, mobile, 
+          contact_person, address, city, state, zone, country, customer_type, 
+          price_type_id, currency_id, credit_limit, payment_terms, is_active)
+         VALUES (:companyId, :branchId, :customer_code, :customer_name, :email, :phone, :mobile,
+                 :contact_person, :address, :city, :state, :zone, :country, :customer_type,
+                 :price_type_id, :currency_id, :credit_limit, :payment_terms, :is_active)`,
+        {
+          companyId,
+          branchId,
+          customer_code: customer_code || null,
+          customer_name,
+          email: email || null,
+          phone: phone || null,
+          mobile: mobile || null,
+          contact_person: contact_person || null,
+          address: address || null,
+          city: city || null,
+          state: state || null,
+          zone: zone || null,
+          country: country || null,
+          customer_type: customer_type || "Individual",
+          price_type_id: price_type_id || null,
+          currency_id: currency_id || null,
+          credit_limit: credit_limit || 0,
+          payment_terms: payment_terms || "Net 30",
+          is_active: is_active === false ? 0 : 1,
+        },
+      );
+
+      res.status(201).json({
+        id: result.insertId,
+        message: "Customer created successfully",
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.put(
+  "/customers/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("SAL.CUSTOMER.UPDATE"),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = req.params.id;
+      const {
+        customer_code,
+        customer_name,
+        email,
+        phone,
+        mobile,
+        contact_person,
+        address,
+        city,
+        state,
+        zone,
+        country,
+        customer_type,
+        price_type_id,
+        currency_id,
+        credit_limit,
+        payment_terms,
+        is_active,
+      } = req.body;
+
+      await query(
+        `UPDATE sal_customers 
+         SET customer_code = :customer_code, 
+             customer_name = :customer_name, 
+             email = :email, 
+             phone = :phone, 
+             mobile = :mobile,
+             contact_person = :contact_person, 
+             address = :address, 
+             city = :city, 
+             state = :state, 
+             zone = :zone, 
+             country = :country, 
+             customer_type = :customer_type,
+             price_type_id = :price_type_id, 
+             currency_id = :currency_id, 
+             credit_limit = :credit_limit, 
+             payment_terms = :payment_terms, 
+             is_active = :is_active
+         WHERE id = :id AND company_id = :companyId`,
+        {
+          id,
+          companyId,
+          customer_code: customer_code || null,
+          customer_name,
+          email: email || null,
+          phone: phone || null,
+          mobile: mobile || null,
+          contact_person: contact_person || null,
+          address: address || null,
+          city: city || null,
+          state: state || null,
+          zone: zone || null,
+          country: country || null,
+          customer_type: customer_type || "Individual",
+          price_type_id: price_type_id || null,
+          currency_id: currency_id || null,
+          credit_limit: credit_limit || 0,
+          payment_terms: payment_terms || "Net 30",
+          is_active: is_active === false ? 0 : 1,
+        },
+      );
+
+      res.json({ message: "Customer updated successfully" });
     } catch (e) {
       next(e);
     }
@@ -1126,10 +1493,15 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requireAnyPermission(["SAL.ORDER.VIEW", "SAL.INVOICE.VIEW"]),
+  requireAnyPermission([
+    "SAL.QUOTATION.VIEW",
+    "SAL.ORDER.VIEW",
+    "SAL.INVOICE.VIEW",
+  ]),
   async (req, res, next) => {
     try {
       await ensureQuotationTables();
+      await ensureQuotationDetailsTable();
       const companyId = req.scope.companyId;
       const branchId = req.scope.branchId;
       const items = await query(
@@ -1138,7 +1510,13 @@ router.get(
            q.quotation_no,
            q.quotation_date,
            q.customer_id,
-           COALESCE(NULLIF(q.customer_name, ''), c.customer_name, '') AS customer_name,
+           COALESCE(
+             NULLIF(q.customer_name, ''), 
+             c.customer_name, 
+             p.customer_name, 
+             p.prospect_customer, 
+             ''
+           ) AS customer_name,
            COALESCE(q.valid_until, q.quotation_date) AS valid_until,
            q.total_amount,
            q.status,
@@ -1149,6 +1527,8 @@ router.get(
          FROM sal_quotations q
          LEFT JOIN sal_customers c
            ON c.id = q.customer_id AND c.company_id = q.company_id
+         LEFT JOIN sal_prospect_customers p
+           ON p.id = q.customer_id AND p.company_id = q.company_id
          WHERE q.company_id = :companyId AND q.branch_id = :branchId
          ORDER BY q.quotation_date DESC, q.id DESC`,
         { companyId, branchId },
@@ -1161,14 +1541,569 @@ router.get(
 );
 
 router.get(
+  "/quotations/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "SAL.QUOTATION.VIEW",
+    "SAL.ORDER.VIEW",
+    "SAL.INVOICE.VIEW",
+  ]),
+  async (req, res, next) => {
+    try {
+      await ensureQuotationTables();
+      await ensureQuotationDetailsTable();
+      const { companyId, branchId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      }
+      const rows = await query(
+        `
+        SELECT
+          q.id,
+          q.quotation_no,
+          q.quotation_date,
+          q.customer_id,
+          COALESCE(
+            NULLIF(q.customer_name, ''), 
+            c.customer_name, 
+            p.customer_name, 
+            p.prospect_customer, 
+            ''
+          ) AS customer_name,
+          q.customer_address,
+          q.customer_city,
+          q.customer_state,
+          q.customer_country,
+          q.valid_days,
+          q.valid_until,
+          q.total_amount,
+          q.net_amount,
+          q.tax_amount,
+          q.status,
+          q.price_type,
+          q.payment_type,
+          q.currency_id,
+          q.exchange_rate,
+          q.warehouse_id,
+          q.remarks,
+          q.terms_and_conditions
+        FROM sal_quotations q
+        LEFT JOIN sal_customers c
+          ON c.id = q.customer_id AND c.company_id = q.company_id
+        LEFT JOIN sal_prospect_customers p
+          ON p.id = q.customer_id AND p.company_id = q.company_id
+        WHERE q.id = :id AND q.company_id = :companyId AND q.branch_id = :branchId
+        LIMIT 1
+        `,
+        { id, companyId, branchId },
+      ).catch(() => []);
+      const item = rows?.[0] || null;
+      if (!item) throw httpError(404, "NOT_FOUND", "Quotation not found");
+      if (!item.valid_days) {
+        try {
+          const qd = item.quotation_date ? new Date(item.quotation_date) : null;
+          const vd = item.valid_until ? new Date(item.valid_until) : null;
+          if (
+            qd &&
+            vd &&
+            !Number.isNaN(qd.getTime()) &&
+            !Number.isNaN(vd.getTime())
+          ) {
+            const diff = Math.round(
+              (vd.getTime() - qd.getTime()) / (1000 * 60 * 60 * 24),
+            );
+            item.valid_days = Number.isFinite(diff) ? diff : null;
+          }
+        } catch {}
+      }
+      const details = await query(
+        `
+        SELECT
+          d.id,
+          d.item_id,
+          d.qty,
+          d.unit_price,
+          d.discount_percent,
+          d.tax_type,
+          d.tax_amount,
+          d.net_amount,
+          d.total_amount,
+          d.uom,
+          it.item_code,
+          it.item_name
+        FROM sal_quotation_details d
+        LEFT JOIN inv_items it
+          ON it.id = d.item_id AND it.company_id = :companyId
+        WHERE d.quotation_id = :id
+        ORDER BY d.id ASC
+        `,
+        { id, companyId },
+      ).catch(() => []);
+      res.json({ item, details: Array.isArray(details) ? details : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.post(
+  "/quotations",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "SAL.QUOTATION.VIEW",
+    "SAL.ORDER.VIEW",
+    "SAL.INVOICE.VIEW",
+  ]),
+  async (req, res, next) => {
+    try {
+      await ensureQuotationTables();
+      await ensureQuotationDetailsTable();
+      const { companyId, branchId } = req.scope;
+      const body = req.body || {};
+      let quotation_no = String(body.quotation_no || "").trim();
+      const quotation_date = body.quotation_date
+        ? String(body.quotation_date).slice(0, 10)
+        : null;
+      const customer_id =
+        body.customer_id == null ? null : Number(body.customer_id);
+      if (!quotation_date) {
+        throw httpError(400, "VALIDATION_ERROR", "quotation_date is required");
+      }
+      const items = Array.isArray(body.items) ? body.items : [];
+      if (!items.length) {
+        throw httpError(400, "VALIDATION_ERROR", "items are required");
+      }
+
+      const createdBy = req.user?.sub || null;
+      const net_amount = items.reduce(
+        (s, it) => s + Number(it?.net_amount || 0),
+        0,
+      );
+      const tax_amount = items.reduce(
+        (s, it) => s + Number(it?.tax_amount || 0),
+        0,
+      );
+      const total_amount =
+        body.total_amount !== undefined && body.total_amount !== null
+          ? Number(body.total_amount || 0)
+          : Number(net_amount + tax_amount);
+
+      const resolveNextQuotationNo = async () => {
+        const rows = await query(
+          `
+          SELECT quotation_no
+          FROM sal_quotations
+          WHERE company_id = :companyId
+            AND branch_id = :branchId
+            AND quotation_no REGEXP '^QN[0-9]{6}$'
+          ORDER BY CAST(REPLACE(quotation_no, 'QN', '') AS UNSIGNED) DESC
+          LIMIT 1
+          `,
+          { companyId, branchId },
+        ).catch(() => []);
+        let nextNum = 1;
+        if (rows.length > 0) {
+          const prev = String(rows[0].quotation_no || "");
+          const numPart = prev.replace(/^QN/, "");
+          const n = parseInt(numPart, 10);
+          if (Number.isFinite(n)) nextNum = n + 1;
+        }
+        return `QN${String(nextNum).padStart(6, "0")}`;
+      };
+
+      if (!quotation_no) {
+        quotation_no = await resolveNextQuotationNo();
+      }
+
+      const insertHeader = async (qNo) => {
+        return query(
+          `
+          INSERT INTO sal_quotations
+            (company_id, branch_id, quotation_no, quotation_date, customer_id, customer_name, customer_address, customer_city, customer_state, customer_country, valid_days, valid_until, total_amount, net_amount, tax_amount, status, price_type, payment_type, currency_id, exchange_rate, warehouse_id, remarks, terms_and_conditions, created_by)
+          VALUES
+            (:companyId, :branchId, :quotation_no, DATE(:quotation_date), :customer_id, :customer_name, :customer_address, :customer_city, :customer_state, :customer_country, :valid_days, :valid_until, :total_amount, :net_amount, :tax_amount, :status, :price_type, :payment_type, :currency_id, :exchange_rate, :warehouse_id, :remarks, :terms_and_conditions, :created_by)
+          `,
+          {
+            companyId,
+            branchId,
+            quotation_no: qNo,
+            quotation_date,
+            customer_id: customer_id || null,
+            customer_name: body.customer_name
+              ? String(body.customer_name)
+              : null,
+            customer_address: body.customer_address
+              ? String(body.customer_address)
+              : null,
+            customer_city: body.customer_city
+              ? String(body.customer_city)
+              : null,
+            customer_state: body.customer_state
+              ? String(body.customer_state)
+              : null,
+            customer_country: body.customer_country
+              ? String(body.customer_country)
+              : null,
+            valid_days:
+              body.valid_days == null
+                ? null
+                : Number(body.valid_days || 0) || null,
+            valid_until: body.valid_until
+              ? String(body.valid_until).slice(0, 10)
+              : null,
+            total_amount: Number(total_amount || 0),
+            net_amount: Number(net_amount || 0),
+            tax_amount: Number(tax_amount || 0),
+            status: String(body.status || "DRAFT")
+              .trim()
+              .toUpperCase(),
+            price_type: String(body.price_type || "RETAIL")
+              .trim()
+              .toUpperCase(),
+            payment_type: String(body.payment_type || "CASH")
+              .trim()
+              .toUpperCase(),
+            currency_id: Number(body.currency_id || 4),
+            exchange_rate: Number(body.exchange_rate || 1),
+            warehouse_id:
+              body.warehouse_id == null ? null : Number(body.warehouse_id),
+            remarks: body.remarks ? String(body.remarks) : null,
+            terms_and_conditions: body.terms_and_conditions
+              ? String(body.terms_and_conditions)
+              : null,
+            created_by: createdBy,
+          },
+        );
+      };
+
+      let headerInsert = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          headerInsert = await insertHeader(quotation_no);
+          break;
+        } catch (e) {
+          const code = String(e?.code || "");
+          if (code === "ER_DUP_ENTRY") {
+            quotation_no = await resolveNextQuotationNo();
+            continue;
+          }
+          throw e;
+        }
+      }
+      if (!headerInsert || !headerInsert.insertId) {
+        throw httpError(
+          409,
+          "DUPLICATE",
+          "Failed to allocate a unique quotation number",
+        );
+      }
+      const id = Number(headerInsert.insertId || 0);
+      for (const it of items) {
+        const item_id = Number(it?.item_id);
+        const qty = Number(it?.qty ?? it?.quantity ?? 0);
+        if (!Number.isFinite(item_id) || item_id <= 0) continue;
+        await query(
+          `
+          INSERT INTO sal_quotation_details
+            (quotation_id, item_id, qty, unit_price, discount_percent, total_amount, net_amount, tax_amount, tax_type, uom)
+          VALUES
+            (:quotation_id, :item_id, :qty, :unit_price, :discount_percent, :total_amount, :net_amount, :tax_amount, :tax_type, :uom)
+          `,
+          {
+            quotation_id: id,
+            item_id,
+            qty: Number.isFinite(qty) ? qty : 0,
+            unit_price: Number(it?.unit_price || 0),
+            discount_percent: Number(it?.discount_percent || 0),
+            total_amount: Number(it?.total_amount ?? it?.line_total ?? 0),
+            net_amount: Number(it?.net_amount || 0),
+            tax_amount: Number(it?.tax_amount || 0),
+            tax_type: it?.tax_type == null ? null : Number(it.tax_type) || null,
+            uom: it?.uom ? String(it.uom) : null,
+          },
+        );
+      }
+      res.status(201).json({ id, quotation_no });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.put(
+  "/quotations/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "SAL.QUOTATION.VIEW",
+    "SAL.ORDER.VIEW",
+    "SAL.INVOICE.VIEW",
+  ]),
+  async (req, res, next) => {
+    try {
+      await ensureQuotationTables();
+      await ensureQuotationDetailsTable();
+      const { companyId, branchId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      }
+      const body = req.body || {};
+      const quotation_no = String(body.quotation_no || "").trim();
+      const quotation_date = body.quotation_date
+        ? String(body.quotation_date).slice(0, 10)
+        : null;
+      if (!quotation_no || !quotation_date) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "quotation_no and quotation_date are required",
+        );
+      }
+      const items = Array.isArray(body.items) ? body.items : [];
+      if (!items.length) {
+        throw httpError(400, "VALIDATION_ERROR", "items are required");
+      }
+
+      const rows = await query(
+        `SELECT id FROM sal_quotations WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        { id, companyId, branchId },
+      ).catch(() => []);
+      if (!rows.length)
+        throw httpError(404, "NOT_FOUND", "Quotation not found");
+
+      const net_amount = items.reduce(
+        (s, it) => s + Number(it?.net_amount || 0),
+        0,
+      );
+      const tax_amount = items.reduce(
+        (s, it) => s + Number(it?.tax_amount || 0),
+        0,
+      );
+      const total_amount =
+        body.total_amount !== undefined && body.total_amount !== null
+          ? Number(body.total_amount || 0)
+          : Number(net_amount + tax_amount);
+
+      await query(
+        `
+        UPDATE sal_quotations
+           SET quotation_no = :quotation_no,
+               quotation_date = DATE(:quotation_date),
+               customer_id = :customer_id,
+               customer_name = :customer_name,
+               customer_address = :customer_address,
+               customer_city = :customer_city,
+               customer_state = :customer_state,
+               customer_country = :customer_country,
+               valid_days = :valid_days,
+               valid_until = :valid_until,
+               total_amount = :total_amount,
+               net_amount = :net_amount,
+               tax_amount = :tax_amount,
+               status = :status,
+               price_type = :price_type,
+               payment_type = :payment_type,
+               currency_id = :currency_id,
+               exchange_rate = :exchange_rate,
+               warehouse_id = :warehouse_id,
+               remarks = :remarks,
+               terms_and_conditions = :terms_and_conditions
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+        `,
+        {
+          id,
+          companyId,
+          branchId,
+          quotation_no,
+          quotation_date,
+          customer_id:
+            body.customer_id == null ? null : Number(body.customer_id) || null,
+          customer_name: body.customer_name ? String(body.customer_name) : null,
+          customer_address: body.customer_address
+            ? String(body.customer_address)
+            : null,
+          customer_city: body.customer_city ? String(body.customer_city) : null,
+          customer_state: body.customer_state
+            ? String(body.customer_state)
+            : null,
+          customer_country: body.customer_country
+            ? String(body.customer_country)
+            : null,
+          valid_days:
+            body.valid_days == null
+              ? null
+              : Number(body.valid_days || 0) || null,
+          valid_until: body.valid_until
+            ? String(body.valid_until).slice(0, 10)
+            : null,
+          total_amount: Number(total_amount || 0),
+          net_amount: Number(net_amount || 0),
+          tax_amount: Number(tax_amount || 0),
+          status: String(body.status || "DRAFT")
+            .trim()
+            .toUpperCase(),
+          price_type: String(body.price_type || "RETAIL")
+            .trim()
+            .toUpperCase(),
+          payment_type: String(body.payment_type || "CASH")
+            .trim()
+            .toUpperCase(),
+          currency_id: Number(body.currency_id || 4),
+          exchange_rate: Number(body.exchange_rate || 1),
+          warehouse_id:
+            body.warehouse_id == null ? null : Number(body.warehouse_id),
+          remarks: body.remarks ? String(body.remarks) : null,
+          terms_and_conditions: body.terms_and_conditions
+            ? String(body.terms_and_conditions)
+            : null,
+        },
+      );
+      await query(
+        "DELETE FROM sal_quotation_details WHERE quotation_id = :id",
+        { id },
+      );
+      for (const it of items) {
+        const item_id = Number(it?.item_id);
+        const qty = Number(it?.qty ?? it?.quantity ?? 0);
+        if (!Number.isFinite(item_id) || item_id <= 0) continue;
+        await query(
+          `
+          INSERT INTO sal_quotation_details
+            (quotation_id, item_id, qty, unit_price, discount_percent, total_amount, net_amount, tax_amount, tax_type, uom)
+          VALUES
+            (:quotation_id, :item_id, :qty, :unit_price, :discount_percent, :total_amount, :net_amount, :tax_amount, :tax_type, :uom)
+          `,
+          {
+            quotation_id: id,
+            item_id,
+            qty: Number.isFinite(qty) ? qty : 0,
+            unit_price: Number(it?.unit_price || 0),
+            discount_percent: Number(it?.discount_percent || 0),
+            total_amount: Number(it?.total_amount ?? it?.line_total ?? 0),
+            net_amount: Number(it?.net_amount || 0),
+            tax_amount: Number(it?.tax_amount || 0),
+            tax_type: it?.tax_type == null ? null : Number(it.tax_type) || null,
+            uom: it?.uom ? String(it.uom) : null,
+          },
+        );
+      }
+      res.json({ ok: true, id });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.delete(
+  "/quotations/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureQuotationTables();
+      await ensureQuotationDetailsTable();
+      const { companyId, branchId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0)
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const userId = Number(req.user?.sub);
+      if (!Number.isFinite(userId) || userId <= 0)
+        throw httpError(401, "UNAUTHORIZED", "Invalid user");
+      const denyRows = await query(
+        `
+        SELECT 1
+          FROM adm_exceptional_permissions
+         WHERE user_id = :uid
+           AND permission_code = 'SALES.QUOTATION.CANCEL'
+           AND UPPER(effect) = 'DENY'
+         LIMIT 1
+        `,
+        { uid: userId },
+      ).catch(() => []);
+      if (denyRows.length) {
+        throw httpError(403, "FORBIDDEN", "Exceptional permission denied");
+      }
+      const allowRows = await query(
+        `
+        SELECT 1
+          FROM adm_exceptional_permissions
+         WHERE user_id = :uid
+           AND permission_code = 'SALES.QUOTATION.CANCEL'
+           AND UPPER(effect) = 'ALLOW'
+         LIMIT 1
+        `,
+        { uid: userId },
+      ).catch(() => []);
+      if (!allowRows.length) {
+        throw httpError(403, "FORBIDDEN", "Exceptional permission required");
+      }
+      const rows = await query(
+        `
+        SELECT id
+          FROM sal_quotations
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+         LIMIT 1
+        `,
+        { id, companyId, branchId },
+      ).catch(() => []);
+      if (!rows.length)
+        throw httpError(404, "NOT_FOUND", "Quotation not found");
+      const orderRef = await query(
+        `
+        SELECT id
+          FROM sal_orders
+         WHERE company_id = :companyId AND branch_id = :branchId
+           AND quotation_id = :id
+         LIMIT 1
+        `,
+        { companyId, branchId, id },
+      ).catch(() => []);
+      if (orderRef.length) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "Cannot cancel: quotation linked to a sales order",
+        );
+      }
+      await query(
+        "DELETE FROM sal_quotation_details WHERE quotation_id = :id",
+        {
+          id,
+        },
+      );
+      await query(
+        "DELETE FROM sal_quotations WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
+        { id, companyId, branchId },
+      );
+      res.json({ success: true, id });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
   "/quotations/next-no",
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requireAnyPermission(["SAL.ORDER.VIEW", "SAL.INVOICE.VIEW"]),
+  requireAnyPermission([
+    "SAL.QUOTATION.VIEW",
+    "SAL.ORDER.VIEW",
+    "SAL.INVOICE.VIEW",
+  ]),
   async (req, res, next) => {
     try {
       await ensureQuotationTables();
+      await ensureQuotationDetailsTable();
       const { companyId, branchId } = req.scope;
       const rows = await query(
         `
@@ -2012,6 +2947,124 @@ router.get(
       res.json({ nextNo });
     } catch (e) {
       next(e);
+    }
+  },
+);
+
+router.post(
+  "/invoices/:id/reverse-accounting",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0)
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const userId = Number(req.user?.sub);
+      if (!Number.isFinite(userId) || userId <= 0)
+        throw httpError(401, "UNAUTHORIZED", "Invalid user");
+      const denyRows = await query(
+        `
+        SELECT 1
+          FROM adm_exceptional_permissions
+         WHERE user_id = :uid
+           AND permission_code = 'SALES.INVOICE.CANCEL'
+           AND UPPER(effect) = 'DENY'
+         LIMIT 1
+        `,
+        { uid: userId },
+      ).catch(() => []);
+      if (denyRows.length) {
+        throw httpError(403, "FORBIDDEN", "Exceptional permission denied");
+      }
+      const allowRows = await query(
+        `
+        SELECT 1
+          FROM adm_exceptional_permissions
+         WHERE user_id = :uid
+           AND permission_code = 'SALES.INVOICE.CANCEL'
+           AND UPPER(effect) = 'ALLOW'
+         LIMIT 1
+        `,
+        { uid: userId },
+      ).catch(() => []);
+      if (!allowRows.length) {
+        throw httpError(403, "FORBIDDEN", "Exceptional permission required");
+      }
+      const invRows = await query(
+        `
+        SELECT id, invoice_no
+          FROM sal_invoices
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+         LIMIT 1
+        `,
+        { id, companyId, branchId },
+      ).catch(() => []);
+      if (!invRows.length)
+        throw httpError(404, "NOT_FOUND", "Invoice not found");
+      const invoiceNo = String(invRows[0].invoice_no || "").trim();
+      if (!invoiceNo) {
+        res.json({ success: true, deleted: 0 });
+        return;
+      }
+      await conn.beginTransaction();
+      const vRows = await conn
+        .execute(
+          `
+          SELECT DISTINCT v.id AS voucher_id
+            FROM fin_vouchers v
+            JOIN fin_voucher_lines l ON l.voucher_id = v.id
+           WHERE v.company_id = :companyId
+             AND l.reference_no = :referenceNo
+          `,
+          { companyId, referenceNo: invoiceNo },
+        )
+        .then(([rows]) => rows)
+        .catch(() => []);
+      const voucherIds = vRows
+        .map((r) => Number(r.voucher_id))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      let deleted = 0;
+      if (voucherIds.length) {
+        const inList = voucherIds.join(",");
+        await conn
+          .execute(
+            `DELETE FROM fin_voucher_lines WHERE voucher_id IN (${inList})`,
+          )
+          .catch(() => null);
+        const [resDel] = await conn
+          .execute(`DELETE FROM fin_vouchers WHERE id IN (${inList})`)
+          .catch(() => [null]);
+        deleted = Number(resDel?.affectedRows || 0);
+      }
+      await conn
+        .execute(`DELETE FROM sal_invoice_details WHERE invoice_id = :id`, {
+          id,
+        })
+        .catch(() => null);
+      await conn
+        .execute(
+          `DELETE FROM sal_invoices WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+          { id, companyId, branchId },
+        )
+        .catch(() => null);
+      await conn.commit();
+      res.json({
+        success: true,
+        deleted,
+        invoice_id: id,
+        invoice_no: invoiceNo,
+      });
+    } catch (e) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(e);
+    } finally {
+      conn.release();
     }
   },
 );
@@ -4302,6 +5355,327 @@ router.post(
         { id, companyId },
       );
       res.json({ status: "SUBMITTED" });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// ========== PROSPECTIVE CUSTOMERS ENDPOINTS ==========
+
+// GET /prospect-customers - List all prospective customers
+router.get(
+  "/prospect-customers",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("SAL.CUSTOMER.VIEW"),
+  async (req, res, next) => {
+    try {
+      await ensureProspectiveCustomersTable();
+      const companyId = req.scope.companyId;
+      const activeParam = String(req.query.active || "")
+        .trim()
+        .toLowerCase();
+      // If active=false is explicitly requested, show all. Otherwise show only active.
+      const onlyActive =
+        activeParam === "true" || activeParam === "1" || activeParam === "";
+      const params = { companyId };
+      const where = ["c.company_id = :companyId"];
+      if (onlyActive) where.push("c.is_active = 1");
+      const items = await query(
+        `SELECT 
+           c.id,
+           c.company_id,
+           c.branch_id,
+           c.customer_code,
+           c.customer_name,
+           c.customer_type,
+           c.price_type_id,
+           pt.name AS price_type_name,
+           c.contact_person,
+           c.email,
+           c.phone,
+           c.mobile,
+           c.credit_limit,
+           c.is_active,
+           c.address,
+           c.city,
+           c.state,
+           c.zone,
+           c.country,
+           c.payment_terms,
+           c.currency_id
+         FROM sal_prospect_customers c
+         LEFT JOIN sal_price_types pt
+           ON pt.id = c.price_type_id AND pt.company_id = c.company_id
+         WHERE ${where.join(" AND ")}
+         ORDER BY c.customer_name ASC`,
+        params,
+      ).catch(() => []);
+      res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// GET /prospect-customers/next-code - Get next customer code (MUST be before /:id)
+router.get(
+  "/prospect-customers/next-code",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("SAL.CUSTOMER.VIEW"),
+  async (req, res, next) => {
+    try {
+      await ensureProspectiveCustomersTable();
+      const companyId = req.scope.companyId;
+      const rows = await query(
+        `SELECT customer_code FROM sal_prospect_customers 
+         WHERE company_id = :companyId AND customer_code REGEXP '^PC(-?[0-9]+)?$'
+         ORDER BY id DESC
+         LIMIT 1`,
+        { companyId },
+      ).catch(() => []);
+      let nextNum = 1;
+      if (rows.length) {
+        const prev = String(rows[0].customer_code || "");
+        const match = prev.match(/\d+$/);
+        if (match) {
+          nextNum = parseInt(match[0], 10) + 1;
+        }
+      }
+      const code = `PC-${String(nextNum).padStart(6, "0")}`;
+      res.json({ code });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// GET /prospect-customers/:id - Get single prospective customer
+router.get(
+  "/prospect-customers/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("SAL.CUSTOMER.VIEW"),
+  async (req, res, next) => {
+    try {
+      await ensureProspectiveCustomersTable();
+      const companyId = req.scope.companyId;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      }
+      const items = await query(
+        `SELECT * FROM sal_prospect_customers 
+         WHERE id = :id AND company_id = :companyId LIMIT 1`,
+        { id, companyId },
+      ).catch(() => []);
+      if (!items.length) {
+        throw httpError(404, "NOT_FOUND", "Prospective customer not found");
+      }
+      res.json({ item: items[0] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// POST /prospect-customers - Create prospective customer
+router.post(
+  "/prospect-customers",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("SAL.CUSTOMER.CREATE"),
+  async (req, res, next) => {
+    try {
+      await ensureProspectiveCustomersTable();
+      const { companyId, branchId } = req.scope;
+      const {
+        customer_code,
+        customer_name,
+        email,
+        phone,
+        is_active,
+        address,
+        city,
+        state,
+        zone,
+        country,
+        price_type_id,
+        currency_id,
+        contact_person,
+        customer_type,
+        mobile,
+        credit_limit,
+        payment_terms,
+      } = req.body || {};
+
+      if (!customer_name) {
+        throw httpError(400, "VALIDATION_ERROR", "customer_name is required");
+      }
+
+      const result = await query(
+        `INSERT INTO sal_prospect_customers 
+         (company_id, branch_id, customer_code, customer_name, prospect_customer, email, phone, is_active, 
+          address, city, state, zone, country, price_type_id, currency_id, contact_person, 
+          customer_type, mobile, credit_limit, payment_terms)
+         VALUES (:companyId, :branchId, :customer_code, :customer_name, :prospect_customer, :email, :phone, 
+                 :is_active, :address, :city, :state, :zone, :country, :price_type_id,
+                 :currency_id, :contact_person, :customer_type, :mobile, :credit_limit, :payment_terms)`,
+        {
+          companyId,
+          branchId,
+          customer_code: customer_code || null,
+          customer_name,
+          prospect_customer: customer_name,
+          email: email || null,
+          phone: phone || null,
+          is_active: is_active ? 1 : 0,
+          address: address || null,
+          city: city || null,
+          state: state || null,
+          zone: zone || null,
+          country: country || null,
+          price_type_id: price_type_id || null,
+          currency_id: currency_id || null,
+          contact_person: contact_person || null,
+          customer_type: customer_type || null,
+          mobile: mobile || null,
+          credit_limit: credit_limit || 0,
+          payment_terms: payment_terms || null,
+        },
+      );
+
+      res.status(201).json({
+        id: result.insertId,
+        item: { id: result.insertId, ...req.body },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// PUT /prospect-customers/:id - Update prospective customer
+router.put(
+  "/prospect-customers/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("SAL.CUSTOMER.UPDATE"),
+  async (req, res, next) => {
+    try {
+      await ensureProspectiveCustomersTable();
+      const { companyId, branchId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      }
+
+      const {
+        customer_code,
+        customer_name,
+        email,
+        phone,
+        is_active,
+        address,
+        city,
+        state,
+        zone,
+        country,
+        price_type_id,
+        currency_id,
+        contact_person,
+        customer_type,
+        mobile,
+        credit_limit,
+        payment_terms,
+      } = req.body || {};
+
+      if (!customer_name) {
+        throw httpError(400, "VALIDATION_ERROR", "customer_name is required");
+      }
+
+      await query(
+        `UPDATE sal_prospect_customers 
+         SET customer_code = :customer_code, 
+             customer_name = :customer_name, 
+             prospect_customer = :prospect_customer,
+             email = :email, 
+             phone = :phone, 
+             is_active = :is_active, 
+             address = :address, 
+             city = :city, 
+             state = :state, 
+             zone = :zone, 
+             country = :country, 
+             price_type_id = :price_type_id, 
+             currency_id = :currency_id, 
+             contact_person = :contact_person, 
+             customer_type = :customer_type, 
+             mobile = :mobile, 
+             credit_limit = :credit_limit, 
+             payment_terms = :payment_terms
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        {
+          id,
+          companyId,
+          branchId,
+          customer_code: customer_code || null,
+          customer_name,
+          prospect_customer: customer_name,
+          email: email || null,
+          phone: phone || null,
+          is_active: is_active ? 1 : 0,
+          address: address || null,
+          city: city || null,
+          state: state || null,
+          zone: zone || null,
+          country: country || null,
+          price_type_id: price_type_id || null,
+          currency_id: currency_id || null,
+          contact_person: contact_person || null,
+          customer_type: customer_type || null,
+          mobile: mobile || null,
+          credit_limit: credit_limit || 0,
+          payment_terms: payment_terms || null,
+        },
+      );
+
+      res.json({ id, item: { id, ...req.body } });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// DELETE /prospect-customers/:id - Delete prospective customer
+router.delete(
+  "/prospect-customers/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("SAL.CUSTOMER.DELETE"),
+  async (req, res, next) => {
+    try {
+      await ensureProspectiveCustomersTable();
+      const { companyId, branchId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      }
+
+      await query(
+        `DELETE FROM sal_prospect_customers WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
+      );
+
+      res.json({ success: true });
     } catch (e) {
       next(e);
     }

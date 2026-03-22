@@ -2,14 +2,13 @@ import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { toast } from "react-toastify";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+import { renderHtmlToA4Pdf } from "@/utils/pdfUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function InvoiceList() {
   const navigate = useNavigate();
-  const { canPerformAction } = usePermission();
+  const { canPerformAction, exceptionalPerms } = usePermission();
   const [invoices, setInvoices] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -375,7 +374,6 @@ export default function InvoiceList() {
       URL.revokeObjectURL(url);
     } catch (err) {
       try {
-        // Fallback to client-side PDF by rendering HTML
         const htmlRes = await api.post(
           `/documents/invoice/${id}/render`,
           { format: "html" },
@@ -385,34 +383,11 @@ export default function InvoiceList() {
           typeof htmlRes.data === "string"
             ? htmlRes.data
             : String(htmlRes.data || "");
-        const container = document.createElement("div");
-        container.style.position = "fixed";
-        container.style.left = "-10000px";
-        container.style.top = "0";
-        container.style.background = "white";
-        container.innerHTML = html;
-        document.body.appendChild(container);
-        const canvas = await html2canvas(container, {
-          scale: 2,
-          useCORS: true,
-        });
-        const imgData = canvas.toDataURL("image/png");
-        const pdf = new jsPDF("p", "mm", "a4");
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const imgWidth = pageWidth;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        let rendered = 0;
-        while (rendered < imgHeight) {
-          pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
-          rendered += pageHeight;
-          if (rendered < imgHeight) pdf.addPage();
-        }
-        pdf.save(`invoice-${id}.pdf`);
-        document.body.removeChild(container);
+        await renderHtmlToA4Pdf(html, `invoice-${id}.pdf`);
       } catch (e2) {
         toast.error(
-          e2?.response?.data?.message ||
+          err?.response?.data?.message ||
+            e2?.message ||
             "Failed to download invoice PDF. Please try again.",
         );
       }
@@ -544,7 +519,7 @@ export default function InvoiceList() {
                         })}
                       </td>
                       <td>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 items-center whitespace-nowrap">
                           {canPerformAction("sales:invoices", "view") && (
                             <button
                               onClick={() =>
@@ -556,6 +531,31 @@ export default function InvoiceList() {
                             </button>
                           )}
                           {/* Edit removed by request */}
+                          {exceptionalPerms?.has?.("SALES.INVOICE.CANCEL") && (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await api.post(
+                                    `/sales/invoices/${inv.id}/reverse-accounting`,
+                                  );
+                                  toast.success("Invoice cancelled");
+                                  setInvoices((prev) =>
+                                    prev.filter(
+                                      (x) => Number(x.id) !== Number(inv.id),
+                                    ),
+                                  );
+                                } catch (e) {
+                                  toast.error(
+                                    e?.response?.data?.message ||
+                                      "Failed to cancel invoice",
+                                  );
+                                }
+                              }}
+                              className="inline-flex items-center px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs font-semibold"
+                            >
+                              Cancel
+                            </button>
+                          )}
                           <button
                             onClick={() => printInvoice(inv.id)}
                             className="inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"

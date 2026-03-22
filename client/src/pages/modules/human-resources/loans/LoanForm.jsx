@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { api } from "../../../../api/client.js";
+import { toast } from "react-toastify";
+import { Guard } from "../../../../hooks/usePermissions.jsx";
 
 export default function LoanForm() {
   const navigate = useNavigate();
@@ -7,16 +10,62 @@ export default function LoanForm() {
   const isEdit = Boolean(id);
 
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({ employee: '', amount: 0, status: 'ACTIVE' });
+  const [employees, setEmployees] = useState([]);
+  const [form, setForm] = useState({ 
+    employee_id: '', 
+    loan_type: 'Personal Loan', 
+    amount: 0, 
+    interest_rate: 0, 
+    repayment_period_months: 12, 
+    monthly_installment: 0, 
+    start_date: '', 
+    status: 'PENDING' 
+  });
 
   useEffect(() => {
+    const loadEmployees = async () => {
+      try {
+        const res = await api.get("/hr/employees");
+        setEmployees(res.data.items || []);
+      } catch {
+        toast.error("Failed to load employees");
+      }
+    };
+    loadEmployees();
+
     if (!isEdit) return;
-    setLoading(true);
-    setTimeout(() => {
-      setForm({ employee: 'John Doe', amount: 1000, status: 'ACTIVE' });
-      setLoading(false);
-    }, 150);
-  }, [isEdit]);
+    const loadLoan = async () => {
+      setLoading(true);
+      try {
+        const res = await api.get(`/hr/loans?id=${id}`);
+        const item = res.data.items.find(i => String(i.id) === String(id));
+        if (item) {
+          setForm({
+            ...item,
+            start_date: item.start_date ? item.start_date.slice(0, 10) : ''
+          });
+        }
+      } catch {
+        toast.error("Failed to load loan details");
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadLoan();
+  }, [id, isEdit]);
+
+  // Auto-calculate monthly installment
+  useEffect(() => {
+    const amt = Number(form.amount) || 0;
+    const rate = Number(form.interest_rate) || 0;
+    const months = Number(form.repayment_period_months) || 1;
+    
+    const totalInterest = amt * (rate / 100);
+    const totalRepayment = amt + totalInterest;
+    const installment = totalRepayment / months;
+    
+    setForm(prev => ({ ...prev, monthly_installment: installment.toFixed(2) }));
+  }, [form.amount, form.interest_rate, form.repayment_period_months]);
 
   function update(name, value) {
     setForm((p) => ({ ...p, [name]: value }));
@@ -26,30 +75,126 @@ export default function LoanForm() {
     e.preventDefault();
     setLoading(true);
     try {
+      await api.post('/hr/loans', form);
+      toast.success(isEdit ? "Loan updated" : "Loan created");
       navigate('/human-resources/loans');
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to save");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="space-y-4">
-      <div className="card"><div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
-        <div><h1 className="text-2xl font-bold dark:text-brand-300">{isEdit ? 'Edit Loan' : 'New Loan'}</h1></div>
-        <Link to="/human-resources/loans" className="btn-success">Back</Link>
-      </div></div>
+    <Guard moduleKey="human-resources">
+      <div className="p-4 space-y-4">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold">{isEdit ? 'Edit Loan' : 'New Loan Request'}</h1>
+          <Link to="/human-resources/loans" className="btn-secondary">Back</Link>
+        </div>
 
-      <form onSubmit={submit}>
-        <div className="card"><div className="card-body space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div><label className="label">Employee *</label><input className="input" value={form.employee} onChange={(e) => update('employee', e.target.value)} required /></div>
-            <div><label className="label">Amount</label><input className="input" type="number" step="0.01" min="0" value={form.amount} onChange={(e) => update('amount', Number(e.target.value))} /></div>
-            <div><label className="label">Status</label><select className="input" value={form.status} onChange={(e) => update('status', e.target.value)}><option value="ACTIVE">Active</option><option value="CLOSED">Closed</option></select></div>
+        <form onSubmit={submit} className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="label">Employee *</label>
+              <select 
+                className="input" 
+                value={form.employee_id} 
+                onChange={(e) => update('employee_id', e.target.value)} 
+                required
+                disabled={isEdit}
+              >
+                <option value="">Select Employee</option>
+                {employees.map(e => (
+                  <option key={e.id} value={e.id}>{e.emp_code} - {e.first_name} {e.last_name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Loan Type *</label>
+              <input 
+                className="input" 
+                value={form.loan_type} 
+                onChange={(e) => update('loan_type', e.target.value)} 
+                required 
+                placeholder="e.g. Salary Advance, Personal Loan"
+              />
+            </div>
+            <div>
+              <label className="label">Principal Amount *</label>
+              <input 
+                className="input" 
+                type="number" 
+                step="0.01" 
+                value={form.amount} 
+                onChange={(e) => update('amount', e.target.value)} 
+                required 
+              />
+            </div>
+            <div>
+              <label className="label">Interest Rate (%)</label>
+              <input 
+                className="input" 
+                type="number" 
+                step="0.01" 
+                value={form.interest_rate} 
+                onChange={(e) => update('interest_rate', e.target.value)} 
+              />
+            </div>
+            <div>
+              <label className="label">Repayment Period (Months) *</label>
+              <input 
+                className="input" 
+                type="number" 
+                value={form.repayment_period_months} 
+                onChange={(e) => update('repayment_period_months', e.target.value)} 
+                required 
+              />
+            </div>
+            <div>
+              <label className="label">Monthly Installment (Auto-calculated)</label>
+              <input 
+                className="input bg-slate-50 dark:bg-slate-700 font-mono" 
+                type="number" 
+                value={form.monthly_installment} 
+                readOnly 
+              />
+            </div>
+            <div>
+              <label className="label">Start Date *</label>
+              <input 
+                className="input" 
+                type="date" 
+                value={form.start_date} 
+                onChange={(e) => update('start_date', e.target.value)} 
+                required 
+              />
+            </div>
+            <div>
+              <label className="label">Status</label>
+              <select 
+                className="input" 
+                value={form.status} 
+                onChange={(e) => update('status', e.target.value)}
+              >
+                <option value="PENDING">Pending</option>
+                <option value="APPROVED">Approved</option>
+                <option value="DISBURSED">Disbursed</option>
+                <option value="REPAID">Repaid</option>
+                <option value="REJECTED">Rejected</option>
+              </select>
+            </div>
           </div>
-          <div className="flex justify-end gap-3"><Link to="/human-resources/loans" className="btn-success">Cancel</Link><button className="btn-success" disabled={loading}>{loading ? 'Saving...' : 'Save'}</button></div>
-        </div></div>
-      </form>
-    </div>
+
+          <div className="flex justify-end gap-3 pt-4">
+            <Link to="/human-resources/loans" className="btn-secondary">Cancel</Link>
+            <button className="btn-primary" disabled={loading}>
+              {loading ? 'Saving...' : 'Save Loan'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </Guard>
   );
 }
 

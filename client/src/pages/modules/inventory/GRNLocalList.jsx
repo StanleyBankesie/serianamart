@@ -10,7 +10,7 @@ import { usePermission } from "@/auth/PermissionContext.jsx";
 
 export default function GRNLocalList() {
   const location = useLocation();
-  const { canReverseApproval } = usePermission();
+  const { canReverseApproval, exceptionalPerms } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [grns, setGrns] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -564,11 +564,74 @@ export default function GRNLocalList() {
                         </Link>
                         <button
                           type="button"
+                          className="text-slate-700 hover:text-slate-900 text-sm font-medium"
+                          title="Print"
+                          onClick={() =>
+                            window.open(
+                              `/inventory/grn-local/${g.id}?mode=view`,
+                              "_blank",
+                            )
+                          }
+                        >
+                          Print
+                        </button>
+                        <button
+                          type="button"
+                          className="text-slate-700 hover:text-slate-900 text-sm font-medium"
+                          title="PDF"
+                          onClick={async () => {
+                            try {
+                              const res = await api.post(
+                                `/documents/grn/${g.id}/render?format=pdf`,
+                                {},
+                                { responseType: "blob" },
+                              );
+                              const url = URL.createObjectURL(res.data);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = `GRN-${g.grn_no || g.id}.pdf`;
+                              a.click();
+                              URL.revokeObjectURL(url);
+                            } catch (e) {
+                              toast.error("Failed to download PDF");
+                            }
+                          }}
+                        >
+                          PDF
+                        </button>
+                        <button
+                          type="button"
                           className="text-brand hover:text-brand-700 text-sm font-medium"
                           onClick={() => openViewDetails(g)}
                         >
                           Details
                         </button>
+                        {exceptionalPerms?.has?.("PURCHASE.GRN.REVERSE") && (
+                          <button
+                            type="button"
+                            className="inline-flex items-center px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs font-semibold"
+                            onClick={async () => {
+                              try {
+                                await api.post(
+                                  `/inventory/grn/${g.id}/cancel-accounting`,
+                                );
+                                toast.success("GRN cancelled");
+                                setGrns((prev) =>
+                                  prev.filter(
+                                    (x) => Number(x.id) !== Number(g.id),
+                                  ),
+                                );
+                              } catch (e) {
+                                toast.error(
+                                  e?.response?.data?.message ||
+                                    "Failed to cancel GRN",
+                                );
+                              }
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        )}
                         {String(g.status || "").toUpperCase() !==
                           "APPROVED" && (
                           <Link

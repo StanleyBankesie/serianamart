@@ -11,16 +11,16 @@ const onlineUsers = new Set();
 export const initializeSocket = (server) => {
   ioInstance = new Server(server, {
     cors: {
-      origin: [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "https://serianamart.omnisuite-erp.com",
-      ],
+      origin: function (origin, callback) {
+        callback(null, true);
+      },
       methods: ["GET", "POST"],
       credentials: true,
     },
+    pingInterval: 25000, // Send ping every 25 seconds
+    pingTimeout: 60000, // Wait 60 seconds for pong response before disconnect
+    maxHttpBufferSize: 1e6,
+    transports: ["websocket", "polling"],
   });
 
   ioInstance.use(async (socket, next) => {
@@ -88,9 +88,14 @@ export const initializeSocket = (server) => {
       socket.leave(`post_${postId}`);
     });
 
+    // Event: Handle socket errors
+    socket.on("error", (error) => {
+      console.error(`⚠️ Socket error for User ${userId}:`, error);
+    });
+
     // Event: Disconnect
-    socket.on("disconnect", () => {
-      console.log(`❌ User ${userId} disconnected`);
+    socket.on("disconnect", (reason) => {
+      console.log(`❌ User ${userId} disconnected - Reason: ${reason}`);
       if (userId) {
         onlineUsers.delete(String(userId));
         ioInstance.to(`user_${userId}`).emit("presence:update", {

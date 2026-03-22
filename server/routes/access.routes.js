@@ -4,6 +4,7 @@ import { requireAuth, requireCompanyScope } from "../middleware/auth.js";
 import { toNumber } from "../utils/dbUtils.js";
 import { ensurePagesTable, ensurePagesSeed } from "../utils/dbUtils.js";
 import { getAllFeatures } from "../data/featuresRegistry.js";
+import { getUserPermissions as rbacGetUserPermissions } from "../middleware/rbac.middleware.js";
 
 const router = express.Router();
 
@@ -53,12 +54,15 @@ async function ensureAccessTables() {
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       role_id BIGINT UNSIGNED NOT NULL,
       module_key VARCHAR(100) NOT NULL,
+      feature_key VARCHAR(100) NOT NULL,
       can_view TINYINT(1) DEFAULT 0,
       can_create TINYINT(1) DEFAULT 0,
       can_edit TINYINT(1) DEFAULT 0,
       can_delete TINYINT(1) DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
-      UNIQUE KEY uq_role_module_perm (role_id, module_key),
+      UNIQUE KEY uq_role_module_feature (role_id, module_key, feature_key),
       INDEX idx_role_id (role_id),
       INDEX idx_module_key (module_key),
       CONSTRAINT fk_rp_role FOREIGN KEY (role_id) REFERENCES adm_roles(id) ON DELETE CASCADE
@@ -857,6 +861,14 @@ router.get(
       next(err);
     }
   },
+);
+
+// RBAC: Get user modules and permissions (frontend guard usage)
+router.get(
+  "/permissions",
+  requireAuth,
+  requireCompanyScope,
+  rbacGetUserPermissions,
 );
 
 export default router;

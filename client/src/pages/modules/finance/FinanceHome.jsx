@@ -227,6 +227,18 @@ export default function FinanceHome() {
           icon: "📒",
         },
         {
+          name: "Bank Reconciliation Detailed",
+          path: "/finance/reports/bank-reconciliation-transactions",
+          description: "Reconciled vs Unreconciled transactions",
+          icon: "🏦",
+        },
+        {
+          name: "Bank Reconciliations Summary",
+          path: "/finance/reports/bank-reconciliations",
+          description: "Summary of completed reconciliations",
+          icon: "📄",
+        },
+        {
           name: "General Ledger",
           path: "/finance/reports/general-ledger",
           description: "Account ledger movements",

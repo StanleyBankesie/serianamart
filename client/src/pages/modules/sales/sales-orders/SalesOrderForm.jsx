@@ -62,6 +62,8 @@ export default function SalesOrderForm() {
     delivery_time: "",
     internal_notes: "",
     customer_notes: "",
+    address: "",
+    address2: "",
     city: "",
     state: "",
     country: "",
@@ -330,7 +332,9 @@ export default function SalesOrderForm() {
 
   const fetchCustomers = async () => {
     try {
-      const response = await api.get("/sales/customers");
+      const response = await api.get("/sales/customers", {
+        params: { active: "true" },
+      });
       setCustomers(
         Array.isArray(response.data?.items) ? response.data.items : [],
       );
@@ -541,6 +545,21 @@ export default function SalesOrderForm() {
           remarks: data.remarks || "",
         }));
 
+        const cust = customers.find(
+          (c) => String(c.id) === String(data.customer_id),
+        );
+        if (cust) {
+          setFormData((p) => ({
+            ...p,
+            address: cust.address || "",
+            address2: cust.address2 || "",
+            city: cust.city || "",
+            state: cust.state || "",
+            country: cust.country || "",
+            phone: cust.phone || cust.customer_phone || "",
+          }));
+        }
+
         if (response.data?.details) {
           let mappedItems = response.data.details.map((line, index) => {
             const calculations = calcItemTotals({
@@ -663,6 +682,8 @@ export default function SalesOrderForm() {
       setFormData((prev) => ({
         ...prev,
         customer_id: value,
+        address: cust?.address || "",
+        address2: cust?.address2 || "",
         city: cust?.city || "",
         state: cust?.state || "",
         country: cust?.country || "",
@@ -1104,66 +1125,6 @@ export default function SalesOrderForm() {
               </p>
             </div>
             <div className="flex gap-4 print:hidden items-center">
-              {isEditMode ? (
-                <>
-                  <button
-                    onClick={async () => {
-                      try {
-                        const resp = await api.post(
-                          `/documents/sales-order/${id}/render`,
-                          { format: "html" },
-                        );
-                        setTplPreviewHtml(String(resp.data || ""));
-                        setTplPreviewOpen(true);
-                      } catch (e) {
-                        toast.error(
-                          e?.response?.data?.message || "Failed to render",
-                        );
-                      }
-                    }}
-                    className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg transition-colors text-sm font-medium border border-white/20"
-                  >
-                    <FileText className="w-4 h-4" />
-                    Template Preview
-                  </button>
-                  <button
-                    onClick={async () => {
-                      try {
-                        setTplDownloading(true);
-                        const resp = await api.post(
-                          `/documents/sales-order/${id}/render?format=pdf`,
-                          {},
-                          { responseType: "blob" },
-                        );
-                        const blob = resp.data;
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement("a");
-                        a.href = url;
-                        a.download = `sales-order-${id}.pdf`;
-                        a.click();
-                        URL.revokeObjectURL(url);
-                      } catch (e) {
-                        toast.error(
-                          e?.response?.data?.message || "Failed to download",
-                        );
-                      } finally {
-                        setTplDownloading(false);
-                      }
-                    }}
-                    className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg transition-colors text-sm font-medium border border-white/20"
-                  >
-                    <Download className="w-4 h-4" />
-                    Template PDF
-                  </button>
-                </>
-              ) : null}
-              <button
-                onClick={handleDownload}
-                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg transition-colors text-sm font-medium border border-white/20"
-              >
-                <Download className="w-4 h-4" />
-                Download PDF
-              </button>
               <button
                 onClick={handlePrint}
                 className="text-white hover:text-gray-200"
@@ -1815,6 +1776,11 @@ export default function SalesOrderForm() {
                   (c) => String(c.id) === String(formData.customer_id),
                 )?.customer_name || ""}
               </div>
+              {formData.address && (
+                <div>
+                  Address: {formData.address} {formData.address2}
+                </div>
+              )}
               <div>City: {formData.city || ""}</div>
               <div>State: {formData.state || ""}</div>
               <div>Country: {formData.country || ""}</div>

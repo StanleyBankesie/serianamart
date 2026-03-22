@@ -49,7 +49,7 @@ export function useSocket() {
       import.meta.env.VITE_SOCKET_TRANSPORT || ""
     ).toLowerCase();
     const transports =
-      transportPref === "polling" ? ["polling"] : ["websocket"];
+      transportPref === "websocket" ? ["websocket"] : ["polling", "websocket"];
     const newSocket = io(backendOrigin, {
       path: "/socket.io",
       auth: {
@@ -66,10 +66,10 @@ export function useSocket() {
           "",
       },
       reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 10000,
+      reconnectionDelay: 3000, // Start with 3 second delay
+      reconnectionDelayMax: 30000, // Max 30 second delay
       reconnectionAttempts: Infinity,
-      timeout: 20000,
+      timeout: 60000, // Wait 60 seconds for connect timeout
       transports,
     });
 
@@ -104,9 +104,9 @@ export function useSocket() {
       };
       window.addEventListener("beforeunload", unloadHandler);
       newSocket.on("connect_error", () => {
-        // Soft nudge to reconnect faster
+        // Maintain reconnection strategy
         try {
-          newSocket.io.opts.reconnectionDelayMax = 10000;
+          newSocket.io.opts.reconnectionDelayMax = 30000;
         } catch {}
       });
     }

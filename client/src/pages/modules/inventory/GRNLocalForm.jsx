@@ -1367,19 +1367,19 @@ export default function GRNLocalForm() {
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
-                <Link to="/inventory/grn-local" className="btn-success">
+                <Link to="/inventory/grn-local" className="btn-secondary">
                   Cancel
                 </Link>
                 <button
                   type="submit"
-                  className="btn-success"
+                  className="btn-primary"
                   disabled={saving || isView}
                 >
                   {saving ? "Saving..." : "Save GRN"}
                 </button>
                 <button
                   type="button"
-                  className="btn-success ml-2"
+                  className="btn-success"
                   onClick={openForwardModal}
                   disabled={saving || isNew || shouldDisable}
                 >

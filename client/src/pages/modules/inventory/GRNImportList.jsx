@@ -11,7 +11,7 @@ import { filterAndSort } from "@/utils/searchUtils.js";
 export default function GRNImportList() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { canReverseApproval } = usePermission();
+  const { canReverseApproval, exceptionalPerms } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [grns, setGrns] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -579,6 +579,27 @@ export default function GRNImportList() {
                           >
                             Edit
                           </Link>
+                        )}
+                        {exceptionalPerms?.has?.("PURCHASE.GRN.REVERSE") && (
+                          <button
+                            type="button"
+                            className="inline-flex items-center px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs font-semibold"
+                            onClick={async () => {
+                              try {
+                                await api.post(`/inventory/grn/${g.id}/cancel-accounting`);
+                                toast.success("GRN cancelled");
+                                setGrns((prev) =>
+                                  prev.filter((x) => Number(x.id) !== Number(g.id)),
+                                );
+                              } catch (e) {
+                                toast.error(
+                                  e?.response?.data?.message || "Failed to cancel GRN",
+                                );
+                              }
+                            }}
+                          >
+                            Cancel
+                          </button>
                         )}
                         {String(g.status || "").toUpperCase() === "APPROVED" ? (
                           <>

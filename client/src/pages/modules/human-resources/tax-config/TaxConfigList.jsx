@@ -1,61 +1,96 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { usePermission } from '../../../../auth/PermissionContext.jsx';
+import { api } from "../../../../api/client.js";
+import { toast } from "react-toastify";
+import { Guard } from "../../../../hooks/usePermissions.jsx";
 
 export default function TaxConfigList() {
-  const { canPerformAction } = usePermission();
-  const items = [
-    { id: 1, name: 'Income Tax', active: true },
-    { id: 2, name: 'Social Security', active: true },
-    { id: 3, name: 'Tier 3', active: true },
-  ];
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get("/hr/tax-configs");
+      setItems(res.data.items || []);
+    } catch {
+      toast.error("Failed to load tax configurations");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   return (
-    <div className="space-y-4">
-      <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
+    <Guard moduleKey="human-resources">
+      <div className="p-4 space-y-4">
+        <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-2xl font-bold dark:text-brand-300">Tax & Deductions</h1>
-            <p className="text-sm mt-1">Configure payroll deductions</p>
+            <h1 className="text-2xl font-bold">Tax & Deductions</h1>
+            <p className="text-sm text-slate-500">Configure payroll deductions and tax brackets</p>
           </div>
           <div className="flex gap-2">
-            <Link to="/human-resources" className="btn btn-secondary">Return to Menu</Link>
-            {canPerformAction('human-resources:tax-config', 'create') && (
-              <Link to="/human-resources/tax-config/new" className="btn-success">+ New Config</Link>
-            )}
+            <Link to="/human-resources" className="btn-secondary">Back to Menu</Link>
+            <Link to="/human-resources/tax-config/new" className="btn-primary">+ New Config</Link>
           </div>
         </div>
-      </div>
 
-      <div className="card">
-        <div className="card-body">
-          <div className="overflow-x-auto">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Status</th>
-                  <th />
+        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden">
+          <table className="min-w-full">
+            <thead>
+              <tr className="bg-slate-50 dark:bg-slate-700 text-left">
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Name</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Type</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Range</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Rate</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Fixed Amt</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+              {items.map((r) => (
+                <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                  <td className="px-4 py-3 text-sm font-medium">{r.tax_name}</td>
+                  <td className="px-4 py-3 text-sm">{r.tax_type}</td>
+                  <td className="px-4 py-3 text-sm">
+                    {Number(r.min_amount).toLocaleString()} - {r.max_amount ? Number(r.max_amount).toLocaleString() : 'Above'}
+                  </td>
+                  <td className="px-4 py-3 text-sm">{r.tax_rate}%</td>
+                  <td className="px-4 py-3 text-sm font-mono">{Number(r.fixed_amount).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-sm">
+                    {r.is_active ? (
+                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                        Active
+                      </span>
+                    ) : (
+                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400">
+                        Inactive
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right text-sm font-medium">
+                    <Link to={`/human-resources/tax-config/${r.id}`} className="text-brand hover:underline">
+                      Edit
+                    </Link>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {items.map((r) => (
-                  <tr key={r.id}>
-                    <td className="font-medium">{r.name}</td>
-                    <td>{r.active ? <span className="badge badge-success">Active</span> : <span className="badge badge-error">Inactive</span>}</td>
-                    <td>
-                      {canPerformAction('human-resources:tax-config', 'edit') && (
-                        <Link to={`/human-resources/tax-config/${r.id}`} className="text-brand hover:text-brand-600 text-sm font-medium">Edit</Link>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              {items.length === 0 && !loading && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
+                    No tax configurations found. Click "+ New Config" to create one.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
-    </div>
+    </Guard>
   );
 }
 

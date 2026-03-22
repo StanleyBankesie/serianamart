@@ -1,0 +1,106 @@
+import React from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { api } from "../../../../api/client.js";
+import { toast } from "react-toastify";
+
+export default function RequisitionList() {
+  const [items, setItems] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+  const navigate = useNavigate();
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.get("/hr/requisitions");
+      setItems(res?.data?.items || []);
+    } catch {
+      toast.error("Failed to load requisitions");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    load();
+  }, [load]);
+
+  return (
+    <div className="p-4">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Link to="/human-resources" className="btn-secondary text-sm">
+            Back to Menu
+          </Link>
+          <h2 className="text-lg font-semibold">Job Requisitions</h2>
+        </div>
+        <Link to="/human-resources/requisitions/new" className="btn-primary">
+          New Requisition
+        </Link>
+      </div>
+      <div className="bg-white dark:bg-slate-800 rounded shadow-sm">
+        <table className="min-w-full">
+          <thead>
+            <tr className="text-left">
+              <th className="px-3 py-2">Req No</th>
+              <th className="px-3 py-2">Title</th>
+              <th className="px-3 py-2">Department</th>
+              <th className="px-3 py-2">Position</th>
+              <th className="px-3 py-2">Vacancies</th>
+              <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((r) => (
+              <tr key={r.id} className="border-t">
+                <td className="px-3 py-2">{r.req_no}</td>
+                <td className="px-3 py-2">{r.title}</td>
+                <td className="px-3 py-2">{r.dept_name}</td>
+                <td className="px-3 py-2">{r.pos_name}</td>
+                <td className="px-3 py-2">{r.vacancies}</td>
+                <td className="px-3 py-2">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs">
+                    {r.status}
+                  </span>
+                </td>
+                <td className="px-3 py-2">
+                  <button
+                    type="button"
+                    className="btn-outline text-xs mr-2"
+                    onClick={() =>
+                      navigate(`/human-resources/requisitions/${r.id}`)
+                    }
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="text-brand text-xs"
+                    onClick={async () => {
+                      try {
+                        await api.post(`/hr/requisitions/${r.id}/submit`);
+                        toast.success("Submitted to workflow");
+                        load();
+                      } catch {
+                        toast.error("Failed to submit");
+                      }
+                    }}
+                  >
+                    Submit
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {!items.length && !loading ? (
+              <tr>
+                <td className="px-3 py-6 text-center text-sm" colSpan={7}>
+                  No requisitions
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

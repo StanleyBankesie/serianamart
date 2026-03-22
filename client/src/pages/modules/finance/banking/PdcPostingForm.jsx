@@ -99,63 +99,76 @@ export default function PdcPostingForm() {
 
   if (!item && !loading) {
     return (
-      <div className="space-y-4">
-        <div className="card">
-          <div className="card-header">
-            <h1 className="text-2xl font-bold">PDC Not Found</h1>
-          </div>
-          <div className="card-body">
-            <Link to="/finance/pdc-postings" className="btn">
-              Back to List
-            </Link>
+      <div className="p-4">
+        <div className="alert alert-error shadow-lg">
+          <div>
+            <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <span>PDC Posting not found or has been deleted.</span>
           </div>
         </div>
+        <Link to="/finance/pdc-postings" className="btn btn-primary mt-6">
+          Back to PDC Registry
+        </Link>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold dark:text-brand-300">
-              Edit Post-Dated Cheque
-            </h1>
-            <p className="text-sm mt-1">{item?.instrument_no}</p>
-          </div>
-          <div className="flex gap-2">
-            <Link to="/finance" className="btn btn-secondary">
-              Return to Menu
-            </Link>
-            <Link to="/finance/pdc-postings" className="btn btn-secondary">
-              Back to List
-            </Link>
-            <button
-              className="btn btn-secondary"
-              disabled={loading}
-              onClick={load}
-            >
-              Refresh
-            </button>
-          </div>
+    <div className="space-y-6 p-4">
+      <div className="flex justify-between items-center bg-brand p-6 text-white rounded-xl shadow-lg">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight">
+            Edit PDC Posting
+          </h1>
+          <p className="text-blue-100 mt-1 font-medium">
+            Instrument: {item?.instrument_no} | Status: {item?.status}
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <Link
+            to="/finance/pdc-postings"
+            className="btn btn-sm bg-white/20 hover:bg-white/30 border-none text-white backdrop-blur-sm"
+          >
+            Back to List
+          </Link>
+          <button
+            className="btn btn-sm bg-white/20 hover:bg-white/30 border-none text-white backdrop-blur-sm"
+            disabled={loading}
+            onClick={load}
+          >
+            {loading ? (
+              <span className="loading loading-spinner loading-xs"></span>
+            ) : (
+              "Refresh"
+            )}
+          </button>
         </div>
       </div>
 
       {item && (
-        <div className="card">
-          <div className="card-body">
-            <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-              <div>
-                <label className="label">Voucher</label>
+        <div className="card bg-base-100 shadow-xl border border-slate-200">
+          <div className="card-header bg-slate-50 p-4 border-b border-slate-200">
+            <h2 className="text-lg font-bold text-slate-700">Posting Details</h2>
+          </div>
+          <div className="card-body p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="form-control">
+                <label className="label text-xs font-bold text-slate-500 uppercase">
+                  Voucher Search
+                </label>
                 <input
-                  className="input mb-2"
-                  placeholder="Search voucher no."
+                  className="input input-bordered w-full"
+                  placeholder="Search voucher no..."
                   value={voucherSearch}
                   onChange={(e) => setVoucherSearch(e.target.value)}
                 />
+              </div>
+              <div className="form-control">
+                <label className="label text-xs font-bold text-slate-500 uppercase">
+                  Voucher *
+                </label>
                 <select
-                  className="input"
+                  className="select select-bordered w-full"
                   value={
                     draft.voucher_id === undefined
                       ? item.voucher_id ?? ""
@@ -165,7 +178,7 @@ export default function PdcPostingForm() {
                     setDraft((p) => ({ ...p, voucher_id: e.target.value }))
                   }
                 >
-                  <option value="">Select</option>
+                  <option value="">-- Select Voucher --</option>
                   {(voucherSearch
                     ? vouchers.filter((v) =>
                         String(v.voucher_no || "")
@@ -177,16 +190,17 @@ export default function PdcPostingForm() {
                     .slice(0, 50)
                     .map((v) => (
                       <option key={v.id} value={v.id}>
-                        {v.voucher_no} ({v.voucher_type_code}) -{" "}
-                        {String(v.voucher_date).slice(0, 10)}
+                        {v.voucher_no} ({v.voucher_type_code})
                       </option>
                     ))}
                 </select>
               </div>
-              <div className="md:col-span-2">
-                <label className="label">Instrument No.</label>
+              <div className="form-control">
+                <label className="label text-xs font-bold text-slate-500 uppercase">
+                  Cheque No *
+                </label>
                 <input
-                  className="input"
+                  className="input input-bordered w-full"
                   value={
                     draft.instrument_no === undefined
                       ? item.instrument_no ?? ""
@@ -195,12 +209,15 @@ export default function PdcPostingForm() {
                   onChange={(e) =>
                     setDraft((p) => ({ ...p, instrument_no: e.target.value }))
                   }
+                  placeholder="Cheque / Reference No."
                 />
               </div>
-              <div>
-                <label className="label">Instrument Date</label>
+              <div className="form-control">
+                <label className="label text-xs font-bold text-slate-500 uppercase">
+                  Cheque Date *
+                </label>
                 <input
-                  className="input"
+                  className="input input-bordered w-full"
                   type="date"
                   value={
                     draft.instrument_date === undefined
@@ -212,10 +229,12 @@ export default function PdcPostingForm() {
                   }
                 />
               </div>
-              <div>
-                <label className="label">Bank Account</label>
+              <div className="form-control">
+                <label className="label text-xs font-bold text-slate-500 uppercase">
+                  Bank Account
+                </label>
                 <select
-                  className="input"
+                  className="select select-bordered w-full"
                   value={
                     draft.bank_account_id === undefined
                       ? item.bank_account_id ?? ""
@@ -225,7 +244,7 @@ export default function PdcPostingForm() {
                     setDraft((p) => ({ ...p, bank_account_id: e.target.value }))
                   }
                 >
-                  <option value="">Select</option>
+                  <option value="">-- Select Bank --</option>
                   {bankAccounts.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name} ({b.account_number || "No Acc"})
@@ -233,10 +252,12 @@ export default function PdcPostingForm() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="label">Status</label>
+              <div className="form-control">
+                <label className="label text-xs font-bold text-slate-500 uppercase">
+                  Status
+                </label>
                 <select
-                  className="input"
+                  className="select select-bordered w-full"
                   value={
                     draft.status === undefined ? item.status : draft.status
                   }
@@ -249,11 +270,15 @@ export default function PdcPostingForm() {
                   <option value="CANCELLED">Cancelled</option>
                 </select>
               </div>
-              <div className="flex items-end">
-                <button className="btn-success" onClick={save}>
-                  Save
-                </button>
-              </div>
+            </div>
+
+            <div className="mt-8 flex justify-end gap-3">
+              <Link to="/finance/pdc-postings" className="btn btn-outline">
+                Cancel
+              </Link>
+              <button className="btn btn-success text-white px-8" onClick={save}>
+                Save Changes
+              </button>
             </div>
           </div>
         </div>

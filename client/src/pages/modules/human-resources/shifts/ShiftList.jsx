@@ -1,63 +1,83 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import { usePermission } from '../../../../auth/PermissionContext.jsx';
+import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
+import { api } from "../../../../api/client.js";
+import { toast } from "react-toastify";
 
 export default function ShiftList() {
-  const { canPerformAction } = usePermission();
-  const items = [
-    { id: 1, code: 'DAY', name: 'Day Shift', start: '08:00', end: '17:00', active: true },
-    { id: 2, code: 'NIGHT', name: 'Night Shift', start: '20:00', end: '05:00', active: true },
-  ];
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get("/hr/shifts");
+      setItems(res?.data?.items || []);
+    } catch {
+      toast.error("Failed to load shifts");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   return (
-    <div className="space-y-4">
-      <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold dark:text-brand-300">Shift System Setup</h1>
-            <p className="text-sm mt-1">Manage work shifts</p>
-          </div>
-          <div className="flex gap-2">
-            <Link to="/human-resources" className="btn btn-secondary">Return to Menu</Link>
-            {canPerformAction('human-resources:shifts', 'create') && (
-              <Link to="/human-resources/shifts/new" className="btn-success">+ New Shift</Link>
-            )}
-          </div>
+    <div className="space-y-4 p-4">
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex items-center gap-2">
+          <Link to="/human-resources" className="btn-secondary text-sm">
+            Back
+          </Link>
+          <h2 className="text-lg font-semibold">Shift Management</h2>
         </div>
+        <Link to="/human-resources/shifts/new" className="btn-primary">
+          + New Shift
+        </Link>
       </div>
 
-      <div className="card">
-        <div className="card-body">
-          <div className="overflow-x-auto">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Code</th>
-                  <th>Name</th>
-                  <th>Start</th>
-                  <th>End</th>
-                  <th>Status</th>
-                  <th />
+      <div className="bg-white dark:bg-slate-800 p-4 rounded shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="min-w-full">
+            <thead>
+              <tr className="text-left bg-slate-50 dark:bg-slate-700">
+                <th className="px-4 py-2">Code</th>
+                <th className="px-4 py-2">Name</th>
+                <th className="px-4 py-2">Start Time</th>
+                <th className="px-4 py-2">End Time</th>
+                <th className="px-4 py-2">Break (min)</th>
+                <th className="px-4 py-2">Status</th>
+                <th className="px-4 py-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((s) => (
+                <tr key={s.id} className="border-t hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                  <td className="px-4 py-2 font-mono text-sm">{s.code}</td>
+                  <td className="px-4 py-2 font-medium">{s.name}</td>
+                  <td className="px-4 py-2">{s.start_time}</td>
+                  <td className="px-4 py-2">{s.end_time}</td>
+                  <td className="px-4 py-2">{s.break_minutes}</td>
+                  <td className="px-4 py-2">
+                    {s.is_active ? (
+                      <span className="badge badge-success">Active</span>
+                    ) : (
+                      <span className="badge badge-error">Inactive</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <Link to={`/human-resources/shifts/${s.id}`} className="text-brand hover:underline text-sm">Edit</Link>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {items.map((s) => (
-                  <tr key={s.id}>
-                    <td className="font-medium">{s.code}</td>
-                    <td>{s.name}</td>
-                    <td>{s.start}</td>
-                    <td>{s.end}</td>
-                    <td>{s.active ? <span className="badge badge-success">Active</span> : <span className="badge badge-error">Inactive</span>}</td>
-                    <td>
-                      {canPerformAction('human-resources:shifts', 'edit') && (
-                        <Link to={`/human-resources/shifts/${s.id}`} className="text-brand hover:text-brand-600 text-sm font-medium">Edit</Link>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              {items.length === 0 && !loading && (
+                <tr>
+                  <td colSpan={7} className="text-center py-10 text-slate-500">No shifts defined</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

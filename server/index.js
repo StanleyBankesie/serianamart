@@ -41,6 +41,7 @@ import {
   ensureExceptionalPermissionsTable,
   ensureSystemLogsTable,
 } from "./utils/dbUtils.js";
+import { seedDefaultTemplates } from "./services/seed-defaults.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -127,6 +128,135 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 /* ---------------- DB ---------------- */
+(async () => {
+  try {
+    await query("SELECT 1");
+
+    // Check if the column already exists
+    const columns = await query(
+      "SHOW COLUMNS FROM `fin_voucher_lines` LIKE 'payment_method'",
+    );
+
+    if (!columns || columns.length === 0) {
+      console.log(
+        "Adding `payment_method` column to `fin_voucher_lines` table...",
+      );
+      await query(
+        "ALTER TABLE `fin_voucher_lines` ADD COLUMN `payment_method` VARCHAR(50) NULL DEFAULT NULL AFTER `cheque_date`",
+      );
+      console.log("Successfully added the `payment_method` column.");
+    }
+
+    // Check if created_by exists in fin_pdc_postings
+    const pdcColumns = await query(
+      "SHOW COLUMNS FROM `fin_pdc_postings` LIKE 'created_by'",
+    );
+    if (!pdcColumns || pdcColumns.length === 0) {
+      console.log("Adding `created_by` column to `fin_pdc_postings` table...");
+      await query(
+        "ALTER TABLE `fin_pdc_postings` ADD COLUMN `created_by` BIGINT UNSIGNED NULL DEFAULT NULL",
+      );
+      console.log(
+        "Successfully added the `created_by` column to `fin_pdc_postings`.",
+      );
+    }
+
+    // Check if created_by exists in fin_vouchers
+    const voucherColumns = await query(
+      "SHOW COLUMNS FROM `fin_vouchers` LIKE 'created_by'",
+    );
+    if (!voucherColumns || voucherColumns.length === 0) {
+      console.log("Adding `created_by` column to `fin_vouchers` table...");
+      await query(
+        "ALTER TABLE `fin_vouchers` ADD COLUMN `created_by` BIGINT UNSIGNED NULL DEFAULT NULL",
+      );
+      console.log(
+        "Successfully added the `created_by` column to `fin_vouchers`.",
+      );
+    }
+
+    // Check if created_by exists in fin_voucher_reversals
+    const reversalColumns = await query(
+      "SHOW COLUMNS FROM `fin_voucher_reversals` LIKE 'created_by'",
+    );
+    if (!reversalColumns || reversalColumns.length === 0) {
+      console.log(
+        "Adding `created_by` column to `fin_voucher_reversals` table...",
+      );
+      await query(
+        "ALTER TABLE `fin_voucher_reversals` ADD COLUMN `created_by` BIGINT UNSIGNED NULL DEFAULT NULL",
+      );
+      console.log(
+        "Successfully added the `created_by` column to `fin_voucher_reversals`.",
+      );
+    }
+
+    // Check if created_by exists in fin_bank_reconciliations
+    const reconColumns = await query(
+      "SHOW COLUMNS FROM `fin_bank_reconciliations` LIKE 'created_by'",
+    );
+    if (!reconColumns || reconColumns.length === 0) {
+      console.log(
+        "Adding `created_by` column to `fin_bank_reconciliations` table...",
+      );
+      await query(
+        "ALTER TABLE `fin_bank_reconciliations` ADD COLUMN `created_by` BIGINT UNSIGNED NULL DEFAULT NULL",
+      );
+      console.log(
+        "Successfully added the `created_by` column to `fin_bank_reconciliations`.",
+      );
+    }
+
+    // Task 1: Remove constraints causing error in fin_pdc_postings
+    try {
+      // 1. Remove foreign key constraint fk_pdc_bank
+      const fkConstraints = await query(
+        `SELECT CONSTRAINT_NAME 
+         FROM information_schema.KEY_COLUMN_USAGE 
+         WHERE TABLE_SCHEMA = DATABASE() 
+           AND TABLE_NAME = 'fin_pdc_postings' 
+           AND CONSTRAINT_NAME = 'fk_pdc_bank'`,
+      );
+      if (fkConstraints && fkConstraints.length > 0) {
+        console.log(
+          "Dropping foreign key constraint `fk_pdc_bank` from `fin_pdc_postings`...",
+        );
+        await query(
+          "ALTER TABLE `fin_pdc_postings` DROP FOREIGN KEY `fk_pdc_bank`",
+        ).catch((e) => {
+          console.warn("Could not drop foreign key: ", e.message);
+        });
+        console.log("Successfully dropped `fk_pdc_bank`.");
+      }
+
+      // 2. Remove unique index uq_pdc_unique
+      const uniqueIndexes = await query(
+        `SELECT INDEX_NAME 
+         FROM information_schema.STATISTICS 
+         WHERE TABLE_SCHEMA = DATABASE() 
+           AND TABLE_NAME = 'fin_pdc_postings' 
+           AND INDEX_NAME = 'uq_pdc_unique'`,
+      );
+      if (uniqueIndexes && uniqueIndexes.length > 0) {
+        console.log(
+          "Dropping unique index `uq_pdc_unique` from `fin_pdc_postings`...",
+        );
+        await query(
+          "ALTER TABLE `fin_pdc_postings` DROP INDEX `uq_pdc_unique`",
+        ).catch((e) => {
+          console.warn("Could not drop unique index: ", e.message);
+        });
+        console.log("Successfully dropped `uq_pdc_unique`.");
+      }
+    } catch (e) {
+      console.warn("Error checking for constraints: ", e.message);
+    }
+  } catch (err) {
+    console.error("Error during database initialization:", err);
+    // Don't exit process in dev if it's just a migration issue, but here it might be critical
+    // process.exit(1);
+  }
+})();
 
 /* ---------------- ROUTES ---------------- */
 if (boolEnv(process.env.DISABLE_KEEP_ALIVE)) {
@@ -291,12 +421,14 @@ if (process.env.NODE_ENV !== "test") {
     (async () => {
       try {
         await query("SELECT 1");
-        console.log("Database connectivity: ok");
         try {
           await ensureExceptionalPermissionsTable();
         } catch {}
         try {
           await ensureSystemLogsTable();
+        } catch {}
+        try {
+          await seedDefaultTemplates();
         } catch {}
         const admin = await query(
           "SELECT id, is_active FROM adm_users WHERE username = :u LIMIT 1",

@@ -80,6 +80,7 @@ export const uploadFile = async (req, res, next) => {
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });
     }
+    const reqFolder = req.body?.folder || req.query?.folder || null;
     // Try Cloudinary first if configured
     const cfg = await getCloudinaryConfig(req.scope || {});
     if (cfg) {
@@ -87,7 +88,8 @@ export const uploadFile = async (req, res, next) => {
         const timestamp = Math.floor(Date.now() / 1000);
         const paramsToSign = new URLSearchParams();
         paramsToSign.append("timestamp", String(timestamp));
-        if (cfg.folder) paramsToSign.append("folder", cfg.folder);
+        const finalFolder = reqFolder || cfg.folder;
+        if (finalFolder) paramsToSign.append("folder", finalFolder);
         const signatureBase = Array.from(paramsToSign.entries())
           .sort(([a], [b]) => (a > b ? 1 : a < b ? -1 : 0))
           .map(([k, v]) => `${k}=${v}`)
@@ -105,7 +107,7 @@ export const uploadFile = async (req, res, next) => {
         form.append("api_key", cfg.api_key);
         form.append("timestamp", String(timestamp));
         form.append("signature", signature);
-        if (cfg.folder) form.append("folder", cfg.folder);
+        if (finalFolder) form.append("folder", finalFolder);
         const endpoint = `https://api.cloudinary.com/v1_1/${cfg.cloud_name}/auto/upload`;
         const resp = await fetch(endpoint, {
           method: "POST",

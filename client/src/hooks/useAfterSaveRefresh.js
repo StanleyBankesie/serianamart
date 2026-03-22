@@ -9,10 +9,24 @@ export function useAfterSaveRefresh(entityKey, fetchThunk) {
   useEffect(() => {
     const s = location.state && location.state.afterSave;
     if (!s || s.entity !== entityKey) return;
-    dispatch(fetchThunk({ force: true }));
+
+    const executeRefresh = () => {
+      const result = fetchThunk({ force: true });
+      // If result is a thunk (function) or a plain action object (object with type), dispatch it.
+      // If it's a Promise, it's already executing (async function).
+      // If it's undefined or something else, we assume it was a regular function that did its job.
+      if (
+        typeof result === "function" ||
+        (typeof result === "object" && result !== null && result.type)
+      ) {
+        dispatch(result);
+      }
+    };
+
+    executeRefresh();
     const id = s.id || null;
     if (id) {
-      setTimeout(() => dispatch(fetchThunk({ force: true })), 500);
+      setTimeout(executeRefresh, 500);
     }
     try {
       window.history.replaceState({}, "");

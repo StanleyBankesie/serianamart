@@ -1332,11 +1332,17 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                             </>
                           )}
                           {(isPV || isRV || isCV || isJV) &&
-                            (v.status === "APPROVED" ? (
+                            (["APPROVED", "POSTED"].includes(
+                              String(v.status || "").toUpperCase(),
+                            ) ? (
                               <>
-                                <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
+                                <button
+                                  type="button"
+                                  className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white cursor-default"
+                                  disabled
+                                >
                                   Approved
-                                </span>
+                                </button>
                                 <ReverseApprovalButton
                                   docType={
                                     isPV
@@ -1380,7 +1386,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                                   v.status === "SUBMITTED"
                                 }
                               >
-                                Forward for Approval
+                                {isCV ? "Approve" : Number(v.has_future_cheque) > 0 ? "PDC" : "Forward for Approval"}
                               </button>
                             ))}
                           {!isPV && !isRV && !isCV && !isJV && (

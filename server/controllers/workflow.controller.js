@@ -1932,6 +1932,18 @@ export const performAction = async (req, res, next) => {
               `UPDATE fin_vouchers SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
               { id: wf.document_id, companyId: wf.company_id },
             );
+            await query(
+              `UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
+              { id: wf.document_id, companyId: wf.company_id },
+            );
+            await query(
+              `UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
+              { id: wf.document_id, companyId: wf.company_id },
+            );
+            await query(
+              `UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
+              { id: wf.document_id, companyId: wf.company_id },
+            );
           }
         } catch (e) {}
       } else if (

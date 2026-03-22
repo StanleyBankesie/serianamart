@@ -30,16 +30,26 @@ export default function CustomerList() {
   const { hasAccess, scope } = useAuth();
   const { canPerformAction } = usePermission();
   const [branchOnly, setBranchOnly] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
   const selectBySearch = React.useMemo(makeSelectCustomersBySearch, []);
   const filteredCustomers = useSelector((s) => selectBySearch(s, searchTerm));
 
   useEffect(() => {
-    dispatch(fetchCustomers({ force: false }));
-  }, [dispatch]);
+    dispatch(
+      fetchCustomers({ force: true, params: { active: !showInactive } }),
+    );
+  }, [dispatch, showInactive]);
 
-  useAfterSaveRefresh("customers", fetchCustomers);
+  useAfterSaveRefresh("customers", () =>
+    dispatch(
+      fetchCustomers({ force: true, params: { active: !showInactive } }),
+    ),
+  );
 
-  const refresh = () => dispatch(fetchCustomers({ force: true }));
+  const refresh = () =>
+    dispatch(
+      fetchCustomers({ force: true, params: { active: !showInactive } }),
+    );
 
   const downloadTemplate = async () => {
     try {
@@ -147,14 +157,23 @@ export default function CustomerList() {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
-            <label className="flex items-center gap-2 text-sm">
+            <label className="flex items-center gap-2 text-sm cursor-pointer whitespace-nowrap">
               <input
                 type="checkbox"
-                className="checkbox"
+                className="checkbox checkbox-sm"
                 checked={branchOnly}
                 onChange={(e) => setBranchOnly(e.target.checked)}
               />
-              <span>Show current branch only</span>
+              Branch Only
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer whitespace-nowrap">
+              <input
+                type="checkbox"
+                className="checkbox checkbox-sm"
+                checked={showInactive}
+                onChange={(e) => setShowInactive(e.target.checked)}
+              />
+              Show Inactive
             </label>
             <button className="btn btn-outline" onClick={refresh}>
               Refresh

@@ -19,6 +19,9 @@ Handlebars.registerHelper("formatDate", function (date) {
   if (isNaN(d.getTime())) return date;
   return d.toISOString().split("T")[0]; // Returns YYYY-MM-DD
 });
+Handlebars.registerHelper("inc", function (value, options) {
+  return parseInt(value) + 1;
+});
 
 function expandDocumentTypeAliases(type) {
   const t = String(type || "")
@@ -88,6 +91,17 @@ function expandDocumentTypeAliases(type) {
 
 function docTypeSynonymsLower(type) {
   const c = canonicalDocumentType(type).toLowerCase();
+  if (c === "general-template") {
+    return [
+      "general-template",
+      "general template",
+      "general_template",
+      "general",
+      "header",
+      "report-header",
+      "report header",
+    ];
+  }
   if (c === "sales-order") {
     return [
       "sales-order",
@@ -162,6 +176,16 @@ function canonicalDocumentType(type) {
     .trim()
     .toLowerCase();
   if (
+    t === "general-template" ||
+    t === "general template" ||
+    t === "general_template" ||
+    t === "general" ||
+    t === "header" ||
+    t === "report-header"
+  ) {
+    return "general-template";
+  }
+  if (
     t === "sales-order" ||
     t === "sales order" ||
     t === "sales_order" ||
@@ -188,75 +212,98 @@ function canonicalDocumentType(type) {
   if (t === "quotation" || t === "quote" || t === "sales-quotation") {
     return "quotation";
   }
+  if (t === "purchase-order" || t === "purchase order" || t === "po") {
+    return "purchase-order";
+  }
+  if (t === "grn" || t === "goods-receipt" || t === "goods receipt") {
+    return "grn";
+  }
+  if (t === "purchase-bill" || t === "purchase bill") {
+    return "purchase-bill";
+  }
+  if (t === "direct-purchase" || t === "direct purchase") {
+    return "direct-purchase";
+  }
   return String(type || "").trim();
 }
 
 function getDefaultSampleTemplate(type) {
   const commonHead = `
 <style>
-  :root {
-    --brand: #0E3646;
-    --brand-50: #f0f7fa;
-    --brand-700: #215876;
-    --text: #1f2937;
-    --muted: #6b7280;
-    --border: #e5e7eb;
-  }
-  body { font-family: Arial, sans-serif; color: var(--text); }
-  .doc {
-    width: 19cm; margin: 0 auto; padding: 12px;
-    border: 1px solid var(--border); border-radius: 6px;
-  }
-  .header {
-    display: grid; grid-template-columns: 100px 1fr; gap: 12px;
-    align-items: center; margin-bottom: 8px;
-  }
-  .logo { height: 80px; object-fit: contain; }
-  .company {
-    font-size: 12px; line-height: 1.3; text-align: right;
-  }
-  .company .name { font-weight: 700; font-size: 16px; color: var(--brand); }
-  .meta { color: var(--muted); }
-  .titlebar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; margin: 6px 0 10px 0; }
-  .line { border-top: 2px solid var(--text); height: 0; }
-  .title { font-weight: 700; color: var(--brand); text-align: center; }
-  .info {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0 12px 0;
-  }
-  .info .card {
-    border: 1px solid var(--border); border-radius: 6px; padding: 8px;
-  }
-  .kv { font-size: 12px; line-height: 1.5; }
-  .kv .row { display: grid; grid-template-columns: 130px 1fr; gap: 6px; }
-  .kv .label { font-weight: 600; color: #000; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  thead th {
-    background: var(--brand-50); color: var(--brand);
-    border: 1px solid var(--border); padding: 6px; text-align: left;
-  }
-  tbody td { border: 1px solid var(--border); padding: 6px; }
+  :root { --text: #000; }
+  body { font-family: Arial, sans-serif; color: var(--text); font-size: 11px; margin: 0; padding: 0; box-sizing: border-box; background: white; }
+  .doc { width: 100%; max-width: 21cm; min-height: 29.7cm; margin: 0 auto; padding: 12mm; box-sizing: border-box; background: white; position: relative; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+  .logo { height: 90px; object-fit: contain; }
+  .company { font-size: 10px; line-height: 1.4; text-align: right; }
+  .company .name { font-weight: bold; font-size: 18px; margin-bottom: 4px; }
+  .titlebar { display: flex; align-items: center; justify-content: space-between; margin: 12px 0 16px; }
+  .line { flex-grow: 1; border-top: 2px solid #000; height: 0; }
+  .title { font-weight: bold; font-size: 16px; margin: 0 16px; white-space: nowrap; }
+  .info { display: flex; justify-content: space-between; margin-bottom: 16px; }
+  .info-left, .info-mid { flex: 1; }
+  .info-right { display: flex; flex-direction: column; align-items: flex-end; width: 100px; }
+  .kv { font-size: 11px; line-height: 1.4; display: table; }
+  .kv-row { display: table-row; }
+  .kv-label { display: table-cell; font-weight: bold; padding-right: 8px; white-space: nowrap; vertical-align: top; }
+  .kv-sep { display: table-cell; padding-right: 8px; vertical-align: top; }
+  .kv-val { display: table-cell; vertical-align: top; text-transform: uppercase; }
+  .qr-box { width: 80px; height: 80px; }
+  .qr-box img { width: 100%; height: 100%; }
+  table { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 8px; }
+  thead th { border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 6px 4px; text-align: right; font-weight: bold; vertical-align: bottom; }
+  thead th.left { text-align: left; }
+  thead th.center { text-align: center; }
+  tbody td { padding: 4px; border-bottom: 1px dashed #000; vertical-align: top; }
+  tbody tr:last-child td { border-bottom: 2px solid #000; }
   td.num { text-align: right; }
-  .totals {
-    display: grid; grid-template-columns: 1fr 220px; gap: 12px; margin-top: 10px;
+  td.center { text-align: center; }
+  .bottom-section { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 40px; }
+  .bottom-left { flex: 1; padding-right: 16px; }
+  .bottom-right { width: 280px; }
+  .summary-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #000; }
+  .summary-row:last-child { border-bottom: 2px dashed #000; }
+  .summary-row .s-label { font-weight: bold; }
+  .summary-row .s-val { text-align: right; }
+  .footer-prepared { margin-top: 24px; font-size: 11px; padding-top: 8px; border-top: 2px solid #000; }
+  .footer-prepared .lbl { font-weight: bold; }
+  @media print {
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body { margin: 0 !important; padding: 0 !important; }
+    .doc { max-width: 19cm; margin: 0 auto; }
   }
-  .totals .box { border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
-  .footer {
-    margin-top: 18px; font-size: 11px; border-top: 1px solid var(--border); padding-top: 8px;
-    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
-  }
-  .sign { height: 40px; border-bottom: 1px solid var(--border); }
 </style>`;
+
+  if (type === "general-template") {
+    return `
+${commonHead}
+<div class="doc">
+  <div class="header">
+    <div><img class="logo" src="{{company.logo}}" alt="Logo"/></div>
+    <div class="company">
+      <div class="name">{{company.name}}</div>
+      <div>{{company.address}}</div>
+      <div>{{company.address2}}</div>
+      <div>Contact No: {{company.phone}}</div>
+      <div>Email: {{company.email}}</div>
+      <div>{{company.website}}</div>
+    </div>
+  </div>
+</div>`;
+  }
+
   if (type === "sales-order") {
     return `
 ${commonHead}
 <div class="doc">
   <div class="header">
-    <img class="logo" src="{{company.logo}}" alt="Logo"/>
+    <div><img class="logo" src="{{company.logo}}" alt="Logo"/></div>
     <div class="company">
       <div class="name">{{company.name}}</div>
       <div>{{company.address}}</div>
       <div>{{company.address2}}</div>
-      <div class="meta">{{company.phone}} • {{company.email}} • {{company.website}}</div>
+      <div>Contact No: {{company.phone}}</div>
+      <div>Email: {{company.email}}</div>
     </div>
   </div>
   <div class="titlebar">
@@ -264,58 +311,83 @@ ${commonHead}
     <div class="title">* Sales Order *</div>
     <div class="line"></div>
   </div>
-  <div class="info" style="grid-template-columns: 1fr 1fr;">
-    <div class="card">
+  <div class="info">
+    <div class="info-left">
       <div class="kv">
-        <div class="row"><div class="label">Name:</div><div class="value">{{customer.name}}</div></div>
-        <div class="row"><div class="label">Address:</div><div class="value">{{customer.address}}</div></div>
-        <div class="row"><div class="label"></div><div class="value">{{customer.address2}}</div></div>
-        <div class="row"><div class="label">Mobile:</div><div class="value">{{customer.phone}}</div></div>
-        <div class="row"><div class="label">Email:</div><div class="value">{{customer.email}}</div></div>
+        <div class="kv-row"><div class="kv-label">Customer Name</div><div class="kv-sep">:</div><div class="kv-val">{{customer.name}}</div></div>
+        <div class="kv-row"><div class="kv-label">Address</div><div class="kv-sep">:</div><div class="kv-val">{{customer.address}}<br/>{{customer.address2}}</div></div>
+        <div class="kv-row"><div class="kv-label">City</div><div class="kv-sep">:</div><div class="kv-val">{{customer.city}}</div></div>
+        <div class="kv-row"><div class="kv-label">State</div><div class="kv-sep">:</div><div class="kv-val">{{customer.state}}</div></div>
+        <div class="kv-row"><div class="kv-label">Country</div><div class="kv-sep">:</div><div class="kv-val">{{customer.country}}</div></div>
       </div>
     </div>
-    <div class="card">
+    <div class="info-mid">
       <div class="kv">
-        <div class="row"><div class="label">Order No.:</div><div class="value">{{sales_order.number}}</div></div>
-        <div class="row"><div class="label">Order Date:</div><div class="value">{{formatDate sales_order.date}}</div></div>
-        <div class="row"><div class="label">Payment Term:</div><div class="value">{{sales_order.payment_terms}}</div></div>
+        <div class="kv-row"><div class="kv-label">Order No.</div><div class="kv-sep">:</div><div class="kv-val">{{sales_order.number}}</div></div>
+        <div class="kv-row"><div class="kv-label">Order Date</div><div class="kv-sep">:</div><div class="kv-val">{{formatDate sales_order.date}}</div></div>
+        <div class="kv-row"><div class="kv-label">Payment Term</div><div class="kv-sep">:</div><div class="kv-val">{{sales_order.payment_terms}}</div></div>
       </div>
-      <div style="text-align:right;margin-top:6px;">
-        <img src="{{sales_order.qr_code}}" alt="QR" style="width:90px;height:90px;border:1px solid var(--border);" />
-      </div>
+    </div>
+    <div class="info-right">
+      <div class="qr-box"><img src="{{sales_order.qr_code}}" alt="QR"/></div>
     </div>
   </div>
   <table>
     <thead>
-      <tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Price</th><th>Disc%</th><th>Tax</th><th>Amount</th></tr>
+      <tr>
+        <th class="center">Sr.<br/>No.</th>
+        <th class="left">Product<br/>Code</th>
+        <th class="left">Product Description</th>
+        <th>Qty</th>
+        <th>Price</th>
+        <th>Discount</th>
+        <th>Tax</th>
+        <th>Value</th>
+      </tr>
     </thead>
     <tbody>
       {{#each sales_order.items}}
       <tr>
-        <td>{{@index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{quantity}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{discount}}</td><td class="num">{{tax}}</td><td class="num">{{amount}}</td>
+        <td class="center">{{inc @index}}</td>
+        <td>{{code}}</td>
+        <td>{{name}}</td>
+        <td class="num">{{quantity}}</td>
+        <td class="num">{{price}}</td>
+        <td class="num">{{discount}}</td>
+        <td class="num">{{tax}}</td>
+        <td class="num">{{amount}}</td>
       </tr>
       {{/each}}
     </tbody>
   </table>
-  <div class="totals">
-    <div></div>
-    <div class="box">
-      <div>Sub Total: {{sales_order.sub_total}}</div>
-      <div>Discount: {{sales_order.discount_amount}}</div>
-      <div>Tax: {{sales_order.tax_amount}}</div>
-      <div><strong>Net Amount: {{sales_order.net_amount}}</strong></div>
+  <div class="bottom-section">
+    <div class="bottom-left">
+      <div style="display: grid; grid-template-columns: auto 1fr; gap: 40px; margin-bottom: 8px;">
+        <div><span style="font-weight: bold;">Item Count :</span> {{sales_order.item_count}}</div>
+        <div><span style="font-weight: bold;">Total Quantity :</span> {{sales_order.total_quantity}}</div>
+      </div>
+      <div style="display: flex; margin-bottom: 16px;">
+        <div style="font-weight: bold; white-space: nowrap; margin-right: 8px;">Amount in Words :</div>
+        <div style="text-transform: uppercase;">{{sales_order.amount_in_words}}</div>
+      </div>
+      <div style="margin-bottom: 16px;">
+        <span style="font-weight: bold;">Remarks :</span> <br/>
+        {{sales_order.remarks}}
+      </div>
+      <div>
+        <span style="font-weight: bold;">Terms and Condition :</span> <br/>
+        {{sales_order.terms_and_conditions}}
+      </div>
+    </div>
+    <div class="bottom-right">
+      <div class="summary-row"><div class="s-label">Sales Account</div><div class="s-val">{{sales_order.sub_total}}</div></div>
+      <div class="summary-row"><div class="s-label">Discount</div><div class="s-val">{{sales_order.discount_amount}}</div></div>
+      <div class="summary-row"><div class="s-label">Tax</div><div class="s-val">{{sales_order.tax_amount}}</div></div>
+      <div class="summary-row"><div class="s-label">Net Order Value</div><div class="s-val" style="font-weight: bold;">{{sales_order.total}}</div></div>
     </div>
   </div>
-  <div class="footer">
-    <div>
-      <div>Prepared By</div>
-      <div class="sign"></div>
-      <div class="meta">{{prepared_by}}</div>
-    </div>
-    <div>
-      <div>Remarks</div>
-      <div class="meta">{{sales_order.remarks}}</div>
-    </div>
+  <div class="footer-prepared">
+    <span class="lbl">Prepared By :</span> {{prepared_by}}
   </div>
 </div>
 `;
@@ -325,12 +397,13 @@ ${commonHead}
 ${commonHead}
 <div class="doc">
   <div class="header">
-    <img class="logo" src="{{company.logo}}" alt="Logo"/>
+    <div><img class="logo" src="{{company.logo}}" alt="Logo"/></div>
     <div class="company">
       <div class="name">{{company.name}}</div>
       <div>{{company.address}}</div>
       <div>{{company.address2}}</div>
-      <div class="meta">{{company.phone}} • {{company.email}} • {{company.website}}</div>
+      <div>Contact No: {{company.phone}}</div>
+      <div>Email: {{company.email}}</div>
     </div>
   </div>
   <div class="titlebar">
@@ -338,56 +411,84 @@ ${commonHead}
     <div class="title">* Sales Invoice *</div>
     <div class="line"></div>
   </div>
-  <div class="info" style="grid-template-columns: 1fr 1fr;">
-    <div class="card">
+  <div class="info">
+    <div class="info-left">
       <div class="kv">
-        <div class="row"><div class="label">Name:</div><div class="value">{{customer.name}}</div></div>
-        <div class="row"><div class="label">Address:</div><div class="value">{{customer.address}}</div></div>
-        <div class="row"><div class="label"></div><div class="value">{{customer.address2}}</div></div>
-        <div class="row"><div class="label">Phone:</div><div class="value">{{customer.phone}}</div></div>
-        <div class="row"><div class="label">Email:</div><div class="value">{{customer.email}}</div></div>
+        <div class="kv-row"><div class="kv-label">Customer Name</div><div class="kv-sep">:</div><div class="kv-val">{{customer.name}}</div></div>
+        <div class="kv-row"><div class="kv-label">Address</div><div class="kv-sep">:</div><div class="kv-val">{{customer.address}}<br/>{{customer.address2}}</div></div>
+        <div class="kv-row"><div class="kv-label">City</div><div class="kv-sep">:</div><div class="kv-val">{{customer.city}}</div></div>
+        <div class="kv-row"><div class="kv-label">State</div><div class="kv-sep">:</div><div class="kv-val">{{customer.state}}</div></div>
+        <div class="kv-row"><div class="kv-label">Country</div><div class="kv-sep">:</div><div class="kv-val">{{customer.country}}</div></div>
       </div>
     </div>
-    <div class="card">
+    <div class="info-mid">
       <div class="kv">
-        <div class="row"><div class="label">Invoice No.:</div><div class="value">{{invoice.number}}</div></div>
-        <div class="row"><div class="label">Invoice Date:</div><div class="value">{{formatDate invoice.date}}</div></div>
-        <div class="row"><div class="label">Payment Term:</div><div class="value">{{invoice.payment_term}}</div></div>
+        <div class="kv-row"><div class="kv-label">Invoice No.</div><div class="kv-sep">:</div><div class="kv-val">{{invoice.number}}</div></div>
+        <div class="kv-row"><div class="kv-label">Invoice Date</div><div class="kv-sep">:</div><div class="kv-val">{{formatDate invoice.date}}</div></div>
+        <div class="kv-row"><div class="kv-label">Payment Term</div><div class="kv-sep">:</div><div class="kv-val">{{invoice.payment_term}}</div></div>
       </div>
-      <div style="text-align:right;margin-top:6px;">
-        <img src="{{invoice.qr_code}}" alt="QR" style="width:90px;height:90px;border:1px solid var(--border);" />
-      </div>
+    </div>
+    <div class="info-right">
+      <div class="qr-box"><img src="{{invoice.qr_code}}" alt="QR"/></div>
     </div>
   </div>
   <table>
     <thead>
-      <tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Price</th><th>Disc%</th><th>Amount</th></tr>
+      <tr>
+        <th class="center">Sr.<br/>No.</th>
+        <th class="left">Product<br/>Code</th>
+        <th class="left">Product Description</th>
+        <th>Qty</th>
+        <th>Price</th>
+        <th>Discount</th>
+        <th>Tax</th>
+        <th>Value</th>
+      </tr>
     </thead>
     <tbody>
       {{#each invoice.items}}
       <tr>
-        <td>{{@index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{quantity}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{discount}}</td><td class="num">{{amount}}</td>
+        <td class="center">{{inc @index}}</td>
+        <td>{{code}}</td>
+        <td>{{name}}</td>
+        <td class="num">{{quantity}}</td>
+        <td class="num">{{price}}</td>
+        <td class="num">{{discount}}</td>
+        <td class="num">{{tax}}</td>
+        <td class="num">{{amount}}</td>
       </tr>
       {{/each}}
     </tbody>
   </table>
-  <div class="totals">
-    <div></div>
-    <div class="box">
-      <div>Net Total: {{invoice.net_total}}</div>
-      <div><strong>Total: {{invoice.total}}</strong></div>
+  <div class="bottom-section">
+    <div class="bottom-left">
+      <div style="display: grid; grid-template-columns: auto 1fr; gap: 40px; margin-bottom: 8px;">
+        <div><span style="font-weight: bold;">Item Count :</span> {{invoice.item_count}}</div>
+        <div><span style="font-weight: bold;">Total Quantity :</span> {{invoice.total_quantity}}</div>
+      </div>
+      <div style="display: flex; margin-bottom: 16px;">
+        <div style="font-weight: bold; white-space: nowrap; margin-right: 8px;">Amount in Words :</div>
+        <div style="text-transform: uppercase;">{{invoice.amount_in_words}}</div>
+      </div>
+      <div style="margin-bottom: 16px;">
+        <span style="font-weight: bold;">Remarks :</span> <br/>
+        {{invoice.remarks}}
+      </div>
+      <div>
+        <span style="font-weight: bold;">Terms and Condition :</span> <br/>
+        {{invoice.terms_and_conditions}}
+      </div>
+    </div>
+    <div class="bottom-right">
+      <div class="summary-row"><div class="s-label">Sales Account</div><div class="s-val">{{invoice.net_total}}</div></div>
+      <div class="summary-row"><div class="s-label">NHIL [2.5%]</div><div class="s-val">{{invoice.nhil}}</div></div>
+      <div class="summary-row"><div class="s-label">GET FUND 2.5% ON<br/>SALES</div><div class="s-val">{{invoice.get_fund}}</div></div>
+      <div class="summary-row"><div class="s-label">VAT 15%</div><div class="s-val">{{invoice.vat}}</div></div>
+      <div class="summary-row"><div class="s-label">Net Invoice Value</div><div class="s-val" style="font-weight: bold;">{{invoice.total}}</div></div>
     </div>
   </div>
-  <div class="footer">
-    <div>
-      <div>Prepared By</div>
-      <div class="sign"></div>
-      <div class="meta">{{prepared_by}}</div>
-    </div>
-    <div>
-      <div>Remarks</div>
-      <div class="meta">{{invoice.remarks}}</div>
-    </div>
+  <div class="footer-prepared">
+    <span class="lbl">Prepared By :</span> {{prepared_by}}
   </div>
 </div>
 `;
@@ -442,7 +543,7 @@ ${commonHead}
       <div class="name">{{company.name}}</div> 
       <div>{{company.address}}</div> 
       <div>{{company.address2}}</div> 
-      <div>Tel: {{company.phone}}</div> 
+      <div>{{company.phone}}</div> 
       <div>Email: {{company.email}}</div> 
       <div>{{company.registration}}</div> 
     </div> 
@@ -454,7 +555,7 @@ ${commonHead}
       <div class="row"><div class="label">Address:</div><div class="value">{{customer.address}}</div></div> 
       <div class="row"><div class="label"></div><div class="value">{{customer.address2}}</div></div> 
       <div class="row"><div class="label">Contact Person:</div><div class="value">{{customer.contact_person}}</div></div> 
-      <div class="row"><div class="label">Tel:</div><div class="value">{{customer.phone}}</div></div> 
+      <div class="row"><div class="label">Phone:</div><div class="value">{{customer.phone}}</div></div> 
     </div> 
     <div> 
       <div class="row"><div class="label">D/N No:</div><div class="value">{{delivery.number}}</div></div> 
@@ -614,6 +715,9 @@ ${commonHead}
         <div class="row"><div class="label">Quotation Date:</div><div class="value">{{quotation.date}}</div></div>
       </div>
     </div>
+    <div class="info-right">
+      <div class="qr-box"><img src="{{quotation.qr_code}}" alt="QR"/></div>
+    </div>
   </div>
   <table>
     <thead>
@@ -728,23 +832,25 @@ async function loadPreviewData(type, companyId, branchId) {
     return {
       company: company || {},
       customer: {
-        name: "Customer Name",
-        address: "",
-        city: "",
-        state: "",
-        country: "",
-        phone: "",
-        email: "",
+        name: "John Doe",
+        address: "123 Main Street",
+        address2: "Suite 100",
+        city: "Accra",
+        state: "Greater Accra",
+        country: "Ghana",
+        phone: "+233 55 123 4567",
+        email: "john.doe@example.com",
       },
       sales_order: {
         id: 0,
-        number: "",
+        number: "SO-PREVIEW",
         date: new Date().toDateString(),
         status: "DRAFT",
         sub_total: 0,
         tax_amount: 0,
         total: 0,
         remarks: "",
+        qr_code: `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent("SALES_ORDER|PREVIEW|SO-PREVIEW|" + new Date().toISOString().slice(0, 10))}`,
         items: [
           {
             name: "Sample Item",
@@ -776,17 +882,18 @@ async function loadPreviewData(type, companyId, branchId) {
     return {
       company: company || {},
       customer: {
-        name: "Customer Name",
-        address: "",
-        city: "",
-        state: "",
-        country: "",
-        phone: "",
-        email: "",
+        name: "John Doe",
+        address: "123 Main Street",
+        address2: "Suite 100",
+        city: "Accra",
+        state: "Greater Accra",
+        country: "Ghana",
+        phone: "+233 55 123 4567",
+        email: "john.doe@example.com",
       },
       invoice: {
         id: 0,
-        number: "",
+        number: "INV-PREVIEW",
         date: new Date().toDateString(),
         status: "DRAFT",
         payment_status: "PENDING",
@@ -794,6 +901,7 @@ async function loadPreviewData(type, companyId, branchId) {
         net_total: 0,
         total: 0,
         remarks: "",
+        qr_code: `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent("INVOICE|PREVIEW|INV-PREVIEW|" + new Date().toISOString().slice(0, 10))}`,
         items: [
           {
             name: "Sample Item",
@@ -823,10 +931,11 @@ async function loadPreviewData(type, companyId, branchId) {
     return {
       company: company || {},
       customer: {
-        name: "Customer Name",
-        address: "",
-        phone: "",
-        email: "",
+        name: "John Doe",
+        address: "123 Main Street",
+        address2: "Suite 100",
+        phone: "+233 55 123 4567",
+        email: "john.doe@example.com",
       },
       delivery_note: {
         id: 0,
@@ -878,10 +987,11 @@ async function loadPreviewData(type, companyId, branchId) {
     return {
       company: company || {},
       customer: {
-        name: "Customer Name",
-        address: "",
-        phone: "",
-        email: "",
+        name: "John Doe",
+        address: "123 Main Street",
+        address2: "Suite 100",
+        phone: "+233 55 123 4567",
+        email: "john.doe@example.com",
       },
       quotation: {
         id: 0,
@@ -1076,7 +1186,7 @@ async function loadData(type, id, companyId, branchId) {
       customer: {
         name: order.customer_name,
         address: order.customer_address,
-        address2: '',
+        address2: "",
         city: order.customer_city,
         state: order.customer_state,
         country: order.customer_country,
@@ -1249,7 +1359,7 @@ async function loadData(type, id, companyId, branchId) {
       customer: {
         name: inv.customer_name,
         address: inv.customer_address,
-        address2: '',
+        address2: "",
         city: inv.customer_city,
         state: inv.customer_state,
         country: inv.customer_country,
@@ -1533,6 +1643,241 @@ async function loadData(type, id, companyId, branchId) {
     dnObj.items = dnObj.delivery_note.items;
     return dnObj;
   }
+  if (type === "purchase-order") {
+    const [po] = await query(
+      `
+      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.email AS supplier_email, s.telephone AS supplier_phone
+      FROM pur_orders h
+      LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
+      WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+      LIMIT 1
+      `,
+      { id, companyId, branchId },
+    ).catch(() => []);
+    if (!po) throw httpError(404, "NOT_FOUND", "Purchase Order not found");
+    const details = await query(
+      `
+      SELECT d.*, it.item_code, it.item_name
+      FROM pur_order_details d
+      LEFT JOIN inv_items it ON it.id = d.item_id
+      WHERE d.order_id = :id
+      ORDER BY d.id ASC
+      `,
+      { id },
+    ).catch(() => []);
+    const [company] = await query(
+      `SELECT * FROM adm_companies WHERE id = :companyId LIMIT 1`,
+      { companyId },
+    ).catch(() => []);
+    const poObj = {
+      company: company || {},
+      supplier: {
+        name: po.supplier_name,
+        address: po.supplier_address,
+        email: po.supplier_email,
+        phone: po.supplier_phone,
+      },
+      purchase_order: {
+        id: po.id,
+        number: po.po_no,
+        date: po.po_date,
+        status: po.status,
+        currency: po.currency_id,
+        exchange_rate: po.exchange_rate,
+        sub_total: po.sub_total,
+        tax_amount: po.tax_amount,
+        total: po.total_amount,
+        remarks: po.remarks,
+        items: (details || []).map((d) => ({
+          code: d.item_code,
+          name: d.item_name,
+          quantity: d.qty,
+          uom: d.uom,
+          price: d.unit_price,
+          discount: d.discount_percent,
+          tax: d.tax_amount,
+          amount: d.line_total,
+        })),
+      },
+    };
+    poObj.document = poObj.purchase_order;
+    poObj.items = poObj.purchase_order.items;
+    return poObj;
+  }
+  if (type === "grn") {
+    const [grn] = await query(
+      `
+      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.email AS supplier_email, s.telephone AS supplier_phone
+      FROM inv_grn h
+      LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
+      WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+      LIMIT 1
+      `,
+      { id, companyId, branchId },
+    ).catch(() => []);
+    if (!grn) throw httpError(404, "NOT_FOUND", "GRN not found");
+    const details = await query(
+      `
+      SELECT d.*, it.item_code, it.item_name
+      FROM inv_grn_details d
+      LEFT JOIN inv_items it ON it.id = d.item_id
+      WHERE d.grn_id = :id
+      ORDER BY d.id ASC
+      `,
+      { id },
+    ).catch(() => []);
+    const [company] = await query(
+      `SELECT * FROM adm_companies WHERE id = :companyId LIMIT 1`,
+      { companyId },
+    ).catch(() => []);
+    const grnObj = {
+      company: company || {},
+      supplier: {
+        name: grn.supplier_name,
+        address: grn.supplier_address,
+        email: grn.supplier_email,
+        phone: grn.supplier_phone,
+      },
+      grn: {
+        id: grn.id,
+        number: grn.grn_no,
+        date: grn.grn_date,
+        status: grn.status,
+        remarks: grn.remarks,
+        delivery_no: grn.delivery_number,
+        items: (details || []).map((d) => ({
+          code: d.item_code,
+          name: d.item_name,
+          quantity: d.qty,
+          uom: d.uom,
+          price: d.unit_price,
+          amount: d.amount,
+          batch: d.batch_serial,
+        })),
+      },
+    };
+    grnObj.document = grnObj.grn;
+    grnObj.items = grnObj.grn.items;
+    return grnObj;
+  }
+  if (type === "purchase-bill") {
+    const [bill] = await query(
+      `
+      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.email AS supplier_email, s.telephone AS supplier_phone
+      FROM pur_bills h
+      LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
+      WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+      LIMIT 1
+      `,
+      { id, companyId, branchId },
+    ).catch(() => []);
+    if (!bill) throw httpError(404, "NOT_FOUND", "Purchase Bill not found");
+    const details = await query(
+      `
+      SELECT d.*, it.item_code, it.item_name
+      FROM pur_bill_details d
+      LEFT JOIN inv_items it ON it.id = d.item_id
+      WHERE d.bill_id = :id
+      ORDER BY d.id ASC
+      `,
+      { id },
+    ).catch(() => []);
+    const [company] = await query(
+      `SELECT * FROM adm_companies WHERE id = :companyId LIMIT 1`,
+      { companyId },
+    ).catch(() => []);
+    const billObj = {
+      company: company || {},
+      supplier: {
+        name: bill.supplier_name,
+        address: bill.supplier_address,
+        email: bill.supplier_email,
+        phone: bill.supplier_phone,
+      },
+      purchase_bill: {
+        id: bill.id,
+        number: bill.bill_no,
+        date: bill.bill_date,
+        status: bill.status,
+        sub_total: bill.sub_total,
+        tax_amount: bill.tax_amount,
+        total: bill.net_amount,
+        remarks: bill.remarks,
+        items: (details || []).map((d) => ({
+          code: d.item_code,
+          name: d.item_name,
+          quantity: d.qty,
+          uom: d.uom,
+          price: d.unit_price,
+          discount: d.discount_percent,
+          tax: d.tax_amount,
+          amount: d.line_total,
+        })),
+      },
+    };
+    billObj.document = billObj.purchase_bill;
+    billObj.items = billObj.purchase_bill.items;
+    return billObj;
+  }
+  if (type === "direct-purchase") {
+    const [dp] = await query(
+      `
+      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.email AS supplier_email, s.telephone AS supplier_phone
+      FROM pur_direct_purchase_hdr h
+      LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
+      WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+      LIMIT 1
+      `,
+      { id, companyId, branchId },
+    ).catch(() => []);
+    if (!dp) throw httpError(404, "NOT_FOUND", "Direct Purchase not found");
+    const details = await query(
+      `
+      SELECT d.*, it.item_code, it.item_name
+      FROM pur_direct_purchase_dtl d
+      LEFT JOIN inv_items it ON it.id = d.item_id
+      WHERE d.hdr_id = :id
+      ORDER BY d.id ASC
+      `,
+      { id },
+    ).catch(() => []);
+    const [company] = await query(
+      `SELECT * FROM adm_companies WHERE id = :companyId LIMIT 1`,
+      { companyId },
+    ).catch(() => []);
+    const dpObj = {
+      company: company || {},
+      supplier: {
+        name: dp.supplier_name,
+        address: dp.supplier_address,
+        email: dp.supplier_email,
+        phone: dp.supplier_phone,
+      },
+      direct_purchase: {
+        id: dp.id,
+        number: dp.dp_no,
+        date: dp.dp_date,
+        status: dp.status,
+        sub_total: dp.subtotal,
+        tax_amount: dp.tax_amount,
+        total: dp.net_amount,
+        remarks: dp.remarks,
+        items: (details || []).map((d) => ({
+          code: d.item_code,
+          name: d.item_name,
+          quantity: d.qty,
+          uom: d.uom,
+          price: d.unit_price,
+          discount: d.discount_percent,
+          tax: d.tax_percent,
+          amount: d.line_total,
+        })),
+      },
+    };
+    dpObj.document = dpObj.direct_purchase;
+    dpObj.items = dpObj.direct_purchase.items;
+    return dpObj;
+  }
   if (type === "quotation") {
     const [q] = await query(
       `
@@ -1684,6 +2029,12 @@ async function loadData(type, id, companyId, branchId) {
         })),
       },
     };
+    try {
+      const qrPayload = encodeURIComponent(
+        `QUOTATION|${q.id}|${q.quotation_no || ""}|${q.quotation_date || ""}|${q.customer_name || ""}|${q.total_amount || ""}`,
+      );
+      qObj.quotation.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
+    } catch {}
     qObj.document = qObj.quotation;
     qObj.quote = qObj.quotation;
     qObj.items = qObj.quotation.items;
@@ -1905,19 +2256,98 @@ router.post(
           throw httpError(404, "NOT_FOUND", "Default template not found");
         }
       }
+      let generalTpl = null;
+      try {
+        const aliasesLowerG = docTypeSynonymsLower("general-template");
+        const placeholdersG = aliasesLowerG.map((_, i) => `:gt${i}`).join(", ");
+        const paramsG = { companyId };
+        aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
+        const rows = await query(
+          `
+          SELECT id,
+                 header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                 document_type
+          FROM document_templates
+          WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
+          LIMIT 1
+          `,
+          paramsG,
+        ).catch(() => []);
+        if (rows && rows.length) {
+          generalTpl = rows[0];
+        } else {
+          const ins = await query(
+            `
+            INSERT INTO document_templates 
+              (company_id, name, document_type, html_content, is_default, created_by,
+               header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
+            VALUES
+              (:companyId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+            `,
+            {
+              companyId,
+              name: "General Template",
+              dt: "general-template",
+              html: getDefaultSampleTemplate("general-template"),
+              createdBy: req.user?.id || null,
+            },
+          ).catch(() => null);
+          if (ins && ins.insertId) {
+            await query(
+              `
+              UPDATE document_templates 
+                 SET is_default = 0 
+               WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id
+              `,
+              { ...paramsG, id: ins.insertId },
+            ).catch(() => null);
+            const [row] = await query(
+              `
+              SELECT id,
+                     header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                     document_type
+              FROM document_templates
+              WHERE id = :id AND company_id = :companyId
+              LIMIT 1
+              `,
+              { id: ins.insertId, companyId },
+            ).catch(() => []);
+            if (row) generalTpl = row;
+          }
+        }
+      } catch {}
       const data = await loadData(type, id, companyId, branchId);
       if (data && data.company) {
         const logoDefault = `/api/admin/companies/${companyId}/logo`;
         const merged = {
           ...data.company,
-          name: tplObj.header_name || data.company.name,
-          address: tplObj.header_address || data.company.address,
-          address2: tplObj.header_address2 || data.company.address2,
+          name:
+            tplObj.header_name || generalTpl?.header_name || data.company.name,
+          address:
+            tplObj.header_address ||
+            generalTpl?.header_address ||
+            data.company.address,
+          address2:
+            tplObj.header_address2 ||
+            generalTpl?.header_address2 ||
+            data.company.address2,
           phone:
-            tplObj.header_phone || data.company.telephone || data.company.phone,
-          email: tplObj.header_email || data.company.email,
-          website: tplObj.header_website || data.company.website,
-          logo: tplObj.header_logo_url || logoDefault,
+            tplObj.header_phone ||
+            generalTpl?.header_phone ||
+            data.company.telephone ||
+            data.company.phone,
+          email:
+            tplObj.header_email ||
+            generalTpl?.header_email ||
+            data.company.email,
+          website:
+            tplObj.header_website ||
+            generalTpl?.header_website ||
+            data.company.website,
+          logo:
+            tplObj.header_logo_url ||
+            generalTpl?.header_logo_url ||
+            logoDefault,
         };
         // expose normalized fields
         data.company = { ...merged, telephone: merged.phone };
@@ -1958,6 +2388,62 @@ router.post(
         // Remove standalone "Tax ID:" labels
         html = html.replace(/Tax\s*ID\s*:?\s*/gi, "");
       } catch {}
+      // Auto-inject customer info block if not rendered by template (safety net)
+      if (
+        type === "sales-order" ||
+        type === "invoice" ||
+        type === "delivery-note" ||
+        type === "quotation"
+      ) {
+        function esc(v) {
+          return String(v ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+        const cust = data?.customer || null;
+        const probe = String(cust?.name || "").trim();
+        if (
+          cust &&
+          (!probe || !html.includes(probe)) &&
+          !html.includes('data-auto="customer-info"')
+        ) {
+          const keyName =
+            type === "sales-order"
+              ? "sales_order"
+              : type === "delivery-note"
+                ? "delivery_note"
+                : type;
+          const qr = data?.[keyName]?.qr_code || "";
+          const block = `<div data-auto="customer-info" style="margin:8px 0;font-size:12px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div>
+                  <div><strong>Name:</strong> ${esc(cust.name || "")}</div>
+                  <div><strong>Address:</strong> ${esc(cust.address || "")} ${esc(cust.address2 || "")}</div>
+                  ${cust.city || cust.state ? `<div><strong>City/State:</strong> ${esc(cust.city || "")} ${esc(cust.state || "")}</div>` : ""}
+                  ${cust.country ? `<div><strong>Country:</strong> ${esc(cust.country || "")}</div>` : ""}
+                  <div><strong>Phone:</strong> ${esc(cust.phone || "")}</div>
+                  <div><strong>Email:</strong> ${esc(cust.email || "")}</div>
+                </div>
+                <div style="text-align:right">${qr ? `<img src="${esc(qr)}" style="width:90px;height:90px;border:1px solid #e5e7eb" />` : ""}</div>
+              </div>
+            </div>`;
+          const tag = '<div class="doc"';
+          const p = html.indexOf(tag);
+          if (p !== -1) {
+            const gt = html.indexOf(">", p);
+            if (gt !== -1) {
+              html = html.slice(0, gt + 1) + block + html.slice(gt + 1);
+            } else {
+              html = block + html;
+            }
+          } else {
+            html = block + html;
+          }
+        }
+      }
       // Ensure background colors render in browser print and PDF
       const printStyle = `<style>
           @media print { * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
@@ -1972,10 +2458,36 @@ router.post(
       ).toLowerCase();
       if (format === "pdf") {
         try {
+          // Note: allowVulnerableTags is intentional here. Style tags are needed for PDF rendering.
+          // This is safe because template HTML is internal/admin-controlled, not user input.
           const cleaned = sanitizeHtml(html, {
-            allowedTags: (sanitizeHtml.defaults?.allowedTags || []).concat([
+            allowedTags: [
+              "div",
+              "p",
+              "span",
+              "br",
+              "strong",
+              "em",
+              "b",
+              "i",
+              "u",
+              "h1",
+              "h2",
+              "h3",
+              "h4",
+              "h5",
+              "h6",
+              "table",
+              "thead",
+              "tbody",
+              "tfoot",
+              "tr",
+              "td",
+              "th",
+              "img",
+              "a",
               "style",
-            ]),
+            ],
             allowedAttributes: {
               "*": ["class", "style"],
               img: ["src", "alt", "class", "style"],
@@ -2000,10 +2512,10 @@ router.post(
             format: "A4",
             printBackground: true,
             margin: {
-              top: "12mm",
-              bottom: "12mm",
-              left: "12mm",
-              right: "12mm",
+              top: "25mm",
+              bottom: "25mm",
+              left: "25mm",
+              right: "25mm",
             },
           });
           await browser.close();
@@ -2018,16 +2530,35 @@ router.post(
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
     } catch (err) {
+      const format = String(
+        req.query.format || req.body?.format || "",
+      ).toLowerCase();
+      if (format === "pdf") {
+        return next(err);
+      }
       try {
         const type = String(req.params.type || "").trim();
         const { companyId } = req.scope || {};
         const fallback = getDefaultSampleTemplate(type);
-        const data = { company: { name: "", address: "", address2: "", phone: "", email: "", logo: `/api/admin/companies/${companyId}/logo` } };
+        const data = {
+          company: {
+            name: "",
+            address: "",
+            address2: "",
+            phone: "",
+            email: "",
+            logo: `/api/admin/companies/${companyId}/logo`,
+          },
+        };
         const html = Handlebars.compile(String(fallback || ""))(data);
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.status(200).send(html);
       } catch {
-        res.status(200).send("<html><body><h3>Document</h3><p>Unable to render template; minimal fallback shown.</p></body></html>");
+        res
+          .status(200)
+          .send(
+            "<html><body><h3>Document</h3><p>Unable to render template; minimal fallback shown.</p></body></html>",
+          );
       }
     }
   },
@@ -2093,19 +2624,98 @@ router.post(
           header_website: null,
         };
       }
+      let generalTpl = null;
+      try {
+        const aliasesLowerG = docTypeSynonymsLower("general-template");
+        const placeholdersG = aliasesLowerG.map((_, i) => `:gt${i}`).join(", ");
+        const paramsG = { companyId };
+        aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
+        const rows = await query(
+          `
+          SELECT id,
+                 header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                 document_type
+          FROM document_templates
+          WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
+          LIMIT 1
+          `,
+          paramsG,
+        ).catch(() => []);
+        if (rows && rows.length) {
+          generalTpl = rows[0];
+        } else {
+          const ins = await query(
+            `
+            INSERT INTO document_templates 
+              (company_id, name, document_type, html_content, is_default, created_by,
+               header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
+            VALUES
+              (:companyId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+            `,
+            {
+              companyId,
+              name: "General Template",
+              dt: "general-template",
+              html: getDefaultSampleTemplate("general-template"),
+              createdBy: req.user?.id || null,
+            },
+          ).catch(() => null);
+          if (ins && ins.insertId) {
+            await query(
+              `
+              UPDATE document_templates 
+                 SET is_default = 0 
+               WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id
+              `,
+              { ...paramsG, id: ins.insertId },
+            ).catch(() => null);
+            const [row] = await query(
+              `
+              SELECT id,
+                     header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                     document_type
+              FROM document_templates
+              WHERE id = :id AND company_id = :companyId
+              LIMIT 1
+              `,
+              { id: ins.insertId, companyId },
+            ).catch(() => []);
+            if (row) generalTpl = row;
+          }
+        }
+      } catch {}
       const data = await loadPreviewData(type, companyId, branchId);
       if (data && data.company) {
         const logoDefault = `/api/admin/companies/${companyId}/logo`;
         const merged = {
           ...data.company,
-          name: tplObj.header_name || data.company.name,
-          address: tplObj.header_address || data.company.address,
-          address2: tplObj.header_address2 || data.company.address2,
+          name:
+            tplObj.header_name || generalTpl?.header_name || data.company.name,
+          address:
+            tplObj.header_address ||
+            generalTpl?.header_address ||
+            data.company.address,
+          address2:
+            tplObj.header_address2 ||
+            generalTpl?.header_address2 ||
+            data.company.address2,
           phone:
-            tplObj.header_phone || data.company.telephone || data.company.phone,
-          email: tplObj.header_email || data.company.email,
-          website: tplObj.header_website || data.company.website,
-          logo: tplObj.header_logo_url || logoDefault,
+            tplObj.header_phone ||
+            generalTpl?.header_phone ||
+            data.company.telephone ||
+            data.company.phone,
+          email:
+            tplObj.header_email ||
+            generalTpl?.header_email ||
+            data.company.email,
+          website:
+            tplObj.header_website ||
+            generalTpl?.header_website ||
+            data.company.website,
+          logo:
+            tplObj.header_logo_url ||
+            generalTpl?.header_logo_url ||
+            logoDefault,
         };
         data.company = { ...merged, telephone: merged.phone };
       }
@@ -2154,9 +2764,12 @@ router.post(
         const keyName = type === "sales-order" ? "sales_order" : "invoice";
         const qr = data?.[keyName]?.qr_code || "";
         const probe = String(cust?.name || "").trim();
-        if (cust && (!probe || !html.includes(probe)) && !html.includes('data-auto="customer-info"')) {
-          const block =
-            `<div data-auto="customer-info" style="margin:8px 0;font-size:12px">
+        if (
+          cust &&
+          (!probe || !html.includes(probe)) &&
+          !html.includes('data-auto="customer-info"')
+        ) {
+          const block = `<div data-auto="customer-info" style="margin:8px 0;font-size:12px">
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                 <div>
                   <div><strong>Name:</strong> ${esc(cust.name || "")}</div>
@@ -2194,18 +2807,41 @@ router.post(
       ).toLowerCase();
       if (format === "pdf") {
         try {
+          // Note: allowVulnerableTags is intentional here. Style tags are needed for PDF rendering.
+          // This is safe because template HTML is internal/admin-controlled, not user input.
           const cleaned = sanitizeHtml(html, {
-            allowedTags: (sanitizeHtml.defaults?.allowedTags || []).concat([
+            allowedTags: sanitizeHtml.defaults.allowedTags.concat([
+              "img",
               "style",
+              "table",
+              "thead",
+              "tbody",
+              "tfoot",
+              "tr",
+              "th",
+              "td",
+              "h1",
+              "h2",
+              "h3",
+              "h4",
+              "h5",
+              "h6",
+              "div",
+              "span",
             ]),
             allowedAttributes: {
-              "*": ["class", "style"],
-              img: ["src", "alt", "class", "style"],
-              a: ["href", "class", "style"],
+              ...sanitizeHtml.defaults.allowedAttributes,
+              "*": ["style", "class", "data-auto"],
+              img: ["src", "alt", "style", "class"],
             },
             allowVulnerableTags: true,
           });
-          const head = `<meta charset="utf-8"><style>html,body{margin:0;padding:24px} @page{margin:12mm} img{max-width:100%}</style>`;
+          const head = `<meta charset="utf-8"><style>
+            html, body { margin: 0 !important; padding: 0 !important; width: 100%; height: 100%; -webkit-print-color-adjust: exact; }
+            * { box-sizing: border-box; }
+            img { max-width: 100%; height: auto; }
+            @page { size: A4; margin: 0 !important; }
+          </style>`;
           const doc = `<!DOCTYPE html><html><head>${head}</head><body>${cleaned}</body></html>`;
           const mod = await import("puppeteer");
           const puppeteer = mod.default || mod;
@@ -2219,10 +2855,10 @@ router.post(
             format: "A4",
             printBackground: true,
             margin: {
-              top: "12mm",
-              bottom: "12mm",
-              left: "12mm",
-              right: "12mm",
+              top: "0",
+              bottom: "0",
+              left: "0",
+              right: "0",
             },
           });
           await browser.close();
@@ -2237,16 +2873,35 @@ router.post(
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
     } catch (err) {
+      const format = String(
+        req.query.format || req.body?.format || "",
+      ).toLowerCase();
+      if (format === "pdf") {
+        return next(err);
+      }
       try {
         const type = String(req.params.type || "").trim();
         const { companyId } = req.scope || {};
         const fallback = getDefaultSampleTemplate(type);
-        const data = { company: { name: "", address: "", address2: "", phone: "", email: "", logo: `/api/admin/companies/${companyId}/logo` } };
+        const data = {
+          company: {
+            name: "",
+            address: "",
+            address2: "",
+            phone: "",
+            email: "",
+            logo: `/api/admin/companies/${companyId}/logo`,
+          },
+        };
         const html = Handlebars.compile(String(fallback || ""))(data);
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.status(200).send(html);
       } catch {
-        res.status(200).send("<html><body><h3>Document Preview</h3><p>Unable to render template; minimal fallback shown.</p></body></html>");
+        res
+          .status(200)
+          .send(
+            "<html><body><h3>Document Preview</h3><p>Unable to render template; minimal fallback shown.</p></body></html>",
+          );
       }
     }
   },

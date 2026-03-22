@@ -565,6 +565,8 @@ export default function SalesOrderList() {
         container.style.left = "-10000px";
         container.style.top = "0";
         container.style.background = "white";
+        container.style.width = "794px";
+        container.style.padding = "32px";
         container.innerHTML = html;
         document.body.appendChild(container);
         const canvas = await html2canvas(container, {
@@ -1095,7 +1097,7 @@ export default function SalesOrderList() {
                         })}
                       </td>
                       <td>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 items-center whitespace-nowrap">
                           {canPerformAction("sales:sales-orders", "view") && (
                             <button
                               onClick={() =>

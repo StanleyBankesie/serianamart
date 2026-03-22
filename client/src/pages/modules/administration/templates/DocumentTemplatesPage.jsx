@@ -5,6 +5,7 @@ import { toast } from "react-toastify";
 import PrintPreviewModal from "../../../../components/PrintPreviewModal.jsx";
 
 const DOC_TYPES = [
+  { value: "general-template", label: "Report Header" },
   { value: "sales-order", label: "Sales Order" },
   { value: "invoice", label: "Invoice" },
   { value: "quotation", label: "Quotation" },
@@ -12,6 +13,11 @@ const DOC_TYPES = [
   { value: "salary-slip", label: "Salary Slip" },
   { value: "payment-voucher", label: "Payment Voucher" },
   { value: "receipt-voucher", label: "Receipt Voucher" },
+  { value: "bank-reconciliation-report", label: "Bank Reconciliation Report" },
+  { value: "purchase-order", label: "Purchase Order" },
+  { value: "grn", label: "Goods Receipt Note" },
+  { value: "purchase-bill", label: "Purchase Bill" },
+  { value: "direct-purchase", label: "Direct Purchase" },
 ];
 
 export default function DocumentTemplatesPage() {
@@ -309,10 +315,20 @@ export default function DocumentTemplatesPage() {
                               Edit
                             </button>
                             <button
-                              className="btn-outline"
+                              className="text-brand hover:text-brand-600 text-xs font-medium"
                               onClick={() => openPreview(t)}
                             >
                               Preview
+                            </button>
+                            <button
+                              className="text-brand hover:text-brand-600 text-xs font-medium ml-2"
+                              disabled={downloading}
+                              onClick={() => {
+                                setSampleId(String(t.id));
+                                downloadPdf();
+                              }}
+                            >
+                              PDF
                             </button>
                             {Number(t.is_default) !== 1 ? (
                               <button
@@ -489,18 +505,6 @@ export default function DocumentTemplatesPage() {
                   <button className="btn-primary" onClick={save}>
                     Save
                   </button>
-                  <button className="btn-outline" onClick={startNew}>
-                    Reset
-                  </button>
-                  <button
-                    className="btn-secondary"
-                    onClick={() => {
-                      const tpl = getSampleTemplate(docType);
-                      setForm((p) => ({ ...p, html_content: tpl }));
-                    }}
-                  >
-                    Use Sample Layout
-                  </button>
                 </div>
               </div>
             </div>
@@ -522,76 +526,62 @@ export default function DocumentTemplatesPage() {
 function getSampleTemplate(type) {
   const commonHead = `
 <style>
-  :root {
-    --brand: #0E3646;
-    --brand-50: #f0f7fa;
-    --brand-700: #215876;
-    --text: #1f2937;
-    --muted: #6b7280;
-    --border: #e5e7eb;
-  }
-  body { font-family: Arial, sans-serif; color: var(--text); }
-  .doc {
-    width: 19cm; margin: 0 auto; padding: 12px;
-    border: 1px solid var(--border); border-radius: 6px;
-  }
-  .header {
-    display: grid; grid-template-columns: 100px 1fr; gap: 12px;
-    align-items: center; margin-bottom: 6px;
-  }
-  .logo { height: 80px; object-fit: contain; }
-  .company {
-    font-size: 12px; line-height: 1.3; text-align: right;
-  }
-  .company .name { font-weight: 700; font-size: 16px; color: var(--brand); }
-  .meta { color: var(--muted); }
-  .titlebar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; margin: 6px 0 6px 0; }
-  .line { border-top: 2px solid var(--text); height: 0; }
-  .title { font-weight: 700; color: var(--brand); text-align: center; }
-  .info {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 6px 0 8px 0;
-  }
-  .info .card {
-    border: 1px solid var(--border); border-radius: 6px; padding: 8px;
-  }
-  .kv { font-size: 12px; line-height: 1.5; }
-  .kv .row { display: grid; grid-template-columns: 130px 1fr; gap: 6px; }
-  .kv .label { font-weight: 600; color: #000; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  thead th {
-    background: var(--brand-50); color: var(--brand);
-    border: 1px solid var(--border); padding: 6px; text-align: left;
-  }
-  tbody td { border: 1px solid var(--border); padding: 6px; }
+  :root { --text: #000; }
+  body { font-family: Arial, sans-serif; color: var(--text); font-size: 11px; margin: 0; padding: 0; }
+  .doc { width: 19cm; margin: 0 auto; padding: 16px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+  .logo { height: 90px; object-fit: contain; }
+  .company { font-size: 10px; line-height: 1.4; text-align: right; }
+  .company .name { font-weight: bold; font-size: 18px; margin-bottom: 4px; }
+  .titlebar { display: flex; align-items: center; justify-content: space-between; margin: 12px 0 16px; }
+  .line { flex-grow: 1; border-top: 2px solid #000; height: 0; }
+  .title { font-weight: bold; font-size: 16px; margin: 0 16px; white-space: nowrap; }
+  .info { display: flex; justify-content: space-between; margin-bottom: 16px; }
+  .info-left, .info-mid { flex: 1; }
+  .info-right { display: flex; flex-direction: column; align-items: flex-end; width: 100px; }
+  .kv { font-size: 11px; line-height: 1.4; display: table; }
+  .kv-row { display: table-row; }
+  .kv-label { display: table-cell; font-weight: bold; padding-right: 8px; white-space: nowrap; vertical-align: top; }
+  .kv-sep { display: table-cell; padding-right: 8px; vertical-align: top; }
+  .kv-val { display: table-cell; vertical-align: top; text-transform: uppercase; }
+  .qr-box { width: 80px; height: 80px; }
+  .qr-box img { width: 100%; height: 100%; }
+  table { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 8px; }
+  thead th { border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 6px 4px; text-align: right; font-weight: bold; vertical-align: bottom; }
+  thead th.left { text-align: left; }
+  thead th.center { text-align: center; }
+  tbody td { padding: 4px; border-bottom: 1px dashed #000; vertical-align: top; }
+  tbody tr:last-child td { border-bottom: 2px solid #000; }
   td.num { text-align: right; }
-  .totals {
-    display: grid; grid-template-columns: 1fr 220px; gap: 12px; margin-top: 8px;
-  }
-  .totals .box { border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
-  .footer {
-    margin-top: 12px; font-size: 11px; border-top: 1px solid var(--border); padding-top: 8px;
-    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
-  }
-  .sign { height: 40px; border-bottom: 1px solid var(--border); }
+  td.center { text-align: center; }
+  .bottom-section { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 40px; }
+  .bottom-left { flex: 1; padding-right: 16px; }
+  .bottom-right { width: 280px; }
+  .summary-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #000; }
+  .summary-row:last-child { border-bottom: 2px dashed #000; }
+  .summary-row .s-label { font-weight: bold; }
+  .summary-row .s-val { text-align: right; }
+  .footer-prepared { margin-top: 24px; font-size: 11px; padding-top: 8px; border-top: 2px solid #000; }
+  .footer-prepared .lbl { font-weight: bold; }
   @media print {
     * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     html, body { margin: 0 !important; padding: 0 !important; }
     .doc { max-width: 19cm; margin: 0 auto; }
-    .header, .titlebar, .info { break-after: avoid; break-inside: avoid; }
-    table, thead, tbody, tr, td, th { page-break-inside: avoid !important; }
   }
 </style>`;
+
   if (type === "sales-order") {
     return `
 ${commonHead}
 <div class="doc">
   <div class="header">
-    <img class="logo" src="{{company.logo}}" alt="Logo"/>
+    <div><img class="logo" src="{{company.logo}}" alt="Logo"/></div>
     <div class="company">
       <div class="name">{{company.name}}</div>
       <div>{{company.address}}</div>
       <div>{{company.address2}}</div>
-      <div class="meta">{{company.phone}} • {{company.email}} • {{company.website}}</div>
+      <div>Contact No: {{company.phone}}</div>
+      <div>Email: {{company.email}}</div>
     </div>
   </div>
   <div class="titlebar">
@@ -600,55 +590,82 @@ ${commonHead}
     <div class="line"></div>
   </div>
   <div class="info">
-    <div class="card">
+    <div class="info-left">
       <div class="kv">
-        <div class="row"><div class="label">Customer Name:</div><div class="value">{{customer.name}}</div></div>
-        <div class="row"><div class="label">Address:</div><div class="value">{{customer.address}}</div></div>
-        <div class="row"><div class="label">City:</div><div class="value">{{customer.city}}</div></div>
-        <div class="row"><div class="label">State:</div><div class="value">{{customer.state}}</div></div>
-        <div class="row"><div class="label">Country:</div><div class="value">{{customer.country}}</div></div>
-        <div class="row"><div class="label">Phone:</div><div class="value">{{customer.phone}}</div></div>
-        <div class="row"><div class="label">Email:</div><div class="value">{{customer.email}}</div></div>
+        <div class="kv-row"><div class="kv-label">Customer Name</div><div class="kv-sep">:</div><div class="kv-val">{{customer.name}}</div></div>
+        <div class="kv-row"><div class="kv-label">Address</div><div class="kv-sep">:</div><div class="kv-val">{{customer.address}}<br/>{{customer.address2}}</div></div>
+        <div class="kv-row"><div class="kv-label">City</div><div class="kv-sep">:</div><div class="kv-val">{{customer.city}}</div></div>
+        <div class="kv-row"><div class="kv-label">State</div><div class="kv-sep">:</div><div class="kv-val">{{customer.state}}</div></div>
+        <div class="kv-row"><div class="kv-label">Country</div><div class="kv-sep">:</div><div class="kv-val">{{customer.country}}</div></div>
       </div>
     </div>
-    <div class="card">
+    <div class="info-mid">
       <div class="kv">
-        <div class="row"><div class="label">Order No.:</div><div class="value">{{sales_order.number}}</div></div>
-        <div class="row"><div class="label">Order Date:</div><div class="value">{{formatDate sales_order.date}}</div></div>
+        <div class="kv-row"><div class="kv-label">Order No.</div><div class="kv-sep">:</div><div class="kv-val">{{sales_order.number}}</div></div>
+        <div class="kv-row"><div class="kv-label">Order Date</div><div class="kv-sep">:</div><div class="kv-val">{{formatDate sales_order.date}}</div></div>
+        <div class="kv-row"><div class="kv-label">Payment Term</div><div class="kv-sep">:</div><div class="kv-val">{{sales_order.payment_terms}}</div></div>
       </div>
+    </div>
+    <div class="info-right">
+      <div class="qr-box"><img src="{{sales_order.qr_code}}" alt="QR"/></div>
     </div>
   </div>
   <table>
     <thead>
-      <tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Price</th><th>Disc%</th><th>Tax</th><th>Amount</th></tr>
+      <tr>
+        <th class="center">Sr.<br/>No.</th>
+        <th class="left">Product<br/>Code</th>
+        <th class="left">Product Description</th>
+        <th>Qty</th>
+        <th>Price</th>
+        <th>Discount</th>
+        <th>Tax</th>
+        <th>Value</th>
+      </tr>
     </thead>
     <tbody>
       {{#each sales_order.items}}
       <tr>
-        <td>{{@index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{quantity}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{discount}}</td><td class="num">{{tax}}</td><td class="num">{{amount}}</td>
+        <td class="center">{{inc @index}}</td>
+        <td>{{code}}</td>
+        <td>{{name}}</td>
+        <td class="num">{{quantity}}</td>
+        <td class="num">{{price}}</td>
+        <td class="num">{{discount}}</td>
+        <td class="num">{{tax}}</td>
+        <td class="num">{{amount}}</td>
       </tr>
       {{/each}}
     </tbody>
   </table>
-  <div class="totals">
-    <div></div>
-    <div class="box">
-      <div>Sub Total: {{sales_order.sub_total}}</div>
-      <div>Discount: {{sales_order.discount_amount}}</div>
-      <div>Tax: {{sales_order.tax_amount}}</div>
-      <div><strong>Total: {{sales_order.total}}</strong></div>
+  <div class="bottom-section">
+    <div class="bottom-left">
+      <div style="display: grid; grid-template-columns: auto 1fr; gap: 40px; margin-bottom: 8px;">
+        <div><span style="font-weight: bold;">Item Count :</span> {{sales_order.item_count}}</div>
+        <div><span style="font-weight: bold;">Total Quantity :</span> {{sales_order.total_quantity}}</div>
+      </div>
+      <div style="display: flex; margin-bottom: 16px;">
+        <div style="font-weight: bold; white-space: nowrap; margin-right: 8px;">Amount in Words :</div>
+        <div style="text-transform: uppercase;">{{sales_order.amount_in_words}}</div>
+      </div>
+      <div style="margin-bottom: 16px;">
+        <span style="font-weight: bold;">Remarks :</span> <br/>
+        {{sales_order.remarks}}
+      </div>
+      <div>
+        <span style="font-weight: bold;">Terms and Condition :</span> <br/>
+        {{sales_order.terms_and_conditions}}
+      </div>
+    </div>
+    <div class="bottom-right">
+      <div class="summary-row"><div class="s-label">Sales Account</div><div class="s-val">{{sales_order.sub_total}}</div></div>
+      <div class="summary-row"><div class="s-label">Discount</div><div class="s-val">{{sales_order.discount_amount}}</div></div>
+      <div class="summary-row"><div class="s-label">Tax</div><div class="s-val">{{sales_order.tax_amount}}</div></div>
+      <div class="summary-row"><div class="s-label">Net Order Value</div><div class="s-val" style="font-weight: bold;">{{sales_order.total}}</div></div>
     </div>
   </div>
-  <div class="footer">
-    <div>
-      <div>Prepared By</div>
-      <div class="sign"></div>
-      <div class="meta">{{prepared_by}}</div>
-    </div>
-    <div>
-      <div>Remarks</div>
-      <div class="meta">{{sales_order.remarks}}</div>
-    </div>
+  <div class="footer-prepared">
+    <span class="lbl">Prepared By :</span> {{prepared_by}}
   </div>
 </div>
 `;
@@ -658,12 +675,13 @@ ${commonHead}
 ${commonHead}
 <div class="doc">
   <div class="header">
-    <img class="logo" src="{{company.logo}}" alt="Logo"/>
+    <div><img class="logo" src="{{company.logo}}" alt="Logo"/></div>
     <div class="company">
       <div class="name">{{company.name}}</div>
       <div>{{company.address}}</div>
       <div>{{company.address2}}</div>
-      <div class="meta">{{company.phone}} • {{company.email}} • {{company.website}}</div>
+      <div>Contact No: {{company.phone}}</div>
+      <div>Email: {{company.email}}</div>
     </div>
   </div>
   <div class="titlebar">
@@ -672,54 +690,83 @@ ${commonHead}
     <div class="line"></div>
   </div>
   <div class="info">
-    <div class="card">
+    <div class="info-left">
       <div class="kv">
-        <div class="row"><div class="label">Customer Name:</div><div class="value">{{customer.name}}</div></div>
-        <div class="row"><div class="label">Address:</div><div class="value">{{customer.address}}</div></div>
-        <div class="row"><div class="label">City:</div><div class="value">{{customer.city}}</div></div>
-        <div class="row"><div class="label">State:</div><div class="value">{{customer.state}}</div></div>
-        <div class="row"><div class="label">Country:</div><div class="value">{{customer.country}}</div></div>
-        <div class="row"><div class="label">Phone:</div><div class="value">{{customer.phone}}</div></div>
-        <div class="row"><div class="label">Email:</div><div class="value">{{customer.email}}</div></div>
+        <div class="kv-row"><div class="kv-label">Customer Name</div><div class="kv-sep">:</div><div class="kv-val">{{customer.name}}</div></div>
+        <div class="kv-row"><div class="kv-label">Address</div><div class="kv-sep">:</div><div class="kv-val">{{customer.address}}<br/>{{customer.address2}}</div></div>
+        <div class="kv-row"><div class="kv-label">City</div><div class="kv-sep">:</div><div class="kv-val">{{customer.city}}</div></div>
+        <div class="kv-row"><div class="kv-label">State</div><div class="kv-sep">:</div><div class="kv-val">{{customer.state}}</div></div>
+        <div class="kv-row"><div class="kv-label">Country</div><div class="kv-sep">:</div><div class="kv-val">{{customer.country}}</div></div>
       </div>
     </div>
-    <div class="card">
+    <div class="info-mid">
       <div class="kv">
-        <div class="row"><div class="label">Invoice No.:</div><div class="value">{{invoice.number}}</div></div>
-        <div class="row"><div class="label">Invoice Date:</div><div class="value">{{formatDate invoice.date}}</div></div>
-        <div class="row"><div class="label">Payment Term:</div><div class="value">{{invoice.payment_term}}</div></div>
+        <div class="kv-row"><div class="kv-label">Invoice No.</div><div class="kv-sep">:</div><div class="kv-val">{{invoice.number}}</div></div>
+        <div class="kv-row"><div class="kv-label">Invoice Date</div><div class="kv-sep">:</div><div class="kv-val">{{formatDate invoice.date}}</div></div>
+        <div class="kv-row"><div class="kv-label">Payment Term</div><div class="kv-sep">:</div><div class="kv-val">{{invoice.payment_term}}</div></div>
       </div>
+    </div>
+    <div class="info-right">
+      <div class="qr-box"><img src="{{invoice.qr_code}}" alt="QR"/></div>
     </div>
   </div>
   <table>
     <thead>
-      <tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Price</th><th>Disc%</th><th>Amount</th></tr>
+      <tr>
+        <th class="center">Sr.<br/>No.</th>
+        <th class="left">Product<br/>Code</th>
+        <th class="left">Product Description</th>
+        <th>Qty</th>
+        <th>Price</th>
+        <th>Discount</th>
+        <th>Tax</th>
+        <th>Value</th>
+      </tr>
     </thead>
     <tbody>
       {{#each invoice.items}}
       <tr>
-        <td>{{@index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{quantity}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{discount}}</td><td class="num">{{amount}}</td>
+        <td class="center">{{inc @index}}</td>
+        <td>{{code}}</td>
+        <td>{{name}}</td>
+        <td class="num">{{quantity}}</td>
+        <td class="num">{{price}}</td>
+        <td class="num">{{discount}}</td>
+        <td class="num">{{tax}}</td>
+        <td class="num">{{amount}}</td>
       </tr>
       {{/each}}
     </tbody>
   </table>
-  <div class="totals">
-    <div></div>
-    <div class="box">
-      <div>Net Total: {{invoice.net_total}}</div>
-      <div><strong>Total: {{invoice.total}}</strong></div>
+  <div class="bottom-section">
+    <div class="bottom-left">
+      <div style="display: grid; grid-template-columns: auto 1fr; gap: 40px; margin-bottom: 8px;">
+        <div><span style="font-weight: bold;">Item Count :</span> {{invoice.item_count}}</div>
+        <div><span style="font-weight: bold;">Total Quantity :</span> {{invoice.total_quantity}}</div>
+      </div>
+      <div style="display: flex; margin-bottom: 16px;">
+        <div style="font-weight: bold; white-space: nowrap; margin-right: 8px;">Amount in Words :</div>
+        <div style="text-transform: uppercase;">{{invoice.amount_in_words}}</div>
+      </div>
+      <div style="margin-bottom: 16px;">
+        <span style="font-weight: bold;">Remarks :</span> <br/>
+        {{invoice.remarks}}
+      </div>
+      <div>
+        <span style="font-weight: bold;">Terms and Condition :</span> <br/>
+        {{invoice.terms_and_conditions}}
+      </div>
+    </div>
+    <div class="bottom-right">
+      <div class="summary-row"><div class="s-label">Sales Account</div><div class="s-val">{{invoice.net_total}}</div></div>
+      <div class="summary-row"><div class="s-label">NHIL [2.5%]</div><div class="s-val">{{invoice.nhil}}</div></div>
+      <div class="summary-row"><div class="s-label">GET FUND 2.5% ON<br/>SALES</div><div class="s-val">{{invoice.get_fund}}</div></div>
+      <div class="summary-row"><div class="s-label">VAT 15%</div><div class="s-val">{{invoice.vat}}</div></div>
+      <div class="summary-row"><div class="s-label">Net Invoice Value</div><div class="s-val" style="font-weight: bold;">{{invoice.total}}</div></div>
     </div>
   </div>
-  <div class="footer">
-    <div>
-      <div>Prepared By</div>
-      <div class="sign"></div>
-      <div class="meta">{{prepared_by}}</div>
-    </div>
-    <div>
-      <div>Remarks</div>
-      <div class="meta">{{invoice.remarks}}</div>
-    </div>
+  <div class="footer-prepared">
+    <span class="lbl">Prepared By :</span> {{prepared_by}}
   </div>
 </div>
 `;
@@ -964,6 +1011,99 @@ ${commonHead}
       <div>Receiver Signature</div>
       <div class="sign"></div>
     </div>
+  </div>
+</div>
+`;
+  }
+  if (type === "bank-reconciliation-report") {
+    return `
+<style>
+  body { font-family: Arial, sans-serif; font-size: 11px; margin: 0; padding: 20px; }
+  .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; }
+  .header h1 { margin: 0; font-size: 20px; }
+  .info { display: flex; justify-content: space-between; margin-bottom: 15px; background: #f9f9f9; padding: 10px; border-radius: 5px; }
+  .info-item { margin-bottom: 5px; }
+  .info-label { font-weight: bold; width: 120px; display: inline-block; }
+  table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+  th { background-color: #f2f2f2; border: 1px solid #ddd; padding: 8px; text-align: left; font-weight: bold; text-transform: uppercase; font-size: 10px; }
+  td { border: 1px solid #ddd; padding: 8px; font-size: 10px; }
+  .text-right { text-align: right; }
+  .text-center { text-align: center; }
+  .status-reconciled { color: green; font-weight: bold; }
+  .status-unpresented { color: orange; font-weight: bold; }
+  .status-uncleared { color: blue; font-weight: bold; }
+  .footer { margin-top: 30px; display: flex; justify-content: space-between; }
+  .signature-box { border-top: 1px solid #333; width: 150px; text-align: center; padding-top: 5px; margin-top: 40px; }
+  .summary { margin-top: 20px; border: 1px solid #ddd; padding: 10px; width: 300px; margin-left: auto; }
+  .summary-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+</style>
+
+<div class="header">
+  <h1>Bank Reconciliation Detail Report</h1>
+  <p>{{company_name}}</p>
+</div>
+
+<div class="info">
+  <div>
+    <div class="info-item"><span class="info-label">Bank Account:</span> {{bank_account_name}}</div>
+    <div class="info-item"><span class="info-label">Account Number:</span> {{account_number}}</div>
+    <div class="info-item"><span class="info-label">Currency:</span> {{currency_code}}</div>
+  </div>
+  <div>
+    <div class="info-item"><span class="info-label">Period From:</span> {{from_date}}</div>
+    <div class="info-item"><span class="info-label">Period To:</span> {{to_date}}</div>
+    <div class="info-item"><span class="info-label">Print Date:</span> {{print_date}}</div>
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Voucher No</th>
+      <th>Date</th>
+      <th>Narration</th>
+      <th>Offset Account</th>
+      <th class="text-right">Debit</th>
+      <th class="text-right">Credit</th>
+      <th>Cheque No</th>
+      <th>Cheque Date</th>
+      <th class="text-center">Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{#each items}}
+    <tr>
+      <td>{{voucher_no}}</td>
+      <td>{{voucher_date}}</td>
+      <td>{{narration}}</td>
+      <td>{{offset_account_name}}</td>
+      <td class="text-right">{{debit}}</td>
+      <td class="text-right">{{credit}}</td>
+      <td>{{cheque_no}}</td>
+      <td>{{cheque_date}}</td>
+      <td class="text-center">
+        <span class="status-{{status_class}}">{{status}}</span>
+      </td>
+    </tr>
+    {{/each}}
+  </tbody>
+</table>
+
+<div class="summary">
+  <div class="summary-row"><span>Total Debit:</span> <strong>{{total_debit}}</strong></div>
+  <div class="summary-row"><span>Total Credit:</span> <strong>{{total_credit}}</strong></div>
+  <div class="summary-row"><span>Net Movement:</span> <strong>{{net_movement}}</strong></div>
+</div>
+
+<div class="footer">
+  <div>
+    <div class="signature-box">Prepared By</div>
+  </div>
+  <div>
+    <div class="signature-box">Reviewed By</div>
+  </div>
+  <div>
+    <div class="signature-box">Authorized By</div>
   </div>
 </div>
 `;

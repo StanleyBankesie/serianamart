@@ -212,7 +212,7 @@ export default function PurchaseOrdersLocalForm() {
     const original = el.style.cssText;
     el.style.cssText =
       original +
-      ";position:fixed;left:-10000px;top:0;display:block;z-index:-1;background:white;width:794px;padding:32px;";
+      ";position:fixed;left:-10000px;top:0;display:block;z-index:-1;background:white;width:794px;padding:40px;box-sizing:border-box;text-align:left;margin:0;";
     try {
       const canvas = await html2canvas(el, { scale: 2, useCORS: true });
       const imgData = canvas.toDataURL("image/png");

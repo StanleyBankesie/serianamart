@@ -1,62 +1,77 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import { usePermission } from '../../../../auth/PermissionContext.jsx';
+import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
+import { api } from "../../../../api/client.js";
+import { toast } from "react-toastify";
 
 export default function LeaveSetupList() {
-  const { canPerformAction } = usePermission();
-  const items = [
-    { id: 1, code: 'ANNUAL', name: 'Annual Leave', daysPerYear: 21, active: true },
-    { id: 2, code: 'SICK', name: 'Sick Leave', daysPerYear: 10, active: true },
-  ];
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get("/hr/leave/types");
+      setItems(res?.data?.items || []);
+    } catch {
+      toast.error("Failed to load leave types");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   return (
-    <div className="space-y-4">
-      <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold dark:text-brand-300">Leave Setup</h1>
-            <p className="text-sm mt-1">Configure leave types and balances</p>
-          </div>
-          <div className="flex gap-2">
-            <Link to="/human-resources" className="btn btn-secondary">Return to Menu</Link>
-            <Link to="/human-resources/leave-setup/new" className="btn-success">+ New Leave Type</Link>
-          </div>
+    <div className="space-y-4 p-4">
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex items-center gap-2">
+          <Link to="/human-resources" className="btn-secondary text-sm">
+            Back
+          </Link>
+          <h2 className="text-lg font-semibold">Leave Setup</h2>
         </div>
+        <Link to="/human-resources/leave-setup/new" className="btn-primary">
+          + New Leave Type
+        </Link>
       </div>
 
-      <div className="card">
-        <div className="card-body">
-          <div className="overflow-x-auto">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Code</th>
-                  <th>Name</th>
-                  <th>Days/Year</th>
-                  <th>Status</th>
-                  <th />
+      <div className="bg-white dark:bg-slate-800 p-4 rounded shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="min-w-full">
+            <thead>
+              <tr className="text-left bg-slate-50 dark:bg-slate-700">
+                <th className="px-4 py-2">Type Name</th>
+                <th className="px-4 py-2">Days Per Year</th>
+                <th className="px-4 py-2">Paid</th>
+                <th className="px-4 py-2">Carry Forward</th>
+                <th className="px-4 py-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((r) => (
+                <tr key={r.id} className="border-t hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                  <td className="px-4 py-2 font-medium">{r.type_name}</td>
+                  <td className="px-4 py-2">{r.days_per_year}</td>
+                  <td className="px-4 py-2">
+                    {r.is_paid ? <span className="text-green-600">Yes</span> : <span className="text-red-600">No</span>}
+                  </td>
+                  <td className="px-4 py-2">
+                    {r.carry_forward ? <span className="text-green-600">Yes</span> : <span className="text-slate-400">No</span>}
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <Link to={`/human-resources/leave-setup/${r.id}`} className="text-brand hover:underline text-sm">Edit</Link>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {items.map((r) => (
-                  <tr key={r.id}>
-                    <td className="font-medium">{r.code}</td>
-                    <td>{r.name}</td>
-                    <td>{r.daysPerYear}</td>
-                    <td>{r.active ? <span className="badge badge-success">Active</span> : <span className="badge badge-error">Inactive</span>}</td>
-                    <td>
-                      {canPerformAction('human-resources:leave-setup','view') && (
-                        <Link to={`/human-resources/leave-setup/${r.id}?mode=view`} className="text-brand hover:text-brand-600 text-sm font-medium">View</Link>
-                      )}
-                      {canPerformAction('human-resources:leave-setup','edit') && (
-                        <Link to={`/human-resources/leave-setup/${r.id}?mode=edit`} className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2">Edit</Link>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              {items.length === 0 && !loading && (
+                <tr>
+                  <td colSpan={5} className="text-center py-10 text-slate-500">No leave types configured</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

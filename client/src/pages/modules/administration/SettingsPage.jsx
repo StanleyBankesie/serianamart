@@ -399,6 +399,12 @@ export default function SettingsPage() {
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <Link
+              to="/administration/settings/templates?type=general-template"
+              className="btn-outline"
+            >
+              Report Header
+            </Link>
+            <Link
               to="/administration/settings/templates?type=sales-order"
               className="btn-outline"
             >
@@ -439,6 +445,30 @@ export default function SettingsPage() {
               className="btn-outline"
             >
               Quotation
+            </Link>
+            <Link
+              to="/administration/settings/templates?type=purchase-order"
+              className="btn-outline"
+            >
+              Purchase Order
+            </Link>
+            <Link
+              to="/administration/settings/templates?type=grn"
+              className="btn-outline"
+            >
+              GRN
+            </Link>
+            <Link
+              to="/administration/settings/templates?type=purchase-bill"
+              className="btn-outline"
+            >
+              Purchase Bill
+            </Link>
+            <Link
+              to="/administration/settings/templates?type=direct-purchase"
+              className="btn-outline"
+            >
+              Direct Purchase
             </Link>
           </div>
         </div>

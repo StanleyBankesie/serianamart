@@ -979,6 +979,11 @@ export async function ensurePagesSeed() {
     },
     {
       module: "Human Resources",
+      name: "HR Setup",
+      path: "/human-resources/setup",
+    },
+    {
+      module: "Human Resources",
       name: "Leave Setup",
       path: "/human-resources/leave-setup",
     },
@@ -1361,6 +1366,487 @@ export async function nextWorkflowCode(companyId) {
   return `WF-${String(nextNum).padStart(6, "0")}`;
 }
 
+export async function ensureHRTables() {
+  const tables = [
+    `CREATE TABLE IF NOT EXISTS hr_departments (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      dept_code VARCHAR(20) NOT NULL,
+      dept_name VARCHAR(100) NOT NULL,
+      manager_id BIGINT UNSIGNED NULL,
+      parent_dept_id BIGINT UNSIGNED NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_by BIGINT UNSIGNED NULL,
+      updated_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      deleted_at TIMESTAMP NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_dept_code (company_id, dept_code),
+      KEY idx_dept_company (company_id),
+      KEY idx_dept_manager (manager_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_positions (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      pos_code VARCHAR(20) NOT NULL,
+      pos_name VARCHAR(100) NOT NULL,
+      dept_id BIGINT UNSIGNED NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_by BIGINT UNSIGNED NULL,
+      updated_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      deleted_at TIMESTAMP NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_pos_code (company_id, pos_code),
+      KEY idx_pos_dept (dept_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_employees (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      user_id BIGINT UNSIGNED NULL COMMENT 'Link to adm_users',
+      emp_code VARCHAR(20) NOT NULL,
+      first_name VARCHAR(50) NOT NULL,
+      last_name VARCHAR(50) NOT NULL,
+      middle_name VARCHAR(50) NULL,
+      gender ENUM('MALE', 'FEMALE', 'OTHER') NULL,
+      dob DATE NULL,
+      joining_date DATE NOT NULL,
+      email VARCHAR(100) NULL,
+      phone VARCHAR(20) NULL,
+      dept_id BIGINT UNSIGNED NULL,
+      pos_id BIGINT UNSIGNED NULL,
+      manager_id BIGINT UNSIGNED NULL,
+      employment_type ENUM('FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN') NOT NULL DEFAULT 'FULL_TIME',
+      status ENUM('PROBATION', 'ACTIVE', 'TERMINATED', 'RESIGNED', 'SUSPENDED') NOT NULL DEFAULT 'PROBATION',
+      base_salary DECIMAL(18,4) NOT NULL DEFAULT 0,
+      address TEXT NULL,
+      emergency_contact_name VARCHAR(100) NULL,
+      emergency_contact_phone VARCHAR(20) NULL,
+      bank_name VARCHAR(100) NULL,
+      bank_account_no VARCHAR(50) NULL,
+      tin VARCHAR(50) NULL,
+      ssnit_no VARCHAR(50) NULL,
+      created_by BIGINT UNSIGNED NULL,
+      updated_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      deleted_at TIMESTAMP NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_emp_code (company_id, emp_code),
+      KEY idx_emp_user (user_id),
+      KEY idx_emp_dept (dept_id),
+      KEY idx_emp_pos (pos_id),
+      KEY idx_emp_manager (manager_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_employee_documents (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      doc_type VARCHAR(50) NOT NULL,
+      doc_name VARCHAR(255) NOT NULL,
+      file_url VARCHAR(500) NOT NULL,
+      expiry_date DATE NULL,
+      created_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_emp_doc_emp (employee_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_job_requisitions (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      req_no VARCHAR(20) NOT NULL,
+      title VARCHAR(100) NOT NULL,
+      dept_id BIGINT UNSIGNED NOT NULL,
+      pos_id BIGINT UNSIGNED NOT NULL,
+      vacancies INT NOT NULL DEFAULT 1,
+      employment_type ENUM('FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN') NOT NULL,
+      recruitment_type ENUM('INTERNAL', 'EXTERNAL') NOT NULL DEFAULT 'EXTERNAL',
+      from_date DATE NULL,
+      to_date DATE NULL,
+      reason TEXT NULL,
+      requirements TEXT NULL,
+      status ENUM('DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'CLOSED') NOT NULL DEFAULT 'DRAFT',
+      created_by BIGINT UNSIGNED NULL,
+      updated_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_req_no (company_id, req_no)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_candidates (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      first_name VARCHAR(50) NOT NULL,
+      last_name VARCHAR(50) NOT NULL,
+      email VARCHAR(100) NOT NULL,
+      phone VARCHAR(20) NULL,
+      resume_url VARCHAR(500) NULL,
+      source VARCHAR(50) NULL,
+      requisition_id BIGINT UNSIGNED NULL,
+      status ENUM('NEW', 'SCREENING', 'INTERVIEW', 'OFFER', 'HIRED', 'REJECTED') NOT NULL DEFAULT 'NEW',
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_candidate_requisition (requisition_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_promotions (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      promotion_date DATE NOT NULL,
+      previous_pos_id BIGINT UNSIGNED NULL,
+      new_pos_id BIGINT UNSIGNED NULL,
+      previous_salary DECIMAL(18,4) NULL,
+      new_salary DECIMAL(18,4) NULL,
+      remarks TEXT NULL,
+      created_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_promotion_emp (employee_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_leave_setup (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      leave_type_id BIGINT UNSIGNED NOT NULL,
+      entitled_days INT NOT NULL DEFAULT 0,
+      carried_forward INT NOT NULL DEFAULT 0,
+      taken_days INT NOT NULL DEFAULT 0,
+      remaining_days INT NOT NULL DEFAULT 0,
+      year INT NOT NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_emp_leave_year (employee_id, leave_type_id, year)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_job_applications (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      requisition_id BIGINT UNSIGNED NOT NULL,
+      candidate_id BIGINT UNSIGNED NOT NULL,
+      applied_date DATE NOT NULL,
+      status ENUM('PENDING', 'SHORTLISTED', 'INTERVIEWING', 'OFFERED', 'HIRED', 'REJECTED') NOT NULL DEFAULT 'PENDING',
+      remarks TEXT NULL,
+      PRIMARY KEY (id),
+      KEY idx_app_req (requisition_id),
+      KEY idx_app_cand (candidate_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_shifts (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      code VARCHAR(20) NOT NULL,
+      name VARCHAR(100) NOT NULL,
+      start_time TIME NOT NULL,
+      end_time TIME NOT NULL,
+      break_minutes INT NOT NULL DEFAULT 0,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_by BIGINT UNSIGNED NULL,
+      updated_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_shift_code (company_id, code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_attendance (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      attendance_date DATE NOT NULL,
+      clock_in DATETIME NULL,
+      clock_out DATETIME NULL,
+      status ENUM('PRESENT', 'ABSENT', 'LATE', 'HALF_DAY', 'ON_LEAVE') NOT NULL DEFAULT 'PRESENT',
+      overtime_minutes INT NOT NULL DEFAULT 0,
+      remarks VARCHAR(255) NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_emp_date (employee_id, attendance_date),
+      KEY idx_att_date (attendance_date)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_leave_types (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      type_name VARCHAR(50) NOT NULL,
+      days_per_year INT NOT NULL,
+      is_paid TINYINT(1) NOT NULL DEFAULT 1,
+      carry_forward TINYINT(1) NOT NULL DEFAULT 0,
+      PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_leave_requests (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      leave_type_id BIGINT UNSIGNED NOT NULL,
+      start_date DATE NOT NULL,
+      end_date DATE NOT NULL,
+      total_days DECIMAL(5,2) NOT NULL,
+      reason TEXT NULL,
+      status ENUM('DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'CANCELLED') NOT NULL DEFAULT 'DRAFT',
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_leave_emp (employee_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_employee_salaries (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      basic_salary DECIMAL(18,4) NOT NULL DEFAULT 0,
+      allowances DECIMAL(18,4) NOT NULL DEFAULT 0,
+      deductions DECIMAL(18,4) NOT NULL DEFAULT 0,
+      effective_from DATE NOT NULL,
+      effective_to DATE NULL,
+      status ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_emp_salary_emp (employee_id, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_salary_structures (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      name VARCHAR(100) NOT NULL,
+      description TEXT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_payroll (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      period_id BIGINT UNSIGNED NOT NULL,
+      status ENUM('OPEN','GENERATED','CLOSED') NOT NULL DEFAULT 'OPEN',
+      generated_at DATETIME NULL,
+      closed_at DATETIME NULL,
+      remarks VARCHAR(255) NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_payroll_period (company_id, period_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_payroll_items (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      payroll_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      basic_salary DECIMAL(18,4) NOT NULL DEFAULT 0,
+      allowances DECIMAL(18,4) NOT NULL DEFAULT 0,
+      deductions DECIMAL(18,4) NOT NULL DEFAULT 0,
+      net_salary DECIMAL(18,4) NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_payroll_item_hdr (payroll_id),
+      KEY idx_payroll_item_emp (employee_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_payroll_periods (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      period_name VARCHAR(50) NOT NULL COMMENT 'e.g. March 2026',
+      start_date DATE NOT NULL,
+      end_date DATE NOT NULL,
+      status ENUM('OPEN', 'PROCESSING', 'CLOSED') NOT NULL DEFAULT 'OPEN',
+      PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_payslips (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      period_id BIGINT UNSIGNED NOT NULL,
+      basic_salary DECIMAL(18,4) NOT NULL,
+      allowances DECIMAL(18,4) NOT NULL DEFAULT 0,
+      deductions DECIMAL(18,4) NOT NULL DEFAULT 0,
+      net_salary DECIMAL(18,4) NOT NULL,
+      status ENUM('DRAFT', 'PAID') NOT NULL DEFAULT 'DRAFT',
+      paid_at DATETIME NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_emp_period (employee_id, period_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_exits (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      exit_type ENUM('RESIGNATION', 'TERMINATION', 'RETIREMENT') NOT NULL,
+      resignation_date DATE NULL,
+      last_working_day DATE NOT NULL,
+      reason TEXT NULL,
+      status ENUM('DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'COMPLETED') NOT NULL DEFAULT 'DRAFT',
+      PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_interviews (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      requisition_id BIGINT UNSIGNED NOT NULL,
+      candidate_id BIGINT UNSIGNED NOT NULL,
+      interviewer_user_id BIGINT UNSIGNED NULL,
+      scheduled_at DATETIME NOT NULL,
+      status ENUM('SCHEDULED','COMPLETED','CANCELLED') NOT NULL DEFAULT 'SCHEDULED',
+      feedback TEXT NULL,
+      created_by BIGINT UNSIGNED NULL,
+      updated_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_interviews_req (requisition_id),
+      KEY idx_interviews_candidate (candidate_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_offers (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      requisition_id BIGINT UNSIGNED NOT NULL,
+      candidate_id BIGINT UNSIGNED NOT NULL,
+      offer_no VARCHAR(30) NOT NULL,
+      offer_date DATE NOT NULL,
+      position_id BIGINT UNSIGNED NULL,
+      gross_salary DECIMAL(18,4) NOT NULL DEFAULT 0,
+      allowances DECIMAL(18,4) NOT NULL DEFAULT 0,
+      deductions DECIMAL(18,4) NOT NULL DEFAULT 0,
+      net_salary DECIMAL(18,4) NOT NULL DEFAULT 0,
+      status ENUM('DRAFT','PENDING','APPROVED','REJECTED','ACCEPTED') NOT NULL DEFAULT 'DRAFT',
+      remarks TEXT NULL,
+      created_by BIGINT UNSIGNED NULL,
+      updated_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_offer_no (company_id, offer_no),
+      KEY idx_offers_req (requisition_id),
+      KEY idx_offers_candidate (candidate_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_kpis (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      code VARCHAR(30) NOT NULL,
+      name VARCHAR(150) NOT NULL,
+      description TEXT NULL,
+      target_value DECIMAL(12,2) NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_by BIGINT UNSIGNED NULL,
+      updated_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_kpi_code (company_id, code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_policies (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      code VARCHAR(30) NOT NULL,
+      title VARCHAR(150) NOT NULL,
+      content TEXT NOT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_policy_code (company_id, code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_clearance (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      exit_id BIGINT UNSIGNED NOT NULL,
+      department VARCHAR(100) NOT NULL,
+      cleared TINYINT(1) NOT NULL DEFAULT 0,
+      cleared_at DATETIME NULL,
+      remarks TEXT NULL,
+      PRIMARY KEY (id),
+      KEY idx_clearance_exit (exit_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_medical_policies (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      policy_code VARCHAR(30) NOT NULL,
+      policy_name VARCHAR(150) NOT NULL,
+      provider VARCHAR(150) NOT NULL,
+      description TEXT NULL,
+      coverage_details TEXT NULL,
+      premium_amount DECIMAL(18,4) NOT NULL DEFAULT 0,
+      renewal_date DATE NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_by BIGINT UNSIGNED NULL,
+      updated_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_med_policy_code (company_id, policy_code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_allowances (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      allowance_code VARCHAR(30) NOT NULL,
+      allowance_name VARCHAR(150) NOT NULL,
+      amount_type ENUM('FIXED', 'PERCENTAGE') NOT NULL DEFAULT 'FIXED',
+      amount DECIMAL(18,4) NOT NULL DEFAULT 0,
+      is_taxable TINYINT(1) NOT NULL DEFAULT 1,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_by BIGINT UNSIGNED NULL,
+      updated_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_allowance_code (company_id, allowance_code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_loans (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      loan_type VARCHAR(50) NOT NULL,
+      amount DECIMAL(18,4) NOT NULL,
+      interest_rate DECIMAL(5,2) NOT NULL DEFAULT 0,
+      repayment_period_months INT NOT NULL,
+      monthly_installment DECIMAL(18,4) NOT NULL,
+      start_date DATE NOT NULL,
+      status ENUM('PENDING', 'APPROVED', 'DISBURSED', 'REPAID', 'REJECTED') NOT NULL DEFAULT 'PENDING',
+      created_by BIGINT UNSIGNED NULL,
+      updated_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_loan_emp (employee_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_tax_config (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      tax_name VARCHAR(100) NOT NULL,
+      tax_type ENUM('INCOME_TAX', 'SOCIAL_SECURITY', 'OTHER') NOT NULL,
+      min_amount DECIMAL(18,4) NOT NULL DEFAULT 0,
+      max_amount DECIMAL(18,4) NULL,
+      tax_rate DECIMAL(5,2) NOT NULL,
+      fixed_amount DECIMAL(18,4) NOT NULL DEFAULT 0,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+  ];
+
+  for (const sql of tables) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await query(sql);
+    } catch (err) {
+      console.error("Error creating HR table:", err);
+    }
+  }
+
+  // Ensure columns exist for older tables
+  const columnChecks = [
+    { table: "hr_job_requisitions", column: "recruitment_type", sql: "ALTER TABLE hr_job_requisitions ADD COLUMN recruitment_type ENUM('INTERNAL', 'EXTERNAL') NOT NULL DEFAULT 'EXTERNAL' AFTER employment_type" },
+    { table: "hr_job_requisitions", column: "from_date", sql: "ALTER TABLE hr_job_requisitions ADD COLUMN from_date DATE NULL AFTER recruitment_type" },
+    { table: "hr_job_requisitions", column: "to_date", sql: "ALTER TABLE hr_job_requisitions ADD COLUMN to_date DATE NULL AFTER from_date" },
+    { table: "hr_candidates", column: "requisition_id", sql: "ALTER TABLE hr_candidates ADD COLUMN requisition_id BIGINT UNSIGNED NULL AFTER source" },
+    { table: "hr_departments", column: "branch_id", sql: "ALTER TABLE hr_departments ADD COLUMN branch_id BIGINT UNSIGNED NOT NULL DEFAULT 1 AFTER company_id" },
+    { table: "hr_positions", column: "branch_id", sql: "ALTER TABLE hr_positions ADD COLUMN branch_id BIGINT UNSIGNED NOT NULL DEFAULT 1 AFTER company_id" },
+    { table: "hr_departments", column: "deleted_at", sql: "ALTER TABLE hr_departments ADD COLUMN deleted_at TIMESTAMP NULL AFTER updated_at" },
+    { table: "hr_positions", column: "deleted_at", sql: "ALTER TABLE hr_positions ADD COLUMN deleted_at TIMESTAMP NULL AFTER updated_at" },
+  ];
+
+  for (const check of columnChecks) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const cols = await query(`SHOW COLUMNS FROM ${check.table} LIKE :column`, { column: check.column });
+      if (cols.length === 0) {
+        // eslint-disable-next-line no-await-in-loop
+        await query(check.sql);
+      }
+    } catch (err) {
+      // ignore
+    }
+  }
+}
+
 export async function ensureWorkflowTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_workflows (
@@ -1670,6 +2156,22 @@ export async function ensureRolePermissionsTable() {
       FOREIGN KEY (role_id) REFERENCES adm_roles(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  if (!(await hasColumn("adm_role_permissions", "feature_key"))) {
+    try {
+      await query(
+        `ALTER TABLE adm_role_permissions ADD COLUMN feature_key VARCHAR(100) NOT NULL AFTER module_key`,
+      );
+      await query(
+        `ALTER TABLE adm_role_permissions DROP INDEX uq_role_module_perm`,
+      );
+      await query(
+        `ALTER TABLE adm_role_permissions ADD UNIQUE KEY uq_role_module_feature (role_id, module_key, feature_key)`,
+      );
+    } catch (err) {
+      console.error("Error upgrading adm_role_permissions table:", err);
+    }
+  }
 }
 
 export async function ensureRoleFeaturesTable() {

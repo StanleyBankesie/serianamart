@@ -136,9 +136,16 @@ export default function CustomerForm() {
               {isEdit ? "Edit Customer" : "New Customer"}
             </h1>
           </div>
-          <Link to="/sales/customers" className="btn-success">
-            Back
-          </Link>
+          <div className="flex gap-2">
+            {!isEdit && (
+              <Link to="/sales/prospect-conversion" className="btn btn-secondary">
+                Convert Prospect
+              </Link>
+            )}
+            <Link to="/sales/customers" className="btn-success">
+              Back
+            </Link>
+          </div>
         </div>
       </div>
 

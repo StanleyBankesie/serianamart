@@ -56,7 +56,9 @@ export default function DeliveryForm() {
 
   async function loadCustomers() {
     try {
-      const res = await api.get("/sales/customers");
+      const res = await api.get("/sales/customers", {
+        params: { active: "true" }
+      });
       setCustomers(res.data.items || []);
     } catch (err) {
       console.error("Failed to load customers", err);

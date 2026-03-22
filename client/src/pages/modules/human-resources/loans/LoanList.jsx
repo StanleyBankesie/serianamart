@@ -1,48 +1,93 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { usePermission } from '../../../../auth/PermissionContext.jsx';
+import { api } from "../../../../api/client.js";
+import { toast } from "react-toastify";
+import { Guard } from "../../../../hooks/usePermissions.jsx";
 
 export default function LoanList() {
-  const { canPerformAction } = usePermission();
-  const items = [{ id: 1, employee: 'John Doe', amount: 1000, balance: 600, status: 'ACTIVE' }];
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get("/hr/loans");
+      setItems(res.data.items || []);
+    } catch {
+      toast.error("Failed to load loans");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   return (
-    <div className="space-y-4">
-      <div className="card"><div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold dark:text-brand-300">Employee Loans</h1>
-          <p className="text-sm mt-1">Loan setup and tracking (placeholder)</p>
+    <Guard moduleKey="human-resources">
+      <div className="p-4 space-y-4">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h1 className="text-2xl font-bold">Employee Loans</h1>
+            <p className="text-sm text-slate-500">Track and manage employee staff loans</p>
+          </div>
+          <div className="flex gap-2">
+            <Link to="/human-resources" className="btn-secondary">Back to Menu</Link>
+            <Link to="/human-resources/loans/new" className="btn-primary">+ New Loan</Link>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Link to="/human-resources" className="btn btn-secondary">Return to Menu</Link>
-          <Link to="/human-resources/loans/new" className="btn-success">+ New</Link>
-        </div>
-      </div></div>
 
-      <div className="card"><div className="card-body overflow-x-auto">
-        <table className="table">
-          <thead><tr><th>Employee</th><th className="text-right">Amount</th><th className="text-right">Balance</th><th>Status</th><th /></tr></thead>
-          <tbody>
-            {items.map((r) => (
-              <tr key={r.id}>
-                <td className="font-medium">{r.employee}</td>
-                <td className="text-right">{Number(r.amount).toFixed(2)}</td>
-                <td className="text-right">{Number(r.balance).toFixed(2)}</td>
-                <td>{r.status}</td>
-                <td>
-                  {canPerformAction('human-resources:loans','view') && (
-                    <Link to={`/human-resources/loans/${r.id}?mode=view`} className="text-brand hover:text-brand-600 text-sm font-medium">View</Link>
-                  )}
-                  {canPerformAction('human-resources:loans','edit') && (
-                    <Link to={`/human-resources/loans/${r.id}?mode=edit`} className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2">Edit</Link>
-                  )}
-                </td>
+        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden">
+          <table className="min-w-full">
+            <thead>
+              <tr className="bg-slate-50 dark:bg-slate-700 text-left">
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Employee</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Type</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-right">Amount</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-right">Installment</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Start Date</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider">Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div></div>
-    </div>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+              {items.map((r) => (
+                <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                  <td className="px-4 py-3 text-sm font-medium">{r.first_name} {r.last_name}</td>
+                  <td className="px-4 py-3 text-sm">{r.loan_type}</td>
+                  <td className="px-4 py-3 text-sm text-right font-mono">{Number(r.amount).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-sm text-right font-mono">{Number(r.monthly_installment).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-sm">{new Date(r.start_date).toLocaleDateString()}</td>
+                  <td className="px-4 py-3 text-sm">
+                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                      r.status === 'APPROVED' ? 'bg-blue-100 text-blue-700' :
+                      r.status === 'DISBURSED' ? 'bg-emerald-100 text-emerald-700' :
+                      r.status === 'REPAID' ? 'bg-slate-100 text-slate-700' :
+                      'bg-amber-100 text-amber-700'
+                    }`}>
+                      {r.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right text-sm font-medium">
+                    <Link to={`/human-resources/loans/${r.id}`} className="text-brand hover:underline">
+                      Edit
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+              {items.length === 0 && !loading && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
+                    No loans found. Click "+ New Loan" to create one.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Guard>
   );
 }
 

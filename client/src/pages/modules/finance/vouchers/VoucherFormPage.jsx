@@ -521,7 +521,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           receivedFrom: rvName || prev.receivedFrom,
           receivedFromCode: rvCode || prev.receivedFromCode,
           payerAccountId: rvPayAccId || prev.payerAccountId,
-          paymentMethod: token("Method") || prev.paymentMethod,
+          paymentMethod:
+            rawLines.find((l) => l.payment_method)?.payment_method ||
+            token("Method") ||
+            prev.paymentMethod,
           reference: token("Ref") || prev.reference,
           items:
             creditLines.length > 0
@@ -559,7 +562,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           payTo: pvName || prev.payTo,
           payToCode: pvCode || prev.payToCode,
           payToAccountId: pvPayAccId || prev.payToAccountId,
-          paymentMethod: token("Method") || prev.paymentMethod,
+          paymentMethod:
+            rawLines.find((l) => l.payment_method)?.payment_method ||
+            token("Method") ||
+            prev.paymentMethod,
           reference: token("Ref") || prev.reference,
           items:
             debitLines.length > 0
@@ -577,6 +583,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           ...prev,
           toAccountId: debitLine?.accountId || "",
           fromAccountId: creditLine?.accountId || "",
+          transferMethod:
+            rawLines.find((l) => l.payment_method)?.payment_method ||
+            token("Method") ||
+            prev.transferMethod,
           items:
             mapped.length > 0
               ? mapped
@@ -1249,7 +1259,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       container.style.top = "0";
       container.style.width = "794px";
       container.style.background = "white";
-      container.style.padding = "32px";
+      container.style.padding = "40px";
+      container.style.margin = "0";
+      container.style.boxSizing = "border-box";
+      container.style.textAlign = "left";
       container.innerHTML = body;
       document.body.appendChild(container);
       try {
@@ -1309,7 +1322,13 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       (await resolveOrCreateVoucherTypeId(voucherTypeCode));
     const effVoucherTypeId = Number(ensuredVoucherTypeId || 0);
 
+    const isRV = String(voucherTypeCode).toUpperCase() === "RV";
+    const isPV = String(voucherTypeCode).toUpperCase() === "PV";
+    const isCV = String(voucherTypeCode).toUpperCase() === "CV";
+
     let cleaned = [];
+    let voucherNarration = narration;
+
     if (isRV) {
       if (!rvForm.depositAccountId) {
         toast.error("Select deposit account");
@@ -1318,23 +1337,36 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       const creditItems = rvForm.items
         .map((it) => ({
           accountId: Number(it.accountId || 0),
-          description: it.description || null,
+          description: String(it.description || "").trim(),
           amount: Number(it.amount || 0),
           referenceNo:
             (it.referenceNo && String(it.referenceNo).trim()) || null,
         }))
         .filter((it) => it.accountId && it.amount > 0);
+
       if (creditItems.length === 0) {
         toast.error("Enter at least one payment detail item");
         return;
       }
+
+      if (creditItems.some((it) => !it.description)) {
+        toast.error("Description is mandatory for all payment items");
+        return;
+      }
+
       const total = creditItems.reduce((s, it) => s + it.amount, 0);
+      const firstDesc = creditItems[0].description;
+      voucherNarration = firstDesc;
+
       cleaned = [
         {
           accountId: Number(rvForm.depositAccountId),
-          description: rvForm.receivedFrom || "Receipt",
+          description: firstDesc,
           debit: Number(total),
           credit: 0,
+          chequeNumber: rvForm.reference || null,
+          chequeDate: rvForm.chequeDate || null,
+          paymentMethod: rvForm.paymentMethod || null,
         },
         ...creditItems.map((it) => ({
           accountId: it.accountId,
@@ -1342,6 +1374,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           debit: 0,
           credit: it.amount,
           referenceNo: it.referenceNo || null,
+          chequeNumber: rvForm.reference || null,
+          chequeDate: rvForm.chequeDate || null,
+          paymentMethod: rvForm.paymentMethod || null,
         })),
       ];
     } else if (isPV) {
@@ -1352,17 +1387,27 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       const debitItems = pvForm.items
         .map((it) => ({
           accountId: Number(it.accountId || 0),
-          description: it.description || null,
+          description: String(it.description || "").trim(),
           amount: Number(it.amount || 0),
           referenceNo:
             (it.referenceNo && String(it.referenceNo).trim()) || null,
         }))
         .filter((it) => it.accountId && it.amount > 0);
+
       if (debitItems.length === 0) {
         toast.error("Enter at least one payment detail item");
         return;
       }
+
+      if (debitItems.some((it) => !it.description)) {
+        toast.error("Description is mandatory for all payment items");
+        return;
+      }
+
       const total = debitItems.reduce((s, it) => s + it.amount, 0);
+      const firstDesc = debitItems[0].description;
+      voucherNarration = firstDesc;
+
       cleaned = [
         ...debitItems.map((it) => ({
           accountId: it.accountId,
@@ -1370,12 +1415,18 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           debit: it.amount,
           credit: 0,
           referenceNo: it.referenceNo || null,
+          chequeNumber: pvForm.reference || null,
+          chequeDate: pvForm.chequeDate || null,
+          paymentMethod: pvForm.paymentMethod || null,
         })),
         {
           accountId: Number(pvForm.paymentAccountId),
-          description: pvForm.payTo || "Payment",
+          description: firstDesc,
           debit: 0,
           credit: Number(total),
+          chequeNumber: pvForm.reference || null,
+          chequeDate: pvForm.chequeDate || null,
+          paymentMethod: pvForm.paymentMethod || null,
         },
       ];
     } else if (isCV) {
@@ -1389,27 +1440,43 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       }
       const items = cvForm.items
         .map((it) => ({
-          description: it.description || null,
+          description: String(it.description || "").trim(),
           amount: Number(it.amount || 0),
         }))
         .filter((it) => it.amount > 0);
+
       if (items.length === 0) {
         toast.error("Enter at least one transfer detail item");
         return;
       }
+
+      if (items.some((it) => !it.description)) {
+        toast.error("Description is mandatory for all transfer items");
+        return;
+      }
+
       const total = items.reduce((s, it) => s + it.amount, 0);
+      const firstDesc = items[0].description;
+      voucherNarration = firstDesc;
+
       cleaned = [
         {
           accountId: Number(cvForm.toAccountId),
-          description: "Account Transfer",
+          description: firstDesc,
           debit: Number(total),
           credit: 0,
+          chequeNumber: cvForm.reference || null,
+          chequeDate: cvForm.chequeDate || null,
+          paymentMethod: cvForm.transferMethod || null,
         },
         {
           accountId: Number(cvForm.fromAccountId),
-          description: "Account Transfer",
+          description: firstDesc,
           debit: 0,
           credit: Number(total),
+          chequeNumber: cvForm.reference || null,
+          chequeDate: cvForm.chequeDate || null,
+          paymentMethod: cvForm.transferMethod || null,
         },
       ];
     } else {
@@ -1442,51 +1509,60 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         voucherTypeId: effVoucherTypeId,
         voucherTypeCode: voucherTypeCode,
         voucherDate,
-        narration: isRV
-          ? [
-              rvForm.receivedFrom
-                ? `Received from: ${rvForm.receivedFrom}`
-                : null,
-              rvForm.paymentMethod ? `Method: ${rvForm.paymentMethod}` : null,
-              rvForm.reference ? `Ref: ${rvForm.reference}` : null,
-              narration || null,
-            ]
-              .filter(Boolean)
-              .join(" | ")
-          : isPV
-            ? [
-                pvForm.payTo ? `Paid to: ${pvForm.payTo}` : null,
-                pvForm.paymentMethod ? `Method: ${pvForm.paymentMethod}` : null,
-                pvForm.reference ? `Ref: ${pvForm.reference}` : null,
-                narration || null,
-              ]
-                .filter(Boolean)
-                .join(" | ")
-            : isCV
+        narration:
+          isRV || isPV || isCV
+            ? voucherNarration
+            : isRV
               ? [
-                  cvForm.fromAccountId
-                    ? `From: ${
-                        accounts.find(
-                          (a) => String(a.id) === String(cvForm.fromAccountId),
-                        )?.code
-                      }`
+                  rvForm.receivedFrom
+                    ? `Received from: ${rvForm.receivedFrom}`
                     : null,
-                  cvForm.toAccountId
-                    ? `To: ${
-                        accounts.find(
-                          (a) => String(a.id) === String(cvForm.toAccountId),
-                        )?.code
-                      }`
+                  rvForm.paymentMethod
+                    ? `Method: ${rvForm.paymentMethod}`
                     : null,
-                  cvForm.transferMethod
-                    ? `Method: ${cvForm.transferMethod}`
-                    : null,
-                  cvForm.reference ? `Ref: ${cvForm.reference}` : null,
+                  rvForm.reference ? `Ref: ${rvForm.reference}` : null,
                   narration || null,
                 ]
                   .filter(Boolean)
                   .join(" | ")
-              : narration,
+              : isPV
+                ? [
+                    pvForm.payTo ? `Paid to: ${pvForm.payTo}` : null,
+                    pvForm.paymentMethod
+                      ? `Method: ${pvForm.paymentMethod}`
+                      : null,
+                    pvForm.reference ? `Ref: ${pvForm.reference}` : null,
+                    narration || null,
+                  ]
+                    .filter(Boolean)
+                    .join(" | ")
+                : isCV
+                  ? [
+                      cvForm.fromAccountId
+                        ? `From: ${
+                            accounts.find(
+                              (a) =>
+                                String(a.id) === String(cvForm.fromAccountId),
+                            )?.code
+                          }`
+                        : null,
+                      cvForm.toAccountId
+                        ? `To: ${
+                            accounts.find(
+                              (a) =>
+                                String(a.id) === String(cvForm.toAccountId),
+                            )?.code
+                          }`
+                        : null,
+                      cvForm.transferMethod
+                        ? `Method: ${cvForm.transferMethod}`
+                        : null,
+                      cvForm.reference ? `Ref: ${cvForm.reference}` : null,
+                      narration || null,
+                    ]
+                      .filter(Boolean)
+                      .join(" | ")
+                  : narration,
         lines: cleaned,
         ...(isPV
           ? {
@@ -1798,35 +1874,33 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     disabled={readOnly}
                   />
                 </div>
-                {!(isPV || isRV) && !isJV && (
-                  <div>
-                    <label className="label">Fiscal Year *</label>
-                    <select
-                      className={`input ${disabledClass}`}
-                      value={fiscalYearId}
-                      onChange={(e) => setFiscalYearId(e.target.value)}
-                      required
+                {isJV && (
+                  <div className="md:col-span-3">
+                    <label className="label">Narration</label>
+                    <input
+                      className="input"
+                      value={narration}
+                      onChange={(e) => setNarration(e.target.value)}
+                      placeholder="Optional narration"
                       disabled={readOnly}
-                    >
-                      <option value="">Select</option>
-                      {fiscalYears.map((fy) => (
-                        <option key={fy.id} value={fy.id}>
-                          {fy.code}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </div>
                 )}
-                <div className="md:col-span-3">
-                  <label className="label">Narration</label>
-                  <input
-                    className="input"
-                    value={narration}
-                    onChange={(e) => setNarration(e.target.value)}
-                    placeholder="Optional narration"
-                    disabled={readOnly}
-                  />
-                </div>
+                {(isPV || isRV || isCV) && (
+                  <div className="md:col-span-3">
+                    <label className="label font-bold text-brand">
+                      Description *
+                    </label>
+                    <input
+                      className={`input border-2 border-brand/20 focus:border-brand ${disabledClass}`}
+                      value={narration}
+                      onChange={(e) => setNarration(e.target.value)}
+                      placeholder="Mandatory description for all transactions"
+                      required
+                      disabled={readOnly}
+                    />
+                  </div>
+                )}
               </div>
 
               {showPayToLov && (
@@ -3023,13 +3097,14 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                             <td>
                               <input
                                 className={`input ${disabledClass}`}
-                                value={it.description}
+                                value={it.description || ""}
                                 onChange={(e) =>
                                   updateRvItem(idx, {
                                     description: e.target.value,
                                   })
                                 }
                                 placeholder="Description"
+                                required
                                 disabled={readOnly}
                               />
                             </td>
@@ -3088,7 +3163,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                       const items =
                                         chosenList.length > 0
                                           ? chosenList.map((inv) => ({
-                                              description: "",
+                                              description: it.description || "",
                                               accountId:
                                                 rvForm.payerAccountId || "",
                                               amount: Number(
@@ -3100,7 +3175,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                             }))
                                           : [
                                               {
-                                                description: "",
+                                                description:
+                                                  it.description || "",
                                                 accountId:
                                                   rvForm.payerAccountId || "",
                                                 amount: 0,
@@ -3285,20 +3361,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
               </div>
 
               <div className="flex flex-col md:flex-row gap-2">
-                <button
-                  type="button"
-                  className="btn-success"
-                  onClick={handlePrintVoucher}
-                >
-                  Print Voucher
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={handleDownloadVoucherPdf}
-                >
-                  Download PDF
-                </button>
                 <Link to=".." className="btn-success">
                   Cancel
                 </Link>
@@ -3897,6 +3959,21 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     disabled={readOnly}
                   />
                 </div>
+                {!(isPV || isRV || isCV) && (
+                  <div className="md:col-span-3">
+                    <label className="label font-bold text-brand">
+                      Description *
+                    </label>
+                    <input
+                      className={`input border-2 border-brand/20 focus:border-brand ${disabledClass}`}
+                      value={narration}
+                      onChange={(e) => setNarration(e.target.value)}
+                      placeholder="Mandatory description for all transactions"
+                      required
+                      disabled={readOnly}
+                    />
+                  </div>
+                )}
                 {!(isPV || isRV) && (
                   <div>
                     <label className="label">Fiscal Year *</label>
@@ -4170,13 +4247,15 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                             <td>
                               <input
                                 className={`input ${disabledClass}`}
-                                value={it.description}
+                                value={it.description || ""}
                                 onChange={(e) =>
                                   updatePvItem(idx, {
                                     description: e.target.value,
                                   })
                                 }
                                 placeholder="Description"
+                                required
+                                disabled={readOnly}
                               />
                             </td>
                             <td>
@@ -4428,20 +4507,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
               </div>
 
               <div className="flex flex-col md:flex-row gap-2">
-                <button
-                  type="button"
-                  className="btn-success"
-                  onClick={handlePrintVoucher}
-                >
-                  Print Voucher
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={handleDownloadVoucherPdf}
-                >
-                  Download PDF
-                </button>
                 <Link to=".." className="btn-success">
                   Cancel
                 </Link>
@@ -4904,6 +4969,17 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     disabled={readOnly}
                   />
                 </div>
+                <div className="md:col-span-2">
+                  <label className="label">Description *</label>
+                  <input
+                    className={`input ${disabledClass}`}
+                    value={narration}
+                    onChange={(e) => setNarration(e.target.value)}
+                    placeholder="Mandatory description for all lines"
+                    required
+                    disabled={readOnly}
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -5053,7 +5129,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     <thead>
                       <tr>
                         <th className="w-10">#</th>
-                        <th className="w-64">Description</th>
+                        <th>Description</th>
                         <th className="text-right w-40">Amount to Transfer</th>
                         <th className="w-24 hidden" />
                       </tr>
@@ -5072,13 +5148,14 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                             <td>
                               <input
                                 className="input"
-                                value={it.description}
+                                value={it.description || ""}
                                 onChange={(e) =>
                                   updateCvItem(idx, {
                                     description: e.target.value,
                                   })
                                 }
                                 placeholder="Description"
+                                required
                                 disabled={readOnly}
                               />
                             </td>
@@ -5177,13 +5254,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
               </div>
 
               <div className="flex flex-col md:flex-row gap-2">
-                <button
-                  type="button"
-                  className="btn-success"
-                  onClick={handlePrintVoucher}
-                >
-                  Print Voucher
-                </button>
                 <Link to=".." className="btn-success">
                   Cancel
                 </Link>

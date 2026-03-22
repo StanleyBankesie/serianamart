@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 
 import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { toast } from "react-toastify";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function PurchaseBillsList() {
@@ -10,7 +11,7 @@ export default function PurchaseBillsList() {
   const billType = location.pathname.includes("purchase-bills-import")
     ? "IMPORT"
     : "LOCAL";
-  const { canPerformAction } = usePermission();
+  const { canPerformAction, exceptionalPerms } = usePermission();
 
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -227,6 +228,33 @@ export default function PurchaseBillsList() {
                           View
                         </Link>
                       )}
+                      {exceptionalPerms?.has?.("PURCHASE.BILL.CANCEL") && (
+                        <button
+                          type="button"
+                          className="ml-2 inline-flex items-center px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs font-semibold"
+                          title="Cancel"
+                          onClick={async () => {
+                            try {
+                              await api.post(
+                                `/purchase/bills/${r.id}/cancel-accounting`,
+                              );
+                              toast.success("Purchase bill cancelled");
+                              setItems((prev) =>
+                                prev.filter(
+                                  (x) => Number(x.id) !== Number(r.id),
+                                ),
+                              );
+                            } catch (e) {
+                              toast.error(
+                                e?.response?.data?.message ||
+                                  "Failed to cancel purchase bill",
+                              );
+                            }
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="ml-2 text-slate-700 hover:text-slate-900 text-sm"
@@ -244,12 +272,23 @@ export default function PurchaseBillsList() {
                         type="button"
                         className="ml-2 text-slate-700 hover:text-slate-900 text-sm"
                         title="PDF"
-                        onClick={() =>
-                          window.open(
-                            `/purchase/purchase-bills-${billType.toLowerCase()}/${r.id}?mode=view`,
-                            "_blank",
-                          )
-                        }
+                        onClick={async () => {
+                          try {
+                            const res = await api.post(
+                              `/documents/invoice/${r.id}/render?format=pdf`,
+                              {},
+                              { responseType: "blob" },
+                            );
+                            const url = URL.createObjectURL(res.data);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = `Bill-${r.bill_no || r.id}.pdf`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          } catch (e) {
+                            toast.error("Failed to download PDF");
+                          }
+                        }}
                       >
                         PDF
                       </button>

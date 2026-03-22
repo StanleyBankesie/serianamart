@@ -699,6 +699,105 @@ router.get(
 );
 
 router.post(
+  "/grn/:id/cancel-accounting",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId } = req.scope;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const userId = Number(req.user?.sub);
+      if (!Number.isFinite(userId) || userId <= 0)
+        throw httpError(401, "UNAUTHORIZED", "Invalid user");
+      const denyRows = await query(
+        `
+        SELECT 1
+          FROM adm_exceptional_permissions
+         WHERE user_id = :uid
+           AND permission_code = 'PURCHASE.GRN.REVERSE'
+           AND UPPER(effect) = 'DENY'
+         LIMIT 1
+        `,
+        { uid: userId },
+      ).catch(() => []);
+      if (denyRows.length) {
+        throw httpError(403, "FORBIDDEN", "Exceptional permission denied");
+      }
+      const allowRows = await query(
+        `
+        SELECT 1
+          FROM adm_exceptional_permissions
+         WHERE user_id = :uid
+           AND permission_code = 'PURCHASE.GRN.REVERSE'
+           AND UPPER(effect) = 'ALLOW'
+         LIMIT 1
+        `,
+        { uid: userId },
+      ).catch(() => []);
+      if (!allowRows.length) {
+        throw httpError(403, "FORBIDDEN", "Exceptional permission required");
+      }
+      const headerRows = await query(
+        `SELECT branch_id, warehouse_id FROM inv_goods_receipt_notes WHERE id = :id AND company_id = :companyId LIMIT 1`,
+        { id, companyId },
+      ).catch(() => []);
+      if (!headerRows.length) throw httpError(404, "NOT_FOUND", "GRN not found");
+      const branchId = Number(headerRows[0].branch_id || 0);
+      const warehouseId = headerRows[0].warehouse_id || null;
+      const details = await query(
+        `SELECT item_id, qty_accepted FROM inv_goods_receipt_note_details WHERE grn_id = :id`,
+        { id },
+      ).catch(() => []);
+      await conn.beginTransaction();
+      for (const d of details) {
+        const itemId = Number(d.item_id);
+        const qtyAccepted = Number(d.qty_accepted || 0);
+        if (itemId && Number.isFinite(qtyAccepted) && qtyAccepted > 0) {
+          await conn
+            .execute(
+              `UPDATE inv_stock_balances
+                 SET qty = qty - :q
+               WHERE company_id = :companyId AND branch_id = :branchId
+                 AND warehouse_id <=> :warehouseId AND item_id = :itemId`,
+              {
+                q: qtyAccepted,
+                companyId,
+                branchId,
+                warehouseId,
+                itemId,
+              },
+            )
+            .catch(() => null);
+        }
+      }
+      await conn
+        .execute(`DELETE FROM inv_goods_receipt_note_details WHERE grn_id = :id`, {
+          id,
+        })
+        .catch(() => null);
+      await conn
+        .execute(`DELETE FROM inv_goods_receipt_notes WHERE id = :id AND company_id = :companyId`, {
+          id,
+          companyId,
+        })
+        .catch(() => null);
+      await conn.commit();
+      res.json({ success: true, id });
+    } catch (e) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(e);
+    } finally {
+      conn.release();
+    }
+  },
+);
+
+router.post(
   "/grn/:id/submit",
   requireAuth,
   requireCompanyScope,

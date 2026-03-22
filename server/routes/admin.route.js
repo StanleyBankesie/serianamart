@@ -487,6 +487,10 @@ async function ensurePagesSeed() {
       name: "Bulk Customer Upload",
       path: "/sales/bulk-upload",
     },
+    { module: "Sales", name: "Potential Customers", path: "/sales/potential-customers" },
+    { module: "Sales", name: "Potential Customer List", path: "/sales/potential-customers" },
+    { module: "Sales", name: "Potential Customer Form", path: "/sales/potential-customers/new" },
+    { module: "Sales", name: "Potential Customer Edit", path: "/sales/potential-customers/:id" },
     { module: "Sales", name: "Sales Reports", path: "/sales/reports" },
     { module: "Sales", name: "Sales Returns", path: "/sales/returns" },
 
@@ -1710,11 +1714,13 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
     if (!Number.isFinite(userId) || userId <= 0) {
       return next(httpError(401, "UNAUTHORIZED", "Invalid user"));
     }
-    await ensurePagesTable();
-    await ensureUserPermissionsTable();
     try {
+      await ensurePagesTable();
+      await ensureUserPermissionsTable();
       await ensureUserPermissionCacheAndTriggers();
-    } catch {}
+    } catch (e) {
+      console.error("Error in ensure permission tables:", e);
+    }
     const reqPath = String(req.query?.path || "").trim() || "/";
     const base = basePathFromRequestPath(reqPath);
     const pages = await query(
@@ -1768,7 +1774,9 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
           };
         }
       }
-    } catch {}
+    } catch (e) {
+      console.error("Error calculating role defaults:", e);
+    }
     // Prefer the effective cache table for performance; override role defaults if user-specific exists
     let row = null;
     try {
@@ -1780,16 +1788,22 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
         { uid: userId, pid: page.id },
       );
       if (eff.length) row = eff[0];
-    } catch {}
+    } catch (e) {
+      console.error("Error checking effective permissions:", e);
+    }
     if (!row) {
-      const ups = await query(
-        `SELECT can_view, can_create, can_edit, can_delete
-         FROM adm_user_permissions
-         WHERE user_id = :uid AND page_id = :pid
-         LIMIT 1`,
-        { uid: userId, pid: page.id },
-      );
-      row = ups[0] || null;
+      try {
+        const ups = await query(
+          `SELECT can_view, can_create, can_edit, can_delete
+           FROM adm_user_permissions
+           WHERE user_id = :uid AND page_id = :pid
+           LIMIT 1`,
+          { uid: userId, pid: page.id },
+        );
+        row = ups[0] || null;
+      } catch (e) {
+        console.error("Error checking user permissions:", e);
+      }
     }
     const out = {
       path: base,
@@ -1806,6 +1820,7 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
     }
     res.json(out);
   } catch (err) {
+    console.error("CRITICAL ERROR in page-permissions route:", err);
     try {
       const reqPath = String(req.query?.path || "").trim() || "/";
       const base = basePathFromRequestPath(reqPath);

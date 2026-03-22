@@ -147,6 +147,43 @@ export default function DirectPurchaseList() {
                           </button>
                           <button
                             type="button"
+                            className="text-slate-700 hover:text-slate-900 text-xs font-medium"
+                            title="Print"
+                            onClick={() =>
+                              window.open(
+                                `/purchase/direct-purchase/${it.id}?mode=view`,
+                                "_blank",
+                              )
+                            }
+                          >
+                            Print
+                          </button>
+                          <button
+                            type="button"
+                            className="text-slate-700 hover:text-slate-900 text-xs font-medium"
+                            title="PDF"
+                            onClick={async () => {
+                              try {
+                                const res = await api.post(
+                                  `/documents/direct-purchase/${it.id}/render?format=pdf`,
+                                  {},
+                                  { responseType: "blob" },
+                                );
+                                const url = URL.createObjectURL(res.data);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = `DirectPurchase-${it.dp_no || it.id}.pdf`;
+                                a.click();
+                                URL.revokeObjectURL(url);
+                              } catch (e) {
+                                toast.error("Failed to download PDF");
+                              }
+                            }}
+                          >
+                            PDF
+                          </button>
+                          <button
+                            type="button"
                             className="btn-ghost text-xs"
                             onClick={() =>
                               navigate(

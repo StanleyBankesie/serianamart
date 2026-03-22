@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+import { renderHtmlToA4Pdf } from "@/utils/pdfUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function QuotationList() {
   const navigate = useNavigate();
-  const { canPerformAction } = usePermission();
+  const { canPerformAction, exceptionalPerms } = usePermission();
   const [quotations, setQuotations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [canCancelQuotation, setCanCancelQuotation] = useState(false);
   const [companyInfo, setCompanyInfo] = useState({
     name: "",
     address: "",
@@ -32,6 +32,10 @@ export default function QuotationList() {
   useEffect(() => {
     fetchQuotations();
   }, []);
+
+  useEffect(() => {
+    setCanCancelQuotation(!!exceptionalPerms?.has?.("SALES.QUOTATION.CANCEL"));
+  }, [exceptionalPerms]);
 
   const fetchQuotations = async () => {
     try {
@@ -355,18 +359,24 @@ export default function QuotationList() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {}
+    try {
+      const htmlRes = await api.post(
+        `/documents/quotation/${id}/render`,
+        { format: "html" },
+        { headers: { "Content-Type": "application/json" } },
+      );
+      const html =
+        typeof htmlRes.data === "string"
+          ? htmlRes.data
+          : String(htmlRes.data || "");
+      await renderHtmlToA4Pdf(html, `quotation-${id}.pdf`);
+    } catch (e2) {
+      setError(
+        e2?.response?.data?.message ||
+          "Failed to download quotation. Please try again.",
+      );
+    }
   }
-  const getStatusBadge = (status) => {
-    const statusClasses = {
-      DRAFT: "badge badge-warning",
-      SENT: "badge badge-info",
-      ACCEPTED: "badge badge-success",
-      REJECTED: "badge badge-error",
-      EXPIRED:
-        "badge bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300",
-    };
-    return <span className={statusClasses[status] || "badge"}>{status}</span>;
-  };
 
   const filteredQuotations = (() => {
     const base =
@@ -390,6 +400,18 @@ export default function QuotationList() {
     const n = Number(v);
     if (!isFinite(n)) return "0.00";
     return n.toLocaleString("en-US", { minimumFractionDigits: 2 });
+  }
+
+  async function cancelQuotation(id) {
+    if (!canCancelQuotation) return;
+    const ok = window.confirm("Cancel (delete) this quotation?");
+    if (!ok) return;
+    try {
+      await api.delete(`/sales/quotations/${id}`);
+      setQuotations((prev) => prev.filter((q) => Number(q.id) !== Number(id)));
+    } catch (e) {
+      setError(e?.response?.data?.message || "Failed to cancel quotation");
+    }
   }
 
   if (loading) {
@@ -474,9 +496,8 @@ export default function QuotationList() {
                     <th>Quotation No</th>
                     <th>Date</th>
                     <th>Customer</th>
-                    <th>Valid Until</th>
+                    <th>Vilidity Date</th>
                     <th>Amount</th>
-                    <th>Status</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -490,9 +511,8 @@ export default function QuotationList() {
                       <td className="font-semibold">
                         {safeAmount(quot.total_amount)}
                       </td>
-                      <td>{getStatusBadge(quot.status)}</td>
                       <td>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 items-center whitespace-nowrap">
                           {canPerformAction("sales:quotation", "view") && (
                             <button
                               onClick={() =>
@@ -529,6 +549,14 @@ export default function QuotationList() {
                           >
                             PDF
                           </button>
+                          {canCancelQuotation ? (
+                            <button
+                              onClick={() => cancelQuotation(quot.id)}
+                              className="inline-flex items-center px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs font-semibold"
+                            >
+                              Cancel
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>

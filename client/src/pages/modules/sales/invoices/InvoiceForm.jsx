@@ -40,9 +40,10 @@ export default function InvoiceForm() {
     status: "POSTED",
     warehouse_id: "",
     price_type: "RETAIL",
-    payment_type: "CASH",
     currency_id: "",
     exchange_rate: 1,
+    address: "",
+    address2: "",
     city: "",
     state: "",
     country: "",
@@ -219,7 +220,9 @@ export default function InvoiceForm() {
 
   const fetchCustomers = async () => {
     try {
-      const response = await api.get("/sales/customers");
+      const response = await api.get("/sales/customers", {
+        params: { active: "true" }
+      });
       setCustomers(
         Array.isArray(response.data?.items) ? response.data.items : [],
       );
@@ -526,6 +529,8 @@ export default function InvoiceForm() {
           customer_id: data.customer_id || "",
           status: data.status || "POSTED",
           due_date: toYmd(data.due_date || ""),
+          address: "",
+          address2: "",
           city: "",
           state: "",
           country: "",
@@ -544,6 +549,8 @@ export default function InvoiceForm() {
         if (cust) {
           setForm((p) => ({
             ...p,
+            address: cust.address || "",
+            address2: cust.address2 || "",
             city: cust.city || "",
             state: cust.state || "",
             country: cust.country || "",
@@ -657,6 +664,8 @@ export default function InvoiceForm() {
     let next = { ...form, [name]: value };
     if (name === "customer_id") {
       const cust = customers.find((c) => c.id == value);
+      next.address = cust?.address || "";
+      next.address2 = cust?.address2 || "";
       next.city = cust?.city || "";
       next.state = cust?.state || "";
       next.country = cust?.country || "";
@@ -1703,7 +1712,9 @@ export default function InvoiceForm() {
                       step="1"
                     />
                   </div>
-                  <div className={!canEditDiscount() ? "disabled-light-blue" : ""}>
+                  <div
+                    className={!canEditDiscount() ? "disabled-light-blue" : ""}
+                  >
                     <label className="block text-xs font-medium text-gray-700 mb-1">
                       Disc %
                     </label>
@@ -1974,7 +1985,13 @@ export default function InvoiceForm() {
                           </td>
                           <td className="px-4 py-3 text-gray-900">
                             {canEdit ? (
-                              <div className={!canEditDiscount() ? "disabled-light-blue" : ""}>
+                              <div
+                                className={
+                                  !canEditDiscount()
+                                    ? "disabled-light-blue"
+                                    : ""
+                                }
+                              >
                                 <input
                                   className="input w-full min-w-[7rem]"
                                   type="number"
@@ -2195,6 +2212,11 @@ export default function InvoiceForm() {
               {customers.find((c) => String(c.id) === String(form.customer_id))
                 ?.customer_name || ""}
             </div>
+            {form.address && (
+              <div>
+                Address: {form.address} {form.address2}
+              </div>
+            )}
             <div>City: {form.city || ""}</div>
             <div>State: {form.state || ""}</div>
             <div>Country: {form.country || ""}</div>

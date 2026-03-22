@@ -6755,6 +6755,117 @@ router.get(
   },
 );
 
+router.post(
+  "/bills/:id/cancel-accounting",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const userId = Number(req.user?.sub);
+      if (!Number.isFinite(userId) || userId <= 0)
+        throw httpError(401, "UNAUTHORIZED", "Invalid user");
+      const denyRows = await pool
+        .query(
+          `
+        SELECT 1
+          FROM adm_exceptional_permissions
+         WHERE user_id = :uid
+           AND permission_code = 'PURCHASE.BILL.CANCEL'
+           AND UPPER(effect) = 'DENY'
+         LIMIT 1
+        `,
+          { uid: userId },
+        )
+        .then(([r]) => r)
+        .catch(() => []);
+      if (denyRows.length) {
+        throw httpError(403, "FORBIDDEN", "Exceptional permission denied");
+      }
+      const allowRows = await pool
+        .query(
+          `
+        SELECT 1
+          FROM adm_exceptional_permissions
+         WHERE user_id = :uid
+           AND permission_code = 'PURCHASE.BILL.CANCEL'
+           AND UPPER(effect) = 'ALLOW'
+         LIMIT 1
+        `,
+          { uid: userId },
+        )
+        .then(([r]) => r)
+        .catch(() => []);
+      if (!allowRows.length) {
+        throw httpError(403, "FORBIDDEN", "Exceptional permission required");
+      }
+      const [rows] = await pool
+        .query(
+          `
+        SELECT id, bill_no
+          FROM pur_bills
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+         LIMIT 1
+        `,
+          { id, companyId, branchId },
+        )
+        .catch(() => [[]]);
+      if (!rows.length)
+        throw httpError(404, "NOT_FOUND", "Purchase bill not found");
+      const billNo = String(rows[0].bill_no || "").trim();
+      await conn.beginTransaction();
+      if (billNo) {
+        const [vRows] = await conn
+          .execute(
+            `
+            SELECT DISTINCT v.id AS voucher_id
+              FROM fin_vouchers v
+              JOIN fin_voucher_lines l ON l.voucher_id = v.id
+             WHERE v.company_id = :companyId
+               AND l.reference_no = :referenceNo
+            `,
+            { companyId, referenceNo: billNo },
+          )
+          .catch(() => [[]]);
+        const voucherIds = vRows
+          .map((r) => Number(r.voucher_id))
+          .filter((n) => Number.isFinite(n) && n > 0);
+        if (voucherIds.length) {
+          const inList = voucherIds.join(",");
+          await conn
+            .execute(`DELETE FROM fin_voucher_lines WHERE voucher_id IN (${inList})`)
+            .catch(() => null);
+          await conn
+            .execute(`DELETE FROM fin_vouchers WHERE id IN (${inList})`)
+            .catch(() => null);
+        }
+      }
+      await conn
+        .execute(`DELETE FROM pur_bill_details WHERE bill_id = :id`, { id })
+        .catch(() => null);
+      await conn
+        .execute(
+          `DELETE FROM pur_bills WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+          { id, companyId, branchId },
+        )
+        .catch(() => null);
+      await conn.commit();
+      res.json({ success: true, id, bill_no: billNo });
+    } catch (e) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(e);
+    } finally {
+      conn.release();
+    }
+  },
+);
+
 router.get(
   "/bills/:id",
   requireAuth,

@@ -1,20 +1,36 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "api/client";
+import { api } from "../../../../api/client.js";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { toast } from "react-toastify";
 
 export default function PayslipList() {
   const { canPerformAction } = usePermission();
-  const [items] = useState([
-    { id: 1, period: "2025-01", employee: "John Doe", netPay: 2500, status: "GENERATED" },
-  ]);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [companyInfo, setCompanyInfo] = useState({
     name: "",
     address: "",
     logoUrl: "",
   });
+
+  const loadPayslips = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get("/hr/payslips");
+      setItems(res?.data?.items || []);
+    } catch {
+      toast.error("Failed to load payslips");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPayslips();
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -42,6 +58,15 @@ export default function PayslipList() {
       mounted = false;
     };
   }, []);
+
+  const sendEmail = async (r) => {
+    try {
+      await api.post("/hr/payslips/send-email", { payslipId: r.id });
+      toast.success(`Payslip sent to ${r.email}`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to send email");
+    }
+  };
 
   function escapeHtml(v) {
     return String(v ?? "")
@@ -198,44 +223,29 @@ export default function PayslipList() {
           <tbody>
             {items.map((r) => (
               <tr key={r.id}>
-                <td className="font-medium">{r.period}</td>
-                <td>{r.employee}</td>
-                <td className="text-right">{Number(r.netPay).toFixed(2)}</td>
-                <td>{r.status}</td>
+                <td>{r.period_name}</td>
                 <td>
-                  {canPerformAction("human-resources:payslips", "view") && (
-                    <Link
-                      to={`/human-resources/payslips/${r.id}?mode=view`}
-                      className="text-brand hover:text-brand-600 text-sm font-medium"
-                    >
-                      View
-                    </Link>
-                  )}
-                  {canPerformAction("human-resources:payslips", "edit") && (
-                    <Link
-                      to={`/human-resources/payslips/${r.id}?mode=edit`}
-                      className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                    >
-                      Edit
-                    </Link>
-                  )}
-                  <button
-                    type="button"
-                    className="ml-2 inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
-                    onClick={() => printPayslip(r)}
-                  >
-                    Print
-                  </button>
-                  <button
-                    type="button"
-                    className="ml-1 inline-flex items-center px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold"
-                    onClick={() => downloadPayslipPdf(r)}
-                  >
-                    PDF
-                  </button>
+                  <div className="font-medium">{r.first_name} {r.last_name}</div>
+                  <div className="text-xs text-slate-500">{r.emp_code}</div>
+                </td>
+                <td className="text-right font-medium">{Number(r.net_salary || 0).toLocaleString()}</td>
+                <td>
+                  <span className={`badge ${r.status === 'PAID' ? 'badge-success' : 'badge-warning'}`}>
+                    {r.status}
+                  </span>
+                </td>
+                <td className="text-right">
+                  <div className="flex justify-end gap-2">
+                    <button onClick={() => printPayslip(r)} className="btn btn-ghost btn-xs">Print</button>
+                    <button onClick={() => downloadPayslipPdf(r)} className="btn btn-ghost btn-xs">PDF</button>
+                    <button onClick={() => sendEmail(r)} className="btn btn-brand btn-xs">Email</button>
+                  </div>
                 </td>
               </tr>
             ))}
+            {!items.length && !loading && (
+              <tr><td colSpan={5} className="text-center py-8 text-slate-500">No payslips found</td></tr>
+            )}
           </tbody>
         </table>
       </div></div>

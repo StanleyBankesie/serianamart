@@ -498,6 +498,10 @@ export const submitVoucher = async (req, res, next) => {
         `UPDATE fin_vouchers SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
         { id: voucherId, companyId, branchId },
       );
+      await query(
+        `UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
+        { id: voucherId, companyId },
+      );
       res.json({ status: "APPROVED" });
       return;
     }

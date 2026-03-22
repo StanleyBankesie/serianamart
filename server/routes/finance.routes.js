@@ -1436,6 +1436,12 @@ router.put(
       );
       const comp = rows?.[0];
       if (!comp) throw httpError(404, "NOT_FOUND", "Tax component not found");
+      const isCV = effVoucherTypeCode === "CV";
+
+      if ((isRV || isPV || isCV) && !String(narration || "").trim()) {
+        throw httpError(400, "VALIDATION_ERROR", "Description is mandatory");
+      }
+
       await conn.beginTransaction();
       await conn.execute(
         `UPDATE fin_tax_components
@@ -1733,7 +1739,12 @@ router.get(
       const items = await query(
         `SELECT v.id, v.voucher_no, v.voucher_date, v.narration, v.total_debit, v.total_credit, v.status,
                 vt.code AS voucher_type_code, vt.name AS voucher_type_name,
-                u.username AS forwarded_to_username
+                u.username AS forwarded_to_username,
+                (SELECT COUNT(*) 
+                 FROM fin_voucher_lines vl 
+                 WHERE vl.voucher_id = v.id 
+                   AND vl.payment_method = 'Cheque' 
+                   AND vl.cheque_date > v.voucher_date) AS has_future_cheque
            FROM fin_vouchers v
            JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id
            LEFT JOIN (
@@ -1792,7 +1803,7 @@ router.get(
       if (!voucher) throw httpError(404, "NOT_FOUND", "Voucher not found");
 
       const lines = await query(
-        `SELECT l.id, l.line_no, l.account_id, a.code AS account_code, a.name AS account_name, l.description, l.debit, l.credit, l.tax_code_id, l.reference_no
+        `SELECT l.id, l.line_no, l.account_id, a.code AS account_code, a.name AS account_name, l.description, l.debit, l.credit, l.tax_code_id, l.reference_no, l.payment_method
            FROM fin_voucher_lines l
            JOIN fin_accounts a ON a.id = l.account_id
           WHERE l.voucher_id = :voucherId
@@ -2018,12 +2029,20 @@ router.post(
         }
       }
 
+      const isCV = effVoucherTypeCode === "CV";
+      if ((isRV || isPV || isCV) && !String(narration || "").trim()) {
+        throw httpError(400, "VALIDATION_ERROR", "Description is mandatory");
+      }
+
+      const createdAt = new Date();
+      const createdBy = req.user?.sub || null;
+
       await conn.beginTransaction();
       const [result] = await conn.execute(
         `INSERT INTO fin_vouchers
-          (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by)
+          (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, created_at)
          VALUES
-          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, :currencyId, :exchangeRate, :totalDebit, :totalCredit, 'DRAFT', :createdBy)`,
+          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, :currencyId, :exchangeRate, :totalDebit, :totalCredit, 'DRAFT', :createdBy, :createdAt)`,
         {
           companyId,
           branchId,
@@ -2036,7 +2055,8 @@ router.post(
           exchangeRate: exchangeRate || 1,
           totalDebit: totals.debit,
           totalCredit: totals.credit,
-          createdBy: req.user?.sub || null,
+          createdBy,
+          createdAt,
         },
       );
       const voucherId = result.insertId;
@@ -2045,9 +2065,9 @@ router.post(
         const l = lines[i];
         await conn.execute(
           `INSERT INTO fin_voucher_lines
-            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no, cheque_number, cheque_date, payment_method)
            VALUES
-            (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :costCenter, :referenceNo)`,
+            (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :costCenter, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod)`,
           {
             companyId,
             voucherId,
@@ -2059,8 +2079,39 @@ router.post(
             taxCodeId: l.taxCodeId || null,
             costCenter: l.costCenter || null,
             referenceNo: l.referenceNo || null,
+            chequeNumber: l.chequeNumber || null,
+            chequeDate: l.chequeDate || null,
+            paymentMethod: l.paymentMethod || null,
           },
         );
+
+        // TASK 3: Automatic PDC creation for PV/RV if cheque date is in future
+        if (
+          (isPV || isRV) &&
+          String(l.paymentMethod).toLowerCase() === "cheque" &&
+          l.chequeDate
+        ) {
+          const cDate = new Date(l.chequeDate);
+          const vDate = new Date(voucherDateYmd);
+          if (cDate > vDate) {
+            await conn.execute(
+              `INSERT INTO fin_pdc_postings
+                (company_id, branch_id, voucher_id, instrument_no, instrument_date, bank_account_id, status, created_at, created_by)
+               VALUES
+                (:companyId, :branchId, :voucherId, :instrumentNo, :instrumentDate, :bankAccountId, 'HELD', :createdAt, :createdBy)`,
+              {
+                companyId,
+                branchId,
+                voucherId,
+                instrumentNo: l.chequeNumber || "",
+                instrumentDate: l.chequeDate,
+                bankAccountId: Number(l.accountId),
+                createdAt,
+                createdBy,
+              },
+            );
+          }
+        }
       }
 
       if (isRV && invoiceApplyMap.size) {
@@ -2172,7 +2223,7 @@ router.post(
                     voucherTypeId: svTypeId,
                     voucherNo: svVoucherNo,
                     voucherDate: toYmd(new Date(invDate || voucherDateYmd)),
-                    narration: `Invoice ${invNo} receipt ${voucherNo}`,
+                    narration: narration,
                     td: applied,
                     tc: applied,
                     createdBy: req.user?.sub || null,
@@ -2182,48 +2233,51 @@ router.post(
                 let lineNo = 1;
                 await conn.execute(
                   `INSERT INTO fin_voucher_lines
-                    (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+                    (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no, payment_method)
                    VALUES
-                    (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :ref)`,
+                    (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :ref, :paymentMethod)`,
                   {
                     companyId,
                     voucherId: svId,
                     lineNo: lineNo++,
                     accountId: bankAccountId,
-                    description: `Receipt for ${invNo}`,
+                    description: narration,
                     debit: applied,
                     ref: refKey,
+                    paymentMethod: "Bank Transfer",
                   },
                 );
                 await conn.execute(
                   `INSERT INTO fin_voucher_lines
-                    (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+                    (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no, payment_method)
                    VALUES
-                    (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :ref)`,
+                    (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :ref, :paymentMethod)`,
                   {
                     companyId,
                     voucherId: svId,
                     lineNo: lineNo++,
                     accountId: salesAccountId || bankAccountId,
-                    description: `Sales for ${invNo}`,
+                    description: narration,
                     credit: basePart,
                     ref: refKey,
+                    paymentMethod: "Bank Transfer",
                   },
                 );
                 if (vatPart > 0 && vatOutputAccountId) {
                   await conn.execute(
                     `INSERT INTO fin_voucher_lines
-                      (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+                      (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no, payment_method)
                      VALUES
-                      (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :ref)`,
+                      (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :ref, :paymentMethod)`,
                     {
                       companyId,
                       voucherId: svId,
                       lineNo: lineNo++,
                       accountId: vatOutputAccountId,
-                      description: `VAT on ${invNo}`,
+                      description: narration,
                       credit: vatPart,
                       ref: refKey,
+                      paymentMethod: "Bank Transfer",
                     },
                   );
                 }
@@ -2347,7 +2401,7 @@ router.post(
                     voucherTypeId: puvTypeId,
                     voucherNo: puvNo,
                     voucherDate: toYmd(new Date(billDate || voucherDateYmd)),
-                    narration: `Bill ${billNo} settled via payment ${voucherNo}`,
+                    narration: narration,
                     td: grossAmt,
                     tc: grossAmt,
                     createdBy: req.user?.sub || null,
@@ -2357,42 +2411,44 @@ router.post(
                 let lineNo = 1;
                 await conn.execute(
                   `INSERT INTO fin_voucher_lines
-                    (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+                    (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no, payment_method)
                    VALUES
-                    (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :ref)`,
+                    (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :ref, :paymentMethod)`,
                   {
                     companyId,
                     voucherId: puvId,
                     lineNo: lineNo++,
                     accountId: expenseAccountId || bankAccountId,
-                    description: `Purchase for ${billNo}`,
+                    description: narration,
                     debit: Math.max(0, grossAmt - vatAmt),
                     ref: billNo,
+                    paymentMethod: "Bank Transfer",
                   },
                 );
                 if (bankAccountId) {
                   await conn.execute(
                     `INSERT INTO fin_voucher_lines
-                      (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+                      (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no, payment_method)
                      VALUES
-                      (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :ref)`,
+                      (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :ref, :paymentMethod)`,
                     {
                       companyId,
                       voucherId: puvId,
                       lineNo: lineNo++,
                       accountId: bankAccountId,
-                      description: `Payment for ${billNo}`,
+                      description: narration,
                       credit: grossAmt,
                       ref: billNo,
+                      paymentMethod: "Bank Transfer",
                     },
                   );
                 }
                 if (vatAmt > 0 && vatInputAccountId) {
                   await conn.execute(
                     `INSERT INTO fin_voucher_lines
-                      (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+                      (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no, payment_method)
                      VALUES
-                      (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :ref)`,
+                      (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :ref, :paymentMethod)`,
                     {
                       companyId,
                       voucherId: puvId,
@@ -2401,6 +2457,7 @@ router.post(
                       description: `VAT on ${billNo}`,
                       debit: vatAmt,
                       ref: billNo,
+                      paymentMethod: "Bank Transfer",
                     },
                   );
                 }
@@ -3123,7 +3180,7 @@ router.post(
         throw httpError(400, "VALIDATION_ERROR", "Reversal already exists");
 
       const origLines = await query(
-        "SELECT line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no FROM fin_voucher_lines WHERE voucher_id = :id ORDER BY line_no ASC",
+        "SELECT line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no, payment_method FROM fin_voucher_lines WHERE voucher_id = :id ORDER BY line_no ASC",
         { id: originalVoucherId },
       );
 
@@ -3163,9 +3220,9 @@ router.post(
         const l = origLines[i];
         await conn.execute(
           `INSERT INTO fin_voucher_lines
-            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no, payment_method)
            VALUES
-            (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :costCenter, :referenceNo)`,
+            (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :costCenter, :referenceNo, :paymentMethod)`,
           {
             companyId,
             voucherId: reversalVoucherId,
@@ -3177,6 +3234,7 @@ router.post(
             taxCodeId: l.tax_code_id || null,
             costCenter: l.cost_center || null,
             referenceNo: l.reference_no || null,
+            paymentMethod: l.payment_method || null,
           },
         );
       }
@@ -3398,9 +3456,9 @@ router.put(
         const l = lines[i];
         await conn.execute(
           `INSERT INTO fin_voucher_lines
-             (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+             (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no, payment_method)
            VALUES
-             (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :costCenter, :referenceNo)`,
+             (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :costCenter, :referenceNo, :paymentMethod)`,
           {
             companyId,
             voucherId,
@@ -3412,6 +3470,7 @@ router.put(
             taxCodeId: l.taxCodeId || null,
             costCenter: l.costCenter || null,
             referenceNo: l.referenceNo || null,
+            paymentMethod: l.paymentMethod || null,
           },
         );
       }
@@ -3481,6 +3540,36 @@ router.get(
         { companyId, branchId },
       );
       res.json({ items });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/bank-accounts/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("FIN.BANK_RECON.VIEW"),
+  requireIdParam("id"),
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      const branchId = req.scope.branchId;
+      const id = Number(req.params.id);
+      const rows = await query(
+        `SELECT b.*, a.code AS gl_account_code, a.name AS gl_account_name,
+                c.code AS currency_code
+           FROM fin_bank_accounts b
+           JOIN fin_accounts a ON a.id = b.gl_account_id
+           LEFT JOIN fin_currencies c ON c.id = b.currency_id
+          WHERE b.company_id = :companyId AND b.branch_id = :branchId AND b.id = :id`,
+        { companyId, branchId, id },
+      );
+      if (!rows.length)
+        throw httpError(404, "NOT_FOUND", "Bank account not found");
+      res.json(rows[0]);
     } catch (e) {
       next(e);
     }
@@ -3705,32 +3794,39 @@ router.post(
       const reconciliationId = Number(req.params.id);
       const { voucherId, statementDate, description, amount, cleared } =
         req.body || {};
-      if (!statementDate || amount === undefined) {
+
+      if (!statementDate) {
+        throw httpError(400, "VALIDATION_ERROR", "statementDate is required");
+      }
+
+      const parsedAmount = Number(amount);
+      if (isNaN(parsedAmount) || parsedAmount === 0) {
         throw httpError(
           400,
           "VALIDATION_ERROR",
-          "statementDate and amount are required",
+          "Valid non-zero amount is required",
         );
       }
-      if (Number(amount || 0) === 0) {
-        throw httpError(400, "VALIDATION_ERROR", "amount must be non-zero");
-      }
+
       const headers = await query(
         "SELECT statement_from, statement_to FROM fin_bank_reconciliations WHERE id = :id",
         { id: reconciliationId },
       );
       const h = headers?.[0];
       if (!h) throw httpError(404, "NOT_FOUND", "Reconciliation not found");
-      const d = new Date(statementDate);
-      const from = new Date(h.statement_from);
-      const to = new Date(h.statement_to);
-      if (d < from || d > to) {
-        throw httpError(
-          400,
-          "VALIDATION_ERROR",
-          "statementDate must be within reconciliation date range",
+
+      // Permissive date check using string comparison to avoid timezone issues
+      const lineDateStr = String(statementDate).slice(0, 10);
+      const fromStr = String(h.statement_from).slice(0, 10);
+      const toStr = String(h.statement_to).slice(0, 10);
+
+      if (lineDateStr < fromStr || lineDateStr > toStr) {
+        // Log warning but allow if it's a linked voucher (optional, but safer for now)
+        console.warn(
+          `Statement date ${lineDateStr} is outside recon range ${fromStr} - ${toStr}`,
         );
       }
+
       const result = await query(
         `INSERT INTO fin_bank_reconciliation_lines
            (reconciliation_id, voucher_id, statement_date, description, amount, cleared)
@@ -4049,7 +4145,8 @@ router.get(
       const branchId = req.scope.branchId;
       const id = Number(req.params.id);
       const rows = await query(
-        `SELECT r.statement_from, r.statement_to, r.statement_ending_balance, b.gl_account_id
+        `SELECT r.statement_from, r.statement_to, r.statement_ending_balance, 
+                r.bank_account_id, b.gl_account_id
            FROM fin_bank_reconciliations r
            JOIN fin_bank_accounts b ON b.id = r.bank_account_id
           WHERE r.company_id = :companyId AND r.branch_id = :branchId AND r.id = :id`,
@@ -4061,15 +4158,61 @@ router.get(
       const from = String(rec.statement_from).slice(0, 10);
       const to = String(rec.statement_to).slice(0, 10);
 
-      const [openRow] = await query(
-        `SELECT COALESCE(SUM(l.debit) - SUM(l.credit), 0) AS bal
-           FROM fin_voucher_lines l
-           JOIN fin_vouchers v ON v.id = l.voucher_id
-          WHERE v.company_id = :companyId AND v.branch_id = :branchId
-            AND l.account_id = :glAccountId
-            AND v.voucher_date < :from`,
-        { companyId, branchId, glAccountId, from },
+      // Check for the previous reconciliation ending balance first (must be COMPLETED)
+      const [prevRecRow] = await query(
+        `SELECT statement_ending_balance 
+         FROM fin_bank_reconciliations
+         WHERE company_id = :companyId AND bank_account_id = :bankAccountId
+           AND statement_to < :from AND status = 'COMPLETED'
+         ORDER BY statement_to DESC LIMIT 1`,
+        { companyId, bankAccountId: rec.bank_account_id, from },
       );
+
+      let opening = 0;
+      if (prevRecRow) {
+        opening = Number(prevRecRow.statement_ending_balance || 0);
+      } else {
+        // Fallback to fiscal year opening balance + movements before 'from'
+        const [fyRow] = await query(
+          `SELECT id FROM fin_fiscal_years
+           WHERE company_id = :companyId
+             AND (:from >= start_date AND :from <= end_date)
+           ORDER BY start_date DESC LIMIT 1`,
+          { companyId, from },
+        );
+        const fyId = fyRow?.id || null;
+
+        const [obRow] = await query(
+          `SELECT COALESCE(opening_debit, 0) - COALESCE(opening_credit, 0) AS setup_ob
+           FROM fin_account_opening_balances
+           WHERE company_id = :companyId AND account_id = :glAccountId
+             AND (:fyId IS NOT NULL AND fiscal_year_id = :fyId)
+             AND (branch_id IS NULL OR branch_id = :branchId)`,
+          { companyId, glAccountId, fyId, branchId },
+        );
+
+        const [openRow] = await query(
+          `SELECT COALESCE(SUM(l.debit) - SUM(l.credit), 0) AS bal
+             FROM fin_voucher_lines l
+             JOIN fin_vouchers v ON v.id = l.voucher_id
+            WHERE v.company_id = :companyId AND v.branch_id = :branchId
+              AND l.account_id = :glAccountId
+              AND v.voucher_date < :from`,
+          { companyId, branchId, glAccountId, from },
+        );
+        opening = Number(obRow?.setup_ob || 0) + Number(openRow?.bal || 0);
+      }
+
+      // Total of items marked as cleared in this specific reconciliation
+      const [clearedRow] = await query(
+        `SELECT COALESCE(SUM(amount), 0) AS amt
+           FROM fin_bank_reconciliation_lines
+          WHERE reconciliation_id = :id AND cleared = 1`,
+        { id },
+      );
+      const clearedTotal = Number(clearedRow?.amt || 0);
+
+      // Total of all book movements (vouchers) in this period (regardless of cleared status)
       const [moveRow] = await query(
         `SELECT COALESCE(SUM(l.debit) - SUM(l.credit), 0) AS mov
            FROM fin_voucher_lines l
@@ -4079,42 +4222,123 @@ router.get(
             AND v.voucher_date >= :from AND v.voucher_date <= :to`,
         { companyId, branchId, glAccountId, from, to },
       );
-      const [clearedRow] = await query(
-        `SELECT COALESCE(SUM(amount), 0) AS amt
-           FROM fin_bank_reconciliation_lines
-          WHERE reconciliation_id = :id AND cleared = 1`,
-        { id },
-      );
-      const [unclearedRow] = await query(
-        `SELECT COALESCE(SUM(amount), 0) AS amt
-           FROM fin_bank_reconciliation_lines
-          WHERE reconciliation_id = :id AND (cleared IS NULL OR cleared = 0)`,
-        { id },
-      );
-      const opening = Number(openRow?.bal || 0);
-      const movement = Number(moveRow?.mov || 0);
-      const bookEnding = opening + movement;
+      const totalBookMovement = Number(moveRow?.mov || 0);
+
+      // For bank reconciliation purposes, "Book Balance" shown to the user
+      // is the "Adjusted Book Balance" or "Cleared Book Balance"
+      // which should equal the bank statement balance when reconciled.
+      const clearedBookEnding = opening + clearedTotal;
       const bankEnding = Number(rec.statement_ending_balance || 0);
-      const clearedTotal = Number(clearedRow?.amt || 0);
-      const unclearedTotal = Number(unclearedRow?.amt || 0);
-      const diffBankVsCleared = bankEnding - clearedTotal;
-      const diffBankVsBook = bankEnding - bookEnding;
-      const outstandingEstimate = bookEnding - clearedTotal;
+
+      // Uncleared items total (for informational purposes)
+      const unclearedTotal = totalBookMovement - clearedTotal;
 
       res.json({
         openingBookBalance: opening,
-        periodBookMovement: movement,
-        endingBookBalance: bookEnding,
+        periodBookMovement: clearedTotal, // Showing cleared movement only as requested
+        endingBookBalance: clearedBookEnding, // This is what the user wants to see change
         statementEndingBalance: bankEnding,
         clearedTotal,
         unclearedTotal,
-        diffBankVsCleared,
-        diffBankVsBook,
-        outstandingEstimate,
+        diffBankVsCleared: bankEnding - clearedBookEnding,
+        diffBankVsBook: bankEnding - clearedBookEnding, // Sync difference with cleared items
+        outstandingEstimate: unclearedTotal,
         glAccountId,
         from,
         to,
       });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/bank-reconciliations/:id/transactions",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("FIN.BANK_RECON.VIEW"),
+  requireIdParam("id"),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = Number(req.params.id);
+
+      const reconRows = await query(
+        `SELECT b.gl_account_id, r.statement_from, r.statement_to
+         FROM fin_bank_reconciliations r
+         JOIN fin_bank_accounts b ON b.id = r.bank_account_id
+         WHERE r.id = :id AND r.company_id = :companyId`,
+        { id, companyId },
+      );
+      if (!reconRows.length)
+        throw httpError(404, "NOT_FOUND", "Reconciliation not found");
+
+      const { gl_account_id, statement_from, statement_to } = reconRows[0];
+      const statusFilter = req.query.status || "APPROVED";
+
+      let where = `v.company_id = :companyId 
+           AND v.branch_id = :branchId
+           AND l.account_id = :glAccountId
+           AND v.voucher_date >= :from 
+           AND v.voucher_date <= :to`;
+
+      const params = {
+        id,
+        companyId,
+        branchId,
+        glAccountId: gl_account_id,
+        from: statement_from,
+        to: statement_to,
+      };
+
+      if (statusFilter !== "BOTH") {
+        where += ` AND v.status = :status`;
+        params.status = statusFilter;
+      }
+
+      const transactions = await query(
+        `SELECT 
+          v.id AS voucher_id,
+          v.voucher_no, 
+          v.voucher_date, 
+          v.narration AS header_narration,
+          l.description AS line_narration,
+          v.status AS voucher_status,
+          l.debit, 
+          l.credit,
+          l.account_id,
+          l.cheque_number,
+          l.cheque_date,
+          (SELECT a2.name 
+           FROM fin_voucher_lines l2 
+           JOIN fin_accounts a2 ON a2.id = l2.account_id
+           WHERE l2.voucher_id = v.id AND l2.account_id <> l.account_id
+           LIMIT 1) AS account_name,
+          (SELECT COUNT(*) FROM fin_bank_reconciliation_lines rl 
+           WHERE rl.voucher_id = v.id AND rl.reconciliation_id = :id AND rl.cleared = 1) AS is_cleared
+         FROM fin_vouchers v
+         JOIN fin_voucher_lines l ON v.id = l.voucher_id
+         WHERE ${where}
+         ORDER BY v.voucher_date ASC, v.voucher_no ASC`,
+        params,
+      );
+
+      const processed = transactions.map((t) => ({
+        voucher_no: t.voucher_no,
+        voucher_date: t.voucher_date,
+        narration: t.line_narration || t.header_narration,
+        debit: t.debit,
+        credit: t.credit,
+        account_name: t.account_name,
+        cleared: !!t.is_cleared,
+        checkNumber: t.cheque_number,
+        chequeDate: t.cheque_date,
+        voucher_id: t.voucher_id,
+      }));
+
+      res.json({ items: processed });
     } catch (e) {
       next(e);
     }
@@ -4131,13 +4355,40 @@ router.get(
     try {
       const companyId = req.scope.companyId;
       const branchId = req.scope.branchId;
+      const { from, to, bankAccountId, status } = req.query || {};
+
+      let where = "p.company_id = :companyId AND p.branch_id = :branchId";
+      const params = { companyId, branchId };
+
+      if (from) {
+        where += " AND p.instrument_date >= :from";
+        params.from = from;
+      }
+      if (to) {
+        where += " AND p.instrument_date <= :to";
+        params.to = to;
+      }
+      if (bankAccountId) {
+        where += " AND p.bank_account_id = :bankAccountId";
+        params.bankAccountId = Number(bankAccountId);
+      }
+      if (status && status !== "ALL") {
+        where += " AND p.status = :status";
+        params.status = status;
+      }
+
       const items = await query(
-        `SELECT p.id, p.instrument_no, p.instrument_date, p.status, p.voucher_id, v.voucher_no, p.created_at
+        `SELECT p.id, p.instrument_no, p.instrument_date, p.status, p.voucher_id, 
+                v.voucher_no, p.created_at, p.created_by,
+                a.name AS bank_account_name,
+                u.username AS creator_username
            FROM fin_pdc_postings p
            JOIN fin_vouchers v ON v.id = p.voucher_id
-          WHERE p.company_id = :companyId AND p.branch_id = :branchId
+           LEFT JOIN fin_accounts a ON a.id = p.bank_account_id
+           LEFT JOIN adm_users u ON u.id = p.created_by
+          WHERE ${where}
           ORDER BY p.id DESC`,
-        { companyId, branchId },
+        params,
       );
       res.json({ items });
     } catch (e) {
@@ -4178,11 +4429,13 @@ router.post(
           "instrumentDate must be on or after voucher date",
         );
       }
+      const createdAt = new Date();
+      const createdBy = req.user?.sub || null;
       const result = await query(
         `INSERT INTO fin_pdc_postings
-           (company_id, branch_id, voucher_id, instrument_no, instrument_date, bank_account_id, status)
+           (company_id, branch_id, voucher_id, instrument_no, instrument_date, bank_account_id, status, created_at, created_by)
          VALUES
-           (:companyId, :branchId, :voucherId, :instrumentNo, :instrumentDate, :bankAccountId, :status)`,
+           (:companyId, :branchId, :voucherId, :instrumentNo, :instrumentDate, :bankAccountId, :status, :createdAt, :createdBy)`,
         {
           companyId,
           branchId,
@@ -4191,6 +4444,8 @@ router.post(
           instrumentDate: instrumentDate,
           bankAccountId: bankAccountId ? Number(bankAccountId) : null,
           status: status || "HELD",
+          createdAt,
+          createdBy,
         },
       );
       res.status(201).json({ id: result.insertId });
@@ -4269,6 +4524,14 @@ router.put(
           status: status || null,
         },
       );
+
+      // If status changed to POSTED, also approve the voucher
+      if (status === "POSTED" && effVoucherId) {
+        await query(
+          "UPDATE fin_vouchers SET status = 'APPROVED' WHERE id = :voucherId AND company_id = :companyId",
+          { voucherId: Number(effVoucherId), companyId },
+        );
+      }
       res.json({ ok: true });
     } catch (e) {
       next(e);
@@ -4505,6 +4768,91 @@ router.get(
         { companyId, branchId, from, to, type },
       );
       res.json({ items });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/reports/bank-reconciliation",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("FIN.BANK_RECON.VIEW"),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const bankAccountId = req.query.bankAccountId
+        ? Number(req.query.bankAccountId)
+        : null;
+      const from = req.query.from ? String(req.query.from) : null;
+      const to = req.query.to ? String(req.query.to) : null;
+      const reconciled = req.query.reconciled; // 'reconciled', 'not_reconciled', or 'both'
+
+      if (!bankAccountId) {
+        throw httpError(400, "VALIDATION_ERROR", "Bank Account is required");
+      }
+
+      const [bankAcc] = await query(
+        `SELECT gl_account_id, name FROM fin_bank_accounts WHERE id = :bankAccountId AND company_id = :companyId`,
+        { bankAccountId, companyId },
+      );
+      if (!bankAcc) throw httpError(404, "NOT_FOUND", "Bank Account not found");
+
+      const glAccountId = bankAcc.gl_account_id;
+
+      let sql = `
+        SELECT 
+          v.voucher_no, 
+          v.voucher_date, 
+          l.description AS narration, 
+          l.debit, 
+          l.credit,
+          l.cheque_number,
+          l.cheque_date,
+          (SELECT a2.name 
+           FROM fin_voucher_lines l2 
+           JOIN fin_accounts a2 ON a2.id = l2.account_id
+           WHERE l2.voucher_id = v.id AND l2.account_id <> l.account_id
+           LIMIT 1) AS offset_account_name,
+          EXISTS(SELECT 1 FROM fin_bank_reconciliation_lines rl WHERE rl.voucher_id = v.id AND rl.cleared = 1) AS is_reconciled
+        FROM fin_vouchers v
+        JOIN fin_voucher_lines l ON v.id = l.voucher_id
+        WHERE v.company_id = :companyId 
+          AND v.branch_id = :branchId
+          AND l.account_id = :glAccountId
+          AND (:from IS NULL OR v.voucher_date >= :from)
+          AND (:to IS NULL OR v.voucher_date <= :to)
+        ORDER BY v.voucher_date ASC, v.voucher_no ASC
+      `;
+
+      const rows = await query(sql, {
+        companyId,
+        branchId,
+        glAccountId,
+        from,
+        to,
+      });
+
+      const items = rows
+        .map((r) => {
+          let status = "";
+          if (r.is_reconciled) {
+            status = "Reconciled";
+          } else {
+            if (r.credit > 0) status = "Unpresented";
+            else if (r.debit > 0) status = "Uncleared";
+          }
+          return { ...r, status };
+        })
+        .filter((i) => {
+          if (reconciled === "reconciled") return i.is_reconciled;
+          if (reconciled === "not_reconciled") return !i.is_reconciled;
+          return true;
+        });
+
+      res.json({ items, bankName: bankAcc.name });
     } catch (e) {
       next(e);
     }

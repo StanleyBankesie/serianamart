@@ -673,6 +673,43 @@ export default function PurchaseOrdersLocalList() {
                             View
                           </Link>
                         )}
+                        <button
+                          type="button"
+                          className="text-slate-700 hover:text-slate-900 text-sm font-medium"
+                          title="Print"
+                          onClick={() =>
+                            window.open(
+                              `/purchase/purchase-orders-local/${po.id}`,
+                              "_blank",
+                            )
+                          }
+                        >
+                          Print
+                        </button>
+                        <button
+                          type="button"
+                          className="text-slate-700 hover:text-slate-900 text-sm font-medium"
+                          title="PDF"
+                          onClick={async () => {
+                            try {
+                              const res = await api.post(
+                                `/documents/purchase-order/${po.id}/render?format=pdf`,
+                                {},
+                                { responseType: "blob" },
+                              );
+                              const url = URL.createObjectURL(res.data);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = `PO-${po.po_no || po.id}.pdf`;
+                              a.click();
+                              URL.revokeObjectURL(url);
+                            } catch (e) {
+                              toast.error("Failed to download PDF");
+                            }
+                          }}
+                        >
+                          PDF
+                        </button>
                         <Link
                           to={`/purchase/purchase-orders-local/${po.id}/edit`}
                           className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"

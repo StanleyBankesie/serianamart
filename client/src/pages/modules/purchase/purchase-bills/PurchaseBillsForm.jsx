@@ -1183,17 +1183,21 @@ export default function PurchaseBillsForm() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-4 justify-end">
-        <button type="button" className="btn-secondary" onClick={handleClear}>
+      <div className="flex justify-end gap-3 mt-8">
+        <button
+          type="button"
+          className="btn-secondary px-6"
+          onClick={handleClear}
+        >
           Clear
         </button>
         <button
           type="button"
-          className="btn-success"
+          className="btn-success px-6"
           onClick={handlePostClick}
           disabled={saving}
         >
-          Post
+          {saving ? "Posting..." : "Post Bill"}
         </button>
       </div>
     </div>

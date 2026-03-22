@@ -10,6 +10,16 @@ const router = express.Router();
 
 function canonicalDocumentType(type) {
   const t = String(type || "").trim().toLowerCase();
+  if (
+    t === "general-template" ||
+    t === "general template" ||
+    t === "general_template" ||
+    t === "general" ||
+    t === "header" ||
+    t === "report-header"
+  ) {
+    return "general-template";
+  }
   if (t === "sales-order" || t === "sales order" || t === "sales_order" || t === "so") {
     return "sales-order";
   }
@@ -37,6 +47,17 @@ function canonicalDocumentType(type) {
 
 function docTypeSynonymsLower(type) {
   const c = canonicalDocumentType(type).toLowerCase();
+  if (c === "general-template") {
+    return [
+      "general-template",
+      "general template",
+      "general_template",
+      "general",
+      "header",
+      "report-header",
+      "report header",
+    ];
+  }
   if (c === "sales-order") {
     return [
       "sales-order",
@@ -190,69 +211,9 @@ router.post(
       if (!n || !dt || !rawHtml)
         throw httpError(400, "VALIDATION_ERROR", "Missing fields");
       const sanitized = sanitizeHtml(rawHtml, {
-        allowedTags: [
-          "div",
-          "span",
-          "p",
-          "img",
-          "style",
-          "table",
-          "thead",
-          "tbody",
-          "tr",
-          "th",
-          "td",
-          "h1",
-          "h2",
-          "h3",
-          "h4",
-          "h5",
-          "h6",
-          "ul",
-          "ol",
-          "li",
-          "strong",
-          "em",
-          "u",
-          "br",
-          "hr",
-        ],
-        allowedAttributes: {
-          div: ["style", "class"],
-          span: ["style", "class"],
-          p: ["style", "class"],
-          img: ["src", "alt", "style", "class"],
-          table: ["style", "class"],
-          thead: ["style", "class"],
-          tbody: ["style", "class"],
-          tr: ["style", "class"],
-          th: ["style", "class", "colspan", "rowspan"],
-          td: ["style", "class", "colspan", "rowspan"],
-          h1: ["style", "class"],
-          h2: ["style", "class"],
-          h3: ["style", "class"],
-          h4: ["style", "class"],
-          h5: ["style", "class"],
-          h6: ["style", "class"],
-          ul: ["style", "class"],
-          ol: ["style", "class"],
-          li: ["style", "class"],
-        },
-        allowedStyles: {
-          "*": {
-            color: [/^.*$/],
-            "background-color": [/^.*$/],
-            "text-align": [/^.*$/],
-            "font-size": [/^.*$/],
-            "font-weight": [/^.*$/],
-            border: [/^.*$/],
-            "border-collapse": [/^.*$/],
-            padding: [/^.*$/],
-            margin: [/^.*$/],
-            width: [/^.*$/],
-            height: [/^.*$/],
-          },
-        },
+        allowedTags: false,
+        allowedAttributes: false,
+        allowVulnerableTags: true,
       });
       const result = await query(
         `INSERT INTO document_templates 
@@ -333,6 +294,7 @@ router.put(
           ? sanitizeHtml(String(rawHtml), {
               allowedTags: false,
               allowedAttributes: false,
+              allowVulnerableTags: true,
             })
           : existing.html_content;
       await query(

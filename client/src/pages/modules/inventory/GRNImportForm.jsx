@@ -1589,17 +1589,17 @@ export default function GRNImportForm() {
             </fieldset>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
-              <Link to="/inventory/grn-import" className="btn-success">
+              <Link to="/inventory/grn-import" className="btn-secondary">
                 Cancel
               </Link>
               {!isView ? (
-                <button type="submit" className="btn-success" disabled={saving}>
+                <button type="submit" className="btn-primary" disabled={saving}>
                   {saving ? "Saving..." : "Save GRN"}
                 </button>
               ) : null}
               <button
                 type="button"
-                className="btn-success ml-2"
+                className="btn-success"
                 onClick={openForwardModal}
                 disabled={saving || isNew}
               >

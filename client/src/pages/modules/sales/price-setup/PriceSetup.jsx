@@ -38,13 +38,12 @@ export default function PriceSetup() {
   const loadInitialData = async () => {
     try {
       console.log("Loading initial data...");
-      const [productsRes, customersRes, priceTypesRes, currenciesRes] =
-        await Promise.all([
-          api.get("/inventory/items"),
-          api.get("/sales/customers"),
-          api.get("/sales/price-types"),
-          api.get("/finance/currencies"),
-        ]);
+      const [productsRes, customersRes, priceTypesRes, currenciesRes] = await Promise.all([
+        api.get("/inventory/items"),
+        api.get("/sales/customers", { params: { active: "true" } }),
+        api.get("/sales/price-types"),
+        api.get("/finance/currencies")
+      ]);
 
       console.log("Products loaded:", productsRes.data);
       console.log("Customers loaded:", customersRes.data);

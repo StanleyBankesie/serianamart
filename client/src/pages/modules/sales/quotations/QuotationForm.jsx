@@ -23,6 +23,7 @@ export default function QuotationForm() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
 
   // Form State matching change.txt structure but adapted for API
   const [formData, setFormData] = useState({
@@ -32,7 +33,8 @@ export default function QuotationForm() {
     valid_days: 30,
     valid_until: "", // Calculated from date + valid_days
     status: "DRAFT",
-    terms_and_conditions: "",
+    terms_and_conditions:
+      "1. Validity: This quotation is valid for the period stated above.\n2. Payment: Payment is required as per the payment type selected.\n3. Delivery: Delivery will be made within the agreed timeline after order confirmation.\n4. Taxes: All prices are subject to applicable taxes as shown.",
     remarks: "",
     warehouse_id: "",
     price_type: "RETAIL",
@@ -55,6 +57,7 @@ export default function QuotationForm() {
   });
 
   const [customers, setCustomers] = useState([]);
+  const [prospects, setProspects] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]); // Renamed to avoid confusion with form items
   const [warehouses, setWarehouses] = useState([]);
   const [currencies, setCurrencies] = useState([]);
@@ -186,7 +189,7 @@ export default function QuotationForm() {
 
   const ensureTaxComponentsLoaded = async () => {
     const uniqueTaxIds = Array.from(
-      new Set(items.map((i) => String(i.tax_type)).filter(Boolean))
+      new Set(items.map((i) => String(i.tax_type)).filter(Boolean)),
     );
     const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
     if (missing.length) {
@@ -196,6 +199,7 @@ export default function QuotationForm() {
 
   useEffect(() => {
     fetchCustomers();
+    fetchProspects();
     fetchInventoryItems();
     fetchWarehouses();
     fetchCurrencies();
@@ -238,12 +242,27 @@ export default function QuotationForm() {
 
   const fetchCustomers = async () => {
     try {
-      const response = await api.get("/sales/customers");
+      const response = await api.get("/sales/customers", {
+        params: { active: "true" },
+      });
       setCustomers(
-        Array.isArray(response.data?.items) ? response.data.items : []
+        Array.isArray(response.data?.items) ? response.data.items : [],
       );
     } catch (error) {
       console.error("Error fetching customers:", error);
+    }
+  };
+
+  const fetchProspects = async () => {
+    try {
+      const response = await api.get("/sales/prospect-customers", {
+        params: { active: "true" },
+      });
+      setProspects(
+        Array.isArray(response.data?.items) ? response.data.items : [],
+      );
+    } catch (error) {
+      console.error("Error fetching prospects:", error);
     }
   };
 
@@ -251,7 +270,7 @@ export default function QuotationForm() {
     try {
       const response = await api.get("/inventory/items");
       setInventoryItems(
-        Array.isArray(response.data?.items) ? response.data.items : []
+        Array.isArray(response.data?.items) ? response.data.items : [],
       );
     } catch (error) {
       console.error("Error fetching items:", error);
@@ -262,7 +281,7 @@ export default function QuotationForm() {
     try {
       const response = await api.get("/inventory/warehouses");
       setWarehouses(
-        Array.isArray(response.data?.items) ? response.data.items : []
+        Array.isArray(response.data?.items) ? response.data.items : [],
       );
     } catch (error) {
       console.error("Error fetching warehouses:", error);
@@ -278,10 +297,11 @@ export default function QuotationForm() {
       setCurrencies(arr);
       const cedi =
         arr.find(
-          (c) => String(c.code || c.currency_code || "").toUpperCase() === "GHS"
+          (c) =>
+            String(c.code || c.currency_code || "").toUpperCase() === "GHS",
         ) ||
         arr.find((c) =>
-          /ghana|cedi/i.test(String(c.name || c.currency_name || ""))
+          /ghana|cedi/i.test(String(c.name || c.currency_name || "")),
         );
       if (cedi) {
         setFormData((prev) => ({ ...prev, currency_id: cedi.id }));
@@ -309,7 +329,7 @@ export default function QuotationForm() {
       if (mappedTaxes.length > 0 && !newItem.tax_type) {
         const vat20 =
           mappedTaxes.find(
-            (t) => Number(t.rate) === 20 && /vat/i.test(t.label)
+            (t) => Number(t.rate) === 20 && /vat/i.test(t.label),
           ) ||
           mappedTaxes.find((t) => Number(t.rate) === 20) ||
           mappedTaxes.find((t) => /vat/i.test(t.label)) ||
@@ -335,7 +355,7 @@ export default function QuotationForm() {
     try {
       const response = await api.get("/sales/price-types");
       setPriceTypes(
-        Array.isArray(response.data?.items) ? response.data.items : []
+        Array.isArray(response.data?.items) ? response.data.items : [],
       );
     } catch (error) {
       console.error("Error fetching price types:", error);
@@ -347,16 +367,16 @@ export default function QuotationForm() {
       // Set prepared by from AuthContext first (most reliable)
       const usernameFromAuth = user?.username || "";
       setPreparedBy(usernameFromAuth);
-      
+
       const meResp = await api.get("/admin/me");
       const companyId = meResp.data?.scope?.companyId;
-      
+
       // Update prepared by from API response if available and AuthContext didn't have it
       const usernameFromApi = meResp.data?.user?.username || "";
       if (!usernameFromAuth && usernameFromApi) {
         setPreparedBy(usernameFromApi);
       }
-      
+
       if (companyId) {
         const cResp = await api.get(`/admin/companies/${companyId}`);
         const item = cResp.data?.item || {};
@@ -395,7 +415,8 @@ export default function QuotationForm() {
   const getPriceTypeIdFromName = (name) => {
     if (!name || !priceTypes.length) return null;
     const match = priceTypes.find(
-      (pt) => String(pt.name || "").toUpperCase() === String(name).toUpperCase()
+      (pt) =>
+        String(pt.name || "").toUpperCase() === String(name).toUpperCase(),
     );
     return match ? match.id : null;
   };
@@ -421,7 +442,7 @@ export default function QuotationForm() {
         .filter(
           (p) =>
             String(p.product_id) === String(productId) &&
-            (ptId ? String(p.price_type_id) === String(ptId) : true)
+            (ptId ? String(p.price_type_id) === String(ptId) : true),
         )
         .sort((a, b) => {
           const ad = a.effective_date
@@ -467,18 +488,24 @@ export default function QuotationForm() {
           currency_id: data.currency_id || 4,
           exchange_rate: data.exchange_rate || 1,
         });
-        
+
         // Set customer name input from customer lookup
         if (data.customer_id) {
           const customer = customers.find(
-            (c) => String(c.id) === String(data.customer_id)
+            (c) => String(c.id) === String(data.customer_id),
           );
           if (customer) {
-            setCustomerNameInput(data.customer_name || customer.customer_name || "");
-            setCustomerAddressInput(data.customer_address || customer.address || "");
+            setCustomerNameInput(
+              data.customer_name || customer.customer_name || "",
+            );
+            setCustomerAddressInput(
+              data.customer_address || customer.address || "",
+            );
             setCustomerCityInput(data.customer_city || customer.city || "");
             setCustomerStateInput(data.customer_state || customer.state || "");
-            setCustomerCountryInput(data.customer_country || customer.country || "");
+            setCustomerCountryInput(
+              data.customer_country || customer.country || "",
+            );
           }
         }
 
@@ -534,6 +561,38 @@ export default function QuotationForm() {
     }
   };
 
+  const handleCustomerSelect = (name) => {
+    setCustomerNameInput(name);
+
+    // Find in customers
+    const cust = customers.find(
+      (c) => String(c.customer_name).trim() === String(name).trim(),
+    );
+    if (cust) {
+      setFormData((prev) => ({ ...prev, customer_id: cust.id }));
+      setCustomerAddressInput(cust.address || "");
+      setCustomerCityInput(cust.city || "");
+      setCustomerStateInput(cust.state || "");
+      setCustomerCountryInput(cust.country || "");
+      return;
+    }
+
+    // Find in prospects
+    const pros = prospects.find(
+      (p) =>
+        String(p.customer_name || p.prospect_customer).trim() ===
+        String(name).trim(),
+    );
+    if (pros) {
+      // For prospects, we'll create them as customers later if not in edit mode
+      // or if they don't have a real customer_id yet.
+      setCustomerAddressInput(pros.address || "");
+      setCustomerCityInput(pros.city || "");
+      setCustomerStateInput(pros.state || "");
+      setCustomerCountryInput(pros.country || "");
+    }
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     if (name === "quotation_date" || name === "valid_days") {
@@ -563,7 +622,7 @@ export default function QuotationForm() {
         qty: 1, // Default qty
       }));
       fetchStandardPriceForItem(value, fallbackPrice).then((sp) =>
-        setNewItem((prev) => ({ ...prev, unit_price: sp }))
+        setNewItem((prev) => ({ ...prev, unit_price: sp })),
       );
       if (value) {
         api
@@ -700,13 +759,13 @@ export default function QuotationForm() {
   // Helper function to remove undefined values and convert to null
   const cleanPayload = (obj) => {
     if (obj === null || obj === undefined) return null;
-    if (typeof obj !== 'object') return obj;
+    if (typeof obj !== "object") return obj;
     if (Array.isArray(obj)) {
       return obj.map((item) => {
         return item === undefined ? null : cleanPayload(item);
       });
     }
-    
+
     const cleaned = {};
     Object.keys(obj).forEach((key) => {
       const value = obj[key];
@@ -726,6 +785,8 @@ export default function QuotationForm() {
     }
 
     setLoading(true);
+    setError("");
+    setSuccessMessage("");
     const totalsAgg = calcAggregates();
 
     // Auto-generate Quotation No if empty
@@ -746,19 +807,23 @@ export default function QuotationForm() {
         setLoading(false);
         return;
       }
-      
+
       // Ensure all items have calculated values and filter out invalid items
       const processedItems = items
         .filter((item) => item.item_id && Number(item.item_id) > 0)
         .map((item) => {
           const calculations = calcItemTotals(item);
-          const taxTypeId = item.tax_type !== null && item.tax_type !== undefined && item.tax_type !== "" 
-            ? Number(item.tax_type) 
-            : null;
-          const taxInfo = taxTypeId !== null 
-            ? taxes.find((t) => String(t.value) === String(taxTypeId))
-            : null;
-          
+          const taxTypeId =
+            item.tax_type !== null &&
+            item.tax_type !== undefined &&
+            item.tax_type !== ""
+              ? Number(item.tax_type)
+              : null;
+          const taxInfo =
+            taxTypeId !== null
+              ? taxes.find((t) => String(t.value) === String(taxTypeId))
+              : null;
+
           // Ensure all values are explicitly set (no undefined)
           return {
             item_id: Number(item.item_id),
@@ -768,52 +833,69 @@ export default function QuotationForm() {
             discount_percent: Number(item.discount_percent) || 0,
             tax_type: taxTypeId,
             tax_id: taxTypeId,
-            tax_rate: taxInfo ? (Number(taxInfo.rate) || 0) : 0,
+            tax_rate: taxInfo ? Number(taxInfo.rate) || 0 : 0,
             tax_amount: Number(calculations.taxAmt) || 0,
             line_total: Number(calculations.total) || 0,
             total_amount: Number(calculations.total) || 0,
             net_amount: Number(calculations.net) || 0,
           };
         });
-      
+
       // Build payload ensuring all values are explicitly set (no undefined)
       const payload = {
         quotation_no: finalQuotationNo ? String(finalQuotationNo) : null,
-        quotation_date: formData.quotation_date ? String(formData.quotation_date) : null,
+        quotation_date: formData.quotation_date
+          ? String(formData.quotation_date)
+          : null,
         customer_id: customerId ? Number(customerId) : null,
         valid_until: formData.valid_until ? String(formData.valid_until) : null,
         status: formData.status ? String(formData.status) : "DRAFT",
-        terms_and_conditions: formData.terms_and_conditions && formData.terms_and_conditions.trim() ? String(formData.terms_and_conditions) : null,
-        remarks: formData.remarks && formData.remarks.trim() ? String(formData.remarks) : null,
-        warehouse_id: formData.warehouse_id ? Number(formData.warehouse_id) : null,
+        terms_and_conditions:
+          formData.terms_and_conditions && formData.terms_and_conditions.trim()
+            ? String(formData.terms_and_conditions)
+            : null,
+        remarks:
+          formData.remarks && formData.remarks.trim()
+            ? String(formData.remarks)
+            : null,
+        warehouse_id: formData.warehouse_id
+          ? Number(formData.warehouse_id)
+          : null,
         price_type: formData.price_type ? String(formData.price_type) : null,
-        payment_type: formData.payment_type ? String(formData.payment_type) : null,
+        payment_type: formData.payment_type
+          ? String(formData.payment_type)
+          : null,
         customer_name: customerNameInput ? String(customerNameInput) : null,
-        customer_address: customerAddressInput ? String(customerAddressInput) : null,
+        customer_address: customerAddressInput
+          ? String(customerAddressInput)
+          : null,
         customer_city: customerCityInput ? String(customerCityInput) : null,
         customer_state: customerStateInput ? String(customerStateInput) : null,
-        customer_country: customerCountryInput ? String(customerCountryInput) : null,
+        customer_country: customerCountryInput
+          ? String(customerCountryInput)
+          : null,
         total_amount: totalsAgg.grand ? Number(totalsAgg.grand) : 0,
         items: processedItems,
       };
 
       // Clean payload to remove any undefined values (double-check)
       const cleanedPayload = cleanPayload(payload);
-      
+
       // Final validation: ensure customer_id is a valid number
       if (!cleanedPayload.customer_id || isNaN(cleanedPayload.customer_id)) {
         alert("Invalid customer ID. Please try again.");
         setLoading(false);
         return;
       }
-      
+
       // Ensure all string fields that could be undefined are null
       cleanedPayload.quotation_no = cleanedPayload.quotation_no || null;
       cleanedPayload.quotation_date = cleanedPayload.quotation_date || null;
       cleanedPayload.valid_until = cleanedPayload.valid_until || null;
       cleanedPayload.status = cleanedPayload.status || "DRAFT";
       cleanedPayload.remarks = cleanedPayload.remarks || null;
-      cleanedPayload.terms_and_conditions = cleanedPayload.terms_and_conditions || null;
+      cleanedPayload.terms_and_conditions =
+        cleanedPayload.terms_and_conditions || null;
       cleanedPayload.warehouse_id = cleanedPayload.warehouse_id || null;
       cleanedPayload.price_type = cleanedPayload.price_type || null;
       cleanedPayload.payment_type = cleanedPayload.payment_type || null;
@@ -823,16 +905,22 @@ export default function QuotationForm() {
       cleanedPayload.customer_state = cleanedPayload.customer_state || null;
       cleanedPayload.customer_country = cleanedPayload.customer_country || null;
       cleanedPayload.total_amount = cleanedPayload.total_amount || 0;
-      
+
       // Ensure all items have valid values
       if (cleanedPayload.items && Array.isArray(cleanedPayload.items)) {
-        cleanedPayload.items = cleanedPayload.items.map(item => ({
+        cleanedPayload.items = cleanedPayload.items.map((item) => ({
           item_id: Number(item.item_id) || null,
           qty: Number(item.qty) || 0,
           quantity: Number(item.qty) || 0,
           unit_price: Number(item.unit_price) || 0,
-          tax_id: item.tax_id !== null && item.tax_id !== undefined ? Number(item.tax_id) : null,
-          tax_type: item.tax_type !== null && item.tax_type !== undefined ? Number(item.tax_type) : null,
+          tax_id:
+            item.tax_id !== null && item.tax_id !== undefined
+              ? Number(item.tax_id)
+              : null,
+          tax_type:
+            item.tax_type !== null && item.tax_type !== undefined
+              ? Number(item.tax_type)
+              : null,
           tax_rate: Number(item.tax_rate) || 0,
           tax_amount: Number(item.tax_amount) || 0,
           line_total: Number(item.line_total) || 0,
@@ -846,18 +934,19 @@ export default function QuotationForm() {
         await api.post("/sales/quotations", cleanedPayload);
       }
 
-      console.log("Submitting:", payload);
-      alert(
+      setSuccessMessage(
         isEditMode
-          ? "Quotation updated successfully!"
-          : "Quotation created successfully!"
+          ? "Quotation updated successfully."
+          : "Quotation created successfully.",
       );
-      navigate("/sales/quotations");
+      setTimeout(() => {
+        navigate("/sales/quotations");
+      }, 600);
     } catch (error) {
       console.error("Error saving quotation:", error);
       const msg =
         error.response?.data?.message || error.message || "Unknown error";
-      alert(`Error saving quotation: ${msg}`);
+      setError(`Error saving quotation: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -971,6 +1060,13 @@ export default function QuotationForm() {
             </p>
           </div>
           <div className="flex gap-4 print:hidden items-center">
+            <Link
+              to="/sales/prospect-customers/new"
+              className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg transition-colors text-sm font-medium border border-green-500"
+            >
+              <Plus className="w-4 h-4" />
+              Create Prospect
+            </Link>
             <button
               onClick={handleDownload}
               className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg transition-colors text-sm font-medium border border-white/20"
@@ -996,6 +1092,16 @@ export default function QuotationForm() {
         </div>
       </div>
       <div className="p-6 print:hidden">
+        {successMessage ? (
+          <div className="alert alert-success mb-4">
+            <span>{successMessage}</span>
+          </div>
+        ) : null}
+        {error ? (
+          <div className="alert alert-error mb-4">
+            <span>{error}</span>
+          </div>
+        ) : null}
         <form onSubmit={handleSubmit}>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
             <div>
@@ -1032,11 +1138,28 @@ export default function QuotationForm() {
               <input
                 type="text"
                 value={customerNameInput}
-                onChange={(e) => setCustomerNameInput(e.target.value)}
+                onChange={(e) => handleCustomerSelect(e.target.value)}
+                list="customer-suggestions"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
                 placeholder="Type customer name"
                 required
               />
+              <datalist id="customer-suggestions">
+                {Array.from(
+                  new Set(
+                    [
+                      ...customers.map((c) => c.customer_name),
+                      ...prospects.map(
+                        (p) => p.customer_name || p.prospect_customer,
+                      ),
+                    ].filter(Boolean),
+                  ),
+                )
+                  .sort()
+                  .map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+              </datalist>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1128,7 +1251,7 @@ export default function QuotationForm() {
                 readOnly
               />
             </div>
-            <div className="md:col-span-3">
+            <div className="hidden">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Status
               </label>
@@ -1436,8 +1559,8 @@ export default function QuotationForm() {
               {loading
                 ? "Saving..."
                 : isEditMode
-                ? "Update Quotation"
-                : "Create Quotation"}
+                  ? "Update Quotation"
+                  : "Create Quotation"}
             </button>
           </div>
         </form>
@@ -1455,7 +1578,9 @@ export default function QuotationForm() {
                 {companyInfo.name || "Company"}
               </div>
               {companyInfo.address && <div>{companyInfo.address}</div>}
-              {(companyInfo.city || companyInfo.state || companyInfo.country) && (
+              {(companyInfo.city ||
+                companyInfo.state ||
+                companyInfo.country) && (
                 <div>
                   {[companyInfo.city, companyInfo.state, companyInfo.country]
                     .filter(Boolean)
@@ -1489,34 +1614,26 @@ export default function QuotationForm() {
               <div className="flex-1">
                 {customerNameInput ||
                   customers.find(
-                    (c) => String(c.id) === String(formData.customer_id)
+                    (c) => String(c.id) === String(formData.customer_id),
                   )?.customer_name ||
                   ""}
               </div>
             </div>
             <div className="flex">
               <div className="w-32">Address</div>
-              <div className="flex-1">
-                {customerAddressInput || ""}
-              </div>
+              <div className="flex-1">{customerAddressInput || ""}</div>
             </div>
             <div className="flex">
               <div className="w-32">City</div>
-              <div className="flex-1">
-                {customerCityInput || ""}
-              </div>
+              <div className="flex-1">{customerCityInput || ""}</div>
             </div>
             <div className="flex">
               <div className="w-32">State</div>
-              <div className="flex-1">
-                {customerStateInput || ""}
-              </div>
+              <div className="flex-1">{customerStateInput || ""}</div>
             </div>
             <div className="flex">
               <div className="w-32">Country</div>
-              <div className="flex-1">
-                {customerCountryInput || ""}
-              </div>
+              <div className="flex-1">{customerCountryInput || ""}</div>
             </div>
           </div>
           <div className="text-right"></div>
@@ -1598,7 +1715,11 @@ export default function QuotationForm() {
           THANK YOU FOR YOUR BUSINESS!
         </div>
       </div>
-      <div ref={pdfRef} className="hidden p-8 bg-white" style={{ width: '794px', maxWidth: '794px' }}>
+      <div
+        ref={pdfRef}
+        className="hidden p-8 bg-white"
+        style={{ width: "794px", maxWidth: "794px" }}
+      >
         <div className="grid grid-cols-3 gap-4 items-start mb-4">
           <div className="flex items-center gap-3">
             <img
@@ -1611,7 +1732,9 @@ export default function QuotationForm() {
                 {companyInfo.name || "Company"}
               </div>
               {companyInfo.address && <div>{companyInfo.address}</div>}
-              {(companyInfo.city || companyInfo.state || companyInfo.country) && (
+              {(companyInfo.city ||
+                companyInfo.state ||
+                companyInfo.country) && (
                 <div>
                   {[companyInfo.city, companyInfo.state, companyInfo.country]
                     .filter(Boolean)
@@ -1642,40 +1765,35 @@ export default function QuotationForm() {
               <div className="flex-1">
                 {customerNameInput ||
                   customers.find(
-                    (c) => String(c.id) === String(formData.customer_id)
+                    (c) => String(c.id) === String(formData.customer_id),
                   )?.customer_name ||
                   ""}
               </div>
             </div>
             <div className="flex">
               <div className="w-32">Address</div>
-              <div className="flex-1">
-                {customerAddressInput || ""}
-              </div>
+              <div className="flex-1">{customerAddressInput || ""}</div>
             </div>
             <div className="flex">
               <div className="w-32">City</div>
-              <div className="flex-1">
-                {customerCityInput || ""}
-              </div>
+              <div className="flex-1">{customerCityInput || ""}</div>
             </div>
             <div className="flex">
               <div className="w-32">State</div>
-              <div className="flex-1">
-                {customerStateInput || ""}
-              </div>
+              <div className="flex-1">{customerStateInput || ""}</div>
             </div>
             <div className="flex">
               <div className="w-32">Country</div>
-              <div className="flex-1">
-                {customerCountryInput || ""}
-              </div>
+              <div className="flex-1">{customerCountryInput || ""}</div>
             </div>
           </div>
           <div className="text-right"></div>
         </div>
-        <div className="mb-2" style={{ width: '100%', overflow: 'visible' }}>
-          <table className="quotation-table text-sm" style={{ width: '100%', tableLayout: 'fixed' }}>
+        <div className="mb-2" style={{ width: "100%", overflow: "visible" }}>
+          <table
+            className="quotation-table text-sm"
+            style={{ width: "100%", tableLayout: "fixed" }}
+          >
             <colgroup>
               <col style={{ width: "35%" }} />
               <col style={{ width: "15%" }} />

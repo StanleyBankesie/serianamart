@@ -19,6 +19,9 @@ import CustomerCreditList from "./customer-credit/CustomerCreditList.jsx";
 import CustomerCreditForm from "./customer-credit/CustomerCreditForm.jsx";
 import CustomerList from "./customers/CustomerList.jsx";
 import CustomerForm from "./customers/CustomerForm.jsx";
+import PotentialCustomerList from "./potential-customers/PotentialCustomerList.jsx";
+import PotentialCustomerForm from "./potential-customers/PotentialCustomerForm.jsx";
+import ProspectConversion from "./potential-customers/ProspectConversion.jsx";
 import BulkCustomerUpload from "./bulk-upload/BulkCustomerUpload.jsx";
 import SalesReports from "./reports/SalesReports.jsx";
 import SalesReturnList from "./returns/SalesReturnList.jsx";
@@ -368,6 +371,47 @@ const SalesModuleHome = () => {
           ],
         },
         {
+          title: "Prospective Customers",
+          path: "/sales/prospect-customers",
+          description: "Manage prospective customer (leads) information",
+          icon: "🔮",
+          actions: [
+            <ActionButton
+              key="view"
+              label="View"
+              path="/sales/prospect-customers"
+              type="outline"
+              featureKey="sales:prospect-customers"
+              action="view"
+            />,
+            <ActionButton
+              key="add"
+              label="Add"
+              path="/sales/prospect-customers/new"
+              type="primary"
+              featureKey="sales:prospect-customers"
+              action="create"
+            />,
+          ],
+        },
+        {
+          title: "Prospect Conversion",
+          path: "/sales/prospect-conversion",
+          description:
+            "Convert prospective customers into full customer accounts",
+          icon: "🔄",
+          actions: [
+            <ActionButton
+              key="convert"
+              label="Convert"
+              path="/sales/prospect-conversion"
+              type="primary"
+              featureKey="sales:customers"
+              action="create"
+            />,
+          ],
+        },
+        {
           title: "Bulk Upload",
           path: "/sales/bulk-upload",
           description: "Import customers in bulk",
@@ -416,6 +460,18 @@ const SalesModuleHome = () => {
           path: "/sales/reports/sales-tracking",
           description: "Track quotations → orders → deliveries → invoices",
           icon: "🔎",
+        },
+        {
+          title: "Customer List",
+          path: "/sales/reports/customer-list",
+          description: "Export all active customers to Excel",
+          icon: "👥",
+        },
+        {
+          title: "Prospective Customer List",
+          path: "/sales/reports/prospect-customer-list",
+          description: "Export all prospective customers to Excel",
+          icon: "🔮",
         },
         {
           title: "Quotation Summary",
@@ -540,8 +596,40 @@ export default function SalesHome() {
       <Route path="/customers" element={<CustomerList />} />
       <Route path="/customers/new" element={<CustomerForm />} />
       <Route path="/customers/:id" element={<CustomerForm />} />
-      {/* Bulk Upload removed */}
+      <Route path="/prospect-customers" element={<PotentialCustomerList />} />
+      <Route
+        path="/prospect-customers/new"
+        element={<PotentialCustomerForm />}
+      />
+      <Route
+        path="/prospect-customers/:id"
+        element={<PotentialCustomerForm />}
+      />
+      <Route path="/prospect-conversion" element={<ProspectConversion />} />
+      <Route path="/bulk-upload" element={<BulkCustomerUpload />} />
       {/* Additional sales report routes */}
+      <Route
+        path="/reports/prospect-customer-list"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/ProspectiveCustomerListReportPage.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="/reports/customer-list"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(() => import("./reports/CustomerListReportPage.jsx")),
+            )}
+          </React.Suspense>
+        }
+      />
       <Route
         path="/reports/quotation-summary"
         element={

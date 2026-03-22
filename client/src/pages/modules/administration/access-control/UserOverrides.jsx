@@ -9,12 +9,19 @@ export default function UserOverrides() {
     { code: "SALES.DISCOUNT.ALLOW", label: "Permission to give discount" },
     { code: "WORKFLOW.APPROVAL.REVERSE", label: "Reversal of approval" },
     { code: "SALES.ORDER.CANCEL", label: "Sales Order Cancellations" },
+    { code: "SALES.QUOTATION.CANCEL", label: "Sales Quotation Cancellation" },
     { code: "PURCHASE.ORDER.CANCEL", label: "Purchase Order Cancellations" },
     { code: "SALES.INVOICE.CANCEL", label: "Invoice Cancellations" },
     { code: "PURCHASE.GRN.REVERSE", label: "GRN Reversal" },
     { code: "PURCHASE.BILL.CANCEL", label: "Purchase Bill Cancellation" },
-    { code: "PURCHASE.SHIPPING_ADVICE.CANCEL", label: "Cancel Shipping Advice" },
-    { code: "PURCHASE.CLEARING_AT_PORT.CANCEL", label: "Cancel Clearing at Port" },
+    {
+      code: "PURCHASE.SHIPPING_ADVICE.CANCEL",
+      label: "Cancel Shipping Advice",
+    },
+    {
+      code: "PURCHASE.CLEARING_AT_PORT.CANCEL",
+      label: "Cancel Clearing at Port",
+    },
   ];
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -175,7 +182,7 @@ export default function UserOverrides() {
       const permissions = STANDARD_EXCEPTIONS.map((e) => ({
         permission_code: e.code,
         effect: exPerms[e.code] ? "ALLOW" : "DENY",
-        is_active: exPerms[e.code] ? 1 : 0,
+        is_active: 1,
         exception_type: "STANDARD",
       }));
       await api.put(`/admin/users/${selectedUser}/exceptional-permissions`, {
