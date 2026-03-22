@@ -139,7 +139,9 @@ export default function PotentialCustomerForm() {
         <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-bold dark:text-brand-300">
-              {isEdit ? "Edit Prospective Customer" : "New Prospective Customer"}
+              {isEdit
+                ? "Edit Prospective Customer"
+                : "New Prospective Customer"}
             </h1>
           </div>
           <div className="flex gap-2">

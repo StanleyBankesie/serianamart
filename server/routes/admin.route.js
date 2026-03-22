@@ -487,10 +487,26 @@ async function ensurePagesSeed() {
       name: "Bulk Customer Upload",
       path: "/sales/bulk-upload",
     },
-    { module: "Sales", name: "Potential Customers", path: "/sales/potential-customers" },
-    { module: "Sales", name: "Potential Customer List", path: "/sales/potential-customers" },
-    { module: "Sales", name: "Potential Customer Form", path: "/sales/potential-customers/new" },
-    { module: "Sales", name: "Potential Customer Edit", path: "/sales/potential-customers/:id" },
+    {
+      module: "Sales",
+      name: "Potential Customers",
+      path: "/sales/potential-customers",
+    },
+    {
+      module: "Sales",
+      name: "Potential Customer List",
+      path: "/sales/potential-customers",
+    },
+    {
+      module: "Sales",
+      name: "Potential Customer Form",
+      path: "/sales/potential-customers/new",
+    },
+    {
+      module: "Sales",
+      name: "Potential Customer Edit",
+      path: "/sales/potential-customers/:id",
+    },
     { module: "Sales", name: "Sales Reports", path: "/sales/reports" },
     { module: "Sales", name: "Sales Returns", path: "/sales/returns" },
 
