@@ -94,6 +94,22 @@ export const pool = mysql.createPool({
 });
 
 export async function query(sql, params = {}) {
-  const [rows] = await pool.execute(sql, params);
-  return rows;
+  const isMetadata = /^\s*(SHOW|ALTER|CREATE|DROP|DESCRIBE)\s/i.test(sql);
+  try {
+    if (isMetadata) {
+      const [rows] = await pool.query(sql, params);
+      return rows;
+    }
+    const [rows] = await pool.execute(sql, params);
+    return rows;
+  } catch (err) {
+    if (
+      err.code === "ER_UNSUPPORTED_PS" ||
+      (err.message && (err.message.includes("prepared statement") || err.message.includes("syntax to use near '?'")))
+    ) {
+      const [rows] = await pool.query(sql, params);
+      return rows;
+    }
+    throw err;
+  }
 }

@@ -98,6 +98,19 @@ export default function SalaryConfigForm() {
               placeholder="Structure details, components, etc."
             />
           </div>
+          <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-md space-y-3">
+            <h2 className="text-lg font-semibold">Salary Components Calculation</h2>
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Basic salary plus selected allowances forms the gross salary component. Statutory deductions apply in this order:
+            </p>
+            <ol className="list-decimal ml-5 text-sm text-slate-700 dark:text-slate-200">
+              <li>Compute taxable base from selected components.</li>
+              <li>Apply income tax brackets (PAYE) to the taxable base.</li>
+              <li>Apply SSNIT employee contribution on basic salary.</li>
+              <li>Net salary equals basic + allowances − (PAYE + SSNIT + other deductions).</li>
+            </ol>
+            <p className="text-xs text-slate-500">All calculations use the base currency.</p>
+          </div>
 
           <div className="flex justify-end gap-3 pt-4">
             <Link to="/human-resources/salary-config" className="btn-secondary">Cancel</Link>

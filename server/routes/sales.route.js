@@ -1030,6 +1030,38 @@ router.get(
   },
 );
 
+router.get(
+  "/customers/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("SAL.CUSTOMER.VIEW"),
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      }
+      const rows = await query(
+        `SELECT 
+           c.*,
+           pt.name AS price_type_name
+         FROM sal_customers c
+         LEFT JOIN sal_price_types pt
+           ON pt.id = c.price_type_id AND pt.company_id = c.company_id
+         WHERE c.id = :id AND c.company_id = :companyId
+         LIMIT 1`,
+        { id, companyId },
+      ).catch(() => []);
+      if (!rows.length) throw httpError(404, "NOT_FOUND", "Customer not found");
+      res.json({ item: rows[0] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 router.post(
   "/customers",
   requireAuth,

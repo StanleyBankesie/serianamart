@@ -52,14 +52,20 @@ export default function AttendanceDashboard() {
             <Link to="/human-resources" className="btn-secondary text-sm">
               Back to Menu
             </Link>
-            <h2 className="text-lg font-semibold">Attendance Dashboard</h2>
+            <h2 className="text-lg font-semibold">Attendance</h2>
           </div>
           <div className="flex items-center gap-3">
             <Link
-              to="/human-resources/attendance/bulk"
+              to="/human-resources/attendance/new"
               className="btn-primary text-sm"
             >
-              Mark Bulk Attendance
+              + New Entry
+            </Link>
+            <Link
+              to="/human-resources/attendance/bulk"
+              className="btn-secondary text-sm"
+            >
+              Bulk Attendance
             </Link>
           </div>
         </div>
@@ -120,13 +126,13 @@ export default function AttendanceDashboard() {
 
         <div className="bg-white dark:bg-slate-800 rounded shadow-sm overflow-hidden">
           <table className="min-w-full">
-            <thead>
-              <tr className="text-left bg-slate-50 dark:bg-slate-700">
-                <th className="px-4 py-2">Employee</th>
-                <th className="px-4 py-2">Date</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2">Clock In</th>
-                <th className="px-4 py-2">Clock Out</th>
+            <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
+              <tr className="text-left bg-slate-50 dark:bg-slate-900/50">
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Employee</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Date</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Clock In</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Clock Out</th>
               </tr>
             </thead>
             <tbody>

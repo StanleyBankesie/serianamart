@@ -86,6 +86,9 @@ function expandDocumentTypeAliases(type) {
   if (t === "payment-voucher" || t === "receipt-voucher" || t === "voucher") {
     return [type]; // leave as-is for now
   }
+  if (t === "salary-slip" || t === "salaryslip" || t === "payslip") {
+    return ["salary-slip", "salaryslip", "payslip"];
+  }
   return [type];
 }
 
@@ -168,6 +171,16 @@ function docTypeSynonymsLower(type) {
       "quotation document",
     ];
   }
+  if (c === "salary-slip") {
+    return [
+      "salary-slip",
+      "salaryslip",
+      "payslip",
+      "payslips",
+      "salary slip",
+      "salary_slip",
+    ];
+  }
   return [c];
 }
 
@@ -223,6 +236,9 @@ function canonicalDocumentType(type) {
   }
   if (t === "direct-purchase" || t === "direct purchase") {
     return "direct-purchase";
+  }
+  if (t === "salary-slip" || t === "salaryslip" || t === "payslip" || t === "salary slip" || t === "salary_slip") {
+    return "salary-slip";
   }
   return String(type || "").trim();
 }
@@ -815,6 +831,82 @@ ${commonHead}
 </div>
 `;
   }
+  if (type === "salary-slip") {
+    return `
+${commonHead}
+<div class="doc">
+  <div class="header">
+    <div><img class="logo" src="{{company.logo}}" alt="Logo"/></div>
+    <div class="company">
+      <div class="name">{{company.name}}</div>
+      <div>{{company.address}}</div>
+      <div>{{company.address2}}</div>
+      <div>Contact No: {{company.phone}}</div>
+      <div>Email: {{company.email}}</div>
+    </div>
+  </div>
+  <div class="titlebar">
+    <div class="line"></div>
+    <div class="title">* Salary Slip *</div>
+    <div class="line"></div>
+  </div>
+  <div class="info">
+    <div class="info-left">
+      <div class="kv">
+        <div class="kv-row"><div class="kv-label">Employee Name</div><div class="kv-sep">:</div><div class="kv-val">{{employee.name}}</div></div>
+        <div class="kv-row"><div class="kv-label">Employee ID</div><div class="kv-sep">:</div><div class="kv-val">{{employee.code}}</div></div>
+        <div class="kv-row"><div class="kv-label">Department</div><div class="kv-sep">:</div><div class="kv-val">{{employee.department}}</div></div>
+        <div class="kv-row"><div class="kv-label">Location/Branch</div><div class="kv-sep">:</div><div class="kv-val">{{employee.branch}}</div></div>
+      </div>
+    </div>
+    <div class="info-mid">
+      <div class="kv">
+        <div class="kv-row"><div class="kv-label">Payslip No.</div><div class="kv-sep">:</div><div class="kv-val">{{payslip.id}}</div></div>
+        <div class="kv-row"><div class="kv-label">Payroll Period</div><div class="kv-sep">:</div><div class="kv-val">{{payslip.period_name}}</div></div>
+        <div class="kv-row"><div class="kv-label">Status</div><div class="kv-sep">:</div><div class="kv-val">{{payslip.status}}</div></div>
+      </div>
+    </div>
+    <div class="info-right">
+      <div class="qr-box"></div>
+    </div>
+  </div>
+  <table style="margin-top:20px;">
+    <thead>
+      <tr><th class="left">Earnings</th><th class="center">Amount</th><th class="left">Deductions</th><th class="center">Amount</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Basic Salary</td><td class="num">{{payslip.basic_salary}}</td>
+        <td>Total Deductions</td><td class="num">{{payslip.deductions}}</td>
+      </tr>
+      <tr>
+        <td>Allowances</td><td class="num">{{payslip.allowances}}</td>
+        <td></td><td class="num"></td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="bottom-section" style="margin-top: 20px;">
+    <div class="bottom-left">
+    </div>
+    <div class="bottom-right">
+      <div class="summary-row"><div class="s-label">Gross Earnings</div><div class="s-val">{{payslip.gross_pay}}</div></div>
+      <div class="summary-row"><div class="s-label">Total Deductions</div><div class="s-val">{{payslip.deductions}}</div></div>
+      <div class="summary-row"><div class="s-label">Net Payable</div><div class="s-val" style="font-weight: bold; font-size: 14px;">{{payslip.net_salary}}</div></div>
+    </div>
+  </div>
+  <div class="footer-prepared" style="display:flex; justify-content:space-between; margin-top:40px;">
+    <div>
+      <div class="lbl">Employer Signature</div>
+      <div style="height:30px; border-bottom:1px solid #000; width:150px; margin-top:10px;"></div>
+    </div>
+    <div>
+      <div class="lbl">Employee Signature</div>
+      <div style="height:30px; border-bottom:1px solid #000; width:150px; margin-top:10px;"></div>
+    </div>
+  </div>
+</div>
+`;
+  }
   return "<div>Define your template here</div>";
 }
 
@@ -1059,6 +1151,28 @@ async function loadPreviewData(type, companyId, branchId) {
             reference_no: "",
           },
         ],
+      },
+    };
+  }
+  if (type === "salary-slip") {
+    return {
+      company: company || {},
+      employee: {
+        name: "Jane Smith",
+        code: "EMP-001",
+        email: "jane@example.com",
+        department: "Engineering",
+        branch: "Headquarters",
+      },
+      payslip: {
+        id: "1024",
+        period_name: "Oct 2023",
+        basic_salary: "5000.00",
+        allowances: "1500.00",
+        deductions: "800.00",
+        gross_pay: "6500.00",
+        net_salary: "5700.00",
+        status: "PAID",
       },
     };
   }
@@ -2130,6 +2244,45 @@ async function loadData(type, id, companyId, branchId) {
           reference_no: l.reference_no,
         })),
       },
+    };
+  }
+  if (type === "salary-slip") {
+    const [payslip] = await query(
+      `SELECT p.*, e.first_name, e.last_name, e.emp_code, e.email, pr.period_name, d.dept_name, b.branch_name
+       FROM hr_payslips p
+       JOIN hr_employees e ON e.id = p.employee_id
+       JOIN hr_payroll_periods pr ON pr.id = p.period_id
+       LEFT JOIN hr_departments d ON d.id = e.dept_id
+       LEFT JOIN hr_branches b ON b.id = e.branch_id
+       WHERE p.id = :id AND e.company_id = :companyId
+       LIMIT 1`,
+      { id, companyId }
+    ).catch(() => []);
+    if (!payslip) throw httpError(404, "NOT_FOUND", "Payslip not found");
+    const [company] = await query(
+      `SELECT id, name, address, city, state, postal_code, country, telephone, email, website
+       FROM adm_companies WHERE id = :companyId LIMIT 1`,
+      { companyId }
+    ).catch(() => []);
+    return {
+      company: company || {},
+      employee: {
+         name: `${payslip.first_name || ""} ${payslip.last_name || ""}`.trim(),
+         code: payslip.emp_code,
+         email: payslip.email,
+         department: payslip.dept_name,
+         branch: payslip.branch_name
+      },
+      payslip: {
+         id: payslip.id,
+         period_name: payslip.period_name,
+         basic_salary: Number(payslip.basic_salary || 0).toFixed(2),
+         allowances: Number(payslip.allowances || 0).toFixed(2),
+         deductions: Number(payslip.deductions || 0).toFixed(2),
+         gross_pay: (Number(payslip.basic_salary || 0) + Number(payslip.allowances || 0)).toFixed(2),
+         net_salary: Number(payslip.net_salary || 0).toFixed(2),
+         status: payslip.status
+      }
     };
   }
   throw httpError(400, "VALIDATION_ERROR", "Unsupported type");

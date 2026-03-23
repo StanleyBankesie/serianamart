@@ -10,6 +10,8 @@ export default function TaxConfigForm() {
   const isEdit = Boolean(id);
 
   const [loading, setLoading] = useState(false);
+  const [finTaxCodes, setFinTaxCodes] = useState([]);
+  const [allowances, setAllowances] = useState([]);
   const [form, setForm] = useState({ 
     tax_name: '', 
     tax_type: 'INCOME_TAX', 
@@ -17,10 +19,28 @@ export default function TaxConfigForm() {
     max_amount: '', 
     tax_rate: 0, 
     fixed_amount: 0, 
-    is_active: true 
+    employee_contribution_rate: 0,
+    employer_contribution_rate: 0,
+    is_active: true,
+    taxable_components: []
   });
 
   useEffect(() => {
+    async function loadTaxCodes() {
+      try {
+        const res = await api.get("/finance/setup/tax-codes"); // Assuming this endpoint exists
+        setFinTaxCodes(res.data.items || []);
+      } catch {}
+    }
+    loadTaxCodes();
+    async function loadAllowances() {
+      try {
+        const res = await api.get("/hr/allowances");
+        setAllowances(res.data.items || []);
+      } catch {}
+    }
+    loadAllowances();
+
     if (!isEdit) return;
     const load = async () => {
       setLoading(true);
@@ -65,95 +85,178 @@ export default function TaxConfigForm() {
     <Guard moduleKey="human-resources">
       <div className="p-4 space-y-4">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold">{isEdit ? 'Edit Tax Config' : 'New Tax Config'}</h1>
+          <h1 className="text-2xl font-bold">{isEdit ? 'Edit Statutory Configuration' : 'New Statutory Configuration'}</h1>
           <Link to="/human-resources/tax-config" className="btn-secondary">Back</Link>
         </div>
 
-        <form onSubmit={submit} className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="label">Tax Name *</label>
-              <input 
-                className="input" 
-                value={form.tax_name} 
-                onChange={(e) => update('tax_name', e.target.value)} 
-                required 
-                placeholder="e.g. Income Tax Bracket 1"
-              />
-            </div>
-            <div>
-              <label className="label">Tax Type *</label>
-              <select 
-                className="input" 
-                value={form.tax_type} 
-                onChange={(e) => update('tax_type', e.target.value)}
-                required
-              >
-                <option value="INCOME_TAX">Income Tax</option>
-                <option value="SOCIAL_SECURITY">Social Security</option>
-                <option value="OTHER">Other Deduction</option>
-              </select>
-            </div>
-            <div>
-              <label className="label">Min Amount *</label>
-              <input 
-                className="input" 
-                type="number"
-                step="0.01"
-                value={form.min_amount} 
-                onChange={(e) => update('min_amount', e.target.value)} 
-                required 
-              />
-            </div>
-            <div>
-              <label className="label">Max Amount (Optional)</label>
-              <input 
-                className="input" 
-                type="number"
-                step="0.01"
-                value={form.max_amount} 
-                onChange={(e) => update('max_amount', e.target.value)} 
-                placeholder="Leave blank for no upper limit"
-              />
-            </div>
-            <div>
-              <label className="label">Tax Rate (%) *</label>
-              <input 
-                className="input" 
-                type="number"
-                step="0.01"
-                value={form.tax_rate} 
-                onChange={(e) => update('tax_rate', e.target.value)} 
-                required 
-              />
-            </div>
-            <div>
-              <label className="label">Fixed Amount</label>
-              <input 
-                className="input" 
-                type="number"
-                step="0.01"
-                value={form.fixed_amount} 
-                onChange={(e) => update('fixed_amount', e.target.value)} 
-              />
-            </div>
-            <div>
-              <label className="label">Status</label>
-              <select 
-                className="input" 
-                value={form.is_active ? '1' : '0'} 
-                onChange={(e) => update('is_active', e.target.value === '1')}
-              >
-                <option value="1">Active</option>
-                <option value="0">Inactive</option>
-              </select>
+        <form onSubmit={submit} className="space-y-6">
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm space-y-6">
+            <h2 className="text-lg font-semibold border-b pb-2">Basic Information</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="label">Configuration Name *</label>
+                <input 
+                  className="input" 
+                  value={form.tax_name} 
+                  onChange={(e) => update('tax_name', e.target.value)} 
+                  required 
+                  placeholder="e.g. Income Tax Bracket 1, SSF Tier 1"
+                />
+              </div>
+              <div>
+                <label className="label">Statutory Type *</label>
+                <select 
+                  className="input" 
+                  value={form.tax_type} 
+                  onChange={(e) => update('tax_type', e.target.value)}
+                  required
+                >
+                  <option value="INCOME_TAX">Income Tax</option>
+                  <option value="SOCIAL_SECURITY">Social Security Fund (SSF)</option>
+                  <option value="PROVIDENCE_FUND">Providence Fund (PF)</option>
+                  <option value="OTHER">Other Deduction</option>
+                  {finTaxCodes.map(tc => (
+                    <option key={tc.id} value={tc.name}>{tc.name} ({tc.code})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">Status</label>
+                <select 
+                  className="input" 
+                  value={form.is_active ? '1' : '0'} 
+                  onChange={(e) => update('is_active', e.target.value === '1')}
+                >
+                  <option value="1">Active</option>
+                  <option value="0">Inactive</option>
+                </select>
+              </div>
             </div>
           </div>
 
+          {form.tax_type === 'INCOME_TAX' && (
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm space-y-6">
+              <h2 className="text-lg font-semibold border-b pb-2 text-brand">Income Tax Bracket Setup</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="label">Min Taxable Amount *</label>
+                  <input 
+                    className="input" 
+                    type="number"
+                    step="0.01"
+                    value={form.min_amount} 
+                    onChange={(e) => update('min_amount', e.target.value)} 
+                    required 
+                  />
+                </div>
+                <div>
+                  <label className="label">Max Taxable Amount (Optional)</label>
+                  <input 
+                    className="input" 
+                    type="number"
+                    step="0.01"
+                    value={form.max_amount} 
+                    onChange={(e) => update('max_amount', e.target.value)} 
+                    placeholder="Leave blank for no upper limit"
+                  />
+                </div>
+                <div>
+                  <label className="label">Tax Rate (%) *</label>
+                  <input 
+                    className="input" 
+                    type="number"
+                    step="0.01"
+                    value={form.tax_rate} 
+                    onChange={(e) => update('tax_rate', e.target.value)} 
+                    required 
+                  />
+                </div>
+                <div>
+                  <label className="label">Fixed Amount (Base Tax)</label>
+                  <input 
+                    className="input" 
+                    type="number"
+                    step="0.01"
+                    value={form.fixed_amount} 
+                    onChange={(e) => update('fixed_amount', e.target.value)} 
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {(form.tax_type === 'SOCIAL_SECURITY' || form.tax_type === 'PROVIDENCE_FUND') && (
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm space-y-6">
+              <h2 className="text-lg font-semibold border-b pb-2 text-brand">Fund Contribution Setup</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="label">Employee Contribution Rate (%)</label>
+                  <input 
+                    className="input font-mono" 
+                    type="number"
+                    step="0.01"
+                    value={form.employee_contribution_rate} 
+                    onChange={(e) => update('employee_contribution_rate', e.target.value)} 
+                  />
+                </div>
+                <div>
+                  <label className="label">Employer Contribution Rate (%)</label>
+                  <input 
+                    className="input font-mono" 
+                    type="number"
+                    step="0.01"
+                    value={form.employer_contribution_rate} 
+                    onChange={(e) => update('employer_contribution_rate', e.target.value)} 
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 italic">These rates will be applied to the employee's gross or base salary during payroll processing.</p>
+            </div>
+          )}
+          {form.tax_type === 'INCOME_TAX' && (
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm space-y-4">
+              <h2 className="text-lg font-semibold border-b pb-2">Taxable Salary Components</h2>
+              <div className="space-y-2">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={form.taxable_components.includes('BASIC')}
+                    onChange={(e) => {
+                      const set = new Set(form.taxable_components);
+                      if (e.target.checked) set.add('BASIC'); else set.delete('BASIC');
+                      update('taxable_components', Array.from(set));
+                    }}
+                  />
+                  <span>BASIC</span>
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {allowances.map(a => {
+                    const key = `ALLOWANCE:${a.id}`;
+                    const checked = form.taxable_components.includes(key);
+                    return (
+                      <label key={a.id} className="inline-flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const set = new Set(form.taxable_components);
+                            if (e.target.checked) set.add(key); else set.delete(key);
+                            update('taxable_components', Array.from(set));
+                          }}
+                        />
+                        <span>{a.allowance_name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-4">
             <Link to="/human-resources/tax-config" className="btn-secondary">Cancel</Link>
-            <button className="btn-primary" disabled={loading}>
-              {loading ? 'Saving...' : 'Save Config'}
+            <button className="btn-primary px-8" disabled={loading}>
+              {loading ? 'Saving...' : 'Save Configuration'}
             </button>
           </div>
         </form>

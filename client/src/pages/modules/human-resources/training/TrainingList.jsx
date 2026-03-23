@@ -34,11 +34,11 @@ export default function TrainingList() {
       </div>
       <div className="bg-white dark:bg-slate-800 rounded">
         <table className="min-w-full">
-          <thead>
+          <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
             <tr className="text-left">
-              <th className="px-3 py-2">Code</th>
-              <th className="px-3 py-2">Title</th>
-              <th className="px-3 py-2">Dates</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Code</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Title</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Dates</th>
             </tr>
           </thead>
           <tbody>

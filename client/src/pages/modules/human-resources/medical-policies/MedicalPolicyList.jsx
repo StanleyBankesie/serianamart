@@ -40,15 +40,15 @@ export default function MedicalPolicyList() {
 
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden">
           <table className="min-w-full">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-700 text-left">
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Code</th>
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Policy Name</th>
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Provider</th>
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Premium</th>
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Renewal</th>
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider">Actions</th>
+            <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
+              <tr className="text-left bg-slate-50 dark:bg-slate-900/50">
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Code</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Policy Name</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Provider</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Premium</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Renewal</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-700">

@@ -24,6 +24,15 @@ export default function SalaryProcessing() {
     loadPeriods();
   }, []);
 
+  const formatDate = (dateStr) => {
+    if (!dateStr) return "-";
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    });
+  };
+
   const loadPreview = async () => {
     if (!selectedPeriod) return toast.error("Select a period");
     setLoading(true);
@@ -75,7 +84,9 @@ export default function SalaryProcessing() {
               >
                 <option value="">Select Period</option>
                 {periods.map(p => (
-                  <option key={p.id} value={p.id}>{p.period_name} ({p.start_date} to {p.end_date})</option>
+                  <option key={p.id} value={p.id}>
+                    {p.period_name} ({formatDate(p.start_date)} to {formatDate(p.end_date)})
+                  </option>
                 ))}
               </select>
             </div>
@@ -95,12 +106,12 @@ export default function SalaryProcessing() {
         {employees.length > 0 && (
           <div className="bg-white dark:bg-slate-800 rounded shadow-sm overflow-hidden">
             <table className="min-w-full">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-700 text-left">
-                  <th className="px-4 py-2">Employee</th>
-                  <th className="px-4 py-2">Emp Code</th>
-                  <th className="px-4 py-2 text-right">Base Salary</th>
-                  <th className="px-4 py-2 text-right">Net Salary (Est)</th>
+              <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
+                <tr className="text-left bg-slate-50 dark:bg-slate-900/50">
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Employee</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Emp Code</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Base Salary</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Net Salary (Est)</th>
                 </tr>
               </thead>
               <tbody>

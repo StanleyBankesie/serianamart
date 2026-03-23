@@ -40,34 +40,34 @@ export default function ShiftList() {
       <div className="bg-white dark:bg-slate-800 p-4 rounded shadow-sm">
         <div className="overflow-x-auto">
           <table className="min-w-full">
-            <thead>
-              <tr className="text-left bg-slate-50 dark:bg-slate-700">
-                <th className="px-4 py-2">Code</th>
-                <th className="px-4 py-2">Name</th>
-                <th className="px-4 py-2">Start Time</th>
-                <th className="px-4 py-2">End Time</th>
-                <th className="px-4 py-2">Break (min)</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2 text-right">Actions</th>
+            <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
+              <tr className="text-left bg-slate-100 dark:bg-slate-700">
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Code</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Start Time</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">End Time</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Break (min)</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
               {items.map((s) => (
-                <tr key={s.id} className="border-t hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                  <td className="px-4 py-2 font-mono text-sm">{s.code}</td>
-                  <td className="px-4 py-2 font-medium">{s.name}</td>
-                  <td className="px-4 py-2">{s.start_time}</td>
-                  <td className="px-4 py-2">{s.end_time}</td>
-                  <td className="px-4 py-2">{s.break_minutes}</td>
-                  <td className="px-4 py-2">
+                <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                  <td className="px-4 py-3 font-mono text-sm">{s.code}</td>
+                  <td className="px-4 py-3 font-medium">{s.name}</td>
+                  <td className="px-4 py-3 text-sm">{s.start_time}</td>
+                  <td className="px-4 py-3 text-sm">{s.end_time}</td>
+                  <td className="px-4 py-3 text-sm">{s.break_minutes}</td>
+                  <td className="px-4 py-3">
                     {s.is_active ? (
-                      <span className="badge badge-success">Active</span>
+                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">Active</span>
                     ) : (
-                      <span className="badge badge-error">Inactive</span>
+                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">Inactive</span>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-right">
-                    <Link to={`/human-resources/shifts/${s.id}`} className="text-brand hover:underline text-sm">Edit</Link>
+                  <td className="px-4 py-3 text-right">
+                    <Link to={`/human-resources/shifts/${s.id}`} className="text-brand hover:underline text-sm font-medium">Edit</Link>
                   </td>
                 </tr>
               ))}

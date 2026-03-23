@@ -40,13 +40,13 @@ export default function LeaveSetupList() {
       <div className="bg-white dark:bg-slate-800 p-4 rounded shadow-sm">
         <div className="overflow-x-auto">
           <table className="min-w-full">
-            <thead>
-              <tr className="text-left bg-slate-50 dark:bg-slate-700">
-                <th className="px-4 py-2">Type Name</th>
-                <th className="px-4 py-2">Days Per Year</th>
-                <th className="px-4 py-2">Paid</th>
-                <th className="px-4 py-2">Carry Forward</th>
-                <th className="px-4 py-2 text-right">Actions</th>
+            <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
+              <tr className="text-left bg-slate-50 dark:bg-slate-900/50">
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Type Name</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Days Per Year</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Paid</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Carry Forward</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>

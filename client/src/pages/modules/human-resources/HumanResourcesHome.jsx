@@ -13,6 +13,8 @@ import AttendanceList from "./attendance/AttendanceList.jsx";
 import AttendanceForm from "./attendance/AttendanceForm.jsx";
 import SalaryConfigList from "./salary-config/SalaryConfigList.jsx";
 import SalaryConfigForm from "./salary-config/SalaryConfigForm.jsx";
+import BaseSalariesPage from "./salary-config/BaseSalariesPage.jsx";
+import SalaryStructurePage from "./salary-config/SalaryStructurePage.jsx";
 import TaxConfigList from "./tax-config/TaxConfigList.jsx";
 import TaxConfigForm from "./tax-config/TaxConfigForm.jsx";
 import AllowanceList from "./allowances/AllowanceList.jsx";
@@ -185,20 +187,8 @@ function HRDashboard() {
         {
           name: "Attendance",
           path: "/human-resources/attendance",
-          description: "Track employee attendance and check-ins",
-          icon: "✓",
-        },
-        {
-          name: "Attendance Dashboard",
-          path: "/human-resources/attendance/dashboard",
-          description: "Daily attendance overview",
+          description: "Daily attendance overview and management",
           icon: "📊",
-        },
-        {
-          name: "Bulk Attendance",
-          path: "/human-resources/attendance/bulk",
-          description: "Mark attendance for multiple employees",
-          icon: "📝",
         },
         {
           name: "Timesheet",
@@ -230,10 +220,10 @@ function HRDashboard() {
           icon: "💵",
         },
         {
-          name: "Tax & Deductions",
+          name: "Statutory Contributions",
           path: "/human-resources/tax-config",
-          description: "Setup tax rules and statutory deductions",
-          icon: "📉",
+          description: "Configure payroll deductions and statutory taxes",
+          icon: "📜",
         },
         {
           name: "Allowances",
@@ -403,13 +393,13 @@ export default function HumanResourcesHome() {
       <Route path="shifts" element={<ShiftList />} />
       <Route path="shifts/new" element={<ShiftForm />} />
       <Route path="shifts/:id" element={<ShiftForm />} />
-      <Route path="attendance" element={<AttendanceList />} />
+      <Route path="attendance" element={<AttendanceDashboard />} />
       <Route path="attendance/new" element={<AttendanceForm />} />
-      <Route path="attendance/dashboard" element={<AttendanceDashboard />} />
-      <Route path="attendance/bulk" element={<BulkAttendance />} />
       <Route path="attendance/timesheet" element={<TimesheetView />} />
       <Route path="attendance/:id" element={<AttendanceForm />} />
       <Route path="salary-config" element={<SalaryConfigList />} />
+      <Route path="salary-config/base-salaries" element={<BaseSalariesPage />} />
+      <Route path="salary-config/structure" element={<SalaryStructurePage />} />
       <Route path="salary-config/new" element={<SalaryConfigForm />} />
       <Route path="salary-config/:id" element={<SalaryConfigForm />} />
       <Route path="tax-config" element={<TaxConfigList />} />

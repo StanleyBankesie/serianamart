@@ -722,6 +722,27 @@ export const listAccountGroups = async (req, res, next) => {
   }
 };
 
+export const listChartOfAccounts = async (req, res, next) => {
+  try {
+    const companyId = req.scope.companyId;
+    const search = req.query.search ? String(req.query.search).trim() : null;
+    const items = await query(
+      `SELECT a.id, a.code, a.name, a.is_postable, a.is_active, a.currency_id,
+              g.id AS group_id, g.code AS group_code, g.name AS group_name, g.nature,
+              pg.id AS parent_group_id, pg.name AS parent_group_name
+       FROM fin_accounts a
+       JOIN fin_account_groups g ON g.id = a.group_id AND g.company_id = a.company_id
+       LEFT JOIN fin_account_groups pg ON pg.id = g.parent_id AND pg.company_id = a.company_id
+       WHERE a.company_id = :companyId
+         AND (:search IS NULL OR a.code LIKE CONCAT('%', :search, '%') OR a.name LIKE CONCAT('%', :search, '%') OR g.name LIKE CONCAT('%', :search, '%'))
+       ORDER BY g.code ASC, a.code ASC`,
+      { companyId, search },
+    );
+    res.json({ items });
+  } catch (e) {
+    next(e);
+  }
+};
 export const createTaxCode = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;

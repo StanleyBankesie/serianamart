@@ -115,12 +115,12 @@ export default function BulkAttendance() {
           </div>
           
           <table className="min-w-full">
-            <thead>
-              <tr className="text-left bg-slate-50 dark:bg-slate-700">
-                <th className="px-4 py-2">Employee</th>
-                <th className="px-4 py-2">Code</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2">Remarks</th>
+            <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
+              <tr className="text-left bg-slate-50 dark:bg-slate-900/50">
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Employee</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Code</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Remarks</th>
               </tr>
             </thead>
             <tbody>

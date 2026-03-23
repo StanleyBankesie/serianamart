@@ -10,16 +10,26 @@ export default function AllowanceForm() {
   const isEdit = Boolean(id);
 
   const [loading, setLoading] = useState(false);
+  const [allowanceTypes, setAllowanceTypes] = useState([]);
   const [form, setForm] = useState({ 
     allowance_code: '', 
     allowance_name: '', 
     amount_type: 'FIXED', 
     amount: 0, 
     is_taxable: true, 
-    is_active: true 
+    is_active: true,
+    affect_payslip: true
   });
 
   useEffect(() => {
+    async function loadOptions() {
+      try {
+        const res = await api.get("/hr/setup/allowance-types");
+        setAllowanceTypes(res.data?.items || []);
+      } catch {}
+    }
+    loadOptions();
+
     if (!isEdit) return;
     const load = async () => {
       setLoading(true);
@@ -30,7 +40,8 @@ export default function AllowanceForm() {
           setForm({
             ...item,
             is_taxable: !!item.is_taxable,
-            is_active: !!item.is_active
+            is_active: !!item.is_active,
+            affect_payslip: !!item.affect_payslip
           });
         }
       } catch {
@@ -82,12 +93,17 @@ export default function AllowanceForm() {
             </div>
             <div>
               <label className="label">Allowance Name *</label>
-              <input 
+              <select 
                 className="input" 
                 value={form.allowance_name} 
                 onChange={(e) => update('allowance_name', e.target.value)} 
                 required 
-              />
+              >
+                <option value="">-- Select Type --</option>
+                {allowanceTypes.map(t => (
+                  <option key={t.id} value={t.name}>{t.name}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="label">Amount Type *</label>
@@ -102,15 +118,22 @@ export default function AllowanceForm() {
               </select>
             </div>
             <div>
-              <label className="label">Amount *</label>
-              <input 
-                className="input" 
-                type="number"
-                step="0.01"
-                value={form.amount} 
-                onChange={(e) => update('amount', e.target.value)} 
-                required 
-              />
+              <label className="label">
+                {form.amount_type === 'PERCENTAGE' ? 'Percentage (%) *' : 'Amount *'}
+              </label>
+              <div className="relative">
+                <input 
+                  className="input pr-8" 
+                  type="number"
+                  step="0.01"
+                  value={form.amount} 
+                  onChange={(e) => update('amount', e.target.value)} 
+                  required 
+                />
+                {form.amount_type === 'PERCENTAGE' && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 font-medium">%</span>
+                )}
+              </div>
             </div>
             <div>
               <label className="label">Taxable</label>
@@ -122,6 +145,15 @@ export default function AllowanceForm() {
                 <option value="1">Yes</option>
                 <option value="0">No</option>
               </select>
+            </div>
+            <div className="flex items-center gap-3 pt-6">
+              <input 
+                type="checkbox" 
+                className="checkbox" 
+                checked={form.affect_payslip} 
+                onChange={e => update('affect_payslip', e.target.checked)}
+              />
+              <label className="text-sm font-medium">Affect Payslip?</label>
             </div>
             <div>
               <label className="label">Status</label>

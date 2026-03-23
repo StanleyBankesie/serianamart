@@ -40,15 +40,15 @@ export default function LoanList() {
 
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden">
           <table className="min-w-full">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-700 text-left">
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Employee</th>
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Type</th>
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-right">Amount</th>
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-right">Installment</th>
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Start Date</th>
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider">Actions</th>
+            <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
+              <tr className="text-left bg-slate-50 dark:bg-slate-900/50">
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Employee</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Type</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Amount</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Installment</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Start Date</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-700">

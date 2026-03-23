@@ -103,12 +103,12 @@ export default function ClearanceTracking() {
 
                 <div className="p-4">
                   <table className="min-w-full">
-                    <thead>
+                    <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
                       <tr className="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                        <th className="pb-3">Department</th>
-                        <th className="pb-3">Status</th>
-                        <th className="pb-3">Cleared At</th>
-                        <th className="pb-3 text-right">Actions</th>
+                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Department</th>
+                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Cleared At</th>
+                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-700">

@@ -1806,10 +1806,83 @@ export async function ensureHRTables() {
       max_amount DECIMAL(18,4) NULL,
       tax_rate DECIMAL(5,2) NOT NULL,
       fixed_amount DECIMAL(18,4) NOT NULL DEFAULT 0,
+      affect_payslip TINYINT(1) NOT NULL DEFAULT 1,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_setup_employment_types (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      name VARCHAR(100) NOT NULL,
+      PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_setup_employee_categories (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      name VARCHAR(100) NOT NULL,
+      PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_setup_allowance_types (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      name VARCHAR(100) NOT NULL,
+      PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_setup_parameters (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      param_key VARCHAR(100) NOT NULL,
+      param_value VARCHAR(255) NOT NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_param_key (company_id, param_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_timesheets (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      work_date DATE NOT NULL,
+      time_in TIME NULL,
+      time_out TIME NULL,
+      hours_worked DECIMAL(5,2) NOT NULL DEFAULT 0,
+      overtime_hours DECIMAL(5,2) NOT NULL DEFAULT 0,
+      short_hours DECIMAL(5,2) NOT NULL DEFAULT 0,
+      location_gps VARCHAR(255) NULL,
+      remarks TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_timesheet_emp_date (employee_id, work_date)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_employee_tax_mappings (
+      employee_id BIGINT UNSIGNED NOT NULL,
+      tax_config_id BIGINT UNSIGNED NOT NULL,
+      PRIMARY KEY (employee_id, tax_config_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS hr_employee_allowance_mappings (
+      employee_id BIGINT UNSIGNED NOT NULL,
+      allowance_id BIGINT UNSIGNED NOT NULL,
+      PRIMARY KEY (employee_id, allowance_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS hr_employee_base_salaries (
+      employee_id BIGINT UNSIGNED NOT NULL,
+      base_salary DECIMAL(18,4) NOT NULL DEFAULT 0,
+      effective_date DATE NULL,
+      PRIMARY KEY (employee_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS hr_locations (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+      location_name VARCHAR(150) NOT NULL,
+      address TEXT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_by BIGINT UNSIGNED NULL,
+      updated_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_loc_company (company_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   ];
 
   for (const sql of tables) {
@@ -1823,20 +1896,255 @@ export async function ensureHRTables() {
 
   // Ensure columns exist for older tables
   const columnChecks = [
-    { table: "hr_job_requisitions", column: "recruitment_type", sql: "ALTER TABLE hr_job_requisitions ADD COLUMN recruitment_type ENUM('INTERNAL', 'EXTERNAL') NOT NULL DEFAULT 'EXTERNAL' AFTER employment_type" },
-    { table: "hr_job_requisitions", column: "from_date", sql: "ALTER TABLE hr_job_requisitions ADD COLUMN from_date DATE NULL AFTER recruitment_type" },
-    { table: "hr_job_requisitions", column: "to_date", sql: "ALTER TABLE hr_job_requisitions ADD COLUMN to_date DATE NULL AFTER from_date" },
-    { table: "hr_candidates", column: "requisition_id", sql: "ALTER TABLE hr_candidates ADD COLUMN requisition_id BIGINT UNSIGNED NULL AFTER source" },
-    { table: "hr_departments", column: "branch_id", sql: "ALTER TABLE hr_departments ADD COLUMN branch_id BIGINT UNSIGNED NOT NULL DEFAULT 1 AFTER company_id" },
-    { table: "hr_positions", column: "branch_id", sql: "ALTER TABLE hr_positions ADD COLUMN branch_id BIGINT UNSIGNED NOT NULL DEFAULT 1 AFTER company_id" },
-    { table: "hr_departments", column: "deleted_at", sql: "ALTER TABLE hr_departments ADD COLUMN deleted_at TIMESTAMP NULL AFTER updated_at" },
-    { table: "hr_positions", column: "deleted_at", sql: "ALTER TABLE hr_positions ADD COLUMN deleted_at TIMESTAMP NULL AFTER updated_at" },
+    {
+      table: "hr_job_requisitions",
+      column: "recruitment_type",
+      sql: "ALTER TABLE hr_job_requisitions ADD COLUMN recruitment_type ENUM('INTERNAL', 'EXTERNAL') NOT NULL DEFAULT 'EXTERNAL' AFTER employment_type",
+    },
+    {
+      table: "hr_job_requisitions",
+      column: "from_date",
+      sql: "ALTER TABLE hr_job_requisitions ADD COLUMN from_date DATE NULL AFTER recruitment_type",
+    },
+    {
+      table: "hr_job_requisitions",
+      column: "to_date",
+      sql: "ALTER TABLE hr_job_requisitions ADD COLUMN to_date DATE NULL AFTER from_date",
+    },
+    {
+      table: "hr_candidates",
+      column: "requisition_id",
+      sql: "ALTER TABLE hr_candidates ADD COLUMN requisition_id BIGINT UNSIGNED NULL AFTER source",
+    },
+    {
+      table: "hr_departments",
+      column: "branch_id",
+      sql: "ALTER TABLE hr_departments ADD COLUMN branch_id BIGINT UNSIGNED NOT NULL DEFAULT 1 AFTER company_id",
+    },
+    {
+      table: "hr_positions",
+      column: "branch_id",
+      sql: "ALTER TABLE hr_positions ADD COLUMN branch_id BIGINT UNSIGNED NOT NULL DEFAULT 1 AFTER company_id",
+    },
+    {
+      table: "hr_departments",
+      column: "deleted_at",
+      sql: "ALTER TABLE hr_departments ADD COLUMN deleted_at TIMESTAMP NULL AFTER updated_at",
+    },
+    {
+      table: "hr_positions",
+      column: "deleted_at",
+      sql: "ALTER TABLE hr_positions ADD COLUMN deleted_at TIMESTAMP NULL AFTER updated_at",
+    },
+    {
+      table: "hr_allowances",
+      column: "affect_payslip",
+      sql: "ALTER TABLE hr_allowances ADD COLUMN affect_payslip TINYINT(1) NOT NULL DEFAULT 1 AFTER amount",
+    },
+    {
+      table: "hr_loans",
+      column: "affect_payslip",
+      sql: "ALTER TABLE hr_loans ADD COLUMN affect_payslip TINYINT(1) NOT NULL DEFAULT 1 AFTER monthly_installment",
+    },
+    {
+      table: "hr_tax_config",
+      column: "affect_payslip",
+      sql: "ALTER TABLE hr_tax_config ADD COLUMN affect_payslip TINYINT(1) NOT NULL DEFAULT 1 AFTER fixed_amount",
+    },
+    {
+      table: "hr_tax_config",
+      column: "employee_contribution_rate",
+      sql: "ALTER TABLE hr_tax_config ADD COLUMN employee_contribution_rate DECIMAL(5,2) NOT NULL DEFAULT 0 AFTER tax_rate",
+    },
+    {
+      table: "hr_tax_config",
+      column: "employer_contribution_rate",
+      sql: "ALTER TABLE hr_tax_config ADD COLUMN employer_contribution_rate DECIMAL(5,2) NOT NULL DEFAULT 0 AFTER employee_contribution_rate",
+    },
+    {
+      table: "hr_salary_structures",
+      column: "components",
+      sql: "ALTER TABLE hr_salary_structures ADD COLUMN components TEXT NULL",
+    },
+    {
+      table: "hr_payroll_items",
+      column: "income_tax",
+      sql: "ALTER TABLE hr_payroll_items ADD COLUMN income_tax DECIMAL(18,4) NOT NULL DEFAULT 0 AFTER deductions",
+    },
+    {
+      table: "hr_payroll_items",
+      column: "ssf_employee",
+      sql: "ALTER TABLE hr_payroll_items ADD COLUMN ssf_employee DECIMAL(18,4) NOT NULL DEFAULT 0 AFTER income_tax",
+    },
+    {
+      table: "hr_tax_config",
+      column: "taxable_components",
+      sql: "ALTER TABLE hr_tax_config ADD COLUMN taxable_components TEXT NULL COMMENT 'JSON array of component keys like BASIC, ALLOWANCE_ID_1 etc'",
+    },
+    {
+      table: "hr_allowances",
+      column: "account_id",
+      sql: "ALTER TABLE hr_allowances ADD COLUMN account_id BIGINT UNSIGNED NULL",
+    },
+    {
+      table: "hr_employees",
+      column: "company_id",
+      sql: "ALTER TABLE hr_employees ADD COLUMN company_id BIGINT UNSIGNED NOT NULL AFTER id",
+    },
+    {
+      table: "hr_employees",
+      column: "first_name",
+      sql: "ALTER TABLE hr_employees ADD COLUMN first_name VARCHAR(50) NOT NULL AFTER emp_code",
+    },
+    {
+      table: "hr_employees",
+      column: "last_name",
+      sql: "ALTER TABLE hr_employees ADD COLUMN last_name VARCHAR(50) NOT NULL AFTER first_name",
+    },
+    {
+      table: "hr_employees",
+      column: "middle_name",
+      sql: "ALTER TABLE hr_employees ADD COLUMN middle_name VARCHAR(50) NULL AFTER last_name",
+    },
+    {
+      table: "hr_employees",
+      column: "email",
+      sql: "ALTER TABLE hr_employees ADD COLUMN email VARCHAR(100) NULL AFTER middle_name",
+    },
+    {
+      table: "hr_employees",
+      column: "phone",
+      sql: "ALTER TABLE hr_employees ADD COLUMN phone VARCHAR(20) NULL AFTER email",
+    },
+    {
+      table: "hr_employees",
+      column: "dept_id",
+      sql: "ALTER TABLE hr_employees ADD COLUMN dept_id BIGINT UNSIGNED NULL AFTER phone",
+    },
+    {
+      table: "hr_employees",
+      column: "pos_id",
+      sql: "ALTER TABLE hr_employees ADD COLUMN pos_id BIGINT UNSIGNED NULL AFTER dept_id",
+    },
+    {
+      table: "hr_employees",
+      column: "manager_id",
+      sql: "ALTER TABLE hr_employees ADD COLUMN manager_id BIGINT UNSIGNED NULL AFTER pos_id",
+    },
+    {
+      table: "hr_employees",
+      column: "employment_type",
+      sql: "ALTER TABLE hr_employees ADD COLUMN employment_type ENUM('FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN') NOT NULL DEFAULT 'FULL_TIME' AFTER manager_id",
+    },
+    {
+      table: "hr_employees",
+      column: "status",
+      sql: "ALTER TABLE hr_employees ADD COLUMN status ENUM('PROBATION', 'ACTIVE', 'TERMINATED', 'RESIGNED', 'SUSPENDED') NOT NULL DEFAULT 'PROBATION' AFTER employment_type",
+    },
+    {
+      table: "hr_employees",
+      column: "base_salary",
+      sql: "ALTER TABLE hr_employees ADD COLUMN base_salary DECIMAL(18,4) NOT NULL DEFAULT 0 AFTER status",
+    },
+    {
+      table: "hr_employees",
+      column: "joining_date",
+      sql: "ALTER TABLE hr_employees ADD COLUMN joining_date DATE NOT NULL AFTER base_salary",
+    },
+    {
+      table: "hr_employees",
+      column: "created_at",
+      sql: "ALTER TABLE hr_employees ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    },
+    {
+      table: "hr_employees",
+      column: "updated_at",
+      sql: "ALTER TABLE hr_employees ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+    },
+    {
+      table: "hr_employees",
+      column: "deleted_at",
+      sql: "ALTER TABLE hr_employees ADD COLUMN deleted_at TIMESTAMP NULL",
+    },
+    {
+      table: "hr_employees",
+      column: "category_id",
+      sql: "ALTER TABLE hr_employees ADD COLUMN category_id BIGINT UNSIGNED NULL AFTER branch_id",
+    },
+    {
+      table: "hr_employees",
+      column: "employment_type_id",
+      sql: "ALTER TABLE hr_employees ADD COLUMN employment_type_id BIGINT UNSIGNED NULL AFTER category_id",
+    },
+    {
+      table: "hr_employees",
+      column: "picture_url",
+      sql: "ALTER TABLE hr_employees ADD COLUMN picture_url VARCHAR(500) NULL AFTER last_name",
+    },
+    {
+      table: "hr_employees",
+      column: "national_id",
+      sql: "ALTER TABLE hr_employees ADD COLUMN national_id VARCHAR(50) NULL AFTER picture_url",
+    },
+    {
+      table: "hr_employees",
+      column: "branch_id",
+      sql: "ALTER TABLE hr_employees ADD COLUMN branch_id BIGINT UNSIGNED NOT NULL DEFAULT 1 AFTER company_id",
+    },
+    {
+      table: "hr_employees",
+      column: "emp_code",
+      sql: "ALTER TABLE hr_employees ADD COLUMN emp_code VARCHAR(20) NULL AFTER branch_id",
+    },
+    {
+      table: "hr_employees",
+      column: "old_dept_id",
+      sql: "ALTER TABLE hr_employees ADD COLUMN old_dept_id BIGINT UNSIGNED NULL AFTER dept_id",
+    },
+    {
+      table: "hr_promotions",
+      column: "previous_dept_id",
+      sql: "ALTER TABLE hr_promotions ADD COLUMN previous_dept_id BIGINT UNSIGNED NULL AFTER employee_id",
+    },
+    {
+      table: "hr_promotions",
+      column: "new_dept_id",
+      sql: "ALTER TABLE hr_promotions ADD COLUMN new_dept_id BIGINT UNSIGNED NULL AFTER previous_dept_id",
+    },
+    {
+      table: "hr_promotions",
+      column: "previous_branch_id",
+      sql: "ALTER TABLE hr_promotions ADD COLUMN previous_branch_id BIGINT UNSIGNED NULL AFTER new_dept_id",
+    },
+    {
+      table: "hr_promotions",
+      column: "new_branch_id",
+      sql: "ALTER TABLE hr_promotions ADD COLUMN new_branch_id BIGINT UNSIGNED NULL AFTER previous_branch_id",
+    },
+    {
+      table: "hr_employees",
+      column: "location_id",
+      sql: "ALTER TABLE hr_employees ADD COLUMN location_id BIGINT UNSIGNED NULL AFTER branch_id",
+    },
+    {
+      table: "hr_positions",
+      column: "reports_to_pos_id",
+      sql: "ALTER TABLE hr_positions ADD COLUMN reports_to_pos_id BIGINT UNSIGNED NULL AFTER dept_id",
+    },
+    {
+      table: "hr_promotions",
+      column: "new_location_id",
+      sql: "ALTER TABLE hr_promotions ADD COLUMN new_location_id BIGINT UNSIGNED NULL AFTER new_pos_id",
+    },
   ];
 
   for (const check of columnChecks) {
     try {
       // eslint-disable-next-line no-await-in-loop
-      const cols = await query(`SHOW COLUMNS FROM ${check.table} LIKE :column`, { column: check.column });
+      // For metadata like SHOW COLUMNS, it's safer to avoid placeholders in some MySQL versions
+      const cols = await query(
+        `SHOW COLUMNS FROM ${check.table} LIKE '${check.column}'`,
+      );
       if (cols.length === 0) {
         // eslint-disable-next-line no-await-in-loop
         await query(check.sql);

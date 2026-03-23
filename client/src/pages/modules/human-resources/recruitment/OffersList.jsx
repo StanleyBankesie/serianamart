@@ -41,16 +41,16 @@ export default function OffersList() {
       </div>
       <div className="bg-white dark:bg-slate-800 rounded shadow-sm">
         <table className="min-w-full">
-          <thead>
-            <tr className="text-left bg-slate-50 dark:bg-slate-700">
-              <th className="px-3 py-2">Offer No</th>
-              <th className="px-3 py-2">Date</th>
-              <th className="px-3 py-2">Candidate</th>
-              <th className="px-3 py-2">Requisition</th>
-              <th className="px-3 py-2 text-right">Gross Salary</th>
-              <th className="px-3 py-2 text-right">Net Salary</th>
-              <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2 text-right">Actions</th>
+          <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
+            <tr className="text-left bg-slate-50 dark:bg-slate-900/50">
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Offer No</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Date</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Candidate</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Requisition</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Gross Salary</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Net Salary</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>

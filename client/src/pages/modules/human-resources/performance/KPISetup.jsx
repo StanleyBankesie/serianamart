@@ -94,11 +94,11 @@ export default function KPISetup() {
 
       <div className="bg-white dark:bg-slate-800 rounded">
         <table className="min-w-full">
-          <thead>
+          <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
             <tr className="text-left">
-              <th className="px-3 py-2">Code</th>
-              <th className="px-3 py-2">Name</th>
-              <th className="px-3 py-2">Target</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Code</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Target</th>
             </tr>
           </thead>
           <tbody>

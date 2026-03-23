@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { api } from "../../../../api/client.js";
+import { toast } from "react-toastify";
 
 export default function ShiftForm() {
   const navigate = useNavigate();
@@ -7,16 +9,36 @@ export default function ShiftForm() {
   const isEdit = Boolean(id);
 
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({ code: '', name: '', start: '08:00', end: '17:00', active: true });
+  const [form, setForm] = useState({ 
+    code: '', 
+    name: '', 
+    start_time: '08:00', 
+    end_time: '17:00', 
+    break_minutes: 60,
+    is_active: true 
+  });
 
   useEffect(() => {
     if (!isEdit) return;
-    setLoading(true);
-    setTimeout(() => {
-      setForm({ code: 'DAY', name: 'Day Shift', start: '08:00', end: '17:00', active: true });
-      setLoading(false);
-    }, 150);
-  }, [isEdit]);
+    const load = async () => {
+      setLoading(true);
+      try {
+        const res = await api.get("/hr/shifts");
+        const item = res.data?.items?.find(i => String(i.id) === String(id));
+        if (item) {
+          setForm({
+            ...item,
+            is_active: !!item.is_active
+          });
+        }
+      } catch {
+        toast.error("Failed to load shift");
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [id, isEdit]);
 
   function update(name, value) {
     setForm((p) => ({ ...p, [name]: value }));
@@ -26,58 +48,92 @@ export default function ShiftForm() {
     e.preventDefault();
     setLoading(true);
     try {
+      await api.post('/hr/shifts', form);
+      toast.success(isEdit ? "Shift updated" : "Shift created");
       navigate('/human-resources/shifts');
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to save shift");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="space-y-4">
-      <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold dark:text-brand-300">{isEdit ? 'Edit Shift' : 'New Shift'}</h1>
-            <p className="text-sm mt-1">Shift configuration</p>
-          </div>
-          <Link to="/human-resources/shifts" className="btn-success">Back</Link>
-        </div>
+    <div className="p-4 space-y-4">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-bold">{isEdit ? 'Edit Shift' : 'New Shift'}</h1>
+        <Link to="/human-resources/shifts" className="btn-secondary">Back</Link>
       </div>
 
-      <form onSubmit={submit}>
-        <div className="card">
-          <div className="card-body space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="label">Code *</label>
-                <input className="input" value={form.code} onChange={(e) => update('code', e.target.value)} required />
-              </div>
-              <div>
-                <label className="label">Name *</label>
-                <input className="input" value={form.name} onChange={(e) => update('name', e.target.value)} required />
-              </div>
-              <div>
-                <label className="label">Start Time</label>
-                <input className="input" type="time" value={form.start} onChange={(e) => update('start', e.target.value)} />
-              </div>
-              <div>
-                <label className="label">End Time</label>
-                <input className="input" type="time" value={form.end} onChange={(e) => update('end', e.target.value)} />
-              </div>
-              <div>
-                <label className="label">Status</label>
-                <select className="input" value={form.active ? '1' : '0'} onChange={(e) => update('active', e.target.value === '1')}>
-                  <option value="1">Active</option>
-                  <option value="0">Inactive</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <Link to="/human-resources/shifts" className="btn-success">Cancel</Link>
-              <button className="btn-success" type="submit" disabled={loading}>{loading ? 'Saving...' : 'Save'}</button>
-            </div>
+      <form onSubmit={submit} className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm space-y-6 max-w-2xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="label font-semibold">Shift Code *</label>
+            <input 
+              className="input" 
+              value={form.code} 
+              onChange={(e) => update('code', e.target.value)} 
+              required 
+              placeholder="e.g. DAY, NIGHT"
+            />
           </div>
+          <div>
+            <label className="label font-semibold">Shift Name *</label>
+            <input 
+              className="input" 
+              value={form.name} 
+              onChange={(e) => update('name', e.target.value)} 
+              required 
+              placeholder="e.g. Standard Day Shift"
+            />
+          </div>
+          <div>
+            <label className="label font-semibold">Start Time *</label>
+            <input 
+              className="input" 
+              type="time" 
+              value={form.start_time} 
+              onChange={(e) => update('start_time', e.target.value)} 
+              required
+            />
+          </div>
+          <div>
+            <label className="label font-semibold">End Time *</label>
+            <input 
+              className="input" 
+              type="time" 
+              value={form.end_time} 
+              onChange={(e) => update('end_time', e.target.value)} 
+              required
+            />
+          </div>
+          <div>
+            <label className="label font-semibold">Break Minutes</label>
+            <input 
+              className="input" 
+              type="number"
+              value={form.break_minutes} 
+              onChange={(e) => update('break_minutes', e.target.value)} 
+            />
+          </div>
+          <div>
+            <label className="label font-semibold">Status</label>
+            <select 
+              className="input" 
+              value={form.is_active ? '1' : '0'} 
+              onChange={(e) => update('is_active', e.target.value === '1')}
+            >
+              <option value="1">Active</option>
+              <option value="0">Inactive</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4 border-t">
+          <Link to="/human-resources/shifts" className="btn-secondary">Cancel</Link>
+          <button className="btn-primary px-8" type="submit" disabled={loading}>
+            {loading ? 'Saving...' : 'Save Shift'}
+          </button>
         </div>
       </form>
     </div>

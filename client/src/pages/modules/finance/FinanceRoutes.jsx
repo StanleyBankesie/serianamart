@@ -10,6 +10,7 @@ import JournalReportPage from "./reports/JournalReportPage.jsx";
 import GeneralLedgerReportPage from "./reports/GeneralLedgerReportPage.jsx";
 import ProfitAndLossReportPage from "./reports/ProfitAndLossReportPage.jsx";
 import BalanceSheetReportPage from "./reports/BalanceSheetReportPage.jsx";
+import ChartOfAccountsReportPage from "./reports/ChartOfAccountsReportPage.jsx";
 import CashFlowReportPage from "./reports/CashFlowReportPage.jsx";
 import PaymentDueReportPage from "./reports/PaymentDueReportPage.jsx";
 import CustomerOutstandingReportPage from "./reports/CustomerOutstandingReportPage.jsx";
@@ -242,6 +243,7 @@ export default function FinanceRoutes() {
         element={<BalanceSheetReportPage />}
       />
       <Route path="/reports/cash-flow" element={<CashFlowReportPage />} />
+      <Route path="/reports/chart-of-accounts" element={<ChartOfAccountsReportPage />} />
 
       <Route path="*" element={<Navigate to="/finance" replace />} />
     </Routes>

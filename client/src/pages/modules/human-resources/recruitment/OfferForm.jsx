@@ -12,6 +12,8 @@ export default function OfferForm() {
   const [requisitions, setRequisitions] = useState([]);
   const [candidates, setCandidates] = useState([]);
   const [positions, setPositions] = useState([]);
+  const [allAllowances, setAllAllowances] = useState([]);
+  const [allTaxes, setAllTaxes] = useState([]);
   const [form, setForm] = useState({
     offer_no: "",
     offer_date: new Date().toISOString().split("T")[0],
@@ -19,24 +21,27 @@ export default function OfferForm() {
     candidate_id: "",
     position_id: "",
     gross_salary: 0,
-    allowances: 0,
-    deductions: 0,
-    net_salary: 0,
     status: "DRAFT",
     remarks: "",
+    selected_allowances: [],
+    selected_taxes: [],
   });
 
   useEffect(() => {
     async function loadData() {
       try {
-        const [reqRes, candRes, posRes] = await Promise.all([
+        const [reqRes, candRes, posRes, allowRes, taxRes] = await Promise.all([
           api.get("/hr/requisitions"),
           api.get("/hr/candidates"),
           api.get("/hr/positions"),
+          api.get("/hr/allowances"),
+          api.get("/hr/tax-configs"),
         ]);
         setRequisitions(reqRes?.data?.items || []);
         setCandidates(candRes?.data?.items || []);
         setPositions(posRes?.data?.items || []);
+        setAllAllowances(allowRes?.data?.items || []);
+        setAllTaxes(taxRes?.data?.items || []);
       } catch {}
     }
     loadData();
@@ -44,7 +49,6 @@ export default function OfferForm() {
 
   useEffect(() => {
     if (!isEdit) {
-      // Auto-generate offer no
       setForm(s => ({ ...s, offer_no: "OFF-" + Date.now().toString().slice(-6) }));
       return;
     }
@@ -56,6 +60,8 @@ export default function OfferForm() {
         setForm({
           ...item,
           offer_date: item.offer_date ? item.offer_date.slice(0, 10) : "",
+          selected_allowances: item.selected_allowances || [],
+          selected_taxes: item.selected_taxes || [],
         });
       } catch {
         toast.error("Failed to fetch offer details");
@@ -66,22 +72,62 @@ export default function OfferForm() {
     fetchItem();
   }, [id, isEdit]);
 
-  const calculateNet = () => {
-    const gross = Number(form.gross_salary || 0);
-    const allow = Number(form.allowances || 0);
-    const ded = Number(form.deductions || 0);
-    setForm(s => ({ ...s, net_salary: gross + allow - ded }));
+  const onCandidateChange = (candId) => {
+    const cand = candidates.find(c => String(c.id) === String(candId));
+    if (cand) {
+      // Find requisition to get position if not directly on candidate
+      const req = requisitions.find(r => String(r.id) === String(cand.requisition_id));
+      setForm(s => ({
+        ...s,
+        candidate_id: candId,
+        requisition_id: cand.requisition_id || "",
+        position_id: cand.position_id || req?.pos_id || "",
+      }));
+    } else {
+      setForm(s => ({ ...s, candidate_id: candId }));
+    }
   };
 
-  useEffect(() => {
-    calculateNet();
-  }, [form.gross_salary, form.allowances, form.deductions]);
+  const netSalary = useMemo(() => {
+    const gross = Number(form.gross_salary || 0);
+    let totalAllow = 0;
+    let totalDed = 0;
+
+    form.selected_allowances.forEach(id => {
+      const a = allAllowances.find(al => String(al.id) === String(id));
+      if (a) {
+        if (a.amount_type === 'FIXED') totalAllow += Number(a.amount);
+        else totalAllow += gross * (Number(a.amount) / 100);
+      }
+    });
+
+    form.selected_taxes.forEach(id => {
+      const t = allTaxes.find(tx => String(tx.id) === String(id));
+      if (t) {
+        if (t.tax_type === 'INCOME_TAX') {
+          totalDed += (gross + totalAllow) * (Number(t.tax_rate) / 100) + Number(t.fixed_amount);
+        } else {
+          totalDed += gross * (Number(t.employee_contribution_rate) / 100);
+        }
+      }
+    });
+
+    return gross + totalAllow - totalDed;
+  }, [form.gross_salary, form.selected_allowances, form.selected_taxes, allAllowances, allTaxes]);
+
+  const toggleItem = (listName, id) => {
+    setForm(s => {
+      const current = s[listName] || [];
+      const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id];
+      return { ...s, [listName]: next };
+    });
+  };
 
   async function submit(e) {
     e.preventDefault();
     setLoading(true);
     try {
-      await api.post("/hr/offers", form);
+      await api.post("/hr/offers", { ...form, net_salary: netSalary });
       toast.success("Offer saved successfully");
       navigate("/human-resources/offers");
     } catch {
@@ -92,79 +138,114 @@ export default function OfferForm() {
   }
 
   return (
-    <div className="p-4">
-      <div className="flex items-center gap-2 mb-4">
-        <Link to="/human-resources/offers" className="btn-secondary text-sm">
-          Back
-        </Link>
-        <h2 className="text-lg font-semibold">{isEdit ? "Edit Offer" : "New Offer"}</h2>
+    <div className="p-4 space-y-4">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-bold">{isEdit ? "Edit Offer" : "New Job Offer"}</h1>
+        <Link to="/human-resources/offers" className="btn-secondary">Back</Link>
       </div>
 
-      <form onSubmit={submit} className="bg-white dark:bg-slate-800 p-4 rounded shadow-sm">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="label">Offer No *</label>
-            <input className="input font-mono" value={form.offer_no} readOnly />
-          </div>
-          <div>
-            <label className="label">Offer Date *</label>
-            <input type="date" className="input" value={form.offer_date} onChange={e => setForm({...form, offer_date: e.target.value})} required />
-          </div>
-          <div>
-            <label className="label">Status</label>
-            <select className="input" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
-              <option value="DRAFT">Draft</option>
-              <option value="PENDING">Pending Approval</option>
-              <option value="APPROVED">Approved</option>
-              <option value="ACCEPTED">Accepted</option>
-              <option value="REJECTED">Rejected</option>
-            </select>
-          </div>
-          <div>
-            <label className="label">Job Requisition *</label>
-            <select className="input" value={form.requisition_id} onChange={e => setForm({...form, requisition_id: e.target.value})} required>
-              <option value="">Select Requisition</option>
-              {requisitions.map(r => <option key={r.id} value={r.id}>{r.req_no} - {r.title}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="label">Candidate *</label>
-            <select className="input" value={form.candidate_id} onChange={e => setForm({...form, candidate_id: e.target.value})} required>
-              <option value="">Select Candidate</option>
-              {candidates.map(c => <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="label">Position</label>
-            <select className="input" value={form.position_id} onChange={e => setForm({...form, position_id: e.target.value})}>
-              <option value="">Select Position</option>
-              {positions.map(p => <option key={p.id} value={p.id}>{p.pos_name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="label">Gross Salary *</label>
-            <input type="number" className="input" value={form.gross_salary} onChange={e => setForm({...form, gross_salary: e.target.value})} required />
-          </div>
-          <div>
-            <label className="label">Allowances</label>
-            <input type="number" className="input" value={form.allowances} onChange={e => setForm({...form, allowances: e.target.value})} />
-          </div>
-          <div>
-            <label className="label">Deductions</label>
-            <input type="number" className="input" value={form.deductions} onChange={e => setForm({...form, deductions: e.target.value})} />
-          </div>
-          <div className="bg-slate-50 dark:bg-slate-700/50 p-3 rounded">
-            <label className="text-xs font-medium uppercase text-slate-500 mb-1 block">Net Salary</label>
-            <div className="text-xl font-bold text-brand">{Number(form.net_salary).toLocaleString()}</div>
-          </div>
-          <div className="md:col-span-2">
-            <label className="label">Remarks</label>
-            <textarea className="input" rows={2} value={form.remarks} onChange={e => setForm({...form, remarks: e.target.value})} />
+      <form onSubmit={submit} className="space-y-6">
+        <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <label className="label font-semibold">Offer No *</label>
+              <input className="input font-mono bg-slate-50" value={form.offer_no} readOnly />
+            </div>
+            <div>
+              <label className="label font-semibold">Offer Date *</label>
+              <input type="date" className="input" value={form.offer_date} onChange={e => setForm({...form, offer_date: e.target.value})} required />
+            </div>
+            <div>
+              <label className="label font-semibold">Status</label>
+              <select className="input" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+                <option value="DRAFT">Draft</option>
+                <option value="PENDING">Pending Approval</option>
+                <option value="APPROVED">Approved</option>
+                <option value="ACCEPTED">Accepted</option>
+                <option value="REJECTED">Rejected</option>
+              </select>
+            </div>
+            <div>
+              <label className="label font-semibold">Candidate *</label>
+              <select className="input" value={form.candidate_id} onChange={e => onCandidateChange(e.target.value)} required>
+                <option value="">Select Candidate</option>
+                {candidates.map(c => <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label font-semibold">Job Requisition</label>
+              <select className="input bg-slate-50" value={form.requisition_id} disabled>
+                <option value="">Linked from Candidate</option>
+                {requisitions.map(r => <option key={r.id} value={r.id}>{r.req_no} - {r.title}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label font-semibold">Position</label>
+              <select className="input bg-slate-50" value={form.position_id} disabled>
+                <option value="">Auto-populated</option>
+                {positions.map(p => <option key={p.id} value={p.id}>{p.pos_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label font-semibold">Gross Salary *</label>
+              <input type="number" className="input font-mono" value={form.gross_salary} onChange={e => setForm({...form, gross_salary: e.target.value})} required />
+            </div>
+            <div className="md:col-span-2">
+              <label className="label font-semibold">Remarks</label>
+              <input className="input" value={form.remarks} onChange={e => setForm({...form, remarks: e.target.value})} placeholder="Internal notes..." />
+            </div>
           </div>
         </div>
-        <div className="flex justify-end gap-3 mt-6 border-t pt-4">
-          <button type="button" className="btn-secondary" onClick={() => navigate("/human-resources/offers")}>Cancel</button>
-          <button type="submit" className="btn-primary px-8" disabled={loading}>Save Offer</button>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
+            <h3 className="font-bold border-b pb-2 mb-4 flex justify-between">
+              Allowances
+              <span className="text-[10px] text-brand uppercase tracking-widest">Included in Offer</span>
+            </h3>
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
+              {allAllowances.map(a => (
+                <label key={a.id} className="flex items-center gap-3 p-3 hover:bg-slate-50 dark:hover:bg-slate-700 rounded border border-transparent hover:border-slate-200 transition-all cursor-pointer">
+                  <input type="checkbox" className="checkbox" checked={form.selected_allowances.includes(a.id)} onChange={() => toggleItem('selected_allowances', a.id)} />
+                  <div className="flex-1">
+                    <div className="text-sm font-semibold">{a.allowance_name}</div>
+                    <div className="text-xs text-slate-500">{a.amount_type === 'FIXED' ? 'GHS' : ''}{a.amount}{a.amount_type === 'PERCENTAGE' ? '%' : ''}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
+            <h3 className="font-bold border-b pb-2 mb-4 flex justify-between">
+              Statutory Contributions
+              <span className="text-[10px] text-red-500 uppercase tracking-widest">Deductions</span>
+            </h3>
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
+              {allTaxes.map(t => (
+                <label key={t.id} className="flex items-center gap-3 p-3 hover:bg-slate-50 dark:hover:bg-slate-700 rounded border border-transparent hover:border-slate-200 transition-all cursor-pointer">
+                  <input type="checkbox" className="checkbox" checked={form.selected_taxes.includes(t.id)} onChange={() => toggleItem('selected_taxes', t.id)} />
+                  <div className="flex-1">
+                    <div className="text-sm font-semibold">{t.tax_name}</div>
+                    <div className="text-xs text-slate-500">{t.tax_type} - {t.tax_rate}%</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-brand/5 border border-brand/20 p-6 rounded-lg flex flex-col md:flex-row justify-between items-center gap-4">
+          <div>
+            <div className="text-sm text-slate-500 font-medium">Estimated Monthly Net Salary</div>
+            <div className="text-3xl font-bold text-brand font-mono">GHS {Number(netSalary).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+          </div>
+          <div className="flex gap-3">
+            <button type="button" className="btn-secondary px-8" onClick={() => navigate("/human-resources/offers")}>Cancel</button>
+            <button type="submit" className="btn-primary px-12" disabled={loading}>
+              {loading ? "Saving..." : "Create Offer"}
+            </button>
+          </div>
         </div>
       </form>
     </div>

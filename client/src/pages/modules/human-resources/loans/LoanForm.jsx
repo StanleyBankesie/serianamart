@@ -19,7 +19,8 @@ export default function LoanForm() {
     repayment_period_months: 12, 
     monthly_installment: 0, 
     start_date: '', 
-    status: 'PENDING' 
+    status: 'PENDING',
+    affect_payslip: true
   });
 
   useEffect(() => {
@@ -183,6 +184,15 @@ export default function LoanForm() {
                 <option value="REPAID">Repaid</option>
                 <option value="REJECTED">Rejected</option>
               </select>
+            </div>
+            <div className="flex items-center gap-3 pt-6">
+              <input 
+                type="checkbox" 
+                className="checkbox" 
+                checked={form.affect_payslip} 
+                onChange={e => update('affect_payslip', e.target.checked)}
+              />
+              <label className="text-sm font-medium">Affect Payslip? (Auto-deduct installment)</label>
             </div>
           </div>
 

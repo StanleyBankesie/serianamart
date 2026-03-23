@@ -16,6 +16,7 @@ import {
   submitVoucher,
   syncAccounts,
   listAccountGroups,
+  listChartOfAccounts,
   createTaxCode,
   updateTaxCode,
   createTaxCodeComponent,
@@ -540,6 +541,14 @@ router.get(
   requireBranchScope,
   requirePermission("FIN.VOUCHER.VIEW"),
   (req, res, next) => getNextVoucherNo(req, res, next),
+);
+
+// Chart of Accounts Report
+router.get(
+  "/reports/chart-of-accounts",
+  requireAuth,
+  requireCompanyScope,
+  (req, res, next) => listChartOfAccounts(req, res, next),
 );
 
 router.post(

@@ -213,7 +213,14 @@ export async function saveExit(req, res, next) {
     const exitId = result.insertId;
 
     // Initialize clearance items
-    const depts = ["IT", "Finance", "HR", "Admin", "Library", "Department Head"];
+    const depts = [
+      "IT",
+      "Finance",
+      "HR",
+      "Admin",
+      "Library",
+      "Department Head",
+    ];
     for (const dept of depts) {
       await query(
         `INSERT INTO hr_clearance (exit_id, department, cleared) VALUES (:exitId, :dept, 0)`,
@@ -221,7 +228,10 @@ export async function saveExit(req, res, next) {
       );
     }
 
-    res.status(201).json({ id: exitId, message: "Exit submitted and clearance initialized" });
+    res.status(201).json({
+      id: exitId,
+      message: "Exit submitted and clearance initialized",
+    });
   } catch (err) {
     next(err);
   }
@@ -1069,7 +1079,9 @@ export async function saveCandidate(req, res, next) {
           status,
         },
       );
-      res.status(201).json({ id: result.insertId, message: "Candidate created" });
+      res
+        .status(201)
+        .json({ id: result.insertId, message: "Candidate created" });
     }
   } catch (err) {
     next(err);
@@ -1910,6 +1922,23 @@ export async function generatePayroll(req, res, next) {
       payrollId = hdr.insertId;
     }
 
+    const taxConfigs = await query(
+      `SELECT id, tax_name, tax_type, min_amount, max_amount, tax_rate, fixed_amount, employee_contribution_rate, employer_contribution_rate, taxable_components
+       FROM hr_tax_config
+       WHERE company_id = :companyId AND is_active = 1
+       ORDER BY min_amount ASC`,
+      { companyId },
+    );
+    const structRows = await query(
+      `SELECT components FROM hr_salary_structures WHERE company_id = :companyId AND is_active = 1 ORDER BY id DESC LIMIT 1`,
+      { companyId },
+    );
+    let structComps = null;
+    try {
+      structComps = JSON.parse(structRows?.[0]?.components || "{}");
+    } catch {
+      structComps = {};
+    }
     const employees = await query(
       `SELECT id, base_salary FROM hr_employees WHERE company_id = :companyId AND status = 'ACTIVE' AND deleted_at IS NULL`,
       { companyId },
@@ -1922,23 +1951,153 @@ export async function generatePayroll(req, res, next) {
       const basic = overrides.length
         ? overrides[0].basic_salary
         : e.base_salary;
-      const allowances = overrides.length ? overrides[0].allowances : 0;
-      const deductions = overrides.length ? overrides[0].deductions : 0;
-      const net = Number(basic) + Number(allowances) - Number(deductions);
-      // eslint-disable-next-line no-await-in-loop
+      let allowances = overrides.length
+        ? Number(overrides[0].allowances || 0)
+        : 0;
+      const alRows = await query(
+        `SELECT a.id, a.amount 
+         FROM hr_employee_allowance_mappings m 
+         JOIN hr_allowances a ON a.id = m.allowance_id 
+         WHERE m.employee_id = :eid AND a.is_active = 1`,
+        { eid: e.id },
+      ).catch(() => []);
+      const allowanceMap = {};
+      for (const r of alRows) {
+        const amt = Number(r.amount || 0);
+        allowanceMap[`ALLOWANCE:${r.id}`] = amt;
+      }
+      if (!allowances && alRows.length) {
+        allowances = alRows.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+      }
+      let incomeTax = 0;
+      let ssfEmployee = 0;
+      const taxBreakdown = {};
+      for (const cfg of taxConfigs) {
+        const ttype = String(cfg.tax_type || "");
+        if (ttype === "INCOME_TAX") {
+          let base = 0;
+          try {
+            let comps = [];
+            try {
+              comps = JSON.parse(cfg.taxable_components || "[]");
+            } catch {
+              comps = [];
+            }
+            if (!Array.isArray(comps) || comps.length === 0) {
+              comps = Array.isArray(structComps?.taxable_components)
+                ? structComps.taxable_components
+                : ["BASIC"];
+            }
+            const hasBasic = Array.isArray(comps)
+              ? comps.some((c) => String(c).toUpperCase() === "BASIC")
+              : false;
+            const hasAllow = Array.isArray(comps)
+              ? comps.some((c) =>
+                  String(c).toUpperCase().startsWith("ALLOWANCE"),
+                )
+              : false;
+            base =
+              (hasBasic ? Number(basic) : 0) +
+              (hasAllow ? Number(allowances) : 0);
+          } catch {
+            base = Number(basic);
+          }
+          const minOk =
+            cfg.min_amount === null || base >= Number(cfg.min_amount || 0);
+          const maxOk =
+            cfg.max_amount === null || base <= Number(cfg.max_amount || base);
+          if (minOk && maxOk) {
+            const rate = Number(cfg.tax_rate || 0) / 100;
+            const fixed = Number(cfg.fixed_amount || 0);
+            const amount = fixed + base * rate;
+            incomeTax += amount;
+            taxBreakdown[`INCOME_TAX:${cfg.id}`] =
+              (taxBreakdown[`INCOME_TAX:${cfg.id}`] || 0) + amount;
+          }
+        } else if (ttype === "SOCIAL_SECURITY") {
+          const rateEmp = Number(cfg.employee_contribution_rate || 0) / 100;
+          const applySSF =
+            structComps?.apply_ssf_basic === undefined
+              ? true
+              : !!structComps.apply_ssf_basic;
+          if (applySSF) {
+            const amount = Number(basic) * rateEmp;
+            ssfEmployee += amount;
+            taxBreakdown[`SSF:${cfg.id}`] =
+              (taxBreakdown[`SSF:${cfg.id}`] || 0) + amount;
+          }
+        } else if (ttype === "PROVIDENT_FUND") {
+          const rateEmp = Number(cfg.employee_contribution_rate || 0) / 100;
+          const amount = Number(basic) * rateEmp;
+          taxBreakdown[`TIER3:${cfg.id}`] =
+            (taxBreakdown[`TIER3:${cfg.id}`] || 0) + amount;
+        }
+      }
+      try {
+        const byName = {};
+        for (const cfg of taxConfigs) {
+          if (String(cfg.tax_type || "") === "INCOME_TAX") {
+            const nm = String(cfg.tax_name || "").toUpperCase();
+            const k = `INCOME_TAX:${cfg.id}`;
+            const amt = Number(taxBreakdown[k] || 0);
+            byName[nm] = (byName[nm] || 0) + amt;
+          }
+        }
+        for (const nm in byName) {
+          taxBreakdown[`INCOME_TAX_BRACKET:${nm}`] = byName[nm];
+        }
+      } catch {}
+      const otherDeductions = overrides.length
+        ? Number(overrides[0].deductions || 0)
+        : 0;
+      const deductions = incomeTax + ssfEmployee + otherDeductions;
+      let net = Number(basic) + Number(allowances) - Number(deductions);
+      try {
+        const formula = Array.isArray(structComps?.formula)
+          ? structComps.formula
+          : null;
+        if (formula && formula.length) {
+          const mapVal = {
+            BASIC: Number(basic),
+            ALLOWANCES: Number(allowances),
+            PAYE: Number(incomeTax),
+            SSF: Number(ssfEmployee),
+          };
+          for (const k in allowanceMap) {
+            mapVal[k] = Number(allowanceMap[k] || 0);
+          }
+          for (const k in taxBreakdown) {
+            mapVal[k] = Number(taxBreakdown[k] || 0);
+          }
+          let acc = 0;
+          for (let i = 0; i < formula.length; i++) {
+            const { op, token } = formula[i] || {};
+            const val = mapVal[String(token || "").toUpperCase()] || 0;
+            if (i === 0) {
+              acc = val; // ignore leading operator
+            } else if (String(op) === "-") {
+              acc -= val;
+            } else {
+              acc += val;
+            }
+          }
+          net = acc;
+        }
+      } catch {}
       await query(
-        `INSERT INTO hr_payroll_items (payroll_id, employee_id, basic_salary, allowances, deductions, net_salary)
-         VALUES (:payroll_id, :employee_id, :basic_salary, :allowances, :deductions, :net_salary)`,
+        `INSERT INTO hr_payroll_items (payroll_id, employee_id, basic_salary, allowances, deductions, income_tax, ssf_employee, net_salary)
+         VALUES (:payroll_id, :employee_id, :basic_salary, :allowances, :deductions, :income_tax, :ssf_employee, :net_salary)`,
         {
           payroll_id: payrollId,
           employee_id: e.id,
           basic_salary: basic || 0,
           allowances: allowances || 0,
           deductions: deductions || 0,
+          income_tax: incomeTax || 0,
+          ssf_employee: ssfEmployee || 0,
           net_salary: net || 0,
         },
       );
-      // eslint-disable-next-line no-await-in-loop
       await query(
         `INSERT INTO hr_payslips (employee_id, period_id, basic_salary, allowances, deductions, net_salary, status)
          VALUES (:employee_id, :period_id, :basic_salary, :allowances, :deductions, :net_salary, 'DRAFT')
@@ -2167,7 +2326,15 @@ export async function saveAllowance(req, res, next) {
   try {
     const { companyId, branchId } = req.scope;
     const userId = toNumber(req.user?.id || req.user?.sub, null);
-    const { id, allowance_code, allowance_name, amount_type, amount, is_taxable, is_active } = req.body;
+    const {
+      id,
+      allowance_code,
+      allowance_name,
+      amount_type,
+      amount,
+      is_taxable,
+      is_active,
+    } = req.body;
 
     const params = {
       allowance_code,
@@ -2196,7 +2363,47 @@ export async function saveAllowance(req, res, next) {
          VALUES (:companyId, :branchId, :allowance_code, :allowance_name, :amount_type, :amount, :is_taxable, :is_active, :userId)`,
         { ...params, branchId },
       );
-      res.status(201).json({ id: result.insertId, message: "Allowance created" });
+      const newId = Number(result.insertId || 0);
+      const gpRows = await query(
+        `SELECT id FROM fin_account_groups WHERE company_id = :companyId AND name = 'Employee Allowances' LIMIT 1`,
+        { companyId },
+      );
+      let groupId = Number(gpRows?.[0]?.id || 0);
+      if (!groupId) {
+        const insGp = await query(
+          `INSERT INTO fin_account_groups (company_id, code, name, nature, parent_id, is_active)
+           VALUES (:companyId, 'EMP_ALLOWANCES', 'Employee Allowances', 'EXPENSE', NULL, 1)`,
+          { companyId },
+        );
+        groupId = Number(insGp.insertId || 0);
+      }
+      const curRows = await query(
+        `SELECT id FROM fin_currencies WHERE company_id = :companyId AND is_base = 1 LIMIT 1`,
+        { companyId },
+      );
+      const currencyId = Number(curRows?.[0]?.id || 0) || null;
+      const accCode = String(allowance_code || `ALW-${newId}`).slice(0, 40);
+      const accIns = await query(
+        `INSERT INTO fin_accounts (company_id, group_id, code, name, currency_id, is_control_account, is_postable, is_active)
+         VALUES (:companyId, :groupId, :code, :name, :currencyId, 0, 1, 1)`,
+        {
+          companyId,
+          groupId,
+          code: accCode,
+          name: allowance_name,
+          currencyId,
+        },
+      );
+      const accId = Number(accIns.insertId || 0) || null;
+      if (accId) {
+        await query(
+          `UPDATE hr_allowances SET account_id = :accId WHERE id = :id`,
+          { accId, id: newId },
+        );
+      }
+      res
+        .status(201)
+        .json({ id: result.insertId, message: "Allowance created" });
     }
   } catch (err) {
     next(err);
@@ -2237,7 +2444,17 @@ export async function saveLoan(req, res, next) {
   try {
     const { companyId, branchId } = req.scope;
     const userId = toNumber(req.user?.id || req.user?.sub, null);
-    const { id, employee_id, loan_type, amount, interest_rate, repayment_period_months, monthly_installment, start_date, status } = req.body;
+    const {
+      id,
+      employee_id,
+      loan_type,
+      amount,
+      interest_rate,
+      repayment_period_months,
+      monthly_installment,
+      start_date,
+      status,
+    } = req.body;
 
     const params = {
       employee_id,
@@ -2247,7 +2464,7 @@ export async function saveLoan(req, res, next) {
       repayment_period_months: toNumber(repayment_period_months, 0),
       monthly_installment: toNumber(monthly_installment, 0),
       start_date,
-      status: status || 'PENDING',
+      status: status || "PENDING",
       userId,
       companyId,
     };
@@ -2294,11 +2511,137 @@ export async function listTaxConfigs(req, res, next) {
 export async function saveTaxConfig(req, res, next) {
   try {
     const { companyId } = req.scope;
-    const { id, tax_name, tax_type, min_amount, max_amount, tax_rate, fixed_amount, is_active } = req.body;
+    await ensureHRTables();
+    await query(
+      `CREATE TABLE IF NOT EXISTS hr_tax_config (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        company_id BIGINT UNSIGNED NOT NULL,
+        tax_name VARCHAR(100) NOT NULL,
+        tax_type VARCHAR(40) NOT NULL,
+        min_amount DECIMAL(18,4) NULL,
+        max_amount DECIMAL(18,4) NULL,
+        tax_rate DECIMAL(9,4) NULL,
+        fixed_amount DECIMAL(18,4) NULL,
+        employee_contribution_rate DECIMAL(9,4) NULL,
+        employer_contribution_rate DECIMAL(9,4) NULL,
+        taxable_components TEXT NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        PRIMARY KEY (id),
+        KEY idx_company (company_id),
+        KEY idx_type (tax_type)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+      {},
+    ).catch(() => []);
+    await query(
+      `ALTER TABLE hr_tax_config MODIFY COLUMN tax_type VARCHAR(50) NOT NULL`,
+      {},
+    ).catch(() => []);
+    if (Array.isArray(req.body?.configs)) {
+      const { configs = [], idsToDelete = [] } = req.body;
+      for (const cfg of configs) {
+        const id = toNumber(cfg.id, null);
+        const tax_name = cfg.tax_name;
+        let tax_type = cfg.tax_type;
+        if (String(tax_type || "").toUpperCase() === "PROVIDENCE_FUND") {
+          tax_type = "PROVIDENT_FUND";
+        }
+        const min_amount = toNumber(cfg.min_amount, 0);
+        const max_amount = toNumber(cfg.max_amount, null);
+        const tax_rate = toNumber(cfg.tax_rate, 0);
+        const fixed_amount = toNumber(cfg.fixed_amount, 0);
+        const employee_contribution_rate = toNumber(
+          cfg.employee_contribution_rate,
+          0,
+        );
+        const employer_contribution_rate = toNumber(
+          cfg.employer_contribution_rate,
+          0,
+        );
+        const is_active = cfg.is_active ? 1 : 0;
+        let compsJson = null;
+        try {
+          if (Array.isArray(cfg.taxable_components)) {
+            compsJson = JSON.stringify(cfg.taxable_components);
+          } else if (
+            typeof cfg.taxable_components === "string" &&
+            cfg.taxable_components.trim()
+          ) {
+            compsJson = cfg.taxable_components;
+          }
+        } catch {}
+        if (id) {
+          await query(
+            `UPDATE hr_tax_config SET 
+              tax_name = :tax_name, tax_type = :tax_type, min_amount = :min_amount, 
+              max_amount = :max_amount, tax_rate = :tax_rate, fixed_amount = :fixed_amount,
+              employee_contribution_rate = :employee_contribution_rate,
+              employer_contribution_rate = :employer_contribution_rate,
+              is_active = :is_active, taxable_components = :taxable_components
+             WHERE id = :id AND company_id = :companyId`,
+            {
+              id,
+              tax_name,
+              tax_type,
+              min_amount,
+              max_amount,
+              tax_rate,
+              fixed_amount,
+              employee_contribution_rate,
+              employer_contribution_rate,
+              is_active,
+              taxable_components: compsJson,
+              companyId,
+            },
+          );
+        } else {
+          await query(
+            `INSERT INTO hr_tax_config (company_id, tax_name, tax_type, min_amount, max_amount, tax_rate, fixed_amount, employee_contribution_rate, employer_contribution_rate, is_active, taxable_components)
+             VALUES (:companyId, :tax_name, :tax_type, :min_amount, :max_amount, :tax_rate, :fixed_amount, :employee_contribution_rate, :employer_contribution_rate, :is_active, :taxable_components)`,
+            {
+              tax_name,
+              tax_type,
+              min_amount,
+              max_amount,
+              tax_rate,
+              fixed_amount,
+              employee_contribution_rate,
+              employer_contribution_rate,
+              is_active,
+              taxable_components: compsJson,
+              companyId,
+            },
+          );
+        }
+      }
+      if (Array.isArray(idsToDelete) && idsToDelete.length) {
+        for (const delId of idsToDelete) {
+          await query(
+            `DELETE FROM hr_tax_config WHERE id = :id AND company_id = :companyId`,
+            { id: delId, companyId },
+          );
+        }
+      }
+      res.json({ message: "Statutory configurations saved" });
+      return;
+    }
+    const {
+      id,
+      tax_name,
+      tax_type,
+      min_amount,
+      max_amount,
+      tax_rate,
+      fixed_amount,
+      is_active,
+      taxable_components,
+    } = req.body;
 
     const params = {
       tax_name,
-      tax_type,
+      tax_type:
+        String(tax_type || "").toUpperCase() === "PROVIDENCE_FUND"
+          ? "PROVIDENT_FUND"
+          : tax_type,
       min_amount: toNumber(min_amount, 0),
       max_amount: toNumber(max_amount, null),
       tax_rate: toNumber(tax_rate, 0),
@@ -2306,23 +2649,36 @@ export async function saveTaxConfig(req, res, next) {
       is_active: is_active ? 1 : 0,
       companyId,
     };
+    let compsJson = null;
+    try {
+      if (Array.isArray(taxable_components)) {
+        compsJson = JSON.stringify(taxable_components);
+      } else if (
+        typeof taxable_components === "string" &&
+        taxable_components.trim()
+      ) {
+        compsJson = taxable_components;
+      }
+    } catch {}
 
     if (id) {
       await query(
         `UPDATE hr_tax_config SET 
           tax_name = :tax_name, tax_type = :tax_type, min_amount = :min_amount, 
-          max_amount = :max_amount, tax_rate = :tax_rate, fixed_amount = :fixed_amount, is_active = :is_active
+          max_amount = :max_amount, tax_rate = :tax_rate, fixed_amount = :fixed_amount, is_active = :is_active, taxable_components = :taxable_components
          WHERE id = :id AND company_id = :companyId`,
-        { ...params, id },
+        { ...params, id, taxable_components: compsJson },
       );
       res.json({ message: "Tax config updated" });
     } else {
       const result = await query(
-        `INSERT INTO hr_tax_config (company_id, tax_name, tax_type, min_amount, max_amount, tax_rate, fixed_amount, is_active)
-         VALUES (:companyId, :tax_name, :tax_type, :min_amount, :max_amount, :tax_rate, :fixed_amount, :is_active)`,
-        params,
+        `INSERT INTO hr_tax_config (company_id, tax_name, tax_type, min_amount, max_amount, tax_rate, fixed_amount, is_active, taxable_components)
+         VALUES (:companyId, :tax_name, :tax_type, :min_amount, :max_amount, :tax_rate, :fixed_amount, :is_active, :taxable_components)`,
+        { ...params, taxable_components: compsJson },
       );
-      res.status(201).json({ id: result.insertId, message: "Tax config created" });
+      res
+        .status(201)
+        .json({ id: result.insertId, message: "Tax config created" });
     }
   } catch (err) {
     next(err);
@@ -2348,7 +2704,7 @@ export async function listSalaryStructures(req, res, next) {
 export async function saveSalaryStructure(req, res, next) {
   try {
     const { companyId } = req.scope;
-    const { id, name, description, is_active } = req.body;
+    const { id, name, description, is_active, components } = req.body;
 
     const params = {
       name,
@@ -2356,22 +2712,49 @@ export async function saveSalaryStructure(req, res, next) {
       is_active: is_active ? 1 : 0,
       companyId,
     };
+    let compsJson = null;
+    try {
+      if (components && typeof components === "object") {
+        compsJson = JSON.stringify(components);
+      } else if (typeof components === "string" && components.trim()) {
+        compsJson = components;
+      }
+    } catch {}
 
     if (id) {
       await query(
-        `UPDATE hr_salary_structures SET name = :name, description = :description, is_active = :is_active
+        `UPDATE hr_salary_structures SET name = :name, description = :description, is_active = :is_active, components = :components
          WHERE id = :id AND company_id = :companyId`,
-        { ...params, id },
+        { ...params, id, components: compsJson },
       );
       res.json({ message: "Salary structure updated" });
     } else {
       const result = await query(
-        `INSERT INTO hr_salary_structures (company_id, name, description, is_active)
-         VALUES (:companyId, :name, :description, :is_active)`,
-        params,
+        `INSERT INTO hr_salary_structures (company_id, name, description, is_active, components)
+         VALUES (:companyId, :name, :description, :is_active, :components)`,
+        { ...params, components: compsJson },
       );
-      res.status(201).json({ id: result.insertId, message: "Salary structure created" });
+      res
+        .status(201)
+        .json({ id: result.insertId, message: "Salary structure created" });
     }
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getActiveSalaryStructure(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const rows = await query(
+      `SELECT id, name, description, is_active, components 
+       FROM hr_salary_structures 
+       WHERE company_id = :companyId AND is_active = 1 
+       ORDER BY id DESC LIMIT 1`,
+      { companyId },
+    );
+    const item = rows[0] || null;
+    res.json({ item });
   } catch (err) {
     next(err);
   }
@@ -2422,13 +2805,15 @@ export async function closePayroll(req, res, next) {
       const totals = await query(
         `SELECT 
            COALESCE(SUM(basic_salary + allowances),0) AS gross, 
-           COALESCE(SUM(deductions),0) AS deductions, 
+           COALESCE(SUM(income_tax),0) AS paye, 
+           COALESCE(SUM(ssf_employee),0) AS ssf, 
            COALESCE(SUM(net_salary),0) AS net
          FROM hr_payroll_items WHERE payroll_id = :pid`,
         { pid: payroll_id },
       );
       const gross = Number(totals?.[0]?.gross || 0);
-      const deductions = Number(totals?.[0]?.deductions || 0);
+      const paye = Number(totals?.[0]?.paye || 0);
+      const ssf = Number(totals?.[0]?.ssf || 0);
       const net = Number(totals?.[0]?.net || 0);
       const fyRows = await query(
         `SELECT id FROM fin_fiscal_years WHERE company_id = :companyId AND status = 'OPEN' ORDER BY start_date DESC LIMIT 1`,
@@ -2481,6 +2866,48 @@ export async function closePayroll(req, res, next) {
           credit: 0,
         },
       );
+      const payeAccRows = await query(
+        `SELECT id FROM fin_accounts WHERE company_id = :companyId AND name = 'PAYE Payable' LIMIT 1`,
+        { companyId },
+      );
+      if (payeAccRows.length && paye > 0) {
+        await query(
+          `INSERT INTO fin_voucher_lines
+             (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+           VALUES
+             (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, NULL, NULL, NULL)`,
+          {
+            companyId,
+            voucherId,
+            lineNo: lineNo++,
+            accountId: Number(payeAccRows[0].id),
+            description: "PAYE payable",
+            debit: 0,
+            credit: paye,
+          },
+        );
+      }
+      const ssfAccRows = await query(
+        `SELECT id FROM fin_accounts WHERE company_id = :companyId AND name = 'SSNIT/Pension Payable' LIMIT 1`,
+        { companyId },
+      );
+      if (ssfAccRows.length && ssf > 0) {
+        await query(
+          `INSERT INTO fin_voucher_lines
+             (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+           VALUES
+             (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, NULL, NULL, NULL)`,
+          {
+            companyId,
+            voucherId,
+            lineNo: lineNo++,
+            accountId: Number(ssfAccRows[0].id),
+            description: "SSNIT/Pension payable",
+            debit: 0,
+            credit: ssf,
+          },
+        );
+      }
       await query(
         `INSERT INTO fin_voucher_lines
            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
@@ -2491,9 +2918,9 @@ export async function closePayroll(req, res, next) {
           voucherId,
           lineNo: lineNo++,
           accountId: payable_account_id,
-          description: "Salaries payable",
+          description: "Salaries payable (net)",
           debit: 0,
-          credit: gross,
+          credit: net,
         },
       );
     }
@@ -2606,6 +3033,469 @@ export async function listOnboardingAssignments(req, res, next) {
       params,
     );
     res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Setup - Locations
+ */
+export async function listLocations(req, res, next) {
+  try {
+    await ensureHRTables();
+    const { companyId } = req.scope;
+    const items = await query(
+      `SELECT * FROM hr_locations WHERE company_id = :companyId AND is_active = 1 ORDER BY location_name ASC`,
+      { companyId },
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function saveLocation(req, res, next) {
+  try {
+    await ensureHRTables();
+    const { companyId } = req.scope;
+    const branchId = req.scope.branchId || req.user?.branch_id || 1;
+    const { id, location_name, address, is_active } = req.body;
+    const userId = toNumber(req.user?.id || req.user?.sub, null);
+    if (id) {
+      await query(
+        `UPDATE hr_locations SET location_name = :location_name, address = :address, is_active = :is_active, updated_by = :userId WHERE id = :id AND company_id = :companyId`,
+        {
+          id,
+          companyId,
+          location_name,
+          address,
+          is_active: is_active === false ? 0 : 1,
+          userId,
+        },
+      );
+    } else {
+      await query(
+        `INSERT INTO hr_locations (company_id, branch_id, location_name, address, is_active, created_by) VALUES (:companyId, :branchId, :location_name, :address, :is_active, :userId)`,
+        {
+          companyId,
+          branchId,
+          location_name,
+          address,
+          is_active: is_active === false ? 0 : 1,
+          userId,
+        },
+      );
+    }
+    res.json({ message: "Location saved" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Setup - Parameters
+ */
+export async function listParameters(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const items = await query(
+      `SELECT id, param_key, param_value FROM hr_setup_parameters WHERE company_id = :companyId`,
+      { companyId },
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function saveParameters(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const { parameters } = req.body;
+    if (parameters && typeof parameters === "object") {
+      for (const [key, value] of Object.entries(parameters)) {
+        await query(
+          `INSERT INTO hr_setup_parameters (company_id, param_key, param_value) 
+           VALUES (:companyId, :key, :value) 
+           ON DUPLICATE KEY UPDATE param_value = :value`,
+          { companyId, key, value: String(value) },
+        );
+      }
+    }
+    res.json({ message: "Parameters saved" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * HR Reports
+ */
+export async function reportEmployees(req, res, next) {
+  try {
+    await ensureHRTables();
+    const { companyId } = req.scope;
+    const { dept_id, q } = req.query;
+    const clauses = ["e.company_id = :companyId", "e.deleted_at IS NULL"];
+    const params = { companyId };
+    if (dept_id) {
+      clauses.push("e.dept_id = :dept_id");
+      params.dept_id = dept_id;
+    }
+    if (q) {
+      clauses.push(
+        "(e.first_name LIKE :q OR e.last_name LIKE :q OR e.emp_code LIKE :q)",
+      );
+      params.q = `%${q}%`;
+    }
+    const where = `WHERE ${clauses.join(" AND ")}`;
+    const items = await query(
+      `SELECT e.id, e.emp_code, e.first_name, e.last_name, d.dept_name, p.pos_name, e.email, e.phone, e.status
+       FROM hr_employees e
+       LEFT JOIN hr_departments d ON d.id = e.dept_id
+       LEFT JOIN hr_positions p ON p.id = e.pos_id
+       ${where}
+       ORDER BY e.emp_code ASC`,
+      params,
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function reportSSF(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const { period_id, from_date, to_date } = req.query;
+    const clauses = ["pp.company_id = :companyId"];
+    const params = { companyId };
+    if (period_id) {
+      clauses.push("pp.id = :period_id");
+      params.period_id = period_id;
+    }
+    if (from_date) {
+      clauses.push("pp.start_date >= :from_date");
+      params.from_date = from_date;
+    }
+    if (to_date) {
+      clauses.push("pp.end_date <= :to_date");
+      params.to_date = to_date;
+    }
+    const where = `WHERE ${clauses.join(" AND ")}`;
+    const items = await query(
+      `SELECT e.emp_code, e.first_name, e.last_name, p.period_name, i.basic_salary, i.ssf_employee
+       FROM hr_payroll_items i
+       JOIN hr_payslips ps ON ps.employee_id = i.employee_id AND ps.period_id = (SELECT period_id FROM hr_payroll WHERE id = (SELECT MAX(id) FROM hr_payroll WHERE company_id = :companyId))
+       JOIN hr_employees e ON e.id = i.employee_id
+       JOIN hr_payroll pp ON pp.id = (SELECT MAX(id) FROM hr_payroll WHERE company_id = :companyId)
+       JOIN hr_payroll_periods p ON p.id = pp.period_id
+       ${where}
+       ORDER BY e.emp_code ASC`,
+      params,
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function reportPAYE(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const { period_id, from_date, to_date } = req.query;
+    const clauses = ["pp.company_id = :companyId"];
+    const params = { companyId };
+    if (period_id) {
+      clauses.push("pp.id = :period_id");
+      params.period_id = period_id;
+    }
+    if (from_date) {
+      clauses.push("pp.start_date >= :from_date");
+      params.from_date = from_date;
+    }
+    if (to_date) {
+      clauses.push("pp.end_date <= :to_date");
+      params.to_date = to_date;
+    }
+    const where = `WHERE ${clauses.join(" AND ")}`;
+    const items = await query(
+      `SELECT e.emp_code, e.first_name, e.last_name, p.period_name, i.basic_salary, i.allowances, i.income_tax
+       FROM hr_payroll_items i
+       JOIN hr_employees e ON e.id = i.employee_id
+       JOIN hr_payroll pp ON pp.company_id = :companyId
+       JOIN hr_payroll_periods p ON p.id = pp.period_id
+       ${where}
+       ORDER BY e.emp_code ASC`,
+      params,
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function reportEmployeeLoans(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const items = await query(
+      `SELECT l.id, e.emp_code, e.first_name, e.last_name, l.loan_type, l.amount, l.monthly_installment, l.start_date, l.status
+       FROM hr_loans l
+       JOIN hr_employees e ON e.id = l.employee_id
+       WHERE l.company_id = :companyId
+       ORDER BY l.start_date DESC`,
+      { companyId },
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function reportEmployeeAllowances(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const items = await query(
+      `SELECT e.emp_code, e.first_name, e.last_name, a.allowance_name, a.amount_type, a.amount
+       FROM hr_employee_allowance_mappings m
+       JOIN hr_employees e ON e.id = m.employee_id
+       JOIN hr_allowances a ON a.id = m.allowance_id
+       WHERE e.company_id = :companyId
+       ORDER BY e.emp_code ASC`,
+      { companyId },
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Salary - Base Salary
+ */
+export async function listBaseSalaries(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const items = await query(
+      `SELECT e.id as employee_id, e.emp_code, e.first_name, e.last_name, e.base_salary
+       FROM hr_employees e
+       WHERE e.company_id = :companyId AND e.deleted_at IS NULL
+       ORDER BY e.emp_code ASC`,
+      { companyId },
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function saveBaseSalary(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const { employee_id, base_salary } = req.body;
+    await query(
+      `UPDATE hr_employees SET base_salary = :base_salary WHERE id = :employee_id AND company_id = :companyId`,
+      { base_salary, employee_id, companyId },
+    );
+    res.json({ message: "Base salary updated" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Bulk Payslip Emails
+ */
+export async function sendEmailBulk(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const { payslipIds } = req.body;
+    if (!Array.isArray(payslipIds)) {
+      throw httpError(400, "BAD_REQUEST", "payslipIds must be an array");
+    }
+
+    let count = 0;
+    for (const payslipId of payslipIds) {
+      const rows = await query(
+        `SELECT p.*, e.first_name, e.last_name, e.email, pr.period_name
+         FROM hr_payslips p
+         JOIN hr_employees e ON e.id = p.employee_id
+         JOIN hr_payroll_periods pr ON pr.id = p.period_id
+         WHERE p.id = :id AND e.company_id = :companyId`,
+        { id: payslipId, companyId },
+      );
+
+      if (rows.length > 0 && rows[0].email) {
+        const p = rows[0];
+        const html = `
+          <div style="font-family: sans-serif; padding: 20px; border: 1px solid #ddd; max-width: 600px;">
+            <h2 style="color: #1d4ed8; margin-top: 0;">Payslip for ${
+              p.period_name
+            }</h2>
+            <p>Dear ${p.first_name} ${p.last_name},</p>
+            <p>Your payslip for ${
+              p.period_name
+            } has been generated and is now available for your review.</p>
+            <div style="background: #f8fafc; padding: 15px; border-radius: 4px; margin: 20px 0;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;"><strong>Basic Salary</strong></td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; text-align: right;">${Number(
+                    p.basic_salary,
+                  ).toFixed(2)}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;"><strong>Allowances</strong></td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; text-align: right;">${Number(
+                    p.allowances,
+                  ).toFixed(2)}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;"><strong>Deductions</strong></td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; text-align: right;">${Number(
+                    p.deductions,
+                  ).toFixed(2)}</td>
+                </tr>
+                <tr style="font-size: 1.1em;">
+                  <td style="padding: 12px 0;"><strong>Net Salary</strong></td>
+                  <td style="padding: 12px 0; text-align: right; color: #15803d;"><strong>${Number(
+                    p.net_salary,
+                  ).toFixed(2)}</strong></td>
+                </tr>
+              </table>
+            </div>
+            <p>Regards,<br/>Human Resources Department</p>
+          </div>
+        `;
+
+        await sendMail({
+          to: p.email,
+          subject: `Your Payslip for ${p.period_name}`,
+          html,
+        });
+        count++;
+      }
+    }
+
+    res.json({ message: `${count} payslip(s) sent successfully` });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Setup - Employment Types
+ */
+export async function listEmploymentTypes(req, res, next) {
+  try {
+    await ensureHRTables();
+    const { companyId } = req.scope;
+    const items = await query(
+      `SELECT * FROM hr_setup_employment_types WHERE company_id = :companyId ORDER BY name ASC`,
+      { companyId },
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function saveEmploymentType(req, res, next) {
+  try {
+    await ensureHRTables();
+    const { companyId } = req.scope;
+    const { id, name } = req.body;
+    if (id) {
+      await query(
+        `UPDATE hr_setup_employment_types SET name = :name WHERE id = :id AND company_id = :companyId`,
+        { id, name, companyId },
+      );
+    } else {
+      await query(
+        `INSERT INTO hr_setup_employment_types (company_id, name) VALUES (:companyId, :name)`,
+        { companyId, name },
+      );
+    }
+    res.json({ message: "Employment type saved" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Setup - Employee Categories
+ */
+export async function listEmployeeCategories(req, res, next) {
+  try {
+    await ensureHRTables();
+    const { companyId } = req.scope;
+    const items = await query(
+      `SELECT * FROM hr_setup_employee_categories WHERE company_id = :companyId ORDER BY name ASC`,
+      { companyId },
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function saveEmployeeCategory(req, res, next) {
+  try {
+    await ensureHRTables();
+    const { companyId } = req.scope;
+    const { id, name } = req.body;
+    if (id) {
+      await query(
+        `UPDATE hr_setup_employee_categories SET name = :name WHERE id = :id AND company_id = :companyId`,
+        { id, name, companyId },
+      );
+    } else {
+      await query(
+        `INSERT INTO hr_setup_employee_categories (company_id, name) VALUES (:companyId, :name)`,
+        { companyId, name },
+      );
+    }
+    res.json({ message: "Employee category saved" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Setup - Allowance Types
+ */
+export async function listAllowanceTypes(req, res, next) {
+  try {
+    await ensureHRTables();
+    const { companyId } = req.scope;
+    const items = await query(
+      `SELECT * FROM hr_setup_allowance_types WHERE company_id = :companyId ORDER BY name ASC`,
+      { companyId },
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function saveAllowanceType(req, res, next) {
+  try {
+    await ensureHRTables();
+    const { companyId } = req.scope;
+    const { id, name } = req.body;
+    if (id) {
+      await query(
+        `UPDATE hr_setup_allowance_types SET name = :name WHERE id = :id AND company_id = :companyId`,
+        { id, name, companyId },
+      );
+    } else {
+      await query(
+        `INSERT INTO hr_setup_allowance_types (company_id, name) VALUES (:companyId, :name)`,
+        { companyId, name },
+      );
+    }
+    res.json({ message: "Allowance type saved" });
   } catch (err) {
     next(err);
   }

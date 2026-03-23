@@ -545,8 +545,9 @@ export const updateDepartment = async (req, res, next) => {
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
     const { company_id, branch_id, name, code, is_active } = req.body || {};
+    const effectiveCompanyId = company_id || req.scope?.companyId;
 
-    if (!company_id)
+    if (!effectiveCompanyId)
       throw httpError(400, "VALIDATION_ERROR", "company_id is required");
     if (!name || !code)
       throw httpError(400, "VALIDATION_ERROR", "name and code are required");
@@ -555,7 +556,7 @@ export const updateDepartment = async (req, res, next) => {
       "UPDATE adm_departments SET company_id = :company_id, branch_id = :branch_id, name = :name, code = :code, is_active = :is_active WHERE id = :id",
       {
         id,
-        company_id,
+        company_id: effectiveCompanyId,
         branch_id: branch_id || null,
         name,
         code,
@@ -591,14 +592,16 @@ export const getDepartmentById = async (req, res, next) => {
 export const createDepartment = async (req, res, next) => {
   try {
     const { company_id, branch_id, name, code, is_active } = req.body || {};
-    if (!company_id)
+    const effectiveCompanyId = company_id || req.scope?.companyId;
+
+    if (!effectiveCompanyId)
       throw httpError(400, "VALIDATION_ERROR", "company_id is required");
     if (!name || !code)
       throw httpError(400, "VALIDATION_ERROR", "name and code are required");
     const result = await query(
       "INSERT INTO adm_departments (company_id, branch_id, name, code, is_active) VALUES (:company_id, :branch_id, :name, :code, :is_active)",
       {
-        company_id,
+        company_id: effectiveCompanyId,
         branch_id: branch_id || null,
         name,
         code,

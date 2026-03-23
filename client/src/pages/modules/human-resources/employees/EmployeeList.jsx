@@ -65,13 +65,13 @@ export default function EmployeeList() {
     if (!searchTerm.trim()) return base;
     return filterAndSort(base, {
       query: searchTerm,
-      getKeys: (emp) => [emp.emp_no, emp.full_name, emp.email],
+      getKeys: (emp) => [emp.emp_code, emp.full_name, emp.email],
     });
   })();
 
   const departments = [
     "ALL",
-    ...new Set(employees.map((emp) => emp.department).filter(Boolean)),
+    ...new Set(employees.map((emp) => emp.dept_name).filter(Boolean)),
   ];
 
   if (loading) {
@@ -115,7 +115,7 @@ export default function EmployeeList() {
             <div className="flex-1">
               <input
                 type="text"
-                placeholder="Search by employee number, name, or email..."
+                placeholder="Search by employee code, name, or email..."
                 className="input"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -161,32 +161,40 @@ export default function EmployeeList() {
           ) : (
             <div className="overflow-x-auto">
               <table className="table">
-                <thead>
+                <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
                   <tr>
-                    <th>Emp No</th>
-                    <th>Name</th>
-                    <th>Designation</th>
-                    <th>Department</th>
-                    <th>Contact</th>
-                    <th>Type</th>
-                    <th>Status</th>
-                    <th>Actions</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Photo</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Code</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Position</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Department</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Type</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredEmployees.map((emp) => (
                     <tr key={emp.id}>
-                      <td className="font-medium">{emp.emp_no}</td>
-                      <td>{emp.full_name}</td>
-                      <td>{emp.designation}</td>
-                      <td>{emp.department}</td>
                       <td>
-                        <div className="text-sm">
-                          <div>{emp.email}</div>
-                          <div className="text-slate-500">{emp.contact_no}</div>
+                        <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-200">
+                          {emp.picture_url ? (
+                            <img src={emp.picture_url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-400">👤</div>
+                          )}
                         </div>
                       </td>
-                      <td>{getEmploymentTypeBadge(emp.employment_type)}</td>
+                      <td className="font-medium">{emp.emp_code}</td>
+                      <td>
+                        <div>
+                          <div className="font-medium">{emp.full_name}</div>
+                          <div className="text-[10px] text-slate-500">{emp.email}</div>
+                        </div>
+                      </td>
+                      <td>{emp.pos_name}</td>
+                      <td>{emp.dept_name}</td>
+                      <td>{getEmploymentTypeBadge(emp.employment_type_name || emp.employment_type)}</td>
                       <td>{getStatusBadge(emp.is_active)}</td>
                       <td>
                         <div className="flex gap-2">

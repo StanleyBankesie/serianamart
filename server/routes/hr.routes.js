@@ -58,6 +58,70 @@ router.post(
   hrController.savePosition,
 );
 
+// Locations
+router.get(
+  "/setup/locations",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listLocations,
+);
+router.post(
+  "/setup/locations",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.saveLocation,
+);
+
+router.get(
+  "/setup/employment-types",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listEmploymentTypes,
+);
+router.post(
+  "/setup/employment-types",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveEmploymentType,
+);
+router.get(
+  "/setup/employee-categories",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listEmployeeCategories,
+);
+router.post(
+  "/setup/employee-categories",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveEmployeeCategory,
+);
+router.get(
+  "/setup/allowance-types",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listAllowanceTypes,
+);
+router.post(
+  "/setup/allowance-types",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveAllowanceType,
+);
+router.get(
+  "/setup/parameters",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listParameters,
+);
+router.post(
+  "/setup/parameters",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveParameters,
+);
+
 // Recruitment
 router.get(
   "/requisitions/next-req-no",
@@ -283,6 +347,24 @@ router.post(
   requireCompanyScope,
   hrController.saveSalaryStructure,
 );
+router.get(
+  "/salary-structure/active",
+  requireAuth,
+  requireCompanyScope,
+  hrController.getActiveSalaryStructure,
+);
+router.get(
+  "/salary/base-salaries",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listBaseSalaries,
+);
+router.post(
+  "/salary/base-salaries",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveBaseSalary,
+);
 
 // Tax Configuration
 router.get(
@@ -314,12 +396,7 @@ router.post(
 );
 
 // Loans
-router.get(
-  "/loans",
-  requireAuth,
-  requireCompanyScope,
-  hrController.listLoans,
-);
+router.get("/loans", requireAuth, requireCompanyScope, hrController.listLoans);
 router.post(
   "/loans",
   requireAuth,
@@ -360,6 +437,12 @@ router.get(
   requireAuth,
   requireCompanyScope,
   hrController.listPayslips,
+);
+router.post(
+  "/payslips/send-email-bulk",
+  requireAuth,
+  requireCompanyScope,
+  hrController.sendEmailBulk,
 );
 router.post(
   "/payslips/send-email",
@@ -473,6 +556,38 @@ router.post(
   requireAuth,
   requireCompanyScope,
   hrController.updateClearance,
+);
+
+// HR Reports
+router.get(
+  "/reports/employees",
+  requireAuth,
+  requireCompanyScope,
+  hrController.reportEmployees,
+);
+router.get(
+  "/reports/ssf",
+  requireAuth,
+  requireCompanyScope,
+  hrController.reportSSF,
+);
+router.get(
+  "/reports/paye",
+  requireAuth,
+  requireCompanyScope,
+  hrController.reportPAYE,
+);
+router.get(
+  "/reports/loans",
+  requireAuth,
+  requireCompanyScope,
+  hrController.reportEmployeeLoans,
+);
+router.get(
+  "/reports/allowances",
+  requireAuth,
+  requireCompanyScope,
+  hrController.reportEmployeeAllowances,
 );
 
 export default router;
