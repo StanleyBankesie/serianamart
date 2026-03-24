@@ -23,7 +23,8 @@ export default function TimesheetView() {
     overtime_hours: 0,
     short_hours: 0,
     location_gps: '',
-    remarks: ''
+    remarks: '',
+    on_leave: false
   });
 
   useEffect(() => {
@@ -43,6 +44,9 @@ export default function TimesheetView() {
   };
 
   const getCurrentLocation = () => {
+    if (form.on_leave) {
+      return;
+    }
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition((position) => {
         const { latitude, longitude } = position.coords;
@@ -140,6 +144,41 @@ export default function TimesheetView() {
                     <option key={e.id} value={e.id}>{e.emp_code} - {e.first_name} {e.last_name}</option>
                   ))}
                 </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="label m-0">On Leave</label>
+                <input
+                  type="checkbox"
+                  checked={form.on_leave}
+                  onChange={async (e) => {
+                    const on_leave = e.target.checked;
+                    if (on_leave && form.employee_id) {
+                      try {
+                        const res = await api.get(`/hr/work-schedules?employee_id=${form.employee_id}`);
+                        const item = (res.data?.items || [])[0];
+                        if (item?.start_time && item?.end_time) {
+                          setForm(prev => ({
+                            ...prev,
+                            on_leave: true,
+                            time_in: item.start_time,
+                            time_out: item.end_time,
+                            location_gps: "",
+                            remarks: prev.remarks || "Leave"
+                          }));
+                        } else {
+                          setForm(prev => ({ ...prev, on_leave }));
+                          toast.info("No shift schedule found; set times manually");
+                        }
+                      } catch {
+                        setForm(prev => ({ ...prev, on_leave }));
+                        toast.error("Failed to load shift times");
+                      }
+                    } else {
+                      setForm(prev => ({ ...prev, on_leave, location_gps: prev.location_gps || "" }));
+                      if (!on_leave) getCurrentLocation();
+                    }
+                  }}
+                />
               </div>
               <div>
                 <label className="label">Work Date *</label>

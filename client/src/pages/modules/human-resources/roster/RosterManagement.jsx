@@ -1,0 +1,481 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { api } from "../../../../api/client.js";
+import { toast } from "react-toastify";
+
+function diffDays(a, b) {
+  const one = new Date(a);
+  const two = new Date(b);
+  return Math.round((two - one) / (24 * 3600 * 1000));
+}
+
+function rangeDates(start, end) {
+  const out = [];
+  const s = new Date(start);
+  const e = new Date(end);
+  for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+    out.push(new Date(d));
+  }
+  return out;
+}
+
+function toMinutes(t) {
+  if (!t || typeof t !== "string") return 0;
+  const [hh, mm] = t.split(":").map(Number);
+  return (hh % 24) * 60 + (mm || 0);
+}
+
+function computeHours(start_time, end_time, break_minutes) {
+  let diff = toMinutes(end_time) - toMinutes(start_time);
+  if (diff < 0) diff += 24 * 60;
+  diff -= Number(break_minutes || 0);
+  const h = Math.max(0, diff) / 60;
+  return isFinite(h) ? h : 0;
+}
+
+const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+export default function RosterManagement() {
+  const [employees, setEmployees] = useState([]);
+  const [schedules, setSchedules] = useState([]);
+  const [shifts, setShifts] = useState([]);
+  const [positions, setPositions] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [empTypes, setEmpTypes] = useState([]);
+  const [filter, setFilter] = useState({ type: "NONE", value: "" });
+  const [form, setForm] = useState({
+    selected_employee_ids: [],
+    all_employees: false,
+    from_date: new Date().toISOString().slice(0, 10),
+    to_date: new Date(new Date().setDate(new Date().getDate() + 6))
+      .toISOString()
+      .slice(0, 10),
+  });
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [emps, shf, sched, pos, locs, cats, ets] = await Promise.all([
+          api.get("/hr/employees?status=ACTIVE"),
+          api.get("/hr/shifts"),
+          api.get("/hr/work-schedules"),
+          api.get("/hr/positions"),
+          api.get("/hr/setup/locations"),
+          api.get("/hr/setup/employee-categories"),
+          api.get("/hr/setup/employment-types"),
+        ]);
+        setEmployees(emps.data?.items || []);
+        setShifts(shf.data?.items || []);
+        setPositions(pos.data?.items || []);
+        setLocations(locs.data?.items || []);
+        setCategories(cats.data?.items || []);
+        setEmpTypes(ets.data?.items || []);
+        setSchedules(
+          (sched.data?.items || []).map((x) => {
+            let off = [];
+            try {
+              off = Array.isArray(x.off_days)
+                ? x.off_days
+                : JSON.parse(x.off_days || "[]");
+            } catch {
+              off = [];
+            }
+            return { ...x, off_days: off.map(Number) };
+          }),
+        );
+      } catch {
+        toast.error("Failed to load data");
+      }
+    };
+    load();
+  }, []);
+
+  const scheduleMap = useMemo(() => {
+    const map = new Map();
+    for (const s of schedules) {
+      map.set(String(s.employee_id), s);
+    }
+    return map;
+  }, [schedules]);
+
+  const selectedEmployees = useMemo(() => {
+    let pool = employees;
+    if (filter.type === "SHIFT" && filter.value) {
+      const empIds = schedules
+        .filter((s) => String(s.shift_id) === String(filter.value))
+        .map((s) => String(s.employee_id));
+      pool = employees.filter((e) => empIds.includes(String(e.id)));
+    } else if (filter.type === "LOCATION" && filter.value) {
+      pool = employees.filter(
+        (e) => String(e.location_id || "") === String(filter.value),
+      );
+    } else if (filter.type === "CATEGORY" && filter.value) {
+      pool = employees.filter(
+        (e) => String(e.category_id || "") === String(filter.value),
+      );
+    } else if (filter.type === "EMPLOYMENT_TYPE" && filter.value) {
+      pool = employees.filter(
+        (e) => String(e.employment_type_id || "") === String(filter.value),
+      );
+    } else if (filter.type === "POSITION" && filter.value) {
+      pool = employees.filter(
+        (e) => String(e.pos_id || "") === String(filter.value),
+      );
+    }
+    if (form.all_employees) return pool;
+    const setIds = new Set(form.selected_employee_ids.map(String));
+    return pool.filter((e) => setIds.has(String(e.id)));
+  }, [
+    form.all_employees,
+    form.selected_employee_ids,
+    employees,
+    filter,
+    schedules,
+  ]);
+
+  const roster = useMemo(() => {
+    if (selectedEmployees.length === 0) return [];
+    const results = [];
+    const days = rangeDates(form.from_date, form.to_date);
+    for (const emp of selectedEmployees) {
+      const sched = scheduleMap.get(String(emp.id));
+      if (!sched) continue;
+      const shift =
+        shifts.find((s) => String(s.id) === String(sched.shift_id)) || null;
+      if (!shift) continue;
+      for (const d of days) {
+        const dow = d.getDay();
+        const iso = d.toISOString().slice(0, 10);
+        if ((sched.off_days || []).includes(dow)) {
+          results.push({
+            employee_id: emp.id,
+            employee_name: `${emp.first_name} ${emp.last_name}`,
+            date: iso,
+            day: dayLabels[dow],
+            type: "OFF",
+            label: "Off Day",
+            hours: 0,
+          });
+        } else {
+          const hours = computeHours(
+            shift.start_time,
+            shift.end_time,
+            shift.break_minutes,
+          );
+          results.push({
+            employee_id: emp.id,
+            employee_name: `${emp.first_name} ${emp.last_name}`,
+            date: iso,
+            day: dayLabels[dow],
+            type: "SHIFT",
+            label: `${shift.name} (${shift.start_time} - ${shift.end_time})`,
+            hours: Number(hours.toFixed(2)),
+          });
+        }
+      }
+    }
+    results.sort(
+      (a, b) =>
+        a.employee_name.localeCompare(b.employee_name) ||
+        a.date.localeCompare(b.date),
+    );
+    return results;
+  }, [selectedEmployees, scheduleMap, shifts, form.from_date, form.to_date]);
+
+  const totalHours = useMemo(
+    () => roster.reduce((sum, r) => sum + (r.hours || 0), 0),
+    [roster],
+  );
+
+  return (
+    <div className="p-4 space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Link to="/human-resources" className="btn-secondary text-sm">
+            Back to Menu
+          </Link>
+          <h1 className="text-xl font-semibold">Roster Management</h1>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-slate-800 p-4 rounded shadow-sm">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="md:col-span-2">
+            <div className="mb-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="label m-0">Filter by:</span>
+                <label className="flex items-center gap-1 text-sm">
+                  <input
+                    type="radio"
+                    name="ft"
+                    checked={filter.type === "NONE"}
+                    onChange={() => {
+                      setFilter({ type: "NONE", value: "" });
+                      setForm((p) => ({ ...p, selected_employee_ids: [] }));
+                    }}
+                  />
+                  <span>None</span>
+                </label>
+                <label className="flex items-center gap-1 text-sm">
+                  <input
+                    type="radio"
+                    name="ft"
+                    checked={filter.type === "SHIFT"}
+                    onChange={() => setFilter({ type: "SHIFT", value: "" })}
+                  />
+                  <span>Shift</span>
+                </label>
+                <label className="flex items-center gap-1 text-sm">
+                  <input
+                    type="radio"
+                    name="ft"
+                    checked={filter.type === "LOCATION"}
+                    onChange={() => setFilter({ type: "LOCATION", value: "" })}
+                  />
+                  <span>Location</span>
+                </label>
+                <label className="flex items-center gap-1 text-sm">
+                  <input
+                    type="radio"
+                    name="ft"
+                    checked={filter.type === "CATEGORY"}
+                    onChange={() => setFilter({ type: "CATEGORY", value: "" })}
+                  />
+                  <span>Category</span>
+                </label>
+                <label className="flex items-center gap-1 text-sm">
+                  <input
+                    type="radio"
+                    name="ft"
+                    checked={filter.type === "EMPLOYMENT_TYPE"}
+                    onChange={() =>
+                      setFilter({ type: "EMPLOYMENT_TYPE", value: "" })
+                    }
+                  />
+                  <span>Employment Type</span>
+                </label>
+                <label className="flex items-center gap-1 text-sm">
+                  <input
+                    type="radio"
+                    name="ft"
+                    checked={filter.type === "POSITION"}
+                    onChange={() => setFilter({ type: "POSITION", value: "" })}
+                  />
+                  <span>Position</span>
+                </label>
+              </div>
+              {filter.type !== "NONE" && (
+                <div className="mt-2">
+                  <select
+                    className="input"
+                    value={filter.value}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setFilter((f) => ({ ...f, value }));
+                      if (value) {
+                        let matches = [];
+                        if (filter.type === "SHIFT") {
+                          const ids = schedules
+                            .filter((s) => String(s.shift_id) === String(value))
+                            .map((s) => String(s.employee_id));
+                          matches = employees.filter((e) =>
+                            ids.includes(String(e.id)),
+                          );
+                        } else if (filter.type === "LOCATION") {
+                          matches = employees.filter(
+                            (e) =>
+                              String(e.location_id || "") === String(value),
+                          );
+                        } else if (filter.type === "CATEGORY") {
+                          matches = employees.filter(
+                            (e) =>
+                              String(e.category_id || "") === String(value),
+                          );
+                        } else if (filter.type === "EMPLOYMENT_TYPE") {
+                          matches = employees.filter(
+                            (e) =>
+                              String(e.employment_type_id || "") ===
+                              String(value),
+                          );
+                        } else if (filter.type === "POSITION") {
+                          matches = employees.filter(
+                            (e) => String(e.pos_id || "") === String(value),
+                          );
+                        }
+                        setForm((prev) => ({
+                          ...prev,
+                          all_employees: false,
+                          selected_employee_ids: matches.map((m) => m.id),
+                        }));
+                      } else {
+                        setForm((prev) => ({
+                          ...prev,
+                          selected_employee_ids: [],
+                        }));
+                      }
+                    }}
+                  >
+                    <option value="">Select</option>
+                    {filter.type === "SHIFT" &&
+                      shifts.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.start_time}-{s.end_time})
+                        </option>
+                      ))}
+                    {filter.type === "LOCATION" &&
+                      locations.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.location_name}
+                        </option>
+                      ))}
+                    {filter.type === "CATEGORY" &&
+                      categories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    {filter.type === "EMPLOYMENT_TYPE" &&
+                      empTypes.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    {filter.type === "POSITION" &&
+                      positions.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.pos_name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-between">
+              <label className="label">Employees</label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.all_employees}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      all_employees: e.target.checked,
+                      selected_employee_ids: e.target.checked
+                        ? selectedEmployees.map((x) => x.id)
+                        : [],
+                    })
+                  }
+                />
+                <span>All active</span>
+              </label>
+            </div>
+            <select
+              multiple
+              className="input h-40"
+              value={form.selected_employee_ids.map(String)}
+              onChange={(e) => {
+                const opts = Array.from(e.target.selectedOptions).map(
+                  (o) => o.value,
+                );
+                setForm({
+                  ...form,
+                  selected_employee_ids: opts.map((x) => Number(x)),
+                  all_employees: false,
+                });
+              }}
+            >
+              {selectedEmployees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.first_name} {e.last_name} ({e.emp_code})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">From</label>
+            <input
+              className="input"
+              type="date"
+              value={form.from_date}
+              onChange={(e) => setForm({ ...form, from_date: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">To</label>
+            <input
+              className="input"
+              type="date"
+              value={form.to_date}
+              onChange={(e) => setForm({ ...form, to_date: e.target.value })}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-slate-800 rounded shadow-sm overflow-hidden border border-slate-100 dark:border-slate-700">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+          <div className="font-medium">Bulk Roster</div>
+          <div className="text-sm">Total Hours: {totalHours.toFixed(2)}</div>
+        </div>
+        <table className="min-w-full">
+          <thead>
+            <tr className="text-left bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">
+              <th className="px-4 py-3 text-[10px] uppercase tracking-wider font-bold text-slate-500">
+                Employee
+              </th>
+              <th className="px-4 py-3 text-[10px] uppercase tracking-wider font-bold text-slate-500">
+                Date
+              </th>
+              <th className="px-4 py-3 text-[10px] uppercase tracking-wider font-bold text-slate-500">
+                Day
+              </th>
+              <th className="px-4 py-3 text-[10px] uppercase tracking-wider font-bold text-slate-500">
+                Assignment
+              </th>
+              <th className="px-4 py-3 text-[10px] uppercase tracking-wider font-bold text-slate-500">
+                Hours
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            {roster.map((r) => (
+              <tr
+                key={r.employee_id + "-" + r.date}
+                className="hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors"
+              >
+                <td className="px-4 py-2">{r.employee_name}</td>
+                <td className="px-4 py-2">{r.date}</td>
+                <td className="px-4 py-2">{r.day}</td>
+                <td className="px-4 py-2">
+                  {r.type === "OFF" ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-primary-50 text-primary">
+                      {r.label}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-secondary-50 text-secondary">
+                      {r.label}
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-2">
+                  {r.hours ? r.hours.toFixed(2) : "0"}
+                </td>
+              </tr>
+            ))}
+            {roster.length === 0 && (
+              <tr>
+                <td
+                  colSpan={5}
+                  className="px-4 py-8 text-center text-slate-500"
+                >
+                  Select employees and date range to generate roster
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

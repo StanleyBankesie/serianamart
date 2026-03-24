@@ -9,6 +9,8 @@ import LeaveSetupList from "./leave-setup/LeaveSetupList.jsx";
 import LeaveSetupForm from "./leave-setup/LeaveSetupForm.jsx";
 import ShiftList from "./shifts/ShiftList.jsx";
 import ShiftForm from "./shifts/ShiftForm.jsx";
+import WorkScheduleManagement from "./work-schedules/WorkScheduleManagement.jsx";
+import RosterManagement from "./roster/RosterManagement.jsx";
 import AttendanceList from "./attendance/AttendanceList.jsx";
 import AttendanceForm from "./attendance/AttendanceForm.jsx";
 import SalaryConfigList from "./salary-config/SalaryConfigList.jsx";
@@ -38,6 +40,11 @@ import SalaryProcessing from "./payroll/SalaryProcessing.jsx";
 import LeaveRequestForm from "./leave/LeaveRequestForm.jsx";
 import LeaveApprovals from "./leave/LeaveApprovals.jsx";
 import LeaveCalendar from "./leave/LeaveCalendar.jsx";
+import LeaveManagementDashboard from "./leave/LeaveManagementDashboard.jsx";
+import LeaveScheduling from "./leave/LeaveScheduling.jsx";
+import LeaveRoster from "./leave/LeaveRoster.jsx";
+import LeaveBalances from "./leave/LeaveBalances.jsx";
+import LeaveApplication from "./leave/LeaveApplication.jsx";
 import KPISetup from "./performance/KPISetup.jsx";
 import AppraisalForm from "./performance/AppraisalForm.jsx";
 import TrainingList from "./training/TrainingList.jsx";
@@ -173,16 +180,22 @@ function HRDashboard() {
       title: "Leave & Attendance",
       features: [
         {
-          name: "Leave Setup",
-          path: "/human-resources/leave-setup",
-          description: "Configure leave types and employee leave balances",
+          name: "Leave Management",
+          path: "/human-resources/leave",
+          description: "Apply, schedule, roster, calendar, and balances",
           icon: "📅",
         },
         {
-          name: "Shift Management",
-          path: "/human-resources/shifts",
-          description: "Setup and manage work shifts",
-          icon: "🕐",
+          name: "Work Schedule Management",
+          path: "/human-resources/work-schedules",
+          description: "Assign shifts and off days to employees",
+          icon: "📋",
+        },
+        {
+          name: "Roster Management",
+          path: "/human-resources/roster",
+          description: "Generate monthly work rosters for employees",
+          icon: "🗓️",
         },
         {
           name: "Attendance",
@@ -359,6 +372,8 @@ export default function HumanResourcesHome() {
       <Route path="employees/new" element={<EmployeeForm />} />
       <Route path="employees/:id" element={<EmployeeForm />} />
       <Route path="setup" element={<HRSetup />} />
+      <Route path="work-schedules" element={<WorkScheduleManagement />} />
+      <Route path="roster" element={<RosterManagement />} />
       <Route path="requisitions" element={<RequisitionList />} />
       <Route path="requisitions/new" element={<RequisitionForm />} />
       <Route path="requisitions/:id" element={<RequisitionForm />} />
@@ -373,7 +388,12 @@ export default function HumanResourcesHome() {
       <Route path="offers/:id" element={<OfferForm />} />
       <Route path="payroll" element={<PayrollDashboard />} />
       <Route path="payroll/process" element={<SalaryProcessing />} />
-      <Route path="leave/request" element={<LeaveRequestForm />} />
+      <Route path="leave/request" element={<LeaveApplication />} />
+      <Route path="leave" element={<LeaveManagementDashboard />} />
+      <Route path="leave/scheduling" element={<LeaveScheduling />} />
+      <Route path="leave/roster" element={<LeaveRoster />} />
+      <Route path="leave/calendar" element={<LeaveCalendar />} />
+      <Route path="leave/balances" element={<LeaveBalances />} />
       <Route path="leave/approvals" element={<LeaveApprovals />} />
       <Route path="leave/calendar" element={<LeaveCalendar />} />
       <Route path="performance/kpis" element={<KPISetup />} />
@@ -393,12 +413,20 @@ export default function HumanResourcesHome() {
       <Route path="shifts" element={<ShiftList />} />
       <Route path="shifts/new" element={<ShiftForm />} />
       <Route path="shifts/:id" element={<ShiftForm />} />
+      <Route path="work-schedules" element={<WorkScheduleManagement />} />
+      <Route path="roster" element={<RosterManagement />} />
+      {/* merged routes above */}
       <Route path="attendance" element={<AttendanceDashboard />} />
       <Route path="attendance/new" element={<AttendanceForm />} />
+      <Route path="attendance/list" element={<AttendanceList />} />
+      <Route path="attendance/bulk" element={<BulkAttendance />} />
       <Route path="attendance/timesheet" element={<TimesheetView />} />
       <Route path="attendance/:id" element={<AttendanceForm />} />
       <Route path="salary-config" element={<SalaryConfigList />} />
-      <Route path="salary-config/base-salaries" element={<BaseSalariesPage />} />
+      <Route
+        path="salary-config/base-salaries"
+        element={<BaseSalariesPage />}
+      />
       <Route path="salary-config/structure" element={<SalaryStructurePage />} />
       <Route path="salary-config/new" element={<SalaryConfigForm />} />
       <Route path="salary-config/:id" element={<SalaryConfigForm />} />
@@ -441,20 +469,20 @@ export const humanResourcesFeatures = [
   },
   {
     module_key: "human-resources",
-    label: "Leave Setup",
-    path: "/human-resources/leave-setup",
-    type: "feature",
-  },
-  {
-    module_key: "human-resources",
-    label: "Shift Management",
-    path: "/human-resources/shifts",
-    type: "feature",
-  },
-  {
-    module_key: "human-resources",
     label: "Attendance",
     path: "/human-resources/attendance",
+    type: "feature",
+  },
+  {
+    module_key: "human-resources",
+    label: "Work Schedule Management",
+    path: "/human-resources/work-schedules",
+    type: "feature",
+  },
+  {
+    module_key: "human-resources",
+    label: "Roster Management",
+    path: "/human-resources/roster",
     type: "feature",
   },
   {

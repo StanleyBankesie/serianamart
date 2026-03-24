@@ -618,6 +618,140 @@ export async function saveEmployee(req, res, next) {
   }
 }
 
+export async function saveEmployeesBulk(req, res, next) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const { companyId, branchId } = req.scope;
+    const userId = req.user?.id || req.user?.sub;
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    let created = 0;
+    let updated = 0;
+    for (const b of items) {
+      const [rows] = await conn.execute(
+        `SELECT id FROM hr_employees WHERE company_id = ? AND emp_code = ? LIMIT 1`,
+        [companyId, b.emp_code],
+      );
+      if (rows && rows.length) {
+        const id = rows[0].id;
+        await conn.execute(
+          `UPDATE hr_employees SET 
+            first_name = ?, last_name = ?, middle_name = ?, gender = ?, dob = ?, joining_date = ?, email = ?, phone = ?,
+            dept_id = ?, pos_id = ?, manager_id = ?, location_id = ?,
+            employment_type = COALESCE(?, employment_type), employment_type_id = ?, category_id = ?, status = ?, base_salary = ?, address = ?, 
+            picture_url = ?, national_id = ?, updated_by = ?
+           WHERE id = ? AND company_id = ?`,
+          [
+            b.first_name,
+            b.last_name,
+            b.middle_name || null,
+            b.gender || null,
+            b.dob || null,
+            b.joining_date,
+            b.email || null,
+            b.phone || null,
+            b.dept_id || null,
+            b.pos_id || null,
+            b.manager_id || null,
+            b.location_id || null,
+            b.employment_type || null,
+            b.employment_type_id || null,
+            b.category_id || null,
+            b.status || "PROBATION",
+            b.base_salary || 0,
+            b.address || null,
+            b.picture_url || null,
+            b.national_id || null,
+            userId,
+            id,
+            companyId,
+          ],
+        );
+        // mappings
+        await conn.execute(
+          `DELETE FROM hr_employee_tax_mappings WHERE employee_id = ?`,
+          [id],
+        );
+        for (const taxId of b.tax_mappings || []) {
+          // eslint-disable-next-line no-await-in-loop
+          await conn.execute(
+            `INSERT IGNORE INTO hr_employee_tax_mappings (employee_id, tax_config_id) VALUES (?, ?)`,
+            [id, taxId],
+          );
+        }
+        await conn.execute(
+          `DELETE FROM hr_employee_allowance_mappings WHERE employee_id = ?`,
+          [id],
+        );
+        for (const aId of b.allowance_mappings || []) {
+          // eslint-disable-next-line no-await-in-loop
+          await conn.execute(
+            `INSERT IGNORE INTO hr_employee_allowance_mappings (employee_id, allowance_id) VALUES (?, ?)`,
+            [id, aId],
+          );
+        }
+        updated++;
+      } else {
+        const [result] = await conn.execute(
+          `INSERT INTO hr_employees (
+            company_id, branch_id, emp_code, first_name, last_name, middle_name, gender, dob, joining_date, email, phone,
+            dept_id, pos_id, manager_id, location_id, employment_type, employment_type_id, category_id, status, base_salary, address, picture_url, national_id, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            companyId,
+            branchId,
+            b.emp_code,
+            b.first_name,
+            b.last_name,
+            b.middle_name || null,
+            b.gender || null,
+            b.dob || null,
+            b.joining_date,
+            b.email || null,
+            b.phone || null,
+            b.dept_id || null,
+            b.pos_id || null,
+            b.manager_id || null,
+            b.location_id || null,
+            b.employment_type || null,
+            b.employment_type_id || null,
+            b.category_id || null,
+            b.status || "PROBATION",
+            b.base_salary || 0,
+            b.address || null,
+            b.picture_url || null,
+            b.national_id || null,
+            userId,
+          ],
+        );
+        const newId = result.insertId;
+        for (const taxId of b.tax_mappings || []) {
+          // eslint-disable-next-line no-await-in-loop
+          await conn.execute(
+            `INSERT IGNORE INTO hr_employee_tax_mappings (employee_id, tax_config_id) VALUES (?, ?)`,
+            [newId, taxId],
+          );
+        }
+        for (const aId of b.allowance_mappings || []) {
+          // eslint-disable-next-line no-await-in-loop
+          await conn.execute(
+            `INSERT IGNORE INTO hr_employee_allowance_mappings (employee_id, allowance_id) VALUES (?, ?)`,
+            [newId, aId],
+          );
+        }
+        created++;
+      }
+    }
+    await conn.commit();
+    res.json({ message: "Bulk employees processed", created, updated });
+  } catch (err) {
+    await conn.rollback();
+    next(err);
+  } finally {
+    conn.release();
+  }
+}
+
 /**
  * List Departments
  */
@@ -1765,14 +1899,26 @@ export async function listLeaveRequests(req, res, next) {
 
 export async function applyLeave(req, res, next) {
   try {
-    const {
-      employee_id,
-      leave_type_id,
-      start_date,
-      end_date,
-      total_days,
-      reason,
-    } = req.body;
+    const { companyId } = req.scope;
+    const { employee_id, leave_type_id, start_date, end_date, reason } =
+      req.body;
+    const total_days =
+      (new Date(end_date).getTime() - new Date(start_date).getTime()) /
+        (1000 * 3600 * 24) +
+      1;
+    const overlap = await query(
+      `SELECT id FROM hr_leave_requests 
+       WHERE employee_id = :employee_id 
+         AND ((start_date <= :end_date AND end_date >= :start_date))`,
+      { employee_id, start_date, end_date },
+    );
+    if (overlap.length) {
+      throw httpError(
+        400,
+        "VALIDATION_ERROR",
+        "Overlapping leave exists for selected period",
+      );
+    }
     try {
       const { validateLeaveRequest } =
         await import("../validators/hr.validators.js");
@@ -1785,9 +1931,10 @@ export async function applyLeave(req, res, next) {
         );
     } catch {}
     const result = await query(
-      `INSERT INTO hr_leave_requests (employee_id, leave_type_id, start_date, end_date, total_days, reason, status)
-       VALUES (:employee_id, :leave_type_id, :start_date, :end_date, :total_days, :reason, 'PENDING')`,
+      `INSERT INTO hr_leave_requests (company_id, employee_id, leave_type_id, start_date, end_date, total_days, reason, status)
+       VALUES (:companyId, :employee_id, :leave_type_id, :start_date, :end_date, :total_days, :reason, 'SUBMITTED')`,
       {
+        companyId,
         employee_id,
         leave_type_id,
         start_date,
@@ -1796,6 +1943,26 @@ export async function applyLeave(req, res, next) {
         reason: reason || null,
       },
     );
+    try {
+      const emp = await query(
+        `SELECT email, first_name FROM hr_employees WHERE id = :id LIMIT 1`,
+        { id: employee_id },
+      );
+      if (emp.length && emp[0].email) {
+        await sendMail({
+          to: emp[0].email,
+          subject: "Leave application submitted",
+          html: `<p>Hello ${emp[0].first_name}, your leave (${start_date} → ${end_date}) has been submitted.</p>`,
+        });
+      }
+      if (req.app?.io) {
+        req.app.io.emit("notification", {
+          module: "HR",
+          title: "New Leave Application",
+          body: `Employee #${employee_id} applied for leave ${start_date} → ${end_date}`,
+        });
+      }
+    } catch {}
     res.status(201).json({ id: result.insertId, message: "Leave requested" });
   } catch (err) {
     next(err);
@@ -1833,6 +2000,214 @@ export async function approveLeave(req, res, next) {
       }
     }
     res.json({ message: `Leave ${nextStatus.toLowerCase()}` });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function listMyLeaveRequests(req, res, next) {
+  try {
+    const userId = req.user?.id || req.user?.sub;
+    if (!userId) throw httpError(401, "UNAUTHORIZED", "User not found");
+    const empRows = await query(
+      `SELECT id FROM hr_employees WHERE user_id = :uid LIMIT 1`,
+      { uid: userId },
+    );
+    if (!empRows.length)
+      throw httpError(404, "NOT_FOUND", "Employee record not linked");
+    const employee_id = empRows[0].id;
+    const items = await query(
+      `SELECT lr.*, lt.type_name 
+       FROM hr_leave_requests lr 
+       LEFT JOIN hr_leave_types lt ON lt.id = lr.leave_type_id
+       WHERE lr.employee_id = :employee_id
+       ORDER BY lr.start_date DESC`,
+      { employee_id },
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function scheduleLeave(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const {
+      employee_ids = [],
+      leave_type_id,
+      start_date,
+      end_date,
+      remarks,
+    } = req.body;
+    if (!employee_ids.length)
+      throw httpError(400, "VALIDATION_ERROR", "No employees selected");
+    const total_days =
+      (new Date(end_date).getTime() - new Date(start_date).getTime()) /
+        (1000 * 3600 * 24) +
+      1;
+    let scheduled = 0;
+    for (const employee_id of employee_ids) {
+      const overlap = await query(
+        `SELECT id FROM hr_leave_requests 
+         WHERE employee_id = :employee_id 
+           AND ((start_date <= :end_date AND end_date >= :start_date))`,
+        { employee_id, start_date, end_date },
+      );
+      if (overlap.length) continue;
+      const result = await query(
+        `INSERT INTO hr_leave_requests (company_id, employee_id, leave_type_id, start_date, end_date, total_days, reason, status)
+         VALUES (:companyId, :employee_id, :leave_type_id, :start_date, :end_date, :total_days, :reason, 'SCHEDULED')`,
+        {
+          companyId,
+          employee_id,
+          leave_type_id,
+          start_date,
+          end_date,
+          total_days: toNumber(total_days, 0),
+          reason: remarks || null,
+        },
+      );
+      scheduled++;
+      try {
+        const emp = await query(
+          `SELECT email, first_name FROM hr_employees WHERE id = :id LIMIT 1`,
+          { id: employee_id },
+        );
+        if (emp.length && emp[0].email) {
+          await sendMail({
+            to: emp[0].email,
+            subject: "Leave scheduled",
+            html: `<p>Hello ${emp[0].first_name}, your leave has been scheduled for ${start_date} → ${end_date}.</p>`,
+          });
+        }
+        if (req.app?.io) {
+          req.app.io.emit("notification", {
+            module: "HR",
+            title: "Leave Scheduled",
+            body: `Employee #${employee_id} leave ${start_date} → ${end_date}`,
+          });
+        }
+      } catch {}
+    }
+    res.json({ message: "Leave scheduled", scheduled });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateLeave(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { leave_type_id, start_date, end_date, reason, status } = req.body;
+    const total_days =
+      (new Date(end_date).getTime() - new Date(start_date).getTime()) /
+        (1000 * 3600 * 24) +
+      1;
+    await query(
+      `UPDATE hr_leave_requests 
+       SET leave_type_id = :leave_type_id, start_date = :start_date, end_date = :end_date, total_days = :total_days, reason = :reason, status = :status
+       WHERE id = :id`,
+      {
+        id,
+        leave_type_id,
+        start_date,
+        end_date,
+        total_days: toNumber(total_days, 0),
+        reason: reason || null,
+        status: status || "SCHEDULED",
+      },
+    );
+    res.json({ message: "Leave updated" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function generateLeaveRoster(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const { year, department_id } = req.body;
+    const r = await query(
+      `INSERT INTO hr_leave_roster (company_id, year, department_id)
+       VALUES (:companyId, :year, :department_id)`,
+      { companyId, year, department_id: department_id || null },
+    );
+    const roster_id = r.insertId;
+    const start = `${year}-01-01`;
+    const end = `${year}-12-31`;
+    const rows = await query(
+      `SELECT lr.employee_id, lr.leave_type_id, lr.start_date, lr.end_date, lr.total_days
+       FROM hr_leave_requests lr
+       LEFT JOIN hr_employees e ON e.id = lr.employee_id
+       WHERE (lr.company_id = :companyId OR lr.company_id IS NULL)
+         AND lr.start_date >= :start AND lr.end_date <= :end
+         ${department_id ? "AND e.dept_id = :department_id" : ""}`,
+      { companyId, start, end, department_id },
+    );
+    for (const row of rows) {
+      // eslint-disable-next-line no-await-in-loop
+      await query(
+        `INSERT INTO hr_leave_roster_details (roster_id, employee_id, leave_type_id, start_date, end_date, total_days)
+         VALUES (:roster_id, :employee_id, :leave_type_id, :start_date, :end_date, :total_days)`,
+        { roster_id, ...row },
+      );
+    }
+    res
+      .status(201)
+      .json({ id: roster_id, message: "Roster generated", count: rows.length });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function listLeaveRoster(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const { year } = req.query;
+    const rosters = await query(
+      `SELECT r.*, d.dept_name FROM hr_leave_roster r
+       LEFT JOIN hr_departments d ON d.id = r.department_id
+       WHERE r.company_id = :companyId ${year ? "AND r.year = :year" : ""}
+       ORDER BY r.year DESC, r.created_at DESC`,
+      { companyId, year },
+    );
+    const details = await query(
+      `SELECT rd.*, e.first_name, e.last_name, lt.type_name
+       FROM hr_leave_roster_details rd
+       JOIN hr_leave_roster r ON r.id = rd.roster_id
+       LEFT JOIN hr_employees e ON e.id = rd.employee_id
+       LEFT JOIN hr_leave_types lt ON lt.id = rd.leave_type_id
+       WHERE r.company_id = :companyId`,
+      { companyId },
+    );
+    res.json({ rosters, details });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function leaveCalendar(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const { year, month } = req.query;
+    const start = `${year || new Date().getFullYear()}-${String(
+      month || new Date().getMonth() + 1,
+    ).padStart(2, "0")}-01`;
+    const endDate = new Date(start);
+    endDate.setMonth(endDate.getMonth() + 1);
+    endDate.setDate(0);
+    const end = endDate.toISOString().slice(0, 10);
+    const events = await query(
+      `SELECT lr.*, e.first_name, e.last_name, lt.type_name
+       FROM hr_leave_requests lr
+       LEFT JOIN hr_employees e ON e.id = lr.employee_id
+       LEFT JOIN hr_leave_types lt ON lt.id = lr.leave_type_id
+       WHERE (lr.start_date <= :end AND lr.end_date >= :start)
+         AND (lr.company_id = :companyId OR lr.company_id IS NULL)`,
+      { start, end, companyId },
+    );
+    res.json({ events });
   } catch (err) {
     next(err);
   }
@@ -3496,6 +3871,69 @@ export async function saveAllowanceType(req, res, next) {
       );
     }
     res.json({ message: "Allowance type saved" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Work Schedules — link employees to shifts and off days
+ */
+async function ensureWorkSchedulesTable() {
+  await query(
+    `CREATE TABLE IF NOT EXISTS hr_work_schedules (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      company_id INT NOT NULL,
+      employee_id INT NOT NULL,
+      shift_id INT,
+      off_days JSON,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_emp_schedule (company_id, employee_id)
+    )`,
+    {},
+  );
+}
+
+export async function listWorkSchedules(req, res, next) {
+  try {
+    await ensureWorkSchedulesTable();
+    const { companyId } = req.scope;
+    const items = await query(
+      `SELECT ws.*, 
+              e.emp_code, e.first_name, e.last_name, e.status as emp_status,
+              s.code as shift_code, s.name as shift_name, s.start_time, s.end_time, s.break_minutes
+       FROM hr_work_schedules ws
+       JOIN hr_employees e ON e.id = ws.employee_id AND e.deleted_at IS NULL
+       LEFT JOIN hr_shifts s ON s.id = ws.shift_id
+       WHERE ws.company_id = :companyId
+       ORDER BY e.first_name ASC, e.last_name ASC`,
+      { companyId },
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function saveWorkSchedule(req, res, next) {
+  try {
+    await ensureWorkSchedulesTable();
+    const { companyId } = req.scope;
+    const { employee_id, shift_id, off_days } = req.body;
+    const offDaysJson = JSON.stringify(Array.isArray(off_days) ? off_days : []);
+    await query(
+      `INSERT INTO hr_work_schedules (company_id, employee_id, shift_id, off_days)
+       VALUES (:companyId, :employee_id, :shift_id, :off_days)
+       ON DUPLICATE KEY UPDATE shift_id = :shift_id, off_days = :off_days`,
+      {
+        companyId,
+        employee_id: toNumber(employee_id, null),
+        shift_id: shift_id ? toNumber(shift_id, null) : null,
+        off_days: offDaysJson,
+      },
+    );
+    res.json({ message: "Work schedule saved" });
   } catch (err) {
     next(err);
   }

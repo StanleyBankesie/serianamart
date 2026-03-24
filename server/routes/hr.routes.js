@@ -29,6 +29,13 @@ router.post(
   requireBranchScope,
   hrController.saveEmployee,
 );
+router.post(
+  "/employees/bulk",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.saveEmployeesBulk,
+);
 
 // Departments & Positions
 router.get(
@@ -247,6 +254,20 @@ router.post(
   requireCompanyScope,
   hrController.saveShift,
 );
+
+// Work Schedules
+router.get(
+  "/work-schedules",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listWorkSchedules,
+);
+router.post(
+  "/work-schedules",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveWorkSchedule,
+);
 router.post(
   "/attendance/clock-in",
   requireAuth,
@@ -264,6 +285,9 @@ router.get(
   requireAuth,
   requireCompanyScope,
   hrController.listAttendance,
+);
+router.get("/attendance/bulk", requireAuth, requireCompanyScope, (req, res) =>
+  res.json({ ok: true }),
 );
 router.post(
   "/attendance/bulk",
@@ -326,6 +350,43 @@ router.post(
   requireAuth,
   requireCompanyScope,
   hrController.applyLeave,
+);
+router.get(
+  "/leave/my-requests",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listMyLeaveRequests,
+);
+router.post(
+  "/leave/schedule",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.scheduleLeave,
+);
+router.put(
+  "/leave/:id",
+  requireAuth,
+  requireCompanyScope,
+  hrController.updateLeave,
+);
+router.post(
+  "/leave-roster/generate",
+  requireAuth,
+  requireCompanyScope,
+  hrController.generateLeaveRoster,
+);
+router.get(
+  "/leave-roster",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listLeaveRoster,
+);
+router.get(
+  "/leave-calendar",
+  requireAuth,
+  requireCompanyScope,
+  hrController.leaveCalendar,
 );
 router.post(
   "/leave/approve/:id",

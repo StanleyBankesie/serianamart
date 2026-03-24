@@ -56,6 +56,12 @@ export default function AttendanceDashboard() {
           </div>
           <div className="flex items-center gap-3">
             <Link
+              to="/human-resources/attendance/list"
+              className="btn-secondary text-sm"
+            >
+              View List
+            </Link>
+            <Link
               to="/human-resources/attendance/new"
               className="btn-primary text-sm"
             >

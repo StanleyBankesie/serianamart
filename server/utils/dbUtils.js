@@ -1548,6 +1548,24 @@ export async function ensureHRTables() {
       PRIMARY KEY (id),
       UNIQUE KEY uq_shift_code (company_id, code)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_work_schedules (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      shift_id BIGINT UNSIGNED NOT NULL,
+      off_days VARCHAR(100) NULL COMMENT 'JSON array of weekdays 0-6',
+      effective_from DATE NULL,
+      effective_to DATE NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_by BIGINT UNSIGNED NULL,
+      updated_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_emp_active (employee_id, is_active),
+      KEY idx_ws_emp (employee_id),
+      KEY idx_ws_shift (shift_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS hr_attendance (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       company_id BIGINT UNSIGNED NOT NULL,
@@ -1573,16 +1591,38 @@ export async function ensureHRTables() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS hr_leave_requests (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NULL,
       employee_id BIGINT UNSIGNED NOT NULL,
       leave_type_id BIGINT UNSIGNED NOT NULL,
       start_date DATE NOT NULL,
       end_date DATE NOT NULL,
       total_days DECIMAL(5,2) NOT NULL,
       reason TEXT NULL,
-      status ENUM('DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'CANCELLED') NOT NULL DEFAULT 'DRAFT',
+      status ENUM('DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', 'SUBMITTED', 'SCHEDULED') NOT NULL DEFAULT 'DRAFT',
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       KEY idx_leave_emp (employee_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_leave_roster (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      year INT NOT NULL,
+      department_id BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_roster_company_year (company_id, year)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_leave_roster_details (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      roster_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      leave_type_id BIGINT UNSIGNED NOT NULL,
+      start_date DATE NOT NULL,
+      end_date DATE NOT NULL,
+      total_days DECIMAL(5,2) NOT NULL,
+      PRIMARY KEY (id),
+      KEY idx_roster_details_hdr (roster_id),
+      KEY idx_roster_details_emp (employee_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS hr_employee_salaries (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
