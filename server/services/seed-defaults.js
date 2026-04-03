@@ -1017,8 +1017,10 @@ export async function seedDefaultTemplates() {
         created_by BIGINT UNSIGNED NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        branch_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
         PRIMARY KEY (id),
         KEY idx_company_type (company_id, document_type),
+        KEY idx_company_branch (company_id, branch_id),
         KEY idx_default (company_id, document_type, is_default)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `).catch(() => {});
@@ -1061,8 +1063,8 @@ export async function seedDefaultTemplates() {
           // Create new template
           await query(
             `INSERT INTO document_templates 
-             (company_id, name, document_type, html_content, is_default, created_by) 
-             VALUES (0, ?, ?, ?, 1, 1)`,
+             (company_id, branch_id, name, document_type, html_content, is_default, created_by) 
+             VALUES (0, 1, ?, ?, ?, 1, 1)`,
             [name, type, template],
           ).catch(() => {});
           console.log(`✅ Default ${type} template created`);

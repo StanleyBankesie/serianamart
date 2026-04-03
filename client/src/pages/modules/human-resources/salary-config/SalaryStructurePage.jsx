@@ -117,6 +117,40 @@ export default function SalaryStructurePage() {
               <div className="space-y-2">
                 {(structure.formula || []).map((row, idx) => (
                   <div key={idx} className="flex items-center gap-2">
+                    <div className="flex flex-col gap-1 pr-1">
+                      <button
+                        title="Move Up"
+                        className="text-slate-400 hover:text-brand disabled:opacity-30 p-0.5"
+                        disabled={idx === 0}
+                        onClick={() => {
+                          const formula = [...(structure.formula || [])];
+                          if (idx > 0) {
+                            const tmp = formula[idx - 1];
+                            formula[idx - 1] = formula[idx];
+                            formula[idx] = tmp;
+                            setStructure({ ...structure, formula });
+                          }
+                        }}
+                      >
+                        ▲
+                      </button>
+                      <button
+                        title="Move Down"
+                        className="text-slate-400 hover:text-brand disabled:opacity-30 p-0.5"
+                        disabled={idx === (structure.formula || []).length - 1}
+                        onClick={() => {
+                          const formula = [...(structure.formula || [])];
+                          if (idx < formula.length - 1) {
+                            const tmp = formula[idx + 1];
+                            formula[idx + 1] = formula[idx];
+                            formula[idx] = tmp;
+                            setStructure({ ...structure, formula });
+                          }
+                        }}
+                      >
+                        ▼
+                      </button>
+                    </div>
                     <select
                       className="input w-20"
                       value={row.op}
@@ -130,7 +164,7 @@ export default function SalaryStructurePage() {
                       <option value="-">-</option>
                     </select>
                     <select
-                      className="input"
+                      className="input flex-1"
                       value={row.token}
                       onChange={(e) => {
                         const formula = [...(structure.formula || [])];
@@ -172,7 +206,8 @@ export default function SalaryStructurePage() {
                       ))}
                     </select>
                     <button
-                      className="btn-secondary"
+                      className="btn-secondary text-red-500 hover:bg-red-50"
+                      title="Remove component"
                       onClick={() => {
                         const formula = (structure.formula || []).filter(
                           (_, i) => i !== idx,
@@ -180,7 +215,7 @@ export default function SalaryStructurePage() {
                         setStructure({ ...structure, formula });
                       }}
                     >
-                      Remove
+                      ×
                     </button>
                   </div>
                 ))}

@@ -326,6 +326,41 @@ CREATE TABLE IF NOT EXISTS hr_payslips (
   UNIQUE KEY uk_emp_period (employee_id, period_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- hr_salary_components
+-- Registry of every salary component column that exists in hr_payslips.
+-- Fixed core columns (basic_salary, allowances, deductions, etc.) are seeded
+-- on every payroll run. Dynamic columns (per-allowance, per-tax-bracket) are
+-- registered automatically via generatePayroll() when payroll is processed.
+CREATE TABLE IF NOT EXISTS hr_salary_components (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  company_id BIGINT UNSIGNED NOT NULL,
+  column_name VARCHAR(100) NOT NULL COMMENT 'Exact column name in hr_payslips, e.g. basic_salary, allowance_3, income_tax_1',
+  label VARCHAR(150) NOT NULL COMMENT 'Human-readable label shown on payslip',
+  component_type ENUM(
+    'BASIC',
+    'ALLOWANCE',
+    'INCOME_TAX',
+    'SOCIAL_SECURITY',
+    'PROVIDENT_FUND',
+    'DEDUCTION',
+    'NET_SALARY',
+    'SUBTOTAL',
+    'OTHER'
+  ) NOT NULL DEFAULT 'OTHER',
+  display_order INT NOT NULL DEFAULT 0 COMMENT 'Rendering order on payslip',
+  is_earning TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = earning/addition, 0 = deduction',
+  is_fixed TINYINT(1) NOT NULL DEFAULT 1 COMMENT '1 = always present core column, 0 = dynamically added',
+  source_type ENUM('NONE','ALLOWANCE','TAX_CONFIG') NOT NULL DEFAULT 'NONE' COMMENT 'Master table this component references',
+  source_id BIGINT UNSIGNED NULL COMMENT 'FK to hr_allowances.id or hr_tax_config.id',
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_comp_col (company_id, column_name),
+  KEY idx_sc_company (company_id),
+  KEY idx_sc_type (component_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 🚪 Exit Management
 
 -- hr_exits

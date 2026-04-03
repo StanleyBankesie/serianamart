@@ -24,6 +24,7 @@
     "multer": "^2.0.2",
     "mysql2": "^3.11.0",
     "nodemailer": "^6.9.10",
+    "puppeteer": "^24.40.0",
     "sanitize-html": "^2.17.0",
     "socket.io": "^4.8.3",
     "web-push": "^3.6.7",

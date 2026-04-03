@@ -32,6 +32,14 @@ export default function EmployeeForm() {
     address: "",
     picture_url: "",
     national_id: "",
+    city: "",
+    state: "",
+    country: "",
+    emergency_contact_name: "",
+    emergency_contact_phone: "",
+    bank_name: "",
+    bank_account_number: "",
+    ssnit_number: "",
     tax_mappings: [],
     allowance_mappings: [],
   });
@@ -43,6 +51,8 @@ export default function EmployeeForm() {
   const [allowances, setAllowances] = useState([]);
   const [locations, setLocations] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [countries, setCountries] = useState([]);
+  const [ghanaRegions, setGhanaRegions] = useState([]);
 
   useEffect(() => {
     async function loadOptions() {
@@ -65,6 +75,35 @@ export default function EmployeeForm() {
         setAllowances(al.data?.items || []);
         setLocations(locs.data?.items || []);
         setEmployees(emps.data?.items || []);
+        try {
+          const res = await fetch(
+            "https://restcountries.com/v3.1/all?fields=name",
+          );
+          const js = await res.json();
+          const list = js
+            .map((c) => c?.name?.common)
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b));
+          setCountries(list);
+        } catch {}
+        setGhanaRegions([
+          "Ahafo",
+          "Ashanti",
+          "Bono",
+          "Bono East",
+          "Central",
+          "Eastern",
+          "Greater Accra",
+          "North East",
+          "Northern",
+          "Oti",
+          "Savannah",
+          "Upper East",
+          "Upper West",
+          "Volta",
+          "Western",
+          "Western North",
+        ]);
       } catch {}
     }
     loadOptions();
@@ -292,18 +331,7 @@ export default function EmployeeForm() {
     try {
       const response = await api.post("/hr/employees", form);
       toast.success("Saved successfully");
-      if (!isEdit) {
-        // New record — navigate to edit URL so the form stays with saved data
-        const savedId = response.data?.item?.id || response.data?.id;
-        if (savedId) {
-          navigate(`/human-resources/employees/${savedId}`);
-        } else {
-          navigate("/human-resources/employees");
-        }
-      } else {
-        // Edit — reload data and stay on the same page
-        await fetchEmployee();
-      }
+      navigate("/human-resources/employees");
     } catch (err) {
       setError(err?.response?.data?.message || "Error saving employee");
     } finally {
@@ -457,11 +485,105 @@ export default function EmployeeForm() {
                     </div>
                     <div className="md:col-span-2">
                       <label className="label">Address</label>
-                      <textarea
+                      <input
                         className="input"
-                        rows={2}
                         value={form.address || ""}
                         onChange={(e) => update("address", e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">City</label>
+                      <input
+                        className="input"
+                        value={form.city || ""}
+                        onChange={(e) => update("city", e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Country</label>
+                      <select
+                        className="input"
+                        value={form.country || ""}
+                        onChange={(e) => update("country", e.target.value)}
+                      >
+                        <option value="">Select Country</option>
+                        {countries.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {String(form.country || "").toLowerCase() === "ghana" ? (
+                      <div>
+                        <label className="label">Region</label>
+                        <select
+                          className="input"
+                          value={form.state || ""}
+                          onChange={(e) => update("state", e.target.value)}
+                        >
+                          <option value="">Select Region</option>
+                          {ghanaRegions.map((r) => (
+                            <option key={r} value={r}>
+                              {r}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="label">State/Province</label>
+                        <input
+                          className="input"
+                          value={form.state || ""}
+                          onChange={(e) => update("state", e.target.value)}
+                        />
+                      </div>
+                    )}
+                    <div>
+                      <label className="label">Emergency Contact Name</label>
+                      <input
+                        className="input"
+                        value={form.emergency_contact_name || ""}
+                        onChange={(e) =>
+                          update("emergency_contact_name", e.target.value)
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Emergency Contact Phone</label>
+                      <input
+                        className="input"
+                        value={form.emergency_contact_phone || ""}
+                        onChange={(e) =>
+                          update("emergency_contact_phone", e.target.value)
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Bank Name</label>
+                      <input
+                        className="input"
+                        value={form.bank_name || ""}
+                        onChange={(e) => update("bank_name", e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Bank Account Number</label>
+                      <input
+                        className="input"
+                        value={form.bank_account_number || ""}
+                        onChange={(e) =>
+                          update("bank_account_number", e.target.value)
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="label">SSNIT Number</label>
+                      <input
+                        className="input"
+                        value={form.ssnit_number || ""}
+                        onChange={(e) => update("ssnit_number", e.target.value)}
                       />
                     </div>
                   </div>

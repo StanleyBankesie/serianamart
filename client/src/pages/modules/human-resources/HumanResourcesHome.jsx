@@ -37,7 +37,7 @@ import OffersList from "./recruitment/OffersList.jsx";
 import OfferForm from "./recruitment/OfferForm.jsx";
 import PayrollDashboard from "./payroll/PayrollDashboard.jsx";
 import SalaryProcessing from "./payroll/SalaryProcessing.jsx";
-import LeaveRequestForm from "./leave/LeaveRequestForm.jsx";
+import LeaveRequestForm from "./leave/LeaveRequestForm.jsx"; // Keeping file loosely to not break anything
 import LeaveApprovals from "./leave/LeaveApprovals.jsx";
 import LeaveCalendar from "./leave/LeaveCalendar.jsx";
 import LeaveManagementDashboard from "./leave/LeaveManagementDashboard.jsx";
@@ -45,6 +45,7 @@ import LeaveScheduling from "./leave/LeaveScheduling.jsx";
 import LeaveRoster from "./leave/LeaveRoster.jsx";
 import LeaveBalances from "./leave/LeaveBalances.jsx";
 import LeaveApplication from "./leave/LeaveApplication.jsx";
+import LeaveRecords from "./leave/LeaveRecords.jsx";
 import KPISetup from "./performance/KPISetup.jsx";
 import AppraisalForm from "./performance/AppraisalForm.jsx";
 import TrainingList from "./training/TrainingList.jsx";
@@ -186,6 +187,12 @@ function HRDashboard() {
           icon: "📅",
         },
         {
+          name: "Leave Request",
+          path: "/human-resources/leave/request",
+          description: "Request and schedule employee leave",
+          icon: "📝",
+        },
+        {
           name: "Work Schedule Management",
           path: "/human-resources/work-schedules",
           description: "Assign shifts and off days to employees",
@@ -283,6 +290,24 @@ function HRDashboard() {
           path: "/human-resources/policies/view",
           description: "Acknowledge and read policies",
           icon: "👁️",
+        },
+        {
+          name: "Leave Calendar",
+          path: "/human-resources/leave/calendar",
+          description: "Monthly overview of ACTIVE leave",
+          icon: "🗓️",
+        },
+        {
+          name: "Leave Balances",
+          path: "/human-resources/leave/balances",
+          description: "Remaining vs Used balances",
+          icon: "⚖️",
+        },
+        {
+          name: "Leave Records",
+          path: "/human-resources/leave/records",
+          description: "Audit trail of all leave entries",
+          icon: "🗄️",
         },
         {
           name: "HR Reports",
@@ -388,14 +413,13 @@ export default function HumanResourcesHome() {
       <Route path="offers/:id" element={<OfferForm />} />
       <Route path="payroll" element={<PayrollDashboard />} />
       <Route path="payroll/process" element={<SalaryProcessing />} />
-      <Route path="leave/request" element={<LeaveApplication />} />
       <Route path="leave" element={<LeaveManagementDashboard />} />
+      <Route path="leave/request" element={<LeaveApplication />} />
       <Route path="leave/scheduling" element={<LeaveScheduling />} />
       <Route path="leave/roster" element={<LeaveRoster />} />
+      <Route path="leave/records" element={<LeaveRecords />} />
       <Route path="leave/calendar" element={<LeaveCalendar />} />
       <Route path="leave/balances" element={<LeaveBalances />} />
-      <Route path="leave/approvals" element={<LeaveApprovals />} />
-      <Route path="leave/calendar" element={<LeaveCalendar />} />
       <Route path="performance/kpis" element={<KPISetup />} />
       <Route path="performance/appraisal" element={<AppraisalForm />} />
       <Route path="training" element={<TrainingList />} />

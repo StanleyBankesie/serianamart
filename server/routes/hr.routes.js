@@ -333,29 +333,18 @@ router.post(
   requireCompanyScope,
   hrController.saveLeaveType,
 );
+// --- NEW LEAVE ERP ROUTES ---
 router.get(
-  "/leave/balances",
+  "/leave/dashboard",
   requireAuth,
   requireCompanyScope,
-  hrController.listLeaveBalances,
-);
-router.get(
-  "/leave/requests",
-  requireAuth,
-  requireCompanyScope,
-  hrController.listLeaveRequests,
+  hrController.getLeaveDashboard,
 );
 router.post(
   "/leave/apply",
   requireAuth,
   requireCompanyScope,
   hrController.applyLeave,
-);
-router.get(
-  "/leave/my-requests",
-  requireAuth,
-  requireCompanyScope,
-  hrController.listMyLeaveRequests,
 );
 router.post(
   "/leave/schedule",
@@ -364,35 +353,42 @@ router.post(
   requireBranchScope,
   hrController.scheduleLeave,
 );
+router.post(
+  "/leave/roster",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.saveLeaveRoster,
+);
+router.get(
+  "/leave/records",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listLeaveRecords,
+);
+router.delete(
+  "/leave/records/:id",
+  requireAuth,
+  requireCompanyScope,
+  hrController.deleteLeaveRecord,
+);
 router.put(
-  "/leave/:id",
+  "/leave/records/:id",
   requireAuth,
   requireCompanyScope,
   hrController.updateLeave,
 );
-router.post(
-  "/leave-roster/generate",
-  requireAuth,
-  requireCompanyScope,
-  hrController.generateLeaveRoster,
-);
 router.get(
-  "/leave-roster",
-  requireAuth,
-  requireCompanyScope,
-  hrController.listLeaveRoster,
-);
-router.get(
-  "/leave-calendar",
+  "/leave/calendar",
   requireAuth,
   requireCompanyScope,
   hrController.leaveCalendar,
 );
-router.post(
-  "/leave/approve/:id",
+router.get(
+  "/leave/balances",
   requireAuth,
   requireCompanyScope,
-  hrController.approveLeave,
+  hrController.listLeaveBalances,
 );
 
 // Salary Configuration
@@ -425,6 +421,12 @@ router.post(
   requireAuth,
   requireCompanyScope,
   hrController.saveBaseSalary,
+);
+router.post(
+  "/salary/base-salaries/bulk",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveBaseSalariesBulk,
 );
 
 // Tax Configuration
@@ -490,6 +492,40 @@ router.post(
   requireAuth,
   requireCompanyScope,
   hrController.closePayroll,
+);
+router.get(
+  "/payroll/breakdown",
+  requireAuth,
+  requireCompanyScope,
+  hrController.getPayrollBreakdown,
+);
+router.post(
+  "/payroll/backfill-tier3",
+  requireAuth,
+  requireCompanyScope,
+  hrController.backfillTier3,
+);
+
+// Loan Types (Setup)
+router.get(
+  "/loan-types",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listLoanTypes,
+);
+router.post(
+  "/loan-types",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveLoanType,
+);
+
+// Salary Components Registry
+router.get(
+  "/salary-components",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listSalaryComponents,
 );
 
 // Payslips

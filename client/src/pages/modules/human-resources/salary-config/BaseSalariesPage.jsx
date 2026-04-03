@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { Guard } from "../../../../hooks/usePermissions.jsx";
+import * as XLSX from "xlsx";
 
 export default function BaseSalariesPage() {
   const [loading, setLoading] = useState(false);
@@ -14,6 +15,8 @@ export default function BaseSalariesPage() {
     base_salary: 0,
   });
 
+  const fileInputRef = useRef(null);
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -21,7 +24,7 @@ export default function BaseSalariesPage() {
         api.get("/hr/employees"),
         api.get("/hr/salary/base-salaries"),
       ]);
-      setEmployees(empRes.data.items || []);
+      setEmployees((empRes.data.items || []).filter(e => e.status === 'ACTIVE'));
       setBaseSalaries(salRes.data.items || []);
     } catch {
       toast.error("Failed to load data");
@@ -41,9 +44,99 @@ export default function BaseSalariesPage() {
       toast.success("Base salary updated");
       setShowModal(false);
       loadData();
-    } catch {
-      toast.error("Failed to save base salary");
+    } catch (err) {
+      console.error("Save Base Salary Error:", err);
+      toast.error(err?.response?.data?.message || "Failed to save base salary");
     }
+  };
+
+  const handleDownloadTemplate = () => {
+    try {
+      // Map current active employees to the template format
+      const data = employees.map(emp => {
+        // Find existing base salary if any
+        const existing = baseSalaries.find(b => b.employee_id === emp.id);
+        return {
+          "Employee Code": emp.emp_code,
+          "Employee Name": `${emp.first_name} ${emp.last_name}`,
+          "Base Salary": existing ? existing.base_salary : 0
+        };
+      });
+
+      // If no employees, at least provide headers
+      if (data.length === 0) {
+        data.push({
+          "Employee Code": "EMP001",
+          "Employee Name": "John Doe",
+          "Base Salary": 5000
+        });
+      }
+
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Base Salaries");
+
+      // Auto-size columns slightly
+      const wscols = [
+        { wch: 15 }, // Employee Code
+        { wch: 30 }, // Employee Name
+        { wch: 15 }, // Base Salary
+      ];
+      worksheet["!cols"] = wscols;
+
+      XLSX.writeFile(workbook, "Employee_Base_Salaries_Template.xlsx");
+      toast.info("Excel template downloaded");
+    } catch (err) {
+      toast.error("Failed to generate Excel template");
+    }
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const workbook = XLSX.read(bstr, { type: "binary" });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const data = XLSX.utils.sheet_to_json(worksheet);
+
+        if (data.length === 0) {
+          toast.error("Excel file appears to be empty");
+          return;
+        }
+
+        // Map Excel headers to system keys
+        // We look for flexible header names
+        const rows = data.map(item => {
+          const empCode = item["Employee Code"] || item["emp_code"] || item["Code"];
+          const baseSalary = item["Base Salary"] || item["base_salary"] || item["Salary"];
+          return {
+            emp_code: empCode,
+            base_salary: baseSalary
+          };
+        }).filter(r => r.emp_code);
+
+        if (rows.length === 0) {
+          toast.error("No valid data found in Excel. Ensure 'Employee Code' and 'Base Salary' columns exist.");
+          return;
+        }
+
+        setLoading(true);
+        const res = await api.post("/hr/salary/base-salaries/bulk", { rows });
+        toast.success(res.data.message || "Bulk base salaries uploaded successfully");
+        loadData();
+      } catch (err) {
+        toast.error(err?.response?.data?.message || "Failed to process Excel upload");
+      } finally {
+        setLoading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    };
+    reader.readAsBinaryString(file);
   };
 
   return (
@@ -64,6 +157,27 @@ export default function BaseSalariesPage() {
             >
               ← Back
             </Link>
+            <button
+              onClick={handleDownloadTemplate}
+              className="btn-secondary"
+              title="Download CSV Template"
+            >
+              📥 Template
+            </button>
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="btn-secondary"
+              title="Upload CSV Data"
+            >
+              📤 Upload
+            </button>
             <button
               onClick={() => {
                 setSelectedEmp({ employee_id: "", base_salary: 0 });

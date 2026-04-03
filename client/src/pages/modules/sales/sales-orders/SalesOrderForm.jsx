@@ -2026,17 +2026,12 @@ export default function SalesOrderForm() {
           try {
             setTplDownloading(true);
             const resp = await api.post(
-              `/documents/sales-order/${id}/render?format=pdf`,
-              {},
-              { responseType: "blob" },
+              `/documents/sales-order/${id}/render`,
+              { format: "html" },
+              { headers: { "Content-Type": "application/json" } },
             );
-            const blob = resp.data;
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `sales-order-${id}.pdf`;
-            a.click();
-            URL.revokeObjectURL(url);
+            const html = typeof resp.data === "string" ? resp.data : String(resp.data || "");
+            await renderHtmlToPdf(html, `sales-order-${id}.pdf`);
           } catch (e) {
             toast.error(e?.response?.data?.message || "Failed to download");
           } finally {

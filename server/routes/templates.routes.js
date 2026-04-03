@@ -1,6 +1,10 @@
 import express from "express";
 import sanitizeHtml from "sanitize-html";
-import { requireAuth, requireCompanyScope } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+} from "../middleware/auth.js";
 import { requirePermission } from "../middleware/requirePermission.js";
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
@@ -9,7 +13,9 @@ import { ensureTemplateTables, toNumber } from "../utils/dbUtils.js";
 const router = express.Router();
 
 function canonicalDocumentType(type) {
-  const t = String(type || "").trim().toLowerCase();
+  const t = String(type || "")
+    .trim()
+    .toLowerCase();
   if (
     t === "general-template" ||
     t === "general template" ||
@@ -20,7 +26,12 @@ function canonicalDocumentType(type) {
   ) {
     return "general-template";
   }
-  if (t === "sales-order" || t === "sales order" || t === "sales_order" || t === "so") {
+  if (
+    t === "sales-order" ||
+    t === "sales order" ||
+    t === "sales_order" ||
+    t === "so"
+  ) {
     return "sales-order";
   }
   if (
@@ -41,6 +52,19 @@ function canonicalDocumentType(type) {
   }
   if (t === "quotation" || t === "quote" || t === "sales-quotation") {
     return "quotation";
+  }
+  if (
+    t === "salary-slip" ||
+    t === "salary slip" ||
+    t === "salary_slip" ||
+    t === "salaryslip" ||
+    t === "ss" ||
+    t === "payslip" ||
+    t === "pay slip" ||
+    t === "pay-slip" ||
+    t === "pay_slip"
+  ) {
+    return "salary-slip";
   }
   return String(type || "").trim();
 }
@@ -124,6 +148,24 @@ function docTypeSynonymsLower(type) {
       "quotation document",
     ];
   }
+  if (c === "salary-slip") {
+    return [
+      "salary-slip",
+      "salary slip",
+      "salary_slip",
+      "salaryslip",
+      "ss",
+      "salary slip document",
+      "payslip",
+      "pay slip",
+      "pay-slip",
+      "pay_slip",
+      "payslips",
+      "pay slips",
+      "pay-slips",
+      "pay_slips",
+    ];
+  }
   return [c];
 }
 
@@ -131,25 +173,38 @@ router.get(
   "/:documentType",
   requireAuth,
   requireCompanyScope,
+  requireBranchScope,
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId } = req.scope;
+      const { companyId, branchId } = req.scope;
       const document_type = String(req.params.documentType || "").trim();
+      const template_name = req.query.name
+        ? String(req.query.name).trim()
+        : null;
       if (!document_type)
         throw httpError(400, "VALIDATION_ERROR", "Invalid type");
       // Search by synonyms (case-insensitive) so admin can see templates even if type naming differs
       const aliases = docTypeSynonymsLower(document_type);
       const placeholders = aliases.map((_, i) => `:dt${i}`).join(", ");
-      const params = { companyId };
+      const params = { companyId, branchId };
       aliases.forEach((val, i) => (params[`dt${i}`] = val));
-      const items = await query(
+
+      // Build WHERE clause - add name filter if provided
+      let whereClause = `WHERE company_id = :companyId AND branch_id = :branchId AND LOWER(document_type) IN (${placeholders})`;
+      if (template_name) {
+        whereClause += ` AND LOWER(name) = :templateName`;
+        params.templateName = template_name.toLowerCase();
+      }
+
+      let items = await query(
         `SELECT id, name, document_type, is_default, created_at, updated_at
            FROM document_templates
-          WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholders})
+          ${whereClause}
           ORDER BY is_default DESC, updated_at DESC`,
         params,
       ).catch(() => []);
+
       res.json({ items: Array.isArray(items) ? items : [] });
     } catch (err) {
       next(err);
@@ -161,19 +216,20 @@ router.get(
   "/item/:id",
   requireAuth,
   requireCompanyScope,
+  requireBranchScope,
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId } = req.scope;
+      const { companyId, branchId } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [item] = await query(
         `SELECT id, name, document_type, html_content, is_default, created_at, updated_at,
                 header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
          FROM document_templates 
-         WHERE id = :id AND company_id = :companyId 
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
          LIMIT 1`,
-        { id, companyId },
+        { id, companyId, branchId },
       ).catch(() => []);
       if (!item) throw httpError(404, "NOT_FOUND", "Template not found");
       res.json({ item });
@@ -187,11 +243,12 @@ router.post(
   "/",
   requireAuth,
   requireCompanyScope,
+  requireBranchScope,
   requirePermission("ADMIN.TEMPLATES.MANAGE"),
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId } = req.scope;
+      const { companyId, branchId } = req.scope;
       const {
         name,
         document_type,
@@ -211,19 +268,21 @@ router.post(
       if (!n || !dt || !rawHtml)
         throw httpError(400, "VALIDATION_ERROR", "Missing fields");
       const sanitized = sanitizeHtml(rawHtml, {
-        allowedTags: false,
-        allowedAttributes: false,
+        allowedTags: false, // Allow all tags for document templates as they are Admin-only and require full document structure
+        allowedAttributes: false, // Allow all attributes
         allowVulnerableTags: true,
       });
+
       const result = await query(
         `INSERT INTO document_templates 
-           (company_id, name, document_type, html_content, is_default, created_by,
-            header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website) 
-         VALUES 
-           (:companyId, :n, :dt, :sanitized, :is_default, :userId,
-            :header_logo_url, :header_name, :header_address, :header_address2, :header_phone, :header_email, :header_website)`,
+               (company_id, branch_id, name, document_type, html_content, is_default, created_by,
+                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website) 
+             VALUES 
+               (:companyId, :branchId, :n, :dt, :sanitized, :is_default, :userId,
+                :header_logo_url, :header_name, :header_address, :header_address2, :header_phone, :header_email, :header_website)`,
         {
           companyId,
+          branchId,
           n,
           dt,
           sanitized,
@@ -242,8 +301,8 @@ router.post(
         await query(
           `UPDATE document_templates 
              SET is_default = 0 
-           WHERE company_id = :companyId AND document_type = :dt AND id <> :id`,
-          { companyId, dt, id: result.insertId },
+           WHERE company_id = :companyId AND branch_id = :branchId AND document_type = :dt AND id <> :id`,
+          { companyId, branchId, dt, id: result.insertId },
         );
       }
       res.status(201).json({ id: result.insertId });
@@ -257,11 +316,12 @@ router.put(
   "/:id",
   requireAuth,
   requireCompanyScope,
+  requireBranchScope,
   requirePermission("ADMIN.TEMPLATES.MANAGE"),
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId } = req.scope;
+      const { companyId, branchId } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const {
@@ -279,12 +339,11 @@ router.put(
       const n = String(name || "").trim();
       const rawHtml = typeof html_content === "string" ? html_content : null;
       const [existing] = await query(
-        `SELECT name, html_content, document_type,
-                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
+        `SELECT id, name, html_content, document_type, is_default
            FROM document_templates 
-          WHERE id = :id AND company_id = :companyId 
+          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
           LIMIT 1`,
-        { id, companyId },
+        { id, companyId, branchId },
       );
       if (!existing) throw httpError(404, "NOT_FOUND", "Template not found");
       const dt = existing.document_type;
@@ -292,12 +351,13 @@ router.put(
       const sanitized =
         rawHtml != null
           ? sanitizeHtml(String(rawHtml), {
-              allowedTags: false,
-              allowedAttributes: false,
+              allowedTags: false, // Allow all tags for document templates
+              allowedAttributes: false, // Allow all attributes
               allowVulnerableTags: true,
             })
           : existing.html_content;
-      await query(
+
+      const result = await query(
         `UPDATE document_templates 
            SET name = :newName, html_content = :sanitized, is_default = :is_default,
                header_logo_url = :header_logo_url,
@@ -307,10 +367,11 @@ router.put(
                header_phone = :header_phone,
                header_email = :header_email,
                header_website = :header_website
-         WHERE id = :id AND company_id = :companyId`,
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
         {
           id,
           companyId,
+          branchId,
           newName,
           sanitized,
           is_default: Number(Boolean(is_default)),
@@ -344,12 +405,21 @@ router.put(
               : existing.header_website || null,
         },
       );
+
+      if (result.affectedRows === 0) {
+        throw httpError(
+          404,
+          "NOT_FOUND",
+          "Template not found or no changes made (check branch scope)",
+        );
+      }
+
       if (Number(Boolean(is_default))) {
         await query(
           `UPDATE document_templates 
              SET is_default = 0 
-           WHERE company_id = :companyId AND document_type = :dt AND id <> :id`,
-          { companyId, dt, id },
+           WHERE company_id = :companyId AND branch_id = :branchId AND document_type = :dt AND id <> :id`,
+          { companyId, branchId, dt, id },
         );
       }
       res.json({ success: true });
@@ -363,17 +433,18 @@ router.delete(
   "/:id",
   requireAuth,
   requireCompanyScope,
+  requireBranchScope,
   requirePermission("ADMIN.TEMPLATES.MANAGE"),
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId } = req.scope;
+      const { companyId, branchId } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [existing] = await query(
-        `SELECT is_default FROM document_templates WHERE id = :id AND company_id = :companyId LIMIT 1`,
-        { id, companyId },
-      );
+        `SELECT id, is_default FROM document_templates WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        { id, companyId, branchId },
+      ).catch(() => []);
       if (!existing) throw httpError(404, "NOT_FOUND", "Template not found");
       if (Number(existing.is_default) === 1)
         throw httpError(
@@ -382,8 +453,8 @@ router.delete(
           "Default template cannot be deleted",
         );
       await query(
-        `DELETE FROM document_templates WHERE id = :id AND company_id = :companyId`,
-        { id, companyId },
+        `DELETE FROM document_templates WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
       );
       res.json({ success: true });
     } catch (err) {

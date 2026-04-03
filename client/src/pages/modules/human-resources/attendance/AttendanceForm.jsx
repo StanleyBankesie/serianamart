@@ -11,7 +11,6 @@ export default function AttendanceForm() {
 
   const [loading, setLoading] = useState(false);
   const [employees, setEmployees] = useState([]);
-  const [empQuery, setEmpQuery] = useState("");
   const [form, setForm] = useState({ employee_id: '', attendance_date: new Date().toISOString().split('T')[0], status: 'PRESENT' });
 
   useEffect(() => {
@@ -45,15 +44,6 @@ export default function AttendanceForm() {
     load();
   }, [id, isEdit]);
 
-  const empSearchResults = useMemo(() => {
-    const q = String(empQuery || "").trim();
-    if (!q || form.employee_id) return [];
-    return filterAndSort(employees, {
-      query: q,
-      getKeys: (e) => [e.emp_code, e.full_name],
-    }).slice(0, 10);
-  }, [empQuery, employees, form.employee_id]);
-
   function update(name, value) {
     setForm((p) => ({ ...p, [name]: value }));
   }
@@ -85,36 +75,21 @@ export default function AttendanceForm() {
 
       <form onSubmit={submit} className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm space-y-6 max-w-2xl mx-auto">
         <div className="space-y-4">
-          <div className="relative">
+          <div>
             <label className="label font-semibold">Employee (Code or Name) *</label>
-            <input 
-              className="input" 
-              placeholder="Search employee..."
-              value={empQuery} 
-              onChange={(e) => {
-                setEmpQuery(e.target.value);
-                if (form.employee_id) update('employee_id', '');
-              }}
-              required 
-            />
-            {empSearchResults.length > 0 && (
-              <div className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg shadow-xl max-h-60 overflow-auto">
-                {empSearchResults.map((e) => (
-                  <button
-                    key={e.id}
-                    type="button"
-                    className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-600 border-b last:border-0 border-slate-100 dark:border-slate-600"
-                    onClick={() => {
-                      update('employee_id', e.id);
-                      setEmpQuery(`${e.emp_code} - ${e.full_name}`);
-                    }}
-                  >
-                    <div className="font-bold text-brand">{e.emp_code}</div>
-                    <div className="text-sm">{e.full_name}</div>
-                  </button>
-                ))}
-              </div>
-            )}
+            <select
+              className="input"
+              value={form.employee_id}
+              onChange={(e) => update('employee_id', e.target.value)}
+              required
+            >
+              <option value="">Select Employee</option>
+              {employees.map(e => (
+                <option key={e.id} value={e.id}>
+                  {e.emp_code} - {e.first_name} {e.last_name}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

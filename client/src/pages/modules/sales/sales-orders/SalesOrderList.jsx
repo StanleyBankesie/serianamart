@@ -537,62 +537,16 @@ export default function SalesOrderList() {
   async function downloadSalesOrderPdf(id) {
     try {
       const resp = await api.post(
-        `/documents/sales-order/${id}/render?format=pdf`,
-        {},
-        { responseType: "blob" },
+        `/documents/sales-order/${id}/render`,
+        { format: "html" },
+        { headers: { "Content-Type": "application/json" } },
       );
-      const blob = resp.data;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `sales-order-${id}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const html = typeof resp.data === "string" ? resp.data : String(resp.data || "");
+      const fname = `sales-order-${id}.pdf`;
+      await renderHtmlToPdf(html, fname);
     } catch (err) {
-      try {
-        // Fallback: fetch HTML and render client-side PDF to avoid server PDF issues
-        const htmlRes = await api.post(
-          `/documents/sales-order/${id}/render`,
-          { format: "html" },
-          { headers: { "Content-Type": "application/json" } },
-        );
-        const html =
-          typeof htmlRes.data === "string"
-            ? htmlRes.data
-            : String(htmlRes.data || "");
-        const container = document.createElement("div");
-        container.style.position = "fixed";
-        container.style.left = "-10000px";
-        container.style.top = "0";
-        container.style.background = "white";
-        container.style.width = "794px";
-        container.style.padding = "32px";
-        container.innerHTML = html;
-        document.body.appendChild(container);
-        const canvas = await html2canvas(container, {
-          scale: 2,
-          useCORS: true,
-        });
-        const imgData = canvas.toDataURL("image/png");
-        const pdf = new jsPDF("p", "mm", "a4");
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const imgWidth = pageWidth;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        let rendered = 0;
-        while (rendered < imgHeight) {
-          pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
-          rendered += pageHeight;
-          if (rendered < imgHeight) pdf.addPage();
-        }
-        pdf.save(`sales-order-${id}.pdf`);
-        document.body.removeChild(container);
-      } catch (e2) {
-        toast.error(
-          e2?.response?.data?.message ||
-            "Failed to download Sales Order PDF. Please try again.",
-        );
-      }
+      console.error("PDF Download Error:", err);
+      toast.error(err?.response?.data?.message || "Failed to download Sales Order PDF");
     }
   }
 

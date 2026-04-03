@@ -1,8 +1,35 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
+import { renderHtmlToPdf } from "../../../../utils/pdfUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
+
+// Mirrors the backend canonicalDocumentType / docTypeSynonymsLower for salary-slip
+const SALARY_SLIP_ALIASES = [
+  "salary-slip",
+  "salary slip",
+  "salary_slip",
+  "salaryslip",
+  "ss",
+  "salary slip document",
+  "payslip",
+  "pay slip",
+  "pay-slip",
+  "pay_slip",
+  "payslips",
+  "pay slips",
+  "pay-slips",
+  "pay_slips",
+];
+
+function isSalarySlipTemplate(template) {
+  return SALARY_SLIP_ALIASES.includes(
+    String(template?.document_type || "")
+      .trim()
+      .toLowerCase(),
+  );
+}
 
 export default function PayslipList() {
   const { canPerformAction } = usePermission();
@@ -19,22 +46,42 @@ export default function PayslipList() {
   const [periods, setPeriods] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [branches, setBranches] = useState([]);
+  const [templates, setTemplates] = useState([]);
+
   const [filterPeriod, setFilterPeriod] = useState("");
   const [filterEmp, setFilterEmp] = useState("");
   const [filterDept, setFilterDept] = useState("");
   const [filterBranch, setFilterBranch] = useState("");
 
+  const [expandedLoans, setExpandedLoans] = useState({});
+  const [sendingEmailId, setSendingEmailId] = useState(null);  // tracks which row is sending
+  const [emailProgress, setEmailProgress] = useState(0);       // countdown seconds elapsed
+
+  // Template Modal State
+  const [selectedRecord, setSelectedRecord] = useState(null);
+  const [actionType, setActionType] = useState(null); // 'PRINT' or 'PDF'
+
+  const fmt = (n) =>
+    Number(n || 0).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
   const loadData = async () => {
     try {
-      const [pRes, dRes, bRes] = await Promise.all([
+      const [pRes, dRes, bRes, tRes] = await Promise.all([
         api.get("/hr/payroll/periods"),
         api.get("/admin/departments"),
         api.get("/admin/branches"),
+        api.get("/templates/salary-slip"),
       ]);
       setPeriods(pRes.data?.items || []);
       setDepartments(dRes.data?.items || []);
       setBranches(bRes.data?.items || []);
-    } catch {}
+      setTemplates(tRes.data?.items || []);
+    } catch (err) {
+      console.error("Error loading payslip data:", err);
+    }
   };
 
   const loadPayslips = async () => {
@@ -66,10 +113,10 @@ export default function PayslipList() {
   const sendBulkEmails = async () => {
     if (!items.length) return;
     if (!window.confirm(`Send emails to ${items.length} employees?`)) return;
-    
+
     setSendingBulk(true);
     try {
-      const ids = items.map(it => it.id);
+      const ids = items.map((it) => it.id);
       await api.post("/hr/payslips/send-email-bulk", { payslipIds: ids });
       toast.success("Bulk emails initiated");
     } catch (err) {
@@ -94,11 +141,13 @@ export default function PayslipList() {
             : "";
         if (!mounted) return;
         setCompanyInfo({
-          name: String(item.name || ""),
+          name: String(item.name || "Company"),
           address: String(item.address || ""),
           logoUrl: String(logoUrl || ""),
         });
-      } catch {}
+      } catch (err) {
+        console.error("Error loading company:", err);
+      }
     }
     loadCompany();
     return () => {
@@ -107,190 +156,394 @@ export default function PayslipList() {
   }, []);
 
   const sendEmail = async (r) => {
+    if (sendingEmailId) return; // prevent double-clicks
+    setSendingEmailId(r.id);
+    setEmailProgress(0);
+
+    const ESTIMATED_SECONDS = 25;
+    const toastId = toast.loading(
+      `📧 Sending payslip to ${r.email}... Estimated time: ~${ESTIMATED_SECONDS}s`,
+      { autoClose: false },
+    );
+
+    // Start a countdown timer
+    let elapsed = 0;
+    const timer = setInterval(() => {
+      elapsed += 1;
+      setEmailProgress(elapsed);
+      const remaining = Math.max(ESTIMATED_SECONDS - elapsed, 0);
+      toast.update(toastId, {
+        render: `📧 Generating PDF & sending email to ${r.email}...\n⏱ ${elapsed}s elapsed ${remaining > 0 ? `(~${remaining}s remaining)` : "(almost done...)"}`,
+        isLoading: true,
+      });
+    }, 1000);
+
     try {
       await api.post("/hr/payslips/send-email", { payslipId: r.id });
-      toast.success(`Payslip sent to ${r.email}`);
+      clearInterval(timer);
+      toast.update(toastId, {
+        render: `✅ Payslip successfully sent to ${r.email} (${elapsed}s)`,
+        type: "success",
+        isLoading: false,
+        autoClose: 4000,
+      });
     } catch (err) {
-      toast.error(err.response?.data?.message || "Failed to send email");
+      clearInterval(timer);
+      toast.update(toastId, {
+        render: `❌ ${err.response?.data?.message || "Failed to send email"}`,
+        type: "error",
+        isLoading: false,
+        autoClose: 5000,
+      });
+    } finally {
+      setSendingEmailId(null);
+      setEmailProgress(0);
     }
   };
 
-  async function printPayslip(r) {
-    try {
-      const res = await api.post(`/documents/salary-slip/${r.id}/render`, {
-        format: "html",
-      });
-      const html = res.data;
-      const iframe = document.createElement("iframe");
-      iframe.style.position = "fixed";
-      iframe.style.right = "0";
-      iframe.style.bottom = "0";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
-      iframe.style.border = "0";
-      document.body.appendChild(iframe);
-      const doc =
-        iframe.contentWindow?.document || iframe.contentDocument || null;
-      if (!doc) {
-        document.body.removeChild(iframe);
-        return;
-      }
-      doc.open();
-      doc.write(html);
-      doc.close();
-      const win = iframe.contentWindow || window;
-      const handlePrint = () => {
-        win.focus();
-        try {
-          win.print();
-        } catch {}
-        setTimeout(() => {
-          document.body.removeChild(iframe);
-        }, 100);
-      };
-      setTimeout(handlePrint, 200);
-    } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to print payslip");
-    }
-  }
+  const handleActionClick = (r, type) => {
+    setSelectedRecord(r);
+    setActionType(type);
 
-  async function downloadPayslipPdf(r) {
+    // Match by document_type using the same aliases as the backend salary-slip synonyms
+    const targetTpl = templates.find((t) => isSalarySlipTemplate(t));
+
+    // Fallback: is_default template, then first available
+    const deftpl = templates.find((t) => Number(t.is_default) === 1);
+    const tId =
+      targetTpl?.id ||
+      deftpl?.id ||
+      (templates.length > 0 ? templates[0].id : "");
+
+    executeAction(r, tId, type);
+  };
+
+  const executeAction = async (r, templateId, type) => {
     try {
+      setLoading(true);
       const res = await api.post(
-        `/documents/salary-slip/${r.id}/render?format=pdf`,
-        {},
-        { responseType: "blob" }
+        `/documents/salary-slip/${r.id}/render`,
+        { format: "html", template_id: templateId },
+        { headers: { "Content-Type": "application/json" } },
       );
-      const blob = res.data;
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      const fname =
-        "Payslip_" +
-        (String(r.period_name || "")
-          .replace(/\s+/g, "_") ||
-          new Date().toISOString().slice(0, 10)) +
-        "_" +
-        (r.emp_code || r.id) +
-        ".pdf";
-      a.download = fname;
-      a.click();
-      URL.revokeObjectURL(blobUrl);
+      const html =
+        typeof res.data === "string" ? res.data : String(res.data || "");
+
+      if (type === "PRINT") {
+        const iframe = document.createElement("iframe");
+        iframe.style.position = "fixed";
+        iframe.style.right = "0";
+        iframe.style.bottom = "0";
+        iframe.style.width = "0";
+        iframe.style.height = "0";
+        iframe.style.border = "0";
+        document.body.appendChild(iframe);
+        const doc =
+          iframe.contentWindow?.document || iframe.contentDocument || null;
+        if (!doc) {
+          document.body.removeChild(iframe);
+          return;
+        }
+        doc.open();
+        const patchCss = `<style>@media print{*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>`;
+        doc.write(patchCss + html);
+        doc.close();
+        const win = iframe.contentWindow || window;
+        const handlePrint = () => {
+          win.focus();
+          try {
+            win.print();
+          } catch {}
+          setTimeout(() => {
+            document.body.removeChild(iframe);
+          }, 100);
+        };
+        setTimeout(handlePrint, 200);
+      } else {
+        const fname =
+          "payslip-" +
+          (String(r.period_name || "").replace(/\s+/g, "_") ||
+            new Date().toISOString().slice(0, 10)) +
+          "-" +
+          (r.emp_code || r.id) +
+          ".pdf";
+        await renderHtmlToPdf(html, fname);
+      }
     } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to download PDF");
+      toast.error(
+        e?.response?.data?.message || `Failed to ${type.toLowerCase()} payslip`,
+      );
+    } finally {
+      setSelectedRecord(null);
+      setActionType(null);
+      setLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="space-y-4 p-4">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-bold">Payslips</h1>
-          <p className="text-sm text-slate-500">View and manage employee salary slips</p>
-        </div>
-        <div className="flex gap-2">
-          <Link to="/human-resources" className="btn-secondary">Back to Menu</Link>
-          <button 
-            onClick={sendBulkEmails} 
-            disabled={sendingBulk || !items.length} 
-            className="btn-primary"
-          >
-            {sendingBulk ? "Sending..." : "📧 Bulk Email"}
-          </button>
+    <div className="space-y-4">
+      <div className="card">
+        <div className="card-header bg-brand text-white rounded-t-lg">
+          <div className="flex justify-between items-center text-white">
+            <div>
+              <h1 className="text-2xl font-bold dark:text-brand-300">
+                Payslips
+              </h1>
+              <p className="text-sm mt-1">
+                View and manage employee salary slips
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Link to="/human-resources" className="btn btn-secondary">
+                Back to Menu
+              </Link>
+              <button
+                onClick={sendBulkEmails}
+                disabled={sendingBulk || !items.length}
+                className="btn btn-success"
+              >
+                {sendingBulk ? "Sending..." : "📧 Bulk Email"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-white dark:bg-slate-800 p-4 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 flex flex-wrap items-end gap-4">
-        <div className="w-48">
-          <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Period</label>
-          <select className="input h-9 text-sm" value={filterPeriod} onChange={e => setFilterPeriod(e.target.value)}>
-            <option value="">All Periods</option>
-            {periods.map(p => <option key={p.id} value={p.id}>{p.period_name}</option>)}
-          </select>
-        </div>
-        <div className="flex-1 min-w-[200px]">
-          <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Search Employee</label>
-          <input 
-            className="input h-9 text-sm" 
-            placeholder="Name or Code..." 
-            value={filterEmp} 
-            onChange={e => setFilterEmp(e.target.value)} 
-            onKeyDown={e => e.key === 'Enter' && loadPayslips()}
-          />
-        </div>
-        <div className="w-40">
-          <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Department</label>
-          <select className="input h-9 text-sm" value={filterDept} onChange={e => setFilterDept(e.target.value)}>
-            <option value="">All</option>
-            {departments.map(d => <option key={d.id} value={d.id}>{d.dept_name}</option>)}
-          </select>
-        </div>
-        <div className="w-40">
-          <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Location</label>
-          <select className="input h-9 text-sm" value={filterBranch} onChange={e => setFilterBranch(e.target.value)}>
-            <option value="">All</option>
-            {branches.map(b => <option key={b.id} value={b.id}>{b.branch_name}</option>)}
-          </select>
-        </div>
-        <button onClick={loadPayslips} className="btn-secondary h-9 px-4">Search</button>
-      </div>
+      <div className="card">
+        <div className="card-body">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+            <div>
+              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
+                Period
+              </label>
+              <select
+                className="input h-9 text-sm"
+                value={filterPeriod}
+                onChange={(e) => setFilterPeriod(e.target.value)}
+              >
+                <option value="">All Periods</option>
+                {periods.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.period_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
+                Search Employee
+              </label>
+              <input
+                className="input h-9 text-sm"
+                placeholder="Name or Code..."
+                value={filterEmp}
+                onChange={(e) => setFilterEmp(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && loadPayslips()}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
+                Department
+              </label>
+              <select
+                className="input h-9 text-sm"
+                value={filterDept}
+                onChange={(e) => setFilterDept(e.target.value)}
+              >
+                <option value="">All</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.dept_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
+                Location
+              </label>
+              <select
+                className="input h-9 text-sm"
+                value={filterBranch}
+                onChange={(e) => setFilterBranch(e.target.value)}
+              >
+                <option value="">All</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.branch_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={loadPayslips}
+                className="btn btn-secondary h-9 w-full"
+              >
+                Search
+              </button>
+            </div>
+          </div>
 
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <table className="min-w-full">
-          <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
-            <tr className="bg-slate-50 dark:bg-slate-900/50 text-left border-b border-slate-200 dark:border-slate-700">
-              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Period</th>
-              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Employee</th>
-              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Dept/Location</th>
-              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Net Pay</th>
-              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-            {items.map((r) => (
-              <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                <td className="px-4 py-3 text-sm">{r.period_name}</td>
-                <td className="px-4 py-3">
-                  <div className="font-medium text-sm">{r.first_name} {r.last_name}</div>
-                  <div className="text-[10px] text-slate-500">{r.emp_code}</div>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="text-xs">{r.dept_name || '-'}</div>
-                  <div className="text-[10px] text-slate-400">{r.branch_name || '-'}</div>
-                </td>
-                <td className="px-4 py-3 text-right font-mono text-sm font-bold text-brand">
-                  {Number(r.net_salary || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                    r.status === 'PAID' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                  }`}>
-                    {r.status}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <div className="flex justify-end gap-1">
-                    <button onClick={() => printPayslip(r)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors" title="Print">🖨️</button>
-                    <button onClick={() => downloadPayslipPdf(r)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors" title="PDF">📄</button>
-                    <button onClick={() => sendEmail(r)} className="p-1.5 hover:bg-brand/10 text-brand rounded transition-colors" title="Email">📧</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {!items.length && !loading && (
-              <tr><td colSpan={6} className="text-center py-12 text-slate-500 italic">No payslips found for the current selection.</td></tr>
-            )}
-          </tbody>
-        </table>
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th>Employee</th>
+                  <th className="text-right">Basic Salary</th>
+                  <th className="text-right">Allowances</th>
+                  <th className="text-right bg-amber-50/50 dark:bg-amber-900/10">
+                    SSF (Emp)
+                  </th>
+                  <th className="text-right bg-amber-50/50 dark:bg-amber-900/10">
+                    Tier 3
+                  </th>
+                  <th className="text-right bg-red-50/50 dark:bg-red-900/10">
+                    PAYE Tax
+                  </th>
+                  <th className="text-right bg-red-50/50 dark:bg-red-900/10">
+                    Loans
+                  </th>
+                  <th className="text-right bg-red-50/50 dark:bg-red-900/10">
+                    Total Deductions
+                  </th>
+                  <th className="text-right bg-green-50/50 dark:bg-green-900/10">
+                    Net Pay
+                  </th>
+                  <th className="text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((r) => (
+                  <React.Fragment key={r.id}>
+                    <tr className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                      <td className="text-sm">{r.period_name}</td>
+                      <td>
+                        <div className="font-medium text-sm">
+                          {r.first_name} {r.last_name}
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          {r.emp_code}
+                        </div>
+                      </td>
+                      <td className="text-right font-mono text-slate-700 dark:text-slate-300">
+                        {fmt(r.basic_salary)}
+                      </td>
+                      <td className="text-right font-mono text-slate-700 dark:text-slate-300">
+                        {fmt(r.allowances)}
+                      </td>
+                      <td className="text-right font-mono text-amber-700 dark:text-amber-400 bg-amber-50/30 dark:bg-amber-900/10">
+                        {fmt(r.ssf_employee)}
+                      </td>
+                      <td className="text-right font-mono text-amber-700 dark:text-amber-400 bg-amber-50/30 dark:bg-amber-900/10">
+                        {fmt(r.tier3_employee)}
+                      </td>
+                      <td className="text-right font-mono text-red-600 dark:text-red-400 bg-red-50/30 dark:bg-red-900/10">
+                        {fmt(r.income_tax)}
+                      </td>
+                      <td className="text-right font-mono text-red-700 dark:text-red-300 bg-red-50/30 dark:bg-red-900/10">
+                        <div className="flex items-center gap-2 justify-end">
+                          <span>{fmt(r.loan_deductions_total || 0)}</span>
+                          {r.loan_items &&
+                            Object.keys(r.loan_items).length > 0 && (
+                              <button
+                                className="text-[9px] px-1.5 py-0.5 border rounded hover:bg-slate-100 dark:hover:bg-slate-700 opacity-70 hover:opacity-100"
+                                onClick={() =>
+                                  setExpandedLoans((prev) => ({
+                                    ...prev,
+                                    [r.id]: !prev[r.id],
+                                  }))
+                                }
+                              >
+                                {expandedLoans[r.id] ? "Hide" : "Details"}
+                              </button>
+                            )}
+                        </div>
+                      </td>
+                      <td className="text-right font-mono text-red-700 dark:text-red-300 bg-red-50/30 dark:bg-red-900/10 font-semibold">
+                        {fmt(r.deductions)}
+                      </td>
+                      <td className="text-right font-mono font-bold text-green-700 dark:text-green-400 bg-green-50/30 dark:bg-green-900/10">
+                        {fmt(r.net_salary)}
+                      </td>
+                      <td className="text-center">
+                        <div className="flex justify-center gap-2 whitespace-nowrap">
+                          <button
+                            onClick={() => handleActionClick(r, "PRINT")}
+                            className="inline-flex items-center px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-all"
+                          >
+                            Print
+                          </button>
+                          <button
+                            onClick={() => handleActionClick(r, "PDF")}
+                            className="inline-flex items-center px-4 py-1.5 rounded bg-red-900 hover:bg-red-900 text-white text-xs font-semibold shadow-sm transition-all"
+                          >
+                            PDF
+                          </button>
+                          <button
+                            onClick={() => sendEmail(r)}
+                            disabled={sendingEmailId === r.id}
+                            className={`inline-flex items-center px-4 py-1.5 rounded text-white text-xs font-semibold shadow-sm transition-all ${
+                              sendingEmailId === r.id
+                                ? "bg-amber-500 cursor-wait animate-pulse"
+                                : "bg-brand hover:bg-brand-700"
+                            }`}
+                          >
+                            {sendingEmailId === r.id
+                              ? `⏳ Sending... ${emailProgress}s`
+                              : "Email"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedLoans[r.id] && r.loan_items && (
+                      <tr className="bg-slate-50/70 dark:bg-slate-700/40 animate-in fade-in slide-in-from-top-1">
+                        <td
+                          colSpan={11}
+                          className="px-4 py-2 border-b border-slate-100 dark:border-slate-700"
+                        >
+                          <div className="flex flex-wrap gap-2 items-center">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">
+                              Loan Breakdown:
+                            </span>
+                            {Object.entries(r.loan_items).map(([lid, item]) => (
+                              <div
+                                key={lid}
+                                className="px-2 py-0.5 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 shadow-sm flex items-center gap-2"
+                              >
+                                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                                  {item.loan_type
+                                    ? `${item.loan_type}`
+                                    : `Loan ${lid}`}
+                                </span>
+                                <span className="text-[11px] font-bold font-mono text-slate-700 dark:text-slate-300 italic">
+                                  {fmt(item.amount)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+                {!items.length && !loading && (
+                  <tr>
+                    <td
+                      colSpan={11}
+                      className="text-center py-12 text-slate-500 italic"
+                    >
+                      No payslips found for the current selection.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
-
-
-
-
-
-

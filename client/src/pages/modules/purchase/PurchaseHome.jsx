@@ -36,6 +36,8 @@ import ServiceConfirmationsList from "../service-management/service-confirmation
 import ServiceConfirmationForm from "../service-management/service-confirmations/ServiceConfirmationForm.jsx";
 import DirectPurchase from "./direct-purchase/DirectPurchase.jsx";
 import DirectPurchaseList from "./direct-purchase/DirectPurchaseList.jsx";
+import GeneralRequisitionList from "./general-requisitions/GeneralRequisitionList.jsx";
+import GeneralRequisitionForm from "./general-requisitions/GeneralRequisitionForm.jsx";
 import PurchaseReturnList from "../inventory/purchase-returns/PurchaseReturnList.jsx";
 import PurchaseReturnForm from "../inventory/purchase-returns/PurchaseReturnForm.jsx";
 
@@ -142,6 +144,12 @@ function PurchaseHomeIndex() {
     {
       title: "Procurement",
       items: [
+        {
+          title: "General Requisition",
+          description: "Request items or services to be purchased",
+          path: "/purchase/general-requisitions",
+          icon: "📋",
+        },
         {
           title: "Request for Quotation",
           description: "Create and manage RFQs",
@@ -355,6 +363,10 @@ export default function PurchaseHome() {
   return (
     <Routes>
       <Route index element={<PurchaseHomeIndex />} />
+      <Route path="general-requisitions" element={<GeneralRequisitionList />} />
+      <Route path="general-requisitions/new" element={<GeneralRequisitionForm />} />
+      <Route path="general-requisitions/:id" element={<GeneralRequisitionForm />} />
+      <Route path="general-requisitions/:id/edit" element={<GeneralRequisitionForm />} />
       <Route path="rfqs" element={<RequestForQuotationList />} />
       <Route path="rfqs/new" element={<RequestForQuotationForm />} />
       <Route path="rfqs/:id" element={<RequestForQuotationForm />} />
@@ -603,6 +615,13 @@ export default function PurchaseHome() {
 }
 
 export const purchaseFeatures = [
+  {
+    module_key: "purchase",
+    label: "General Requisition",
+    path: "/purchase/general-requisitions",
+    type: "feature",
+    icon: "📋",
+  },
   {
     module_key: "purchase",
     label: "Purchase Returns",

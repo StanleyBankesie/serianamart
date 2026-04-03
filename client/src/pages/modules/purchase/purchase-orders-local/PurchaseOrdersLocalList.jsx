@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "api/client";
+import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
 // ReverseApprovalButton removed for POs; use direct reverse like vouchers
@@ -693,16 +694,12 @@ export default function PurchaseOrdersLocalList() {
                           onClick={async () => {
                             try {
                               const res = await api.post(
-                                `/documents/purchase-order/${po.id}/render?format=pdf`,
-                                {},
-                                { responseType: "blob" },
+                                `/documents/purchase-order/${po.id}/render`,
+                                { format: "html" },
+                                { headers: { "Content-Type": "application/json" } },
                               );
-                              const url = URL.createObjectURL(res.data);
-                              const a = document.createElement("a");
-                              a.href = url;
-                              a.download = `PO-${po.po_no || po.id}.pdf`;
-                              a.click();
-                              URL.revokeObjectURL(url);
+                              const html = typeof res.data === "string" ? res.data : String(res.data || "");
+                              await renderHtmlToPdf(html, `PO-${po.po_no || po.id}.pdf`);
                             } catch (e) {
                               toast.error("Failed to download PDF");
                             }

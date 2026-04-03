@@ -55,7 +55,7 @@ export async function verifyMailer() {
   }
 }
 
-export async function sendMail({ to, subject, text, html, cc, meta }) {
+export async function sendMail({ to, subject, text, html, cc, attachments, meta }) {
   if (!configured || !transporter) {
     console.warn(
       "[SENDMAIL] Mailer not configured. Host:",
@@ -97,6 +97,7 @@ export async function sendMail({ to, subject, text, html, cc, meta }) {
       subject,
       text,
       html,
+      attachments,
     });
     console.log(
       `[SENDMAIL] Email sent successfully to ${to}. MessageId: ${result.messageId}`,

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import { api } from "api/client";
+import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
 import { filterAndSort } from "@/utils/searchUtils.js";
@@ -275,16 +276,12 @@ export default function PurchaseBillsList() {
                         onClick={async () => {
                           try {
                             const res = await api.post(
-                              `/documents/invoice/${r.id}/render?format=pdf`,
-                              {},
-                              { responseType: "blob" },
+                              `/documents/invoice/${r.id}/render`,
+                              { format: "html" },
+                              { headers: { "Content-Type": "application/json" } },
                             );
-                            const url = URL.createObjectURL(res.data);
-                            const a = document.createElement("a");
-                            a.href = url;
-                            a.download = `Bill-${r.bill_no || r.id}.pdf`;
-                            a.click();
-                            URL.revokeObjectURL(url);
+                            const html = typeof res.data === "string" ? res.data : String(res.data || "");
+                            await renderHtmlToPdf(html, `Bill-${r.bill_no || r.id}.pdf`);
                           } catch (e) {
                             toast.error("Failed to download PDF");
                           }

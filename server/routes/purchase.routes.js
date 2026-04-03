@@ -6866,6 +6866,238 @@ router.post(
   },
 );
 
+// ==================== GENERAL REQUISITION ====================
+
+async function ensureGeneralRequisitionTables() {
+  if (!(await hasTable("pur_general_requisitions"))) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pur_general_requisitions (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        company_id BIGINT UNSIGNED NOT NULL,
+        branch_id BIGINT UNSIGNED NOT NULL,
+        requisition_no VARCHAR(50) NOT NULL,
+        requisition_date DATE NOT NULL,
+        requisition_type ENUM('ITEM','SERVICE') NOT NULL DEFAULT 'ITEM',
+        department VARCHAR(100) NULL,
+        requested_by VARCHAR(150) NULL,
+        purpose TEXT NULL,
+        priority ENUM('LOW','MEDIUM','HIGH','URGENT') NOT NULL DEFAULT 'MEDIUM',
+        required_date DATE NULL,
+        status ENUM('DRAFT','SUBMITTED','APPROVED','REJECTED','CANCELLED','FULFILLED') NOT NULL DEFAULT 'DRAFT',
+        remarks TEXT NULL,
+        created_by BIGINT UNSIGNED NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_gr_scope_no (company_id, branch_id, requisition_no),
+        KEY idx_gr_scope (company_id, branch_id),
+        KEY idx_gr_status (status),
+        KEY idx_gr_date (requisition_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  }
+  if (!(await hasTable("pur_general_requisition_items"))) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pur_general_requisition_items (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        requisition_id BIGINT UNSIGNED NOT NULL,
+        item_id BIGINT UNSIGNED NULL,
+        description VARCHAR(255) NOT NULL,
+        qty DECIMAL(18,3) NOT NULL DEFAULT 0,
+        uom VARCHAR(20) NULL,
+        estimated_unit_cost DECIMAL(18,2) NOT NULL DEFAULT 0,
+        estimated_total DECIMAL(18,2) NOT NULL DEFAULT 0,
+        remarks VARCHAR(255) NULL,
+        PRIMARY KEY (id),
+        KEY idx_gri_req (requisition_id),
+        CONSTRAINT fk_gri_req FOREIGN KEY (requisition_id) REFERENCES pur_general_requisitions(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  }
+}
+
+async function nextGeneralRequisitionNo(companyId, branchId) {
+  const rows = await query(
+    `SELECT requisition_no
+     FROM pur_general_requisitions
+     WHERE company_id = :companyId AND branch_id = :branchId
+       AND requisition_no REGEXP '^GR-[0-9]{6}$'
+     ORDER BY CAST(SUBSTRING(requisition_no, 4) AS UNSIGNED) DESC
+     LIMIT 1`,
+    { companyId, branchId },
+  );
+  let nextNum = 1;
+  if (rows.length > 0) {
+    const prev = String(rows[0].requisition_no || "");
+    const numPart = prev.slice(3);
+    const n = parseInt(numPart, 10);
+    if (Number.isFinite(n)) nextNum = n + 1;
+  }
+  return `GR-${String(nextNum).padStart(6, "0")}`;
+}
+
+// LIST general requisitions
+router.get(
+  "/general-requisitions",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureGeneralRequisitionTables();
+      const { companyId, branchId } = req.scope;
+      const { status, from_date, to_date, department } = req.query;
+      let where = "WHERE r.company_id = :companyId AND r.branch_id = :branchId";
+      const params = { companyId, branchId };
+      if (status) { where += " AND r.status = :status"; params.status = status; }
+      if (from_date) { where += " AND r.requisition_date >= :from_date"; params.from_date = from_date; }
+      if (to_date) { where += " AND r.requisition_date <= :to_date"; params.to_date = to_date; }
+      if (department) { where += " AND r.department = :department"; params.department = department; }
+      const rows = await query(
+        `SELECT r.*, COALESCE(SUM(i.estimated_total), 0) AS total_estimated_cost, COUNT(i.id) AS item_count
+         FROM pur_general_requisitions r
+         LEFT JOIN pur_general_requisition_items i ON i.requisition_id = r.id
+         ${where}
+         GROUP BY r.id
+         ORDER BY r.created_at DESC`,
+        params,
+      );
+      res.json({ items: rows });
+    } catch (err) { next(err); }
+  },
+);
+
+// GET single general requisition
+router.get(
+  "/general-requisitions/:id",
+  requireAuth, requireCompanyScope, requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureGeneralRequisitionTables();
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
+      const rows = await query(
+        `SELECT * FROM pur_general_requisitions WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        { id, companyId, branchId },
+      );
+      if (!rows.length) throw httpError(404, "NOT_FOUND", "Requisition not found");
+      const items = await query(
+        `SELECT gi.*, inv.item_code, inv.item_name
+         FROM pur_general_requisition_items gi
+         LEFT JOIN inv_items inv ON inv.id = gi.item_id
+         WHERE gi.requisition_id = :id ORDER BY gi.id`,
+        { id },
+      );
+      res.json({ ...rows[0], items });
+    } catch (err) { next(err); }
+  },
+);
+
+// CREATE general requisition
+router.post(
+  "/general-requisitions",
+  requireAuth, requireCompanyScope, requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureGeneralRequisitionTables();
+      const { companyId, branchId } = req.scope;
+      const userId = req.user?.sub || null;
+      const { requisition_date, requisition_type, department, requested_by, purpose, priority, required_date, status, remarks, items } = req.body;
+      if (!requisition_date) throw httpError(400, "VALIDATION_ERROR", "Date is required");
+      const lineItems = Array.isArray(items) ? items.filter((i) => i.description) : [];
+      if (!lineItems.length) throw httpError(400, "VALIDATION_ERROR", "At least one line item is required");
+      const requisition_no = await nextGeneralRequisitionNo(companyId, branchId);
+      const finalStatus = status === "SUBMITTED" ? "SUBMITTED" : "DRAFT";
+      const [result] = await pool.query(
+        `INSERT INTO pur_general_requisitions
+         (company_id, branch_id, requisition_no, requisition_date, requisition_type, department, requested_by, purpose, priority, required_date, status, remarks, created_by)
+         VALUES (:companyId, :branchId, :requisition_no, :requisition_date, :requisition_type, :department, :requested_by, :purpose, :priority, :required_date, :status, :remarks, :created_by)`,
+        { companyId, branchId, requisition_no, requisition_date, requisition_type: requisition_type || "ITEM", department: department || null, requested_by: requested_by || null, purpose: purpose || null, priority: priority || "MEDIUM", required_date: required_date || null, status: finalStatus, remarks: remarks || null, created_by: userId },
+      );
+      const reqId = Number(result.insertId);
+      for (const item of lineItems) {
+        const qty = Number(item.qty || 0);
+        const unitCost = Number(item.estimated_unit_cost || 0);
+        await pool.query(
+          `INSERT INTO pur_general_requisition_items (requisition_id, item_id, description, qty, uom, estimated_unit_cost, estimated_total, remarks)
+           VALUES (:requisition_id, :item_id, :description, :qty, :uom, :estimated_unit_cost, :estimated_total, :remarks)`,
+          { requisition_id: reqId, item_id: item.item_id ? Number(item.item_id) : null, description: item.description || "", qty, uom: item.uom || null, estimated_unit_cost: unitCost, estimated_total: qty * unitCost, remarks: item.remarks || null },
+        );
+      }
+      res.status(201).json({ id: reqId, requisition_no, status: finalStatus, message: "General Requisition created successfully" });
+    } catch (err) { next(err); }
+  },
+);
+
+// UPDATE general requisition
+router.put(
+  "/general-requisitions/:id",
+  requireAuth, requireCompanyScope, requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureGeneralRequisitionTables();
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
+      const existing = await query(
+        `SELECT * FROM pur_general_requisitions WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        { id, companyId, branchId },
+      );
+      if (!existing.length) throw httpError(404, "NOT_FOUND", "Requisition not found");
+      if (["APPROVED", "FULFILLED", "CANCELLED"].includes(existing[0].status)) {
+        throw httpError(400, "VALIDATION_ERROR", "Cannot edit a requisition with status: " + existing[0].status);
+      }
+      const { requisition_date, requisition_type, department, requested_by, purpose, priority, required_date, status, remarks, items } = req.body;
+      const finalStatus = status || existing[0].status;
+      await pool.query(
+        `UPDATE pur_general_requisitions SET
+           requisition_date = :requisition_date, requisition_type = :requisition_type, department = :department, requested_by = :requested_by,
+           purpose = :purpose, priority = :priority, required_date = :required_date, status = :status, remarks = :remarks
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { requisition_date: requisition_date || existing[0].requisition_date, requisition_type: requisition_type || existing[0].requisition_type, department: department !== undefined ? department : existing[0].department, requested_by: requested_by !== undefined ? requested_by : existing[0].requested_by, purpose: purpose !== undefined ? purpose : existing[0].purpose, priority: priority || existing[0].priority, required_date: required_date !== undefined ? required_date : existing[0].required_date, status: finalStatus, remarks: remarks !== undefined ? remarks : existing[0].remarks, id, companyId, branchId },
+      );
+      if (Array.isArray(items)) {
+        await pool.query("DELETE FROM pur_general_requisition_items WHERE requisition_id = :id", { id });
+        for (const item of items.filter((i) => i.description)) {
+          const qty = Number(item.qty || 0);
+          const unitCost = Number(item.estimated_unit_cost || 0);
+          await pool.query(
+            `INSERT INTO pur_general_requisition_items (requisition_id, item_id, description, qty, uom, estimated_unit_cost, estimated_total, remarks)
+             VALUES (:requisition_id, :item_id, :description, :qty, :uom, :estimated_unit_cost, :estimated_total, :remarks)`,
+            { requisition_id: id, item_id: item.item_id ? Number(item.item_id) : null, description: item.description || "", qty, uom: item.uom || null, estimated_unit_cost: unitCost, estimated_total: qty * unitCost, remarks: item.remarks || null },
+          );
+        }
+      }
+      res.json({ id, status: finalStatus, message: "General Requisition updated" });
+    } catch (err) { next(err); }
+  },
+);
+
+// UPDATE status only
+router.put(
+  "/general-requisitions/:id/status",
+  requireAuth, requireCompanyScope, requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureGeneralRequisitionTables();
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      const { status } = req.body;
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
+      const allowed = ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "CANCELLED", "FULFILLED"];
+      if (!status || !allowed.includes(status)) throw httpError(400, "VALIDATION_ERROR", "Invalid status");
+      const existing = await query(
+        `SELECT id FROM pur_general_requisitions WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        { id, companyId, branchId },
+      );
+      if (!existing.length) throw httpError(404, "NOT_FOUND", "Requisition not found");
+      await pool.query(`UPDATE pur_general_requisitions SET status = :status WHERE id = :id`, { status, id });
+      res.json({ id, status, message: `Status updated to ${status}` });
+    } catch (err) { next(err); }
+  },
+);
+
 router.get(
   "/bills/:id",
   requireAuth,

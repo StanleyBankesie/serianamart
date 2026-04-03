@@ -14,36 +14,64 @@ export async function waitForImagesIn(el) {
   );
 }
 
-export async function renderHtmlToA4Pdf(html, filename = "document.pdf") {
-  const container = document.createElement("div");
-  container.style.position = "fixed";
-  container.style.left = "-10000px";
-  container.style.top = "0";
-  container.style.background = "white";
-  container.style.width = "794px"; // ~A4 width at 96dpi
-  container.style.padding = "32px";
-  container.innerHTML = html;
-  document.body.appendChild(container);
+export async function renderHtmlToPdf(html, filename = "document.pdf") {
+  const { api } = await import("../api/client.js");
+  const { toast } = await import("react-toastify");
+  const toastId = toast.loading("Generating PDF, please wait...");
 
-  await waitForImagesIn(container);
-  const { default: html2canvas } = await import("html2canvas");
-  const { default: JsPDF } = await import("jspdf");
+  try {
+    const res = await api.post(
+      "/documents/raw-html-to-pdf",
+      JSON.stringify({ html }),
+      {
+        responseType: "blob",
+        headers: { "Content-Type": "application/json" },
+        transformRequest: [(data) => data],  // skip default transform, already stringified
+      },
+    );
 
-  const canvas = await html2canvas(container, { scale: 2, useCORS: true });
-  const imgData = canvas.toDataURL("image/png");
-  const pdf = new JsPDF("p", "mm", "a4");
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-  const imgWidth = pageWidth;
-  const imgHeight = (canvas.height * imgWidth) / canvas.width;
-  let rendered = 0;
-  while (rendered < imgHeight) {
-    pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
-    rendered += pageHeight;
-    if (rendered < imgHeight) pdf.addPage();
+    // Verify we actually got a PDF back, not an error JSON
+    const blob = res.data;
+    if (!blob || blob.size === 0) {
+      throw new Error("Empty PDF response from server");
+    }
+
+    // Check content type - if server returned JSON error, handle it
+    if (blob.type && blob.type.includes("application/json")) {
+      const text = await blob.text();
+      const err = JSON.parse(text);
+      throw new Error(err.message || "Server returned an error");
+    }
+
+    const url = window.URL.createObjectURL(
+      new Blob([blob], { type: "application/pdf" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    }, 200);
+
+    toast.update(toastId, {
+      render: "PDF downloaded successfully!",
+      type: "success",
+      isLoading: false,
+      autoClose: 2000,
+    });
+  } catch (err) {
+    console.error("PDF generation failed:", err);
+    toast.update(toastId, {
+      render: err?.response?.data?.message || err?.message || "Failed to generate PDF",
+      type: "error",
+      isLoading: false,
+      autoClose: 4000,
+    });
+    throw err;
   }
-  document.body.removeChild(container);
-  pdf.save(filename);
 }
 
 export async function fetchReportHeaderHtml(api) {
@@ -58,4 +86,3 @@ export function joinHeaderAndBody(headerHtml, bodyHtml) {
   // Naive join: place header above body
   return `${headerHtml || ""}\n${bodyHtml || ""}`;
 }
-

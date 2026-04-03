@@ -207,6 +207,148 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
       );
     }
 
+    try {
+      console.log("Ensuring `fin_account_groups` has sufficient length for `code`...");
+      await query(
+        "ALTER TABLE `fin_account_groups` MODIFY COLUMN `code` VARCHAR(100) NOT NULL"
+      );
+    } catch (e) {
+      console.warn("Could not modify fin_account_groups code column: ", e.message);
+    }
+
+    // Ensure HR Loan Type has account_id
+    try {
+      const resp = await query("SHOW TABLES LIKE 'hr_setup_loan_types'");
+      if (resp && resp.length > 0) {
+        const loanTypeCols = await query("SHOW COLUMNS FROM `hr_setup_loan_types` LIKE 'account_id'");
+        if (!loanTypeCols || loanTypeCols.length === 0) {
+          console.log("Adding `account_id` column to `hr_setup_loan_types`...");
+          await query("ALTER TABLE `hr_setup_loan_types` ADD COLUMN `account_id` BIGINT UNSIGNED NULL DEFAULT NULL");
+        }
+      }
+    } catch (e) {
+      console.warn("Could not add account_id to hr_setup_loan_types: ", e.message);
+    }
+
+    // Ensure HR Loans has amount_due, end_date and correct status type
+    try {
+      const resp = await query("SHOW TABLES LIKE 'hr_loans'");
+      if (resp && resp.length > 0) {
+          const loanAmountDueCols = await query("SHOW COLUMNS FROM `hr_loans` LIKE 'amount_due'");
+          if (!loanAmountDueCols || loanAmountDueCols.length === 0) {
+            console.log("Adding `amount_due` column to `hr_loans`...");
+            await query("ALTER TABLE `hr_loans` ADD COLUMN `amount_due` DECIMAL(18,4) NULL DEFAULT NULL");
+          }
+          const loanEndDateCols = await query("SHOW COLUMNS FROM `hr_loans` LIKE 'end_date'");
+          if (!loanEndDateCols || loanEndDateCols.length === 0) {
+            console.log("Adding `end_date` column to `hr_loans`...");
+            await query("ALTER TABLE `hr_loans` ADD COLUMN `end_date` DATE NULL DEFAULT NULL");
+          }
+          const loanIdCols = await query("SHOW COLUMNS FROM `hr_loans` LIKE 'loan_id'");
+          if (!loanIdCols || loanIdCols.length === 0) {
+            console.log("Adding `loan_id` column to `hr_loans`...");
+            await query("ALTER TABLE `hr_loans` ADD COLUMN `loan_id` BIGINT UNSIGNED NULL DEFAULT NULL");
+          }
+          
+          // CRITICAL: Ensure status is VARCHAR to avoid ENUM errors with NEW 'ACTIVE' and 'COMPLETED' statuses
+          console.log("Ensuring `hr_loans.status` is VARCHAR(50)...");
+          await query("ALTER TABLE `hr_loans` MODIFY COLUMN `status` VARCHAR(50) NOT NULL DEFAULT 'PENDING'");
+      }
+    } catch (e) {
+      console.warn("Could not add columns or modify status in hr_loans: ", e.message);
+    }
+
+    // Update HR Loan Statuses
+    try {
+      const resp = await query("SHOW TABLES LIKE 'hr_loans'");
+      if (resp && resp.length > 0) {
+        console.log("Renaming HR Loan Statuses: REPAID -> ACTIVE, DISBURSED -> COMPLETED...");
+        await query("UPDATE hr_loans SET status = 'ACTIVE' WHERE status = 'REPAID'");
+        await query("UPDATE hr_loans SET status = 'COMPLETED' WHERE status = 'DISBURSED'");
+      }
+    } catch (e) {
+      console.warn("Could not update hr_loans statuses: ", e.message);
+    }
+
+    // HR Loan Repayments Table
+    try {
+      await query(
+        `CREATE TABLE IF NOT EXISTS hr_loan_repayments (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          company_id BIGINT UNSIGNED NOT NULL,
+          employee_id BIGINT UNSIGNED NOT NULL,
+          loan_id BIGINT UNSIGNED NOT NULL,
+          amount_paid DECIMAL(18,4) NOT NULL,
+          payment_date DATE NOT NULL,
+          payroll_id BIGINT UNSIGNED NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_loan (loan_id),
+          KEY idx_employee (employee_id),
+          KEY idx_payroll (payroll_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+      );
+    } catch (e) {
+      console.warn("Could not create hr_loan_repayments table: ", e.message);
+    }
+
+    // Add Triggers for hr_loans
+    try {
+      const resp = await query("SHOW TABLES LIKE 'hr_loans'");
+      if (resp && resp.length > 0) {
+        // Calculation Trigger (Insert)
+        await query("DROP TRIGGER IF EXISTS `tg_hr_loans_before_insert`").catch(() => {});
+        await query(
+          `CREATE TRIGGER \`tg_hr_loans_before_insert\` BEFORE INSERT ON \`hr_loans\` FOR EACH ROW
+           BEGIN
+             IF NEW.start_date IS NOT NULL THEN
+               SET NEW.end_date = DATE_ADD(NEW.start_date, INTERVAL NEW.repayment_period_months MONTH);
+               SET NEW.amount_due = GREATEST(0, NEW.amount - (NEW.monthly_installment * GREATEST(0, TIMESTAMPDIFF(MONTH, NEW.start_date, CURDATE()))));
+             ELSE
+               SET NEW.end_date = NULL;
+               SET NEW.amount_due = NEW.amount;
+             END IF;
+           END`
+        );
+        
+        // Calculation Trigger (Update) - ONLY recalculate if amount_due is NOT being changed explicitly
+        await query("DROP TRIGGER IF EXISTS `tg_hr_loans_before_update`").catch(() => {});
+        await query(
+          `CREATE TRIGGER \`tg_hr_loans_before_update\` BEFORE UPDATE ON \`hr_loans\` FOR EACH ROW
+           BEGIN
+             IF NEW.start_date IS NOT NULL THEN
+               SET NEW.end_date = DATE_ADD(NEW.start_date, INTERVAL NEW.repayment_period_months MONTH);
+               -- Only recalculate balance if NOT explicitly changing amount_due (avoids conflict with payroll)
+               IF NEW.amount_due = OLD.amount_due THEN
+                 SET NEW.amount_due = GREATEST(0, NEW.amount - (NEW.monthly_installment * GREATEST(0, TIMESTAMPDIFF(MONTH, NEW.start_date, CURDATE()))));
+               END IF;
+             ELSE
+               SET NEW.end_date = NULL;
+               -- Only reset if not explicitly changing
+               IF NEW.amount_due = OLD.amount_due THEN
+                 SET NEW.amount_due = NEW.amount;
+               END IF;
+             END IF;
+           END`
+        );
+
+        // Approval Logic Trigger
+        await query("DROP TRIGGER IF EXISTS `trg_hr_loans_set_start_date`").catch(() => {});
+        await query(
+          `CREATE TRIGGER \`trg_hr_loans_set_start_date\` BEFORE UPDATE ON \`hr_loans\` FOR EACH ROW
+           BEGIN
+             IF NEW.status = 'APPROVED' AND OLD.status <> 'APPROVED' THEN
+               IF NEW.start_date IS NULL THEN
+                 SET NEW.start_date = DATE_ADD(CURDATE(), INTERVAL 1 MONTH);
+               END IF;
+             END IF;
+           END`
+        );
+      }
+    } catch (e) {
+      console.warn("Could not add triggers to hr_loans: ", e.message);
+    }
+
     // Task 1: Remove constraints causing error in fin_pdc_postings
     try {
       // 1. Remove foreign key constraint fk_pdc_bank

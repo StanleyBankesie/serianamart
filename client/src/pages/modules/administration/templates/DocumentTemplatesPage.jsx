@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "api/client";
+import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { toast } from "react-toastify";
 import PrintPreviewModal from "../../../../components/PrintPreviewModal.jsx";
 
@@ -48,6 +49,7 @@ export default function DocumentTemplatesPage() {
   const [previewHtml, setPreviewHtml] = useState("");
   const [sampleId, setSampleId] = useState("");
   const [downloading, setDownloading] = useState(false);
+  const [formLoading, setFormLoading] = useState(false);
 
   useEffect(() => {
     loadTemplates();
@@ -97,6 +99,7 @@ export default function DocumentTemplatesPage() {
       header_email: "",
       header_website: "",
     });
+    setFormLoading(true);
     api
       .get(`/templates/item/${t.id}`)
       .then((res) => {
@@ -113,7 +116,12 @@ export default function DocumentTemplatesPage() {
           header_website: String(item.header_website || ""),
         }));
       })
-      .catch(() => {});
+      .catch((err) => {
+        toast.error("Failed to fetch template details");
+      })
+      .finally(() => {
+        setFormLoading(false);
+      });
   }
 
   async function save() {
@@ -207,18 +215,19 @@ export default function DocumentTemplatesPage() {
     try {
       setDownloading(true);
       const idNum = Number(sampleId);
-      const endpointUrl =
-        !Number.isFinite(idNum) || idNum <= 0
-          ? `/documents/${docType}/preview?format=pdf`
-          : `/documents/${docType}/${idNum}/render?format=pdf`;
-      const resp = await api.post(endpointUrl, {}, { responseType: "blob" });
-      const blob = resp.data;
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = `${docType}-${Number.isFinite(idNum) && idNum > 0 ? idNum : "preview"}.pdf`;
-      a.click();
-      URL.revokeObjectURL(blobUrl);
+      const isSample = !Number.isFinite(idNum) || idNum <= 0;
+      const endpointUrl = isSample
+        ? `/documents/${docType}/preview`
+        : `/documents/${docType}/${idNum}/render`;
+
+      const resp = await api.post(
+        endpointUrl,
+        { format: "html" },
+        { headers: { "Content-Type": "application/json" } },
+      );
+      const html = typeof resp.data === "string" ? resp.data : String(resp.data || "");
+      const fileName = `${docType}-${!isSample ? idNum : "preview"}.pdf`;
+      await renderHtmlToPdf(html, fileName);
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to download");
     } finally {
@@ -364,7 +373,15 @@ export default function DocumentTemplatesPage() {
                 </table>
               </div>
             </div>
-            <div>
+            <div className="relative">
+              {formLoading && (
+                <div className="absolute inset-0 bg-white/60 dark:bg-slate-900/60 z-10 flex items-center justify-center backdrop-blur-[1px]">
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-8 h-8 border-4 border-brand border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Loading Template...</span>
+                  </div>
+                </div>
+              )}
               <div className="space-y-3">
                 <div>
                   <label className="label">Name</label>

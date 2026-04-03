@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
@@ -6,12 +6,17 @@ import { Guard } from "../../../../hooks/usePermissions.jsx";
 
 export default function BulkAttendance() {
   const navigate = useNavigate();
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [employees, setEmployees] = useState([]);
-  const [filter, setFilter] = useState({ employee: "" });
-  const [range, setRange] = useState({ from: "", to: "" }); // list filter range
-  const [rangeEmpIds, setRangeEmpIds] = useState(null); // Set<number> | null
-  const [attendance, setAttendance] = useState({}); // { employee_id: { status, remarks } }
+  const [periods, setPeriods] = useState([]);
+  const [periodId, setPeriodId] = useState("");
+  const [departments, setDepartments] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [filter, setFilter] = useState({
+    employee_id: "",
+    dept_id: "",
+    location_id: "",
+  }); // search by employee/filters
+  const [rows, setRows] = useState([]); // [{ employee_id, name, code, attendance_date, status, remarks }]
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -19,10 +24,16 @@ export default function BulkAttendance() {
     async function load() {
       setLoading(true);
       try {
-        const res = await api.get("/hr/employees");
-        const empList = res?.data?.items || [];
-        setEmployees(empList);
-        await primeStatuses(empList, date);
+        const [resEmps, resPeriods, resDepts, resLocs] = await Promise.all([
+          api.get("/hr/employees"),
+          api.get("/hr/payroll/periods"),
+          api.get("/admin/departments"),
+          api.get("/hr/setup/locations"),
+        ]);
+        setEmployees(resEmps?.data?.items || []);
+        setPeriods(resPeriods?.data?.items || []);
+        setDepartments(resDepts?.data?.items || []);
+        setLocations(resLocs?.data?.items || []);
       } catch (err) {
         toast.error("Failed to load employees");
       } finally {
@@ -32,85 +43,113 @@ export default function BulkAttendance() {
     load();
   }, []);
 
-  useEffect(() => {
-    if (!employees.length) return;
-    primeStatuses(employees, date);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date]);
+  const selectedPeriod = useMemo(
+    () => periods.find((p) => String(p.id) === String(periodId)),
+    [periods, periodId],
+  );
 
   useEffect(() => {
-    async function loadRange() {
-      if (!range.from || !range.to) {
-        setRangeEmpIds(null);
-        return;
-      }
-      try {
-        const ts = await api.get(
-          `/hr/timesheets?from_date=${range.from}&to_date=${range.to}`,
-        );
-        const ids = new Set(
-          (ts.data?.items || []).map((t) => Number(t.employee_id)),
-        );
-        setRangeEmpIds(ids);
-      } catch {
-        setRangeEmpIds(null);
-      }
+    if (!selectedPeriod || !employees.length) {
+      setRows([]);
+      return;
     }
-    loadRange();
-  }, [range.from, range.to]);
+    // Filter employees by department/location if selected
+    const base = employees.filter((e) => {
+      if (filter.dept_id && String(e.dept_id || "") !== String(filter.dept_id))
+        return false;
+      if (
+        filter.location_id &&
+        String(e.location_id || "") !== String(filter.location_id)
+      )
+        return false;
+      return true;
+    });
+    primeRangeStatuses(
+      base,
+      selectedPeriod.start_date,
+      selectedPeriod.end_date,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodId, employees, filter.dept_id, filter.location_id]);
 
-  async function primeStatuses(empList, workDate) {
+  function buildDateRange(start, end) {
+    const out = [];
+    const s = new Date(start);
+    const e = new Date(end);
+    for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+      out.push(new Date(d).toISOString().slice(0, 10));
+    }
+    return out;
+  }
+
+  async function primeRangeStatuses(empList, from, to) {
     try {
-      // Default all to PRESENT
-      const initial = {};
-      empList.forEach((e) => {
-        initial[e.id] = { status: "PRESENT", remarks: "" };
-      });
-      // Get timesheets with short_hours > 0 for that date
+      const dates = buildDateRange(from, to);
       const ts = await api.get(
-        `/hr/timesheets?from_date=${workDate}&to_date=${workDate}`,
+        `/hr/timesheets?from_date=${from}&to_date=${to}`,
       );
-      const shorties = (ts.data?.items || []).filter(
-        (t) => Number(t.short_hours || 0) > 0,
+      const shortSet = new Set(
+        (ts.data?.items || [])
+          .filter((t) => Number(t.short_hours || 0) > 0)
+          .map((t) => `${t.employee_id}|${t.work_date}`),
       );
-      shorties.forEach((t) => {
-        if (initial[t.employee_id]) {
-          initial[t.employee_id] = {
-            status: "ABSENT",
-            remarks: "Auto-marked (short hours)",
-          };
-        }
-      });
-      setAttendance(initial);
-    } catch {
-      const initial = {};
+      const next = [];
       empList.forEach((e) => {
-        initial[e.id] = { status: "PRESENT", remarks: "" };
+        const name = `${e.first_name} ${e.last_name}`.trim();
+        dates.forEach((d) => {
+          const key = `${e.id}|${d}`;
+          const isShort = shortSet.has(key);
+          next.push({
+            employee_id: e.id,
+            name,
+            code: e.emp_code,
+            attendance_date: d,
+            status: isShort ? "ABSENT" : "PRESENT",
+            remarks: isShort ? "Auto-marked (short hours)" : "",
+          });
+        });
       });
-      setAttendance(initial);
+      setRows(next);
+    } catch {
+      const dates = buildDateRange(from, to);
+      const next = [];
+      empList.forEach((e) => {
+        const name = `${e.first_name} ${e.last_name}`.trim();
+        dates.forEach((d) => {
+          next.push({
+            employee_id: e.id,
+            name,
+            code: e.emp_code,
+            attendance_date: d,
+            status: "PRESENT",
+            remarks: "",
+          });
+        });
+      });
+      setRows(next);
     }
   }
 
-  const updateStatus = (id, status) => {
-    setAttendance((prev) => ({
-      ...prev,
-      [id]: { ...prev[id], status },
-    }));
-  };
+  const filteredRows = useMemo(() => {
+    let r = rows;
+    if (filter.employee_id) {
+      r = r.filter((x) => String(x.employee_id) === String(filter.employee_id));
+    }
+    return r;
+  }, [rows, filter.employee_id]);
 
-  const updateRemarks = (id, remarks) => {
-    setAttendance((prev) => ({
-      ...prev,
-      [id]: { ...prev[id], remarks },
-    }));
+  const updateRow = (employee_id, dateStr, patch) => {
+    setRows((prev) =>
+      prev.map((r) =>
+        r.employee_id === employee_id && r.attendance_date === dateStr
+          ? { ...r, ...patch }
+          : r,
+      ),
+    );
   };
 
   const setAllStatus = (status) => {
-    const next = { ...attendance };
-    Object.keys(next).forEach((id) => {
-      next[id].status = status;
-    });
-    setAttendance(next);
+    setRows((prev) => prev.map((r) => ({ ...r, status })));
   };
 
   const handleSubmit = async (e) => {
@@ -118,11 +157,11 @@ export default function BulkAttendance() {
     setSubmitting(true);
     try {
       const payload = {
-        date,
-        attendance: Object.entries(attendance).map(([id, data]) => ({
-          employee_id: Number(id),
-          status: data.status,
-          remarks: data.remarks,
+        attendance: rows.map((r) => ({
+          employee_id: r.employee_id,
+          attendance_date: r.attendance_date,
+          status: r.status,
+          remarks: r.remarks || "",
         })),
       };
       await api.post("/hr/attendance/bulk", payload);
@@ -150,45 +189,62 @@ export default function BulkAttendance() {
           </div>
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="Filter by name/code"
-                className="input w-56"
-                value={filter.employee}
+              <select
+                className="input w-72"
+                value={filter.employee_id}
                 onChange={(e) =>
-                  setFilter((f) => ({ ...f, employee: e.target.value }))
+                  setFilter((f) => ({ ...f, employee_id: e.target.value }))
                 }
-              />
-              <input
-                type="date"
-                className="input w-36"
-                value={range.from}
+              >
+                <option value="">All Employees</option>
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.first_name} {e.last_name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="input w-60"
+                value={filter.dept_id}
                 onChange={(e) =>
-                  setRange((r) => ({ ...r, from: e.target.value }))
+                  setFilter((f) => ({ ...f, dept_id: e.target.value }))
                 }
-                placeholder="From"
-                title="From date (list filter)"
-              />
-              <input
-                type="date"
-                className="input w-36"
-                value={range.to}
+                title="Filter by Department"
+              >
+                <option value="">All Departments</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.dept_name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="input w-60"
+                value={filter.location_id}
                 onChange={(e) =>
-                  setRange((r) => ({ ...r, to: e.target.value }))
+                  setFilter((f) => ({ ...f, location_id: e.target.value }))
                 }
-                placeholder="To"
-                title="To date (list filter)"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-slate-500">Attendance Date</label>
-              <input
-                type="date"
-                className="input w-36"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                title="Attendance date to save"
-              />
+                title="Filter by Location"
+              >
+                <option value="">All Locations</option>
+                {locations.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.location_name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="input w-80"
+                value={periodId}
+                onChange={(e) => setPeriodId(e.target.value)}
+              >
+                <option value="">Select Month</option>
+                {periods.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.period_name}
+                  </option>
+                ))}
+              </select>
             </div>
             <button
               className="btn-primary"
@@ -233,6 +289,9 @@ export default function BulkAttendance() {
                   Code
                 </th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Attendance Date
+                </th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Status
                 </th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -241,56 +300,52 @@ export default function BulkAttendance() {
               </tr>
             </thead>
             <tbody>
-              {employees
-                .filter((e) => {
-                  const q = filter.employee.trim().toLowerCase();
-                  if (!q) return true;
-                  const name = `${e.first_name} ${e.last_name}`.toLowerCase();
-                  const code = String(e.emp_code || "").toLowerCase();
-                  return name.includes(q) || code.includes(q);
-                })
-                .filter((e) => {
-                  if (!rangeEmpIds) return true;
-                  return rangeEmpIds.has(Number(e.id));
-                })
-                .map((emp) => (
-                  <tr key={emp.id} className="border-t">
-                    <td className="px-4 py-2 font-medium">
-                      {emp.full_name || `${emp.first_name} ${emp.last_name}`}
-                    </td>
-                    <td className="px-4 py-2 text-sm text-slate-500">
-                      {emp.emp_code}
-                    </td>
-                    <td className="px-4 py-2">
-                      <select
-                        className="input py-1"
-                        value={attendance[emp.id]?.status || "PRESENT"}
-                        onChange={(e) => updateStatus(emp.id, e.target.value)}
-                      >
-                        <option value="PRESENT">Present</option>
-                        <option value="ABSENT">Absent</option>
-                        <option value="LATE">Late</option>
-                        <option value="HALF_DAY">Half Day</option>
-                        <option value="ON_LEAVE">On Leave</option>
-                      </select>
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        className="input py-1"
-                        placeholder="Optional remarks"
-                        value={attendance[emp.id]?.remarks || ""}
-                        onChange={(e) => updateRemarks(emp.id, e.target.value)}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              {!employees.length && !loading && (
+              {filteredRows.map((r, idx) => (
+                <tr
+                  key={`${r.employee_id}-${r.attendance_date}-${idx}`}
+                  className="border-t"
+                >
+                  <td className="px-4 py-2 font-medium">{r.name}</td>
+                  <td className="px-4 py-2 text-sm text-slate-500">{r.code}</td>
+                  <td className="px-4 py-2 text-sm">{r.attendance_date}</td>
+                  <td className="px-4 py-2">
+                    <select
+                      className="input py-1"
+                      value={r.status}
+                      onChange={(e) =>
+                        updateRow(r.employee_id, r.attendance_date, {
+                          status: e.target.value,
+                        })
+                      }
+                    >
+                      <option value="PRESENT">Present</option>
+                      <option value="ABSENT">Absent</option>
+                      <option value="LATE">Late</option>
+                      <option value="HALF_DAY">Half Day</option>
+                      <option value="ON_LEAVE">On Leave</option>
+                    </select>
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      className="input py-1"
+                      placeholder="Optional remarks"
+                      value={r.remarks || ""}
+                      onChange={(e) =>
+                        updateRow(r.employee_id, r.attendance_date, {
+                          remarks: e.target.value,
+                        })
+                      }
+                    />
+                  </td>
+                </tr>
+              ))}
+              {filteredRows.length === 0 && !loading && (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={5}
                     className="px-4 py-8 text-center text-slate-500"
                   >
-                    No employees found
+                    No rows — select a month
                   </td>
                 </tr>
               )}

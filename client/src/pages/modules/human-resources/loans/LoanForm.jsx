@@ -11,6 +11,7 @@ export default function LoanForm() {
 
   const [loading, setLoading] = useState(false);
   const [employees, setEmployees] = useState([]);
+  const [loanTypes, setLoanTypes] = useState([]);
   const [form, setForm] = useState({ 
     employee_id: '', 
     loan_type: 'Personal Loan', 
@@ -19,6 +20,8 @@ export default function LoanForm() {
     repayment_period_months: 12, 
     monthly_installment: 0, 
     start_date: '', 
+    amount_due: 0,
+    end_date: '',
     status: 'PENDING',
     affect_payslip: true
   });
@@ -33,17 +36,28 @@ export default function LoanForm() {
       }
     };
     loadEmployees();
+    const loadLoanTypes = async () => {
+      try {
+        const res = await api.get("/hr/loan-types");
+        setLoanTypes(res.data.items || []);
+      } catch {
+        // silent
+      }
+    };
+    loadLoanTypes();
 
     if (!isEdit) return;
     const loadLoan = async () => {
       setLoading(true);
       try {
         const res = await api.get(`/hr/loans?id=${id}`);
-        const item = res.data.items.find(i => String(i.id) === String(id));
+        // Ensure we find the right item since list endpoint is used
+        const item = res.data.items?.find(i => String(i.id) === String(id));
         if (item) {
           setForm({
             ...item,
-            start_date: item.start_date ? item.start_date.slice(0, 10) : ''
+            start_date: item.start_date ? item.start_date.slice(0, 10) : '',
+            end_date: item.end_date ? item.end_date.slice(0, 10) : ''
           });
         }
       } catch {
@@ -68,6 +82,37 @@ export default function LoanForm() {
     setForm(prev => ({ ...prev, monthly_installment: installment.toFixed(2) }));
   }, [form.amount, form.interest_rate, form.repayment_period_months]);
 
+  // Calculate Amount Due and End Date
+  useEffect(() => {
+    const amt = Number(form.amount) || 0;
+    const months = Number(form.repayment_period_months) || 1;
+    const installment = Number(form.monthly_installment) || 0;
+    const start = form.start_date;
+
+    if (!start) {
+      setForm(p => ({ ...p, end_date: '', amount_due: amt.toFixed(2) }));
+      return;
+    }
+
+    const startDate = new Date(start);
+    const endDate = new Date(startDate);
+    endDate.setMonth(startDate.getMonth() + months);
+    const endDateStr = endDate.toISOString().split('T')[0];
+
+    const today = new Date();
+    let due = amt;
+    if (today > startDate) {
+      const diffYears = today.getFullYear() - startDate.getFullYear();
+      const diffMonths = today.getMonth() - startDate.getMonth();
+      const monthsPassed = diffYears * 12 + diffMonths;
+      if (monthsPassed > 0) {
+        due = Math.max(0, amt - (installment * monthsPassed));
+      }
+    }
+
+    setForm(p => ({ ...p, end_date: endDateStr, amount_due: due.toFixed(2) }));
+  }, [form.amount, form.monthly_installment, form.repayment_period_months, form.start_date]);
+
   function update(name, value) {
     setForm((p) => ({ ...p, [name]: value }));
   }
@@ -76,7 +121,11 @@ export default function LoanForm() {
     e.preventDefault();
     setLoading(true);
     try {
-      await api.post('/hr/loans', form);
+      if (isEdit) {
+        await api.post('/hr/loans', { ...form, id });
+      } else {
+        await api.post('/hr/loans', form);
+      }
       toast.success(isEdit ? "Loan updated" : "Loan created");
       navigate('/human-resources/loans');
     } catch (err) {
@@ -113,13 +162,19 @@ export default function LoanForm() {
             </div>
             <div>
               <label className="label">Loan Type *</label>
-              <input 
-                className="input" 
-                value={form.loan_type} 
-                onChange={(e) => update('loan_type', e.target.value)} 
-                required 
-                placeholder="e.g. Salary Advance, Personal Loan"
-              />
+              <select
+                className="input"
+                value={form.loan_type}
+                onChange={(e) => update("loan_type", e.target.value)}
+                required
+              >
+                <option value="">Select Loan Type</option>
+                {loanTypes.map((t) => (
+                  <option key={t.id} value={t.name}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="label">Principal Amount *</label>
@@ -162,14 +217,33 @@ export default function LoanForm() {
               />
             </div>
             <div>
-              <label className="label">Start Date *</label>
+              <label className="label">Amount Due (Calculated)</label>
+              <input 
+                className="input bg-slate-50 dark:bg-slate-700 font-mono" 
+                type="number" 
+                value={form.amount_due} 
+                readOnly 
+              />
+            </div>
+            <div>
+              <label className="label">End Date (Calculated)</label>
+              <input 
+                className="input bg-slate-50 dark:bg-slate-700 font-mono" 
+                type="date" 
+                value={form.end_date} 
+                readOnly 
+              />
+            </div>
+            <div>
+              <label className="label">Start Date</label>
               <input 
                 className="input" 
                 type="date" 
                 value={form.start_date} 
                 onChange={(e) => update('start_date', e.target.value)} 
-                required 
+                placeholder="loan takes effect when start date is set"
               />
+              <p className="text-[10px] text-slate-400 mt-1">Loan takes effect when start date is set</p>
             </div>
             <div>
               <label className="label">Status</label>
@@ -180,8 +254,8 @@ export default function LoanForm() {
               >
                 <option value="PENDING">Pending</option>
                 <option value="APPROVED">Approved</option>
-                <option value="DISBURSED">Disbursed</option>
-                <option value="REPAID">Repaid</option>
+                <option value="COMPLETED">Completed</option>
+                <option value="ACTIVE">Active</option>
                 <option value="REJECTED">Rejected</option>
               </select>
             </div>
@@ -207,10 +281,3 @@ export default function LoanForm() {
     </Guard>
   );
 }
-
-
-
-
-
-
-

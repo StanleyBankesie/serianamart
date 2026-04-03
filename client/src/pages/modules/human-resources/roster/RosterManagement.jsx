@@ -45,8 +45,7 @@ export default function RosterManagement() {
   const [empTypes, setEmpTypes] = useState([]);
   const [filter, setFilter] = useState({ type: "NONE", value: "" });
   const [form, setForm] = useState({
-    selected_employee_ids: [],
-    all_employees: false,
+    selected_employee_id: "",
     from_date: new Date().toISOString().slice(0, 10),
     to_date: new Date(new Date().setDate(new Date().getDate() + 6))
       .toISOString()
@@ -99,40 +98,42 @@ export default function RosterManagement() {
     return map;
   }, [schedules]);
 
-  const selectedEmployees = useMemo(() => {
+  // Visible options list (independent of current selection) used to render Employees options
+  const visibleEmployees = useMemo(() => {
     let pool = employees;
-    if (filter.type === "SHIFT" && filter.value) {
-      const empIds = schedules
-        .filter((s) => String(s.shift_id) === String(filter.value))
-        .map((s) => String(s.employee_id));
-      pool = employees.filter((e) => empIds.includes(String(e.id)));
+    if (filter.type === "NONE") {
+      pool = employees.filter((e) => scheduleMap.has(String(e.id)));
+    } else if (filter.type === "SHIFT" && filter.value) {
+      const empIds = new Set(
+        schedules
+          .filter((s) => String(s.shift_id) === String(filter.value))
+          .map((s) => String(s.employee_id)),
+      );
+      pool = employees.filter((e) => empIds.has(String(e.id)));
     } else if (filter.type === "LOCATION" && filter.value) {
       pool = employees.filter(
-        (e) => String(e.location_id || "") === String(filter.value),
+        (e) => String(e.location_id || "") === String(filter.value) && scheduleMap.has(String(e.id)),
       );
     } else if (filter.type === "CATEGORY" && filter.value) {
       pool = employees.filter(
-        (e) => String(e.category_id || "") === String(filter.value),
+        (e) => String(e.category_id || "") === String(filter.value) && scheduleMap.has(String(e.id)),
       );
     } else if (filter.type === "EMPLOYMENT_TYPE" && filter.value) {
       pool = employees.filter(
-        (e) => String(e.employment_type_id || "") === String(filter.value),
+        (e) => String(e.employment_type_id || "") === String(filter.value) && scheduleMap.has(String(e.id)),
       );
     } else if (filter.type === "POSITION" && filter.value) {
       pool = employees.filter(
-        (e) => String(e.pos_id || "") === String(filter.value),
+        (e) => String(e.pos_id || "") === String(filter.value) && scheduleMap.has(String(e.id)),
       );
     }
-    if (form.all_employees) return pool;
-    const setIds = new Set(form.selected_employee_ids.map(String));
-    return pool.filter((e) => setIds.has(String(e.id)));
-  }, [
-    form.all_employees,
-    form.selected_employee_ids,
-    employees,
-    filter,
-    schedules,
-  ]);
+    return pool;
+  }, [filter, employees, schedules, scheduleMap]);
+
+  const selectedEmployees = useMemo(() => {
+    if (!form.selected_employee_id) return visibleEmployees;
+    return visibleEmployees.filter((e) => String(e.id) === String(form.selected_employee_id));
+  }, [form.selected_employee_id, visibleEmployees]);
 
   const roster = useMemo(() => {
     if (selectedEmployees.length === 0) return [];
@@ -147,6 +148,17 @@ export default function RosterManagement() {
       for (const d of days) {
         const dow = d.getDay();
         const iso = d.toISOString().slice(0, 10);
+        // honor schedule effective date range if provided
+        const effFrom =
+          sched.effective_from && String(sched.effective_from).length >= 10
+            ? sched.effective_from
+            : null;
+        const effTo =
+          sched.effective_to && String(sched.effective_to).length >= 10
+            ? sched.effective_to
+            : null;
+        if (effFrom && iso < effFrom) continue;
+        if (effTo && iso > effTo) continue;
         if ((sched.off_days || []).includes(dow)) {
           results.push({
             employee_id: emp.id,
@@ -212,7 +224,7 @@ export default function RosterManagement() {
                     checked={filter.type === "NONE"}
                     onChange={() => {
                       setFilter({ type: "NONE", value: "" });
-                      setForm((p) => ({ ...p, selected_employee_ids: [] }));
+                      setForm((p) => ({ ...p, selected_employee_id: "" }));
                     }}
                   />
                   <span>None</span>
@@ -222,7 +234,10 @@ export default function RosterManagement() {
                     type="radio"
                     name="ft"
                     checked={filter.type === "SHIFT"}
-                    onChange={() => setFilter({ type: "SHIFT", value: "" })}
+                    onChange={() => {
+                      setFilter({ type: "SHIFT", value: "" });
+                      setForm((p) => ({ ...p, selected_employee_id: "" }));
+                    }}
                   />
                   <span>Shift</span>
                 </label>
@@ -231,7 +246,10 @@ export default function RosterManagement() {
                     type="radio"
                     name="ft"
                     checked={filter.type === "LOCATION"}
-                    onChange={() => setFilter({ type: "LOCATION", value: "" })}
+                    onChange={() => {
+                      setFilter({ type: "LOCATION", value: "" });
+                      setForm((p) => ({ ...p, selected_employee_id: "" }));
+                    }}
                   />
                   <span>Location</span>
                 </label>
@@ -240,7 +258,10 @@ export default function RosterManagement() {
                     type="radio"
                     name="ft"
                     checked={filter.type === "CATEGORY"}
-                    onChange={() => setFilter({ type: "CATEGORY", value: "" })}
+                    onChange={() => {
+                      setFilter({ type: "CATEGORY", value: "" });
+                      setForm((p) => ({ ...p, selected_employee_id: "" }));
+                    }}
                   />
                   <span>Category</span>
                 </label>
@@ -249,9 +270,10 @@ export default function RosterManagement() {
                     type="radio"
                     name="ft"
                     checked={filter.type === "EMPLOYMENT_TYPE"}
-                    onChange={() =>
-                      setFilter({ type: "EMPLOYMENT_TYPE", value: "" })
-                    }
+                    onChange={() => {
+                      setFilter({ type: "EMPLOYMENT_TYPE", value: "" });
+                      setForm((p) => ({ ...p, selected_employee_id: "" }));
+                    }}
                   />
                   <span>Employment Type</span>
                 </label>
@@ -260,7 +282,10 @@ export default function RosterManagement() {
                     type="radio"
                     name="ft"
                     checked={filter.type === "POSITION"}
-                    onChange={() => setFilter({ type: "POSITION", value: "" })}
+                    onChange={() => {
+                      setFilter({ type: "POSITION", value: "" });
+                      setForm((p) => ({ ...p, selected_employee_id: "" }));
+                    }}
                   />
                   <span>Position</span>
                 </label>
@@ -273,47 +298,7 @@ export default function RosterManagement() {
                     onChange={(e) => {
                       const value = e.target.value;
                       setFilter((f) => ({ ...f, value }));
-                      if (value) {
-                        let matches = [];
-                        if (filter.type === "SHIFT") {
-                          const ids = schedules
-                            .filter((s) => String(s.shift_id) === String(value))
-                            .map((s) => String(s.employee_id));
-                          matches = employees.filter((e) =>
-                            ids.includes(String(e.id)),
-                          );
-                        } else if (filter.type === "LOCATION") {
-                          matches = employees.filter(
-                            (e) =>
-                              String(e.location_id || "") === String(value),
-                          );
-                        } else if (filter.type === "CATEGORY") {
-                          matches = employees.filter(
-                            (e) =>
-                              String(e.category_id || "") === String(value),
-                          );
-                        } else if (filter.type === "EMPLOYMENT_TYPE") {
-                          matches = employees.filter(
-                            (e) =>
-                              String(e.employment_type_id || "") ===
-                              String(value),
-                          );
-                        } else if (filter.type === "POSITION") {
-                          matches = employees.filter(
-                            (e) => String(e.pos_id || "") === String(value),
-                          );
-                        }
-                        setForm((prev) => ({
-                          ...prev,
-                          all_employees: false,
-                          selected_employee_ids: matches.map((m) => m.id),
-                        }));
-                      } else {
-                        setForm((prev) => ({
-                          ...prev,
-                          selected_employee_ids: [],
-                        }));
-                      }
+                      setForm((prev) => ({ ...prev, selected_employee_id: "" }));
                     }}
                   >
                     <option value="">Select</option>
@@ -351,46 +336,21 @@ export default function RosterManagement() {
                 </div>
               )}
             </div>
-            <div className="flex items-center justify-between">
-              <label className="label">Employees</label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.all_employees}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      all_employees: e.target.checked,
-                      selected_employee_ids: e.target.checked
-                        ? selectedEmployees.map((x) => x.id)
-                        : [],
-                    })
-                  }
-                />
-                <span>All active</span>
-              </label>
+            <div>
+              <label className="label">Employee</label>
+              <select
+                className="input"
+                value={form.selected_employee_id}
+                onChange={(e) => setForm({ ...form, selected_employee_id: e.target.value })}
+              >
+                <option value="">{visibleEmployees.length === 0 ? "No Employees Found" : `All Filtered Employees (${visibleEmployees.length})`}</option>
+                {visibleEmployees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.first_name} {e.last_name} ({e.emp_code})
+                  </option>
+                ))}
+              </select>
             </div>
-            <select
-              multiple
-              className="input h-40"
-              value={form.selected_employee_ids.map(String)}
-              onChange={(e) => {
-                const opts = Array.from(e.target.selectedOptions).map(
-                  (o) => o.value,
-                );
-                setForm({
-                  ...form,
-                  selected_employee_ids: opts.map((x) => Number(x)),
-                  all_employees: false,
-                });
-              }}
-            >
-              {selectedEmployees.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.first_name} {e.last_name} ({e.emp_code})
-                </option>
-              ))}
-            </select>
           </div>
           <div>
             <label className="label">From</label>

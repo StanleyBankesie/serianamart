@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../../../../api/client.js";
+import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
+import { toast } from "react-toastify";
 import { useNavigate, useLocation } from "react-router-dom";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { Link } from "react-router-dom";
@@ -165,16 +167,12 @@ export default function DirectPurchaseList() {
                             onClick={async () => {
                               try {
                                 const res = await api.post(
-                                  `/documents/direct-purchase/${it.id}/render?format=pdf`,
-                                  {},
-                                  { responseType: "blob" },
+                                  `/documents/direct-purchase/${it.id}/render`,
+                                  { format: "html" },
+                                  { headers: { "Content-Type": "application/json" } },
                                 );
-                                const url = URL.createObjectURL(res.data);
-                                const a = document.createElement("a");
-                                a.href = url;
-                                a.download = `DirectPurchase-${it.dp_no || it.id}.pdf`;
-                                a.click();
-                                URL.revokeObjectURL(url);
+                                const html = typeof res.data === "string" ? res.data : String(res.data || "");
+                                await renderHtmlToPdf(html, `DirectPurchase-${it.dp_no || it.id}.pdf`);
                               } catch (e) {
                                 toast.error("Failed to download PDF");
                               }

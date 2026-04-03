@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 import { toast } from "react-toastify";
+import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
 import { api } from "api/client";
@@ -582,16 +583,12 @@ export default function GRNLocalList() {
                           onClick={async () => {
                             try {
                               const res = await api.post(
-                                `/documents/grn/${g.id}/render?format=pdf`,
-                                {},
-                                { responseType: "blob" },
+                                `/documents/grn/${g.id}/render`,
+                                { format: "html" },
+                                { headers: { "Content-Type": "application/json" } },
                               );
-                              const url = URL.createObjectURL(res.data);
-                              const a = document.createElement("a");
-                              a.href = url;
-                              a.download = `GRN-${g.grn_no || g.id}.pdf`;
-                              a.click();
-                              URL.revokeObjectURL(url);
+                              const html = typeof res.data === "string" ? res.data : String(res.data || "");
+                              await renderHtmlToPdf(html, `GRN-${g.grn_no || g.id}.pdf`);
                             } catch (e) {
                               toast.error("Failed to download PDF");
                             }

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { toast } from "react-toastify";
-import { renderHtmlToA4Pdf } from "@/utils/pdfUtils.js";
+import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
@@ -361,36 +361,15 @@ export default function InvoiceList() {
   async function downloadInvoicePdf(id) {
     try {
       const resp = await api.post(
-        `/documents/invoice/${id}/render?format=pdf`,
-        {},
-        { responseType: "blob" },
+        `/documents/invoice/${id}/render`,
+        { format: "html" },
+        { headers: { "Content-Type": "application/json" } },
       );
-      const blob = resp.data;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `invoice-${id}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const html = typeof resp.data === "string" ? resp.data : String(resp.data || "");
+      await renderHtmlToPdf(html, `invoice-${id}.pdf`);
     } catch (err) {
-      try {
-        const htmlRes = await api.post(
-          `/documents/invoice/${id}/render`,
-          { format: "html" },
-          { headers: { "Content-Type": "application/json" } },
-        );
-        const html =
-          typeof htmlRes.data === "string"
-            ? htmlRes.data
-            : String(htmlRes.data || "");
-        await renderHtmlToA4Pdf(html, `invoice-${id}.pdf`);
-      } catch (e2) {
-        toast.error(
-          err?.response?.data?.message ||
-            e2?.message ||
-            "Failed to download invoice PDF. Please try again.",
-        );
-      }
+      console.error("PDF Download Error:", err);
+      toast.error(err?.response?.data?.message || "Failed to download Invoice PDF");
     }
   }
   const getStatusBadge = (status) => {

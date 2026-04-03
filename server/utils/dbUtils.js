@@ -20,6 +20,22 @@ export async function hasColumn(tableName, columnName) {
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
+export async function ensureCol(tableName, columnName, ddlRef) {
+  const has = await hasColumn(tableName, columnName);
+  if (!has) {
+    try {
+      await query(
+        `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${ddlRef}`,
+        {},
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 export async function ensureSystemLogsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_system_logs (
@@ -805,6 +821,26 @@ export async function ensurePagesSeed() {
       path: "/purchase/service-confirmation/new",
     },
     {
+      module: "Purchase",
+      name: "General Requisitions",
+      path: "/purchase/general-requisitions",
+    },
+    {
+      module: "Purchase",
+      name: "General Requisition Form",
+      path: "/purchase/general-requisitions/new",
+    },
+    {
+      module: "Purchase",
+      name: "General Requisition View",
+      path: "/purchase/general-requisitions/:id",
+    },
+    {
+      module: "Purchase",
+      name: "General Requisition Edit",
+      path: "/purchase/general-requisitions/:id/edit",
+    },
+    {
       module: "Service Management",
       name: "Service Requests",
       path: "/service-management/service-requests",
@@ -1387,6 +1423,17 @@ export async function ensureHRTables() {
       KEY idx_dept_company (company_id),
       KEY idx_dept_manager (manager_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_employee_base_salaries (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      base_salary DECIMAL(18,4) NOT NULL DEFAULT 0,
+      effective_date DATE NOT NULL,
+      created_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_ebs_emp (employee_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS hr_positions (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       company_id BIGINT UNSIGNED NOT NULL,
@@ -1431,6 +1478,7 @@ export async function ensureHRTables() {
       bank_account_no VARCHAR(50) NULL,
       tin VARCHAR(50) NULL,
       ssnit_no VARCHAR(50) NULL,
+      component_flags JSON NULL COMMENT 'Per-component flags e.g. {\\"allowance_5\\":1, \\"tax_2\\":0}',
       created_by BIGINT UNSIGNED NULL,
       updated_by BIGINT UNSIGNED NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1598,7 +1646,8 @@ export async function ensureHRTables() {
       end_date DATE NOT NULL,
       total_days DECIMAL(5,2) NOT NULL,
       reason TEXT NULL,
-      status ENUM('DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', 'SUBMITTED', 'SCHEDULED') NOT NULL DEFAULT 'DRAFT',
+      status ENUM('DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', 'SUBMITTED', 'SCHEDULED', 'ACTIVE', 'OVERRIDDEN') NOT NULL DEFAULT 'ACTIVE',
+      source ENUM('APPLICATION', 'SCHEDULE', 'ROSTER') NOT NULL DEFAULT 'APPLICATION',
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       KEY idx_leave_emp (employee_id)
@@ -1903,12 +1952,6 @@ export async function ensureHRTables() {
       allowance_id BIGINT UNSIGNED NOT NULL,
       PRIMARY KEY (employee_id, allowance_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-    `CREATE TABLE IF NOT EXISTS hr_employee_base_salaries (
-      employee_id BIGINT UNSIGNED NOT NULL,
-      base_salary DECIMAL(18,4) NOT NULL DEFAULT 0,
-      effective_date DATE NULL,
-      PRIMARY KEY (employee_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     `CREATE TABLE IF NOT EXISTS hr_locations (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       company_id BIGINT UNSIGNED NOT NULL,
@@ -1923,6 +1966,35 @@ export async function ensureHRTables() {
       PRIMARY KEY (id),
       KEY idx_loc_company (company_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_salary_components (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      column_name VARCHAR(100) NOT NULL COMMENT 'Exact column name in hr_payslips (e.g. basic_salary, allowance_3, income_tax_1)',
+      label VARCHAR(150) NOT NULL COMMENT 'Human-readable label shown on payslip',
+      component_type ENUM(
+        'BASIC',
+        'ALLOWANCE',
+        'INCOME_TAX',
+        'SOCIAL_SECURITY',
+        'PROVIDENT_FUND',
+        'DEDUCTION',
+        'NET_SALARY',
+        'SUBTOTAL',
+        'OTHER'
+      ) NOT NULL DEFAULT 'OTHER',
+      display_order INT NOT NULL DEFAULT 0 COMMENT 'Order in which component appears on payslip',
+      is_earning TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = earning/addition, 0 = deduction',
+      is_fixed TINYINT(1) NOT NULL DEFAULT 1 COMMENT '1 = core column always present, 0 = dynamically added',
+      source_type ENUM('NONE','ALLOWANCE','TAX_CONFIG') NOT NULL DEFAULT 'NONE' COMMENT 'Which master table this component references',
+      source_id BIGINT UNSIGNED NULL COMMENT 'FK to hr_allowances.id or hr_tax_config.id',
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_comp_col (company_id, column_name),
+      KEY idx_sc_company (company_id),
+      KEY idx_sc_type (component_type)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   ];
 
   for (const sql of tables) {
@@ -1936,6 +2008,16 @@ export async function ensureHRTables() {
 
   // Ensure columns exist for older tables
   const columnChecks = [
+    {
+      table: "hr_leave_requests",
+      column: "company_id",
+      sql: "ALTER TABLE hr_leave_requests ADD COLUMN company_id BIGINT UNSIGNED NULL",
+    },
+    {
+      table: "hr_leave_requests",
+      column: "status",
+      sql: "ALTER TABLE hr_leave_requests MODIFY COLUMN status ENUM('DRAFT','PENDING','APPROVED','REJECTED','CANCELLED','SUBMITTED','SCHEDULED','ACTIVE','OVERRIDDEN') NOT NULL DEFAULT 'ACTIVE'",
+    },
     {
       table: "hr_job_requisitions",
       column: "recruitment_type",
@@ -2034,62 +2116,62 @@ export async function ensureHRTables() {
     {
       table: "hr_employees",
       column: "first_name",
-      sql: "ALTER TABLE hr_employees ADD COLUMN first_name VARCHAR(50) NOT NULL AFTER emp_code",
+      sql: "ALTER TABLE hr_employees ADD COLUMN first_name VARCHAR(50) NOT NULL",
     },
     {
       table: "hr_employees",
       column: "last_name",
-      sql: "ALTER TABLE hr_employees ADD COLUMN last_name VARCHAR(50) NOT NULL AFTER first_name",
+      sql: "ALTER TABLE hr_employees ADD COLUMN last_name VARCHAR(50) NOT NULL",
     },
     {
       table: "hr_employees",
       column: "middle_name",
-      sql: "ALTER TABLE hr_employees ADD COLUMN middle_name VARCHAR(50) NULL AFTER last_name",
+      sql: "ALTER TABLE hr_employees ADD COLUMN middle_name VARCHAR(50) NULL",
     },
     {
       table: "hr_employees",
       column: "email",
-      sql: "ALTER TABLE hr_employees ADD COLUMN email VARCHAR(100) NULL AFTER middle_name",
+      sql: "ALTER TABLE hr_employees ADD COLUMN email VARCHAR(100) NULL",
     },
     {
       table: "hr_employees",
       column: "phone",
-      sql: "ALTER TABLE hr_employees ADD COLUMN phone VARCHAR(20) NULL AFTER email",
+      sql: "ALTER TABLE hr_employees ADD COLUMN phone VARCHAR(20) NULL",
     },
     {
       table: "hr_employees",
       column: "dept_id",
-      sql: "ALTER TABLE hr_employees ADD COLUMN dept_id BIGINT UNSIGNED NULL AFTER phone",
+      sql: "ALTER TABLE hr_employees ADD COLUMN dept_id BIGINT UNSIGNED NULL",
     },
     {
       table: "hr_employees",
       column: "pos_id",
-      sql: "ALTER TABLE hr_employees ADD COLUMN pos_id BIGINT UNSIGNED NULL AFTER dept_id",
+      sql: "ALTER TABLE hr_employees ADD COLUMN pos_id BIGINT UNSIGNED NULL",
     },
     {
       table: "hr_employees",
       column: "manager_id",
-      sql: "ALTER TABLE hr_employees ADD COLUMN manager_id BIGINT UNSIGNED NULL AFTER pos_id",
+      sql: "ALTER TABLE hr_employees ADD COLUMN manager_id BIGINT UNSIGNED NULL",
     },
     {
       table: "hr_employees",
       column: "employment_type",
-      sql: "ALTER TABLE hr_employees ADD COLUMN employment_type ENUM('FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN') NOT NULL DEFAULT 'FULL_TIME' AFTER manager_id",
+      sql: "ALTER TABLE hr_employees ADD COLUMN employment_type ENUM('FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN') NOT NULL DEFAULT 'FULL_TIME'",
     },
     {
       table: "hr_employees",
       column: "status",
-      sql: "ALTER TABLE hr_employees ADD COLUMN status ENUM('PROBATION', 'ACTIVE', 'TERMINATED', 'RESIGNED', 'SUSPENDED') NOT NULL DEFAULT 'PROBATION' AFTER employment_type",
+      sql: "ALTER TABLE hr_employees ADD COLUMN status ENUM('PROBATION', 'ACTIVE', 'TERMINATED', 'RESIGNED', 'SUSPENDED') NOT NULL DEFAULT 'PROBATION'",
     },
     {
       table: "hr_employees",
       column: "base_salary",
-      sql: "ALTER TABLE hr_employees ADD COLUMN base_salary DECIMAL(18,4) NOT NULL DEFAULT 0 AFTER status",
+      sql: "ALTER TABLE hr_employees ADD COLUMN base_salary DECIMAL(18,4) NOT NULL DEFAULT 0",
     },
     {
       table: "hr_employees",
       column: "joining_date",
-      sql: "ALTER TABLE hr_employees ADD COLUMN joining_date DATE NOT NULL AFTER base_salary",
+      sql: "ALTER TABLE hr_employees ADD COLUMN joining_date DATE NOT NULL DEFAULT (CURRENT_DATE)",
     },
     {
       table: "hr_employees",
@@ -2167,6 +2249,41 @@ export async function ensureHRTables() {
       sql: "ALTER TABLE hr_employees ADD COLUMN location_id BIGINT UNSIGNED NULL AFTER branch_id",
     },
     {
+      table: "hr_employees",
+      column: "has_paye",
+      sql: "ALTER TABLE hr_employees ADD COLUMN has_paye TINYINT(1) NOT NULL DEFAULT 0",
+    },
+    {
+      table: "hr_employees",
+      column: "has_ssnit",
+      sql: "ALTER TABLE hr_employees ADD COLUMN has_ssnit TINYINT(1) NOT NULL DEFAULT 0",
+    },
+    {
+      table: "hr_employees",
+      column: "has_tier3",
+      sql: "ALTER TABLE hr_employees ADD COLUMN has_tier3 TINYINT(1) NOT NULL DEFAULT 0",
+    },
+    {
+      table: "hr_employees",
+      column: "has_transport_allowance",
+      sql: "ALTER TABLE hr_employees ADD COLUMN has_transport_allowance TINYINT(1) NOT NULL DEFAULT 0",
+    },
+    {
+      table: "hr_employees",
+      column: "has_wardrobe_allowance",
+      sql: "ALTER TABLE hr_employees ADD COLUMN has_wardrobe_allowance TINYINT(1) NOT NULL DEFAULT 0",
+    },
+    {
+      table: "hr_employees",
+      column: "tax_mappings",
+      sql: "ALTER TABLE hr_employees ADD COLUMN tax_mappings JSON NULL",
+    },
+    {
+      table: "hr_employees",
+      column: "allowance_mappings",
+      sql: "ALTER TABLE hr_employees ADD COLUMN allowance_mappings JSON NULL",
+    },
+    {
       table: "hr_positions",
       column: "reports_to_pos_id",
       sql: "ALTER TABLE hr_positions ADD COLUMN reports_to_pos_id BIGINT UNSIGNED NULL AFTER dept_id",
@@ -2175,6 +2292,86 @@ export async function ensureHRTables() {
       table: "hr_promotions",
       column: "new_location_id",
       sql: "ALTER TABLE hr_promotions ADD COLUMN new_location_id BIGINT UNSIGNED NULL AFTER new_pos_id",
+    },
+    {
+      table: "hr_employees",
+      column: "city",
+      sql: "ALTER TABLE hr_employees ADD COLUMN city VARCHAR(100) NULL",
+    },
+    {
+      table: "hr_employees",
+      column: "state",
+      sql: "ALTER TABLE hr_employees ADD COLUMN state VARCHAR(100) NULL",
+    },
+    {
+      table: "hr_employees",
+      column: "country",
+      sql: "ALTER TABLE hr_employees ADD COLUMN country VARCHAR(100) NULL",
+    },
+    {
+      table: "hr_employees",
+      column: "emergency_contact_name",
+      sql: "ALTER TABLE hr_employees ADD COLUMN emergency_contact_name VARCHAR(150) NULL",
+    },
+    {
+      table: "hr_employees",
+      column: "emergency_contact_phone",
+      sql: "ALTER TABLE hr_employees ADD COLUMN emergency_contact_phone VARCHAR(50) NULL",
+    },
+    {
+      table: "hr_employees",
+      column: "bank_name",
+      sql: "ALTER TABLE hr_employees ADD COLUMN bank_name VARCHAR(150) NULL",
+    },
+    {
+      table: "hr_employees",
+      column: "bank_account_number",
+      sql: "ALTER TABLE hr_employees ADD COLUMN bank_account_number VARCHAR(100) NULL",
+    },
+    {
+      table: "hr_employees",
+      column: "ssnit_number",
+      sql: "ALTER TABLE hr_employees ADD COLUMN ssnit_number VARCHAR(100) NULL",
+    },
+    {
+      table: "hr_payslips",
+      column: "basic_salary",
+      sql: "ALTER TABLE hr_payslips ADD COLUMN basic_salary DECIMAL(18,4) NOT NULL DEFAULT 0",
+    },
+    {
+      table: "hr_payslips",
+      column: "allowances",
+      sql: "ALTER TABLE hr_payslips ADD COLUMN allowances DECIMAL(18,4) NOT NULL DEFAULT 0",
+    },
+    {
+      table: "hr_payslips",
+      column: "deductions",
+      sql: "ALTER TABLE hr_payslips ADD COLUMN deductions DECIMAL(18,4) NOT NULL DEFAULT 0",
+    },
+    {
+      table: "hr_payslips",
+      column: "net_salary",
+      sql: "ALTER TABLE hr_payslips ADD COLUMN net_salary DECIMAL(18,4) NOT NULL DEFAULT 0",
+    },
+    {
+      table: "hr_employee_base_salaries",
+      column: "id",
+      sql: "ALTER TABLE hr_employee_base_salaries DROP PRIMARY KEY, ADD COLUMN id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT FIRST, ADD PRIMARY KEY (id)",
+    },
+    {
+      table: "hr_employee_base_salaries",
+      column: "company_id",
+      sql: "ALTER TABLE hr_employee_base_salaries ADD COLUMN company_id BIGINT UNSIGNED NOT NULL AFTER id",
+    },
+    {
+      table: "hr_employee_base_salaries",
+      column: "created_by",
+      sql: "ALTER TABLE hr_employee_base_salaries ADD COLUMN created_by BIGINT UNSIGNED NULL",
+    },
+    {
+      table: "hr_employee_base_salaries",
+      column: "created_at",
+      sql: "ALTER TABLE hr_employee_base_salaries ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
     },
   ];
 
@@ -2192,6 +2389,16 @@ export async function ensureHRTables() {
     } catch (err) {
       // ignore
     }
+  }
+  if (!(await hasColumn("hr_leave_requests", "source"))) {
+    try {
+      await query(
+        `ALTER TABLE hr_leave_requests ADD COLUMN source ENUM('APPLICATION','SCHEDULE','ROSTER') NOT NULL DEFAULT 'APPLICATION'`,
+      );
+      await query(
+        `ALTER TABLE hr_leave_requests MODIFY COLUMN status ENUM('DRAFT','PENDING','APPROVED','REJECTED','CANCELLED','SUBMITTED','SCHEDULED','ACTIVE','OVERRIDDEN') NOT NULL DEFAULT 'ACTIVE'`,
+      );
+    } catch {}
   }
 }
 
@@ -2548,11 +2755,35 @@ export async function ensureTemplateTables() {
       created_by BIGINT UNSIGNED NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      branch_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
       PRIMARY KEY (id),
       KEY idx_company_type (company_id, document_type),
+      KEY idx_company_branch (company_id, branch_id),
       KEY idx_default (company_id, document_type, is_default)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  // Ensure document_templates exists
+  await query(`
+    CREATE TABLE IF NOT EXISTS document_templates (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      name VARCHAR(150) NOT NULL,
+      document_type VARCHAR(50) NOT NULL,
+      html_content MEDIUMTEXT NOT NULL,
+      is_default TINYINT(1) NOT NULL DEFAULT 0,
+      created_by BIGINT UNSIGNED NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      branch_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+      PRIMARY KEY (id),
+      KEY idx_company_type (company_id, document_type),
+      KEY idx_company_branch (company_id, branch_id),
+      KEY idx_default (company_id, document_type, is_default)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+
   if (!(await hasColumn("document_templates", "header_logo_url"))) {
     await query(
       "ALTER TABLE document_templates ADD COLUMN header_logo_url VARCHAR(500) NULL",
@@ -2586,6 +2817,11 @@ export async function ensureTemplateTables() {
   if (!(await hasColumn("document_templates", "header_website"))) {
     await query(
       "ALTER TABLE document_templates ADD COLUMN header_website VARCHAR(255) NULL",
+    );
+  }
+  if (!(await hasColumn("document_templates", "branch_id"))) {
+    await query(
+      "ALTER TABLE document_templates ADD COLUMN branch_id BIGINT UNSIGNED NOT NULL DEFAULT 1",
     );
   }
 }

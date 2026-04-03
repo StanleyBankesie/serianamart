@@ -6,10 +6,12 @@ import { toast } from "react-toastify";
 export default function AttendanceList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({
-    from_date: new Date().toISOString().split("T")[0],
-    to_date: new Date().toISOString().split("T")[0],
-    q: "",
+  const [employees, setEmployees] = useState([]);
+  const [filters, setFilters] = useState(() => {
+    const now = new Date();
+    const first = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+    return { from_date: first, to_date: last, employee_id: "" };
   });
 
   const loadData = async () => {
@@ -25,8 +27,18 @@ export default function AttendanceList() {
   };
 
   useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await api.get("/hr/employees");
+        setEmployees(res.data?.items || []);
+      } catch {}
+    };
+    load();
+  }, []);
+
+  useEffect(() => {
     loadData();
-  }, [filters.from_date, filters.to_date]);
+  }, [filters.from_date, filters.to_date, filters.employee_id]);
 
   return (
     <div className="space-y-4 p-4">
@@ -68,16 +80,19 @@ export default function AttendanceList() {
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-slate-500 uppercase block mb-1">Employee Name/Code</label>
-            <div className="flex gap-2">
-              <input
-                className="input"
-                placeholder="Search..."
-                value={filters.q}
-                onChange={(e) => setFilters({ ...filters, q: e.target.value })}
-              />
-              <button className="btn-secondary" onClick={loadData}>Filter</button>
-            </div>
+            <label className="text-xs font-medium text-slate-500 uppercase block mb-1">Employee</label>
+            <select
+              className="input"
+              value={filters.employee_id}
+              onChange={(e) => setFilters({ ...filters, employee_id: e.target.value })}
+            >
+              <option value="">All Employees</option>
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.first_name} {e.last_name}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 

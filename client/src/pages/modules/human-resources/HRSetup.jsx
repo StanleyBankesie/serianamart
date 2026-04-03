@@ -45,6 +45,8 @@ export default function HRSetup() {
         endpoint = "/hr/setup/employee-categories";
       else if (activeTab === "allowance-types")
         endpoint = "/hr/setup/allowance-types";
+      else if (activeTab === "loan-types")
+        endpoint = "/hr/loan-types";
       else if (activeTab === "shifts") endpoint = "/hr/shifts";
       else if (activeTab === "parameters") endpoint = "/hr/setup/parameters";
 
@@ -87,6 +89,8 @@ export default function HRSetup() {
         endpoint = "/hr/setup/employee-categories";
       else if (activeTab === "allowance-types")
         endpoint = "/hr/setup/allowance-types";
+      else if (activeTab === "loan-types")
+        endpoint = "/hr/loan-types";
       else if (activeTab === "shifts") endpoint = "/hr/shifts";
 
       if (activeTab === "departments" || activeTab === "shifts") {
@@ -140,6 +144,7 @@ export default function HRSetup() {
             "employment-types",
             "employee-categories",
             "allowance-types",
+            "loan-types",
             "parameters",
           ].map((tab) => (
             <button
@@ -500,6 +505,40 @@ export default function HRSetup() {
                     </div>
                   </>
                 )}
+                {activeTab === "loan-types" && (
+                  <>
+                    <div>
+                      <label className="block text-sm mb-1">
+                        Loan Type Name
+                      </label>
+                      <input
+                        className="input"
+                        placeholder="e.g. Salary Advance, Personal Loan"
+                        value={form.name || ""}
+                        onChange={(e) =>
+                          setForm({ ...form, name: e.target.value })
+                        }
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm mb-1">Status</label>
+                      <select
+                        className="input"
+                        value={form.is_active ? "1" : "0"}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            is_active: e.target.value === "1",
+                          })
+                        }
+                      >
+                        <option value="1">Active</option>
+                        <option value="0">Inactive</option>
+                      </select>
+                    </div>
+                  </>
+                )}
                 {activeTab === "shifts" && (
                   <>
                     <div>
@@ -732,7 +771,8 @@ export default function HRSetup() {
                           )}
                           {(activeTab === "employment-types" ||
                             activeTab === "employee-categories" ||
-                            activeTab === "allowance-types") && (
+                            activeTab === "allowance-types" ||
+                            activeTab === "loan-types") && (
                             <div>
                               <div className="font-medium">{item.name}</div>
                             </div>

@@ -4,6 +4,8 @@ import {
   ensureWorkflowTables,
   toNumber,
   ensureHRTables,
+  hasColumn,
+  ensureCol,
 } from "../utils/dbUtils.js";
 import { sendMail } from "../utils/mailer.js";
 
@@ -40,7 +42,7 @@ export async function listEmployees(req, res, next) {
 
     const items = await query(
       `SELECT e.id, e.emp_code, e.first_name, e.last_name, e.middle_name, e.email, e.phone, e.dept_id, e.pos_id, e.manager_id,
-              e.employment_type, e.status, e.base_salary, e.joining_date,
+              e.employment_type, e.employment_type_id, e.category_id, e.location_id, e.status, e.base_salary, e.joining_date,
               d.dept_name, p.pos_name, m.first_name as manager_first_name, m.last_name as manager_last_name,
               CONCAT(e.first_name, ' ', COALESCE(e.middle_name, ''), ' ', e.last_name) as full_name,
               CASE WHEN e.status = 'ACTIVE' THEN 1 ELSE 0 END as is_active
@@ -520,12 +522,22 @@ export async function getEmployeeById(req, res, next) {
 
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Employee not found");
 
+    const item = rows[0];
+    try {
+      if (typeof item.tax_mappings === "string") {
+        item.tax_mappings = JSON.parse(item.tax_mappings);
+      }
+      if (typeof item.allowance_mappings === "string") {
+        item.allowance_mappings = JSON.parse(item.allowance_mappings);
+      }
+    } catch {}
+
     const documents = await query(
       `SELECT * FROM hr_employee_documents WHERE employee_id = :id`,
       { id },
     );
 
-    res.json({ item: rows[0], documents });
+    res.json({ item, documents });
   } catch (err) {
     next(err);
   }
@@ -543,12 +555,14 @@ export async function saveEmployee(req, res, next) {
     const body = req.body;
 
     if (body.id) {
-      await conn.execute(
+      await conn.query(
         `UPDATE hr_employees SET 
           emp_code = ?, first_name = ?, last_name = ?, middle_name = ?,
           gender = ?, dob = ?, joining_date = ?, email = ?, phone = ?, 
-          dept_id = ?, pos_id = ?, manager_id = ?,
-          employment_type = ?, status = ?, base_salary = ?, address = ?, 
+          dept_id = ?, pos_id = ?, manager_id = ?, location_id = ?,
+          employment_type = ?, employment_type_id = ?, category_id = ?, status = ?, base_salary = ?, address = ?, 
+          picture_url = ?, national_id = ?, city = ?, state = ?, country = ?, emergency_contact_name = ?, emergency_contact_phone = ?, bank_name = ?, bank_account_number = ?, ssnit_number = ?,
+          tax_mappings = ?, allowance_mappings = ?,
           updated_by = ?
          WHERE id = ? AND company_id = ?`,
         [
@@ -564,24 +578,76 @@ export async function saveEmployee(req, res, next) {
           body.dept_id || null,
           body.pos_id || null,
           body.manager_id || null,
+          body.location_id || null,
           body.employment_type || "FULL_TIME",
+          body.employment_type_id || null,
+          body.category_id || null,
           body.status || "PROBATION",
           body.base_salary || 0,
           body.address || null,
+          body.picture_url || null,
+          body.national_id || null,
+          body.city || null,
+          body.state || null,
+          body.country || null,
+          body.emergency_contact_name || null,
+          body.emergency_contact_phone || null,
+          body.bank_name || null,
+          body.bank_account_number || null,
+          body.ssnit_number || null,
+          JSON.stringify(
+            Array.isArray(body.tax_mappings) ? body.tax_mappings : [],
+          ),
+          JSON.stringify(
+            Array.isArray(body.allowance_mappings)
+              ? body.allowance_mappings
+              : [],
+          ),
           userId,
           body.id,
           companyId,
         ],
       );
+      // Handle mapping tables
+      try {
+        await conn.query(
+          `DELETE FROM hr_employee_tax_mappings WHERE employee_id = ?`,
+          [body.id],
+        );
+        const taxIds = Array.isArray(body.tax_mappings)
+          ? body.tax_mappings
+          : [];
+        for (const tid of taxIds) {
+          await conn.query(
+            `INSERT IGNORE INTO hr_employee_tax_mappings (employee_id, tax_config_id) VALUES (?, ?)`,
+            [body.id, tid],
+          );
+        }
+        await conn.query(
+          `DELETE FROM hr_employee_allowance_mappings WHERE employee_id = ?`,
+          [body.id],
+        );
+        const allowIds = Array.isArray(body.allowance_mappings)
+          ? body.allowance_mappings
+          : [];
+        for (const aid of allowIds) {
+          await conn.query(
+            `INSERT IGNORE INTO hr_employee_allowance_mappings (employee_id, allowance_id) VALUES (?, ?)`,
+            [body.id, aid],
+          );
+        }
+      } catch (err) {
+        console.error("Mapping error: ", err);
+      }
       await conn.commit();
       res.json({ message: "Employee updated successfully" });
     } else {
-      const [result] = await conn.execute(
+      const [result] = await conn.query(
         `INSERT INTO hr_employees (
           company_id, branch_id, emp_code, first_name, last_name, middle_name,
-          gender, dob, joining_date, email, phone, dept_id, pos_id, manager_id,
-          employment_type, status, base_salary, address, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          gender, dob, joining_date, email, phone, dept_id, pos_id, manager_id, location_id,
+          employment_type, employment_type_id, category_id, status, base_salary, address, picture_url, national_id, city, state, country, emergency_contact_name, emergency_contact_phone, bank_name, bank_account_number, ssnit_number, tax_mappings, allowance_mappings, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           companyId,
           branchId,
@@ -597,13 +663,58 @@ export async function saveEmployee(req, res, next) {
           body.dept_id || null,
           body.pos_id || null,
           body.manager_id || null,
+          body.location_id || null,
           body.employment_type || "FULL_TIME",
+          body.employment_type_id || null,
+          body.category_id || null,
           body.status || "PROBATION",
           body.base_salary || 0,
           body.address || null,
+          body.picture_url || null,
+          body.national_id || null,
+          body.city || null,
+          body.state || null,
+          body.country || null,
+          body.emergency_contact_name || null,
+          body.emergency_contact_phone || null,
+          body.bank_name || null,
+          body.bank_account_number || null,
+          body.ssnit_number || null,
+          JSON.stringify(
+            Array.isArray(body.tax_mappings) ? body.tax_mappings : [],
+          ),
+          JSON.stringify(
+            Array.isArray(body.allowance_mappings)
+              ? body.allowance_mappings
+              : [],
+          ),
           userId,
         ],
       );
+      // Handle mapping tables
+      try {
+        const newId = result.insertId;
+        const taxIds = Array.isArray(body.tax_mappings)
+          ? body.tax_mappings
+          : [];
+        for (const tid of taxIds) {
+          await conn.query(
+            `INSERT IGNORE INTO hr_employee_tax_mappings (employee_id, tax_config_id) VALUES (?, ?)`,
+            [newId, tid],
+          );
+        }
+        const allowIds = Array.isArray(body.allowance_mappings)
+          ? body.allowance_mappings
+          : [];
+        for (const aid of allowIds) {
+          await conn.query(
+            `INSERT IGNORE INTO hr_employee_allowance_mappings (employee_id, allowance_id) VALUES (?, ?)`,
+            [newId, aid],
+          );
+        }
+      } catch (err) {
+        console.error("Mapping error on insert: ", err);
+      }
       await conn.commit();
       res.status(201).json({
         id: result.insertId,
@@ -628,18 +739,18 @@ export async function saveEmployeesBulk(req, res, next) {
     let created = 0;
     let updated = 0;
     for (const b of items) {
-      const [rows] = await conn.execute(
+      const [rows] = await conn.query(
         `SELECT id FROM hr_employees WHERE company_id = ? AND emp_code = ? LIMIT 1`,
         [companyId, b.emp_code],
       );
       if (rows && rows.length) {
         const id = rows[0].id;
-        await conn.execute(
+        await conn.query(
           `UPDATE hr_employees SET 
             first_name = ?, last_name = ?, middle_name = ?, gender = ?, dob = ?, joining_date = ?, email = ?, phone = ?,
             dept_id = ?, pos_id = ?, manager_id = ?, location_id = ?,
             employment_type = COALESCE(?, employment_type), employment_type_id = ?, category_id = ?, status = ?, base_salary = ?, address = ?, 
-            picture_url = ?, national_id = ?, updated_by = ?
+            picture_url = ?, national_id = ?, tax_mappings = ?, allowance_mappings = ?, updated_by = ?
            WHERE id = ? AND company_id = ?`,
           [
             b.first_name,
@@ -662,41 +773,45 @@ export async function saveEmployeesBulk(req, res, next) {
             b.address || null,
             b.picture_url || null,
             b.national_id || null,
+            JSON.stringify(Array.isArray(b.tax_mappings) ? b.tax_mappings : []),
+            JSON.stringify(
+              Array.isArray(b.allowance_mappings) ? b.allowance_mappings : [],
+            ),
             userId,
             id,
             companyId,
           ],
         );
         // mappings
-        await conn.execute(
+        await conn.query(
           `DELETE FROM hr_employee_tax_mappings WHERE employee_id = ?`,
           [id],
         );
         for (const taxId of b.tax_mappings || []) {
           // eslint-disable-next-line no-await-in-loop
-          await conn.execute(
+          await conn.query(
             `INSERT IGNORE INTO hr_employee_tax_mappings (employee_id, tax_config_id) VALUES (?, ?)`,
             [id, taxId],
           );
         }
-        await conn.execute(
+        await conn.query(
           `DELETE FROM hr_employee_allowance_mappings WHERE employee_id = ?`,
           [id],
         );
         for (const aId of b.allowance_mappings || []) {
           // eslint-disable-next-line no-await-in-loop
-          await conn.execute(
+          await conn.query(
             `INSERT IGNORE INTO hr_employee_allowance_mappings (employee_id, allowance_id) VALUES (?, ?)`,
             [id, aId],
           );
         }
         updated++;
       } else {
-        const [result] = await conn.execute(
+        const [result] = await conn.query(
           `INSERT INTO hr_employees (
             company_id, branch_id, emp_code, first_name, last_name, middle_name, gender, dob, joining_date, email, phone,
-            dept_id, pos_id, manager_id, location_id, employment_type, employment_type_id, category_id, status, base_salary, address, picture_url, national_id, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            dept_id, pos_id, manager_id, location_id, employment_type, employment_type_id, category_id, status, base_salary, address, picture_url, national_id, tax_mappings, allowance_mappings, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             companyId,
             branchId,
@@ -721,20 +836,24 @@ export async function saveEmployeesBulk(req, res, next) {
             b.address || null,
             b.picture_url || null,
             b.national_id || null,
+            JSON.stringify(Array.isArray(b.tax_mappings) ? b.tax_mappings : []),
+            JSON.stringify(
+              Array.isArray(b.allowance_mappings) ? b.allowance_mappings : [],
+            ),
             userId,
           ],
         );
         const newId = result.insertId;
         for (const taxId of b.tax_mappings || []) {
           // eslint-disable-next-line no-await-in-loop
-          await conn.execute(
+          await conn.query(
             `INSERT IGNORE INTO hr_employee_tax_mappings (employee_id, tax_config_id) VALUES (?, ?)`,
             [newId, taxId],
           );
         }
         for (const aId of b.allowance_mappings || []) {
           // eslint-disable-next-line no-await-in-loop
-          await conn.execute(
+          await conn.query(
             `INSERT IGNORE INTO hr_employee_allowance_mappings (employee_id, allowance_id) VALUES (?, ?)`,
             [newId, aId],
           );
@@ -1773,447 +1892,6 @@ export async function biometricWebhook(req, res, next) {
   }
 }
 /**
- * Leave Management
- */
-export async function listLeaveTypes(req, res, next) {
-  try {
-    await ensureHRTables();
-    const { companyId } = req.scope;
-    const items = await query(
-      `SELECT * FROM hr_leave_types WHERE company_id = :companyId ORDER BY type_name ASC`,
-      { companyId },
-    );
-    res.json({ items });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function getLeaveType(req, res, next) {
-  try {
-    const { id } = req.params;
-    const { companyId } = req.scope;
-    const rows = await query(
-      `SELECT * FROM hr_leave_types WHERE id = :id AND company_id = :companyId`,
-      { id, companyId },
-    );
-    if (!rows.length) throw httpError(404, "NOT_FOUND", "Leave type not found");
-    res.json({ item: rows[0] });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function saveLeaveType(req, res, next) {
-  try {
-    await ensureHRTables();
-    const { companyId } = req.scope;
-    const { id, type_name, days_per_year, is_paid, carry_forward } = req.body;
-    if (id) {
-      await query(
-        `UPDATE hr_leave_types SET type_name = :type_name, days_per_year = :days_per_year, is_paid = :is_paid, carry_forward = :carry_forward 
-         WHERE id = :id AND company_id = :companyId`,
-        {
-          id,
-          type_name,
-          days_per_year: toNumber(days_per_year, 0),
-          is_paid: is_paid ? 1 : 0,
-          carry_forward: carry_forward ? 1 : 0,
-          companyId,
-        },
-      );
-      res.json({ message: "Leave type updated" });
-    } else {
-      const result = await query(
-        `INSERT INTO hr_leave_types (company_id, type_name, days_per_year, is_paid, carry_forward)
-         VALUES (:companyId, :type_name, :days_per_year, :is_paid, :carry_forward)`,
-        {
-          companyId,
-          type_name,
-          days_per_year: toNumber(days_per_year, 0),
-          is_paid: is_paid ? 1 : 0,
-          carry_forward: carry_forward ? 1 : 0,
-        },
-      );
-      res
-        .status(201)
-        .json({ id: result.insertId, message: "Leave type created" });
-    }
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function listLeaveBalances(req, res, next) {
-  try {
-    const { employee_id } = req.query;
-    const clauses = [];
-    const params = {};
-    if (employee_id) {
-      clauses.push("b.employee_id = :employee_id");
-      params.employee_id = toNumber(employee_id, null);
-    }
-    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const items = await query(
-      `SELECT b.*, t.type_name
-       FROM hr_leave_balances b
-       JOIN hr_leave_types t ON t.id = b.leave_type_id
-       ${where}
-       ORDER BY t.type_name ASC`,
-      params,
-    );
-    res.json({ items });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function listLeaveRequests(req, res, next) {
-  try {
-    const { employee_id, status } = req.query;
-    const clauses = [];
-    const params = {};
-    if (employee_id) {
-      clauses.push("r.employee_id = :employee_id");
-      params.employee_id = toNumber(employee_id, null);
-    }
-    if (status && status !== "ALL") {
-      clauses.push("r.status = :status");
-      params.status = status;
-    }
-    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const items = await query(
-      `SELECT r.*, e.first_name, e.last_name, t.type_name 
-       FROM hr_leave_requests r
-       LEFT JOIN hr_employees e ON e.id = r.employee_id
-       LEFT JOIN hr_leave_types t ON t.id = r.leave_type_id
-       ${where}
-       ORDER BY r.created_at DESC`,
-      params,
-    );
-    res.json({ items });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function applyLeave(req, res, next) {
-  try {
-    const { companyId } = req.scope;
-    const { employee_id, leave_type_id, start_date, end_date, reason } =
-      req.body;
-    const total_days =
-      (new Date(end_date).getTime() - new Date(start_date).getTime()) /
-        (1000 * 3600 * 24) +
-      1;
-    const overlap = await query(
-      `SELECT id FROM hr_leave_requests 
-       WHERE employee_id = :employee_id 
-         AND ((start_date <= :end_date AND end_date >= :start_date))`,
-      { employee_id, start_date, end_date },
-    );
-    if (overlap.length) {
-      throw httpError(
-        400,
-        "VALIDATION_ERROR",
-        "Overlapping leave exists for selected period",
-      );
-    }
-    try {
-      const { validateLeaveRequest } =
-        await import("../validators/hr.validators.js");
-      const errs = validateLeaveRequest(req.body);
-      if (errs.length)
-        throw httpError(
-          400,
-          "VALIDATION_ERROR",
-          `Missing fields: ${errs.join(",")}`,
-        );
-    } catch {}
-    const result = await query(
-      `INSERT INTO hr_leave_requests (company_id, employee_id, leave_type_id, start_date, end_date, total_days, reason, status)
-       VALUES (:companyId, :employee_id, :leave_type_id, :start_date, :end_date, :total_days, :reason, 'SUBMITTED')`,
-      {
-        companyId,
-        employee_id,
-        leave_type_id,
-        start_date,
-        end_date,
-        total_days: toNumber(total_days, 0),
-        reason: reason || null,
-      },
-    );
-    try {
-      const emp = await query(
-        `SELECT email, first_name FROM hr_employees WHERE id = :id LIMIT 1`,
-        { id: employee_id },
-      );
-      if (emp.length && emp[0].email) {
-        await sendMail({
-          to: emp[0].email,
-          subject: "Leave application submitted",
-          html: `<p>Hello ${emp[0].first_name}, your leave (${start_date} → ${end_date}) has been submitted.</p>`,
-        });
-      }
-      if (req.app?.io) {
-        req.app.io.emit("notification", {
-          module: "HR",
-          title: "New Leave Application",
-          body: `Employee #${employee_id} applied for leave ${start_date} → ${end_date}`,
-        });
-      }
-    } catch {}
-    res.status(201).json({ id: result.insertId, message: "Leave requested" });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function approveLeave(req, res, next) {
-  try {
-    const { id } = req.params;
-    const { approved } = req.body;
-    const rows = await query(`SELECT * FROM hr_leave_requests WHERE id = :id`, {
-      id,
-    });
-    if (!rows.length)
-      throw httpError(404, "NOT_FOUND", "Leave request not found");
-    const reqRow = rows[0];
-    const nextStatus = approved ? "APPROVED" : "REJECTED";
-    await query(
-      `UPDATE hr_leave_requests SET status = :status WHERE id = :id`,
-      { status: nextStatus, id },
-    );
-    if (approved) {
-      const existing = await query(
-        `SELECT id, balance_days FROM hr_leave_balances WHERE employee_id = :employee_id AND leave_type_id = :leave_type_id`,
-        {
-          employee_id: reqRow.employee_id,
-          leave_type_id: reqRow.leave_type_id,
-        },
-      );
-      if (existing.length) {
-        await query(
-          `UPDATE hr_leave_balances SET balance_days = GREATEST(balance_days - :days, 0) WHERE id = :id`,
-          { id: existing[0].id, days: toNumber(reqRow.total_days, 0) },
-        );
-      }
-    }
-    res.json({ message: `Leave ${nextStatus.toLowerCase()}` });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function listMyLeaveRequests(req, res, next) {
-  try {
-    const userId = req.user?.id || req.user?.sub;
-    if (!userId) throw httpError(401, "UNAUTHORIZED", "User not found");
-    const empRows = await query(
-      `SELECT id FROM hr_employees WHERE user_id = :uid LIMIT 1`,
-      { uid: userId },
-    );
-    if (!empRows.length)
-      throw httpError(404, "NOT_FOUND", "Employee record not linked");
-    const employee_id = empRows[0].id;
-    const items = await query(
-      `SELECT lr.*, lt.type_name 
-       FROM hr_leave_requests lr 
-       LEFT JOIN hr_leave_types lt ON lt.id = lr.leave_type_id
-       WHERE lr.employee_id = :employee_id
-       ORDER BY lr.start_date DESC`,
-      { employee_id },
-    );
-    res.json({ items });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function scheduleLeave(req, res, next) {
-  try {
-    const { companyId } = req.scope;
-    const {
-      employee_ids = [],
-      leave_type_id,
-      start_date,
-      end_date,
-      remarks,
-    } = req.body;
-    if (!employee_ids.length)
-      throw httpError(400, "VALIDATION_ERROR", "No employees selected");
-    const total_days =
-      (new Date(end_date).getTime() - new Date(start_date).getTime()) /
-        (1000 * 3600 * 24) +
-      1;
-    let scheduled = 0;
-    for (const employee_id of employee_ids) {
-      const overlap = await query(
-        `SELECT id FROM hr_leave_requests 
-         WHERE employee_id = :employee_id 
-           AND ((start_date <= :end_date AND end_date >= :start_date))`,
-        { employee_id, start_date, end_date },
-      );
-      if (overlap.length) continue;
-      const result = await query(
-        `INSERT INTO hr_leave_requests (company_id, employee_id, leave_type_id, start_date, end_date, total_days, reason, status)
-         VALUES (:companyId, :employee_id, :leave_type_id, :start_date, :end_date, :total_days, :reason, 'SCHEDULED')`,
-        {
-          companyId,
-          employee_id,
-          leave_type_id,
-          start_date,
-          end_date,
-          total_days: toNumber(total_days, 0),
-          reason: remarks || null,
-        },
-      );
-      scheduled++;
-      try {
-        const emp = await query(
-          `SELECT email, first_name FROM hr_employees WHERE id = :id LIMIT 1`,
-          { id: employee_id },
-        );
-        if (emp.length && emp[0].email) {
-          await sendMail({
-            to: emp[0].email,
-            subject: "Leave scheduled",
-            html: `<p>Hello ${emp[0].first_name}, your leave has been scheduled for ${start_date} → ${end_date}.</p>`,
-          });
-        }
-        if (req.app?.io) {
-          req.app.io.emit("notification", {
-            module: "HR",
-            title: "Leave Scheduled",
-            body: `Employee #${employee_id} leave ${start_date} → ${end_date}`,
-          });
-        }
-      } catch {}
-    }
-    res.json({ message: "Leave scheduled", scheduled });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function updateLeave(req, res, next) {
-  try {
-    const { id } = req.params;
-    const { leave_type_id, start_date, end_date, reason, status } = req.body;
-    const total_days =
-      (new Date(end_date).getTime() - new Date(start_date).getTime()) /
-        (1000 * 3600 * 24) +
-      1;
-    await query(
-      `UPDATE hr_leave_requests 
-       SET leave_type_id = :leave_type_id, start_date = :start_date, end_date = :end_date, total_days = :total_days, reason = :reason, status = :status
-       WHERE id = :id`,
-      {
-        id,
-        leave_type_id,
-        start_date,
-        end_date,
-        total_days: toNumber(total_days, 0),
-        reason: reason || null,
-        status: status || "SCHEDULED",
-      },
-    );
-    res.json({ message: "Leave updated" });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function generateLeaveRoster(req, res, next) {
-  try {
-    const { companyId } = req.scope;
-    const { year, department_id } = req.body;
-    const r = await query(
-      `INSERT INTO hr_leave_roster (company_id, year, department_id)
-       VALUES (:companyId, :year, :department_id)`,
-      { companyId, year, department_id: department_id || null },
-    );
-    const roster_id = r.insertId;
-    const start = `${year}-01-01`;
-    const end = `${year}-12-31`;
-    const rows = await query(
-      `SELECT lr.employee_id, lr.leave_type_id, lr.start_date, lr.end_date, lr.total_days
-       FROM hr_leave_requests lr
-       LEFT JOIN hr_employees e ON e.id = lr.employee_id
-       WHERE (lr.company_id = :companyId OR lr.company_id IS NULL)
-         AND lr.start_date >= :start AND lr.end_date <= :end
-         ${department_id ? "AND e.dept_id = :department_id" : ""}`,
-      { companyId, start, end, department_id },
-    );
-    for (const row of rows) {
-      // eslint-disable-next-line no-await-in-loop
-      await query(
-        `INSERT INTO hr_leave_roster_details (roster_id, employee_id, leave_type_id, start_date, end_date, total_days)
-         VALUES (:roster_id, :employee_id, :leave_type_id, :start_date, :end_date, :total_days)`,
-        { roster_id, ...row },
-      );
-    }
-    res
-      .status(201)
-      .json({ id: roster_id, message: "Roster generated", count: rows.length });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function listLeaveRoster(req, res, next) {
-  try {
-    const { companyId } = req.scope;
-    const { year } = req.query;
-    const rosters = await query(
-      `SELECT r.*, d.dept_name FROM hr_leave_roster r
-       LEFT JOIN hr_departments d ON d.id = r.department_id
-       WHERE r.company_id = :companyId ${year ? "AND r.year = :year" : ""}
-       ORDER BY r.year DESC, r.created_at DESC`,
-      { companyId, year },
-    );
-    const details = await query(
-      `SELECT rd.*, e.first_name, e.last_name, lt.type_name
-       FROM hr_leave_roster_details rd
-       JOIN hr_leave_roster r ON r.id = rd.roster_id
-       LEFT JOIN hr_employees e ON e.id = rd.employee_id
-       LEFT JOIN hr_leave_types lt ON lt.id = rd.leave_type_id
-       WHERE r.company_id = :companyId`,
-      { companyId },
-    );
-    res.json({ rosters, details });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function leaveCalendar(req, res, next) {
-  try {
-    const { companyId } = req.scope;
-    const { year, month } = req.query;
-    const start = `${year || new Date().getFullYear()}-${String(
-      month || new Date().getMonth() + 1,
-    ).padStart(2, "0")}-01`;
-    const endDate = new Date(start);
-    endDate.setMonth(endDate.getMonth() + 1);
-    endDate.setDate(0);
-    const end = endDate.toISOString().slice(0, 10);
-    const events = await query(
-      `SELECT lr.*, e.first_name, e.last_name, lt.type_name
-       FROM hr_leave_requests lr
-       LEFT JOIN hr_employees e ON e.id = lr.employee_id
-       LEFT JOIN hr_leave_types lt ON lt.id = lr.leave_type_id
-       WHERE (lr.start_date <= :end AND lr.end_date >= :start)
-         AND (lr.company_id = :companyId OR lr.company_id IS NULL)`,
-      { start, end, companyId },
-    );
-    res.json({ events });
-  } catch (err) {
-    next(err);
-  }
-}
-
-/**
  * Payroll APIs
  */
 export async function listPayrollPeriods(req, res, next) {
@@ -2263,8 +1941,137 @@ export async function savePayrollPeriod(req, res, next) {
   }
 }
 
+/**
+ * Register (upsert) a salary component into hr_salary_components.
+ * Safe to call multiple times — uses INSERT … ON DUPLICATE KEY UPDATE.
+ */
+async function registerSalaryComponent(
+  companyId,
+  {
+    column_name,
+    label,
+    component_type = "OTHER",
+    display_order = 0,
+    is_earning = 0,
+    is_fixed = 0,
+    source_type = "NONE",
+    source_id = null,
+  },
+) {
+  try {
+    await query(
+      `INSERT INTO hr_salary_components
+         (company_id, column_name, label, component_type, display_order, is_earning, is_fixed, source_type, source_id)
+       VALUES
+         (:companyId, :column_name, :label, :component_type, :display_order, :is_earning, :is_fixed, :source_type, :source_id)
+       ON DUPLICATE KEY UPDATE
+         label        = VALUES(label),
+         component_type = VALUES(component_type),
+         display_order  = VALUES(display_order),
+         is_earning     = VALUES(is_earning),
+         is_fixed       = VALUES(is_fixed),
+         source_type    = VALUES(source_type),
+         source_id      = VALUES(source_id),
+         updated_at     = CURRENT_TIMESTAMP`,
+      {
+        companyId,
+        column_name,
+        label,
+        component_type,
+        display_order,
+        is_earning,
+        is_fixed,
+        source_type,
+        source_id,
+      },
+    );
+  } catch {
+    // non-fatal
+  }
+}
+
+/**
+ * Ensure the fixed / always-present salary component rows exist for a company.
+ */
+async function seedFixedSalaryComponents(companyId) {
+  const fixed = [
+    {
+      column_name: "basic_salary",
+      label: "Basic Salary",
+      component_type: "BASIC",
+      display_order: 10,
+      is_earning: 1,
+    },
+    {
+      column_name: "allowances",
+      label: "Allowances (Total)",
+      component_type: "ALLOWANCE",
+      display_order: 20,
+      is_earning: 1,
+    },
+    {
+      column_name: "subtotal_a",
+      label: "Subtotal A (Basic – SSF)",
+      component_type: "SUBTOTAL",
+      display_order: 30,
+      is_earning: 0,
+    },
+    {
+      column_name: "subtotal_b",
+      label: "Subtotal B (A + Allowances)",
+      component_type: "SUBTOTAL",
+      display_order: 40,
+      is_earning: 0,
+    },
+    {
+      column_name: "ssf_employee",
+      label: "Social Security (Employee)",
+      component_type: "SOCIAL_SECURITY",
+      display_order: 50,
+      is_earning: 0,
+    },
+    {
+      column_name: "tier3_employee",
+      label: "Tier 3 Provident (Employee)",
+      component_type: "PROVIDENT_FUND",
+      display_order: 60,
+      is_earning: 0,
+    },
+    {
+      column_name: "income_tax",
+      label: "PAYE Income Tax",
+      component_type: "INCOME_TAX",
+      display_order: 70,
+      is_earning: 0,
+    },
+    {
+      column_name: "deductions",
+      label: "Total Deductions",
+      component_type: "DEDUCTION",
+      display_order: 80,
+      is_earning: 0,
+    },
+    {
+      column_name: "net_salary",
+      label: "Net Salary",
+      component_type: "NET_SALARY",
+      display_order: 99,
+      is_earning: 1,
+    },
+  ];
+  for (const row of fixed) {
+    await registerSalaryComponent(companyId, {
+      ...row,
+      is_fixed: 1,
+      source_type: "NONE",
+      source_id: null,
+    });
+  }
+}
+
 export async function generatePayroll(req, res, next) {
   try {
+    await ensureHRTables();
     const { companyId } = req.scope;
     const { period_id } = req.body;
     if (!period_id) throw httpError(400, "BAD_REQUEST", "period_id required");
@@ -2273,6 +2080,9 @@ export async function generatePayroll(req, res, next) {
       { id: period_id, companyId },
     );
     if (!period) throw httpError(404, "NOT_FOUND", "Payroll period not found");
+
+    // Seed / refresh fixed salary component registry for this company
+    await seedFixedSalaryComponents(companyId);
 
     const existing = await query(
       `SELECT id, status FROM hr_payroll WHERE company_id = :companyId AND period_id = :period_id`,
@@ -2308,17 +2118,97 @@ export async function generatePayroll(req, res, next) {
       `SELECT components FROM hr_salary_structures WHERE company_id = :companyId AND is_active = 1 ORDER BY id DESC LIMIT 1`,
       { companyId },
     );
-    let structComps = null;
+    let structComps = {};
     try {
       structComps = JSON.parse(structRows?.[0]?.components || "{}");
     } catch {
       structComps = {};
     }
+    const formula = Array.isArray(structComps?.formula)
+      ? structComps.formula
+      : [];
+    const activeTokens = new Set(formula.map((f) => String(f.token || "")));
+
     const employees = await query(
-      `SELECT id, base_salary FROM hr_employees WHERE company_id = :companyId AND status = 'ACTIVE' AND deleted_at IS NULL`,
+      `SELECT id, base_salary, has_paye, has_ssnit, has_tier3 FROM hr_employees WHERE company_id = :companyId AND status = 'ACTIVE' AND deleted_at IS NULL`,
       { companyId },
     );
+
+    await ensureCol(
+      "hr_payroll_items",
+      "tier3_employee",
+      "DECIMAL(18,4) NOT NULL DEFAULT 0",
+    );
+    await ensureCol(
+      "hr_payslips",
+      "tier3_employee",
+      "DECIMAL(18,4) NOT NULL DEFAULT 0",
+    );
+    await ensureCol(
+      "hr_payroll_items",
+      "ssf_employee",
+      "DECIMAL(18,4) NOT NULL DEFAULT 0",
+    );
+    await ensureCol(
+      "hr_payslips",
+      "ssf_employee",
+      "DECIMAL(18,4) NOT NULL DEFAULT 0",
+    );
+    await ensureCol(
+      "hr_payroll_items",
+      "subtotal_a",
+      "DECIMAL(18,4) NOT NULL DEFAULT 0",
+    );
+    await ensureCol(
+      "hr_payroll_items",
+      "subtotal_b",
+      "DECIMAL(18,4) NOT NULL DEFAULT 0",
+    );
+    await ensureCol("hr_payroll_items", "paye_bracket_id", "BIGINT NULL");
+    await ensureCol("hr_payroll_items", "paye_rate", "DECIMAL(9,4) NULL");
+    await ensureCol(
+      "hr_payslips",
+      "subtotal_a",
+      "DECIMAL(18,4) NOT NULL DEFAULT 0",
+    );
+    await ensureCol(
+      "hr_payslips",
+      "subtotal_b",
+      "DECIMAL(18,4) NOT NULL DEFAULT 0",
+    );
+    await ensureCol("hr_payslips", "paye_bracket_id", "BIGINT NULL");
+    await ensureCol("hr_payslips", "paye_rate", "DECIMAL(9,4) NULL");
+    await ensureCol(
+      "hr_payslips",
+      "income_tax",
+      "DECIMAL(18,4) NOT NULL DEFAULT 0",
+    );
+    try {
+      await query(
+        `ALTER TABLE hr_loans MODIFY COLUMN status VARCHAR(50) NOT NULL DEFAULT 'PENDING'`,
+        {},
+      ).catch(() => {});
+      await query(
+        `CREATE TABLE IF NOT EXISTS hr_loan_repayments (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          company_id BIGINT UNSIGNED NOT NULL,
+          employee_id BIGINT UNSIGNED NOT NULL,
+          loan_id BIGINT UNSIGNED NOT NULL,
+          amount_paid DECIMAL(18,4) NOT NULL,
+          payment_date DATE NOT NULL,
+          payroll_id BIGINT UNSIGNED NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_loan (loan_id),
+          KEY idx_employee (employee_id),
+          KEY idx_payroll (payroll_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+        {},
+      ).catch(() => {});
+    } catch {}
+
     for (const e of employees) {
+      console.log(`Processing employee ${e.id}...`);
       const overrides = await query(
         `SELECT * FROM hr_employee_salaries WHERE employee_id = :eid AND status = 'ACTIVE' ORDER BY effective_from DESC LIMIT 1`,
         { eid: e.id },
@@ -2330,84 +2220,137 @@ export async function generatePayroll(req, res, next) {
         ? Number(overrides[0].allowances || 0)
         : 0;
       const alRows = await query(
-        `SELECT a.id, a.amount 
+        `SELECT a.id, a.amount, a.allowance_name
          FROM hr_employee_allowance_mappings m 
          JOIN hr_allowances a ON a.id = m.allowance_id 
          WHERE m.employee_id = :eid AND a.is_active = 1`,
         { eid: e.id },
       ).catch(() => []);
+
       const allowanceMap = {};
+      let filteredAllowancesTotal = 0;
       for (const r of alRows) {
+        const aid = String(r.id);
+        if (
+          !activeTokens.has(`ALLOWANCE:${aid}`) &&
+          !activeTokens.has("ALLOWANCES")
+        ) {
+          continue;
+        }
         const amt = Number(r.amount || 0);
-        allowanceMap[`ALLOWANCE:${r.id}`] = amt;
+        allowanceMap[`ALLOWANCE:${aid}`] = amt;
+        filteredAllowancesTotal += amt;
       }
-      if (!allowances && alRows.length) {
-        allowances = alRows.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+      if (alRows.length) {
+        allowances = filteredAllowancesTotal;
       }
       let incomeTax = 0;
       let ssfEmployee = 0;
+      let tier3Employee = 0;
       const taxBreakdown = {};
+
+      // ── STEP 1: Compute GROSS = basic + allowances ──
+      const gross = Number(basic) + Number(allowances);
+
+      // ── STEP 2: SSF on gross (basic + allowances) ──
       for (const cfg of taxConfigs) {
         const ttype = String(cfg.tax_type || "");
-        if (ttype === "INCOME_TAX") {
-          let base = 0;
-          try {
-            let comps = [];
-            try {
-              comps = JSON.parse(cfg.taxable_components || "[]");
-            } catch {
-              comps = [];
-            }
-            if (!Array.isArray(comps) || comps.length === 0) {
-              comps = Array.isArray(structComps?.taxable_components)
-                ? structComps.taxable_components
-                : ["BASIC"];
-            }
-            const hasBasic = Array.isArray(comps)
-              ? comps.some((c) => String(c).toUpperCase() === "BASIC")
-              : false;
-            const hasAllow = Array.isArray(comps)
-              ? comps.some((c) =>
-                  String(c).toUpperCase().startsWith("ALLOWANCE"),
-                )
-              : false;
-            base =
-              (hasBasic ? Number(basic) : 0) +
-              (hasAllow ? Number(allowances) : 0);
-          } catch {
-            base = Number(basic);
-          }
-          const minOk =
-            cfg.min_amount === null || base >= Number(cfg.min_amount || 0);
-          const maxOk =
-            cfg.max_amount === null || base <= Number(cfg.max_amount || base);
-          if (minOk && maxOk) {
-            const rate = Number(cfg.tax_rate || 0) / 100;
-            const fixed = Number(cfg.fixed_amount || 0);
-            const amount = fixed + base * rate;
-            incomeTax += amount;
-            taxBreakdown[`INCOME_TAX:${cfg.id}`] =
-              (taxBreakdown[`INCOME_TAX:${cfg.id}`] || 0) + amount;
-          }
-        } else if (ttype === "SOCIAL_SECURITY") {
+        const tname = String(cfg.tax_name || "").toUpperCase();
+        if (
+          (ttype === "SOCIAL_SECURITY" ||
+            tname.includes("SSF") ||
+            tname.includes("SSNIT")) &&
+          (activeTokens.has("SSF") || activeTokens.has(`SSF:${cfg.id}`))
+        ) {
           const rateEmp = Number(cfg.employee_contribution_rate || 0) / 100;
-          const applySSF =
-            structComps?.apply_ssf_basic === undefined
-              ? true
-              : !!structComps.apply_ssf_basic;
-          if (applySSF) {
-            const amount = Number(basic) * rateEmp;
+          if (rateEmp > 0) {
+            const amount = gross * rateEmp;
             ssfEmployee += amount;
             taxBreakdown[`SSF:${cfg.id}`] =
               (taxBreakdown[`SSF:${cfg.id}`] || 0) + amount;
           }
-        } else if (ttype === "PROVIDENT_FUND") {
-          const rateEmp = Number(cfg.employee_contribution_rate || 0) / 100;
-          const amount = Number(basic) * rateEmp;
-          taxBreakdown[`TIER3:${cfg.id}`] =
-            (taxBreakdown[`TIER3:${cfg.id}`] || 0) + amount;
         }
       }
+
+      // ── STEP 3: Tier 3 on gross ──
+      for (const cfg of taxConfigs) {
+        const ttype = String(cfg.tax_type || "");
+        const tname = String(cfg.tax_name || "").toUpperCase();
+        if (
+          (ttype === "PROVIDENT_FUND" ||
+            tname.includes("TIER 3") ||
+            tname.includes("TIER-3")) &&
+          activeTokens.has(`TIER3:${cfg.id}`)
+        ) {
+          const rateEmp = Number(cfg.employee_contribution_rate || 0) / 100;
+          if (e.has_tier3 && rateEmp > 0) {
+            const amount = gross * rateEmp;
+            tier3Employee += amount;
+            taxBreakdown[`TIER3:${cfg.id}`] =
+              (taxBreakdown[`TIER3:${cfg.id}`] || 0) + amount;
+          }
+        }
+      }
+
+      // ── STEP 4: Subtotal A = Gross - SSF - Tier3 ──
+      const subtotalA = gross - ssfEmployee - tier3Employee;
+
+      // ── STEP 5: PAYE (Graduated Bands) applied on Subtotal A ──
+      // Aggregate income tax bracket names
+      try {
+        const byName = {};
+        for (const cfg of taxConfigs) {
+          if (String(cfg.tax_type || "") === "INCOME_TAX") {
+            const nm = String(cfg.tax_name || "").toUpperCase();
+            byName[nm] = byName[nm] || 0;
+          }
+        }
+        for (const nm in byName) {
+          taxBreakdown[`INCOME_TAX_BRACKET:${nm}`] = 0;
+        }
+      } catch {}
+
+      let payeBracketId = null;
+      let payeRate = 0;
+      const hasAnyIncomeTaxToken = Array.from(activeTokens).some((t) =>
+        t.startsWith("INCOME_TAX_BRACKET:"),
+      );
+
+      // Sort income tax configs by min_amount to get bands in order
+      const payeBands = taxConfigs
+        .filter(
+          (cfg) =>
+            String(cfg.tax_type || "") === "INCOME_TAX" &&
+            (activeTokens.has(`INCOME_TAX_BRACKET:${cfg.tax_name}`) ||
+              hasAnyIncomeTaxToken),
+        )
+        .sort((a, b) => Number(a.min_amount || 0) - Number(b.min_amount || 0));
+
+      if (e.has_paye && payeBands.length > 0) {
+        let remaining = subtotalA; // taxable income = gross after SSF/Tier3
+        for (const cfg of payeBands) {
+          if (remaining <= 0) break;
+          const bandMin = Number(cfg.min_amount || 0);
+          const bandMax =
+            cfg.max_amount === null || cfg.max_amount === ""
+              ? null
+              : Number(cfg.max_amount);
+          const bandWidth = bandMax === null ? remaining : bandMax - bandMin;
+          const taxableInBand = Math.min(remaining, bandWidth);
+          const rate = Number(cfg.tax_rate || 0);
+          const bandTax = taxableInBand * (rate / 100);
+          incomeTax += bandTax;
+          taxBreakdown[`INCOME_TAX:${cfg.id}`] =
+            (taxBreakdown[`INCOME_TAX:${cfg.id}`] || 0) + bandTax;
+          if (taxableInBand > 0) {
+            payeBracketId = cfg.id;
+            payeRate = rate;
+          }
+          remaining -= taxableInBand;
+        }
+      }
+
+      // Update bracket totals
       try {
         const byName = {};
         for (const cfg of taxConfigs) {
@@ -2422,70 +2365,288 @@ export async function generatePayroll(req, res, next) {
           taxBreakdown[`INCOME_TAX_BRACKET:${nm}`] = byName[nm];
         }
       } catch {}
+
+      // ── STEP 6: Subtotal B = Subtotal A - PAYE ──
+      const subtotalB = subtotalA - incomeTax;
+
       const otherDeductions = overrides.length
         ? Number(overrides[0].deductions || 0)
         : 0;
-      const deductions = incomeTax + ssfEmployee + otherDeductions;
-      let net = Number(basic) + Number(allowances) - Number(deductions);
-      try {
-        const formula = Array.isArray(structComps?.formula)
-          ? structComps.formula
-          : null;
-        if (formula && formula.length) {
-          const mapVal = {
-            BASIC: Number(basic),
-            ALLOWANCES: Number(allowances),
-            PAYE: Number(incomeTax),
-            SSF: Number(ssfEmployee),
-          };
-          for (const k in allowanceMap) {
-            mapVal[k] = Number(allowanceMap[k] || 0);
-          }
-          for (const k in taxBreakdown) {
-            mapVal[k] = Number(taxBreakdown[k] || 0);
-          }
-          let acc = 0;
-          for (let i = 0; i < formula.length; i++) {
-            const { op, token } = formula[i] || {};
-            const val = mapVal[String(token || "").toUpperCase()] || 0;
-            if (i === 0) {
-              acc = val; // ignore leading operator
-            } else if (String(op) === "-") {
-              acc -= val;
-            } else {
-              acc += val;
-            }
-          }
-          net = acc;
+
+      // ── STEP 7: Loan Deductions ──
+      let totalLoanDeductions = 0;
+      const activeLoans = await query(
+        `SELECT id, loan_type, monthly_installment, amount_due, status
+         FROM hr_loans 
+         WHERE employee_id = :eid 
+           AND company_id = :companyId
+           AND status = 'ACTIVE'
+           AND status <> 'COMPLETED'
+           AND amount_due > 0 
+           AND affect_payslip = 1 
+           AND start_date <= CURDATE()`,
+        { eid: e.id, companyId },
+      );
+      const loanCols = {};
+
+      for (const loan of activeLoans) {
+        const lid = String(loan.id);
+        if (!activeTokens.has(`LOAN:${lid}`) && !activeTokens.has("LOANS")) {
+          continue;
         }
-      } catch {}
+        if (String(loan.status || "").toUpperCase() === "COMPLETED") {
+          continue;
+        }
+        try {
+          const deduction = Math.min(
+            Number(loan.monthly_installment || 0),
+            Number(loan.amount_due || 0),
+          );
+          if (deduction > 0) {
+            totalLoanDeductions += deduction;
+            const loanCol = `loan_${loan.id}`;
+            loanCols[loanCol] = deduction;
+            await registerSalaryComponent(companyId, {
+              column_name: loanCol,
+              label: loan.loan_type
+                ? `Loan – ${loan.loan_type}`
+                : `Loan ${loan.id}`,
+              component_type: "DEDUCTION",
+              display_order: 76,
+              is_earning: 0,
+              is_fixed: 0,
+              source_type: "NONE",
+              source_id: Number(loan.id) || null,
+            });
+
+            // 1. Insert Repayment Record
+            await query(
+              `INSERT INTO hr_loan_repayments (company_id, employee_id, loan_id, amount_paid, payment_date, payroll_id)
+               VALUES (:companyId, :employee_id, :loan_id, :amount_paid, CURDATE(), :payroll_id)`,
+              {
+                companyId,
+                employee_id: e.id,
+                loan_id: loan.id,
+                amount_paid: deduction,
+                payroll_id: payrollId,
+              },
+            );
+
+            // 2. Update Loan Balance and Status
+            const newAmountDue = Math.max(
+              0,
+              Number(loan.amount_due) - deduction,
+            );
+            const isDone = newAmountDue <= 0;
+            await query(
+              `UPDATE hr_loans 
+               SET amount_due = :newAmountDue, 
+                   status = :status, 
+                   end_date = CASE WHEN :isDone = 1 THEN CURDATE() ELSE end_date END
+               WHERE id = :id`,
+              {
+                newAmountDue,
+                status: isDone ? "COMPLETED" : "ACTIVE",
+                isDone: isDone ? 1 : 0,
+                id: loan.id,
+              },
+            );
+          }
+        } catch (loanErr) {
+          console.error(
+            `Failed to process loan ${loan.id} for employee ${e.id}:`,
+            loanErr,
+          );
+          // Continue to next loan so payroll doesn't fail entirely
+        }
+      }
+
+      const deductions =
+        Number(incomeTax) +
+        Number(ssfEmployee) +
+        Number(tier3Employee) +
+        Number(otherDeductions) +
+        Number(totalLoanDeductions);
+      let net = subtotalB - totalLoanDeductions - Number(otherDeductions);
+      const dynamicCols = {
+        tier3_employee: tier3Employee || 0,
+        loan_deductions_total: totalLoanDeductions || 0,
+        subtotal_a: subtotalA || 0,
+        subtotal_b: subtotalB || 0,
+        paye_bracket_id: payeBracketId || null,
+        paye_rate: payeRate || null,
+      };
+      for (const [k, v] of Object.entries(loanCols)) {
+        dynamicCols[k] = v;
+      }
+
+      for (const key in allowanceMap) {
+        const allowId = String(key).split(":")[1] || String(key);
+        const colName = `allowance_${allowId}`;
+        dynamicCols[colName] = Number(allowanceMap[key] || 0);
+        // Find the matching allowance row for a human-readable label
+        const alRow = alRows.find((r) => String(r.id) === String(allowId));
+        const alLabel = alRow?.allowance_name || `Allowance ${allowId}`;
+        await registerSalaryComponent(companyId, {
+          column_name: colName,
+          label: alLabel,
+          component_type: "ALLOWANCE",
+          display_order: 25,
+          is_earning: 1,
+          is_fixed: 0,
+          source_type: "ALLOWANCE",
+          source_id: Number(allowId) || null,
+        });
+      }
+
+      for (const key in taxBreakdown) {
+        let cleanName = String(key)
+          .replace(/[^a-zA-Z0-9_]/g, "_")
+          .toLowerCase();
+        if (/^[0-9]/.test(cleanName)) cleanName = `c_${cleanName}`;
+        if (cleanName.length > 60) cleanName = cleanName.slice(0, 60);
+        dynamicCols[cleanName] = Number(taxBreakdown[key] || 0);
+        // Derive metadata for salary component registry
+        let ctype = "OTHER";
+        let cOrderBase = 55;
+        let cEarning = 0;
+        let cSourceType = "NONE";
+        let cSourceId = null;
+        let cLabel = cleanName.replace(/_/g, " ");
+        if (key.startsWith("INCOME_TAX:")) {
+          const cfgId = String(key).split(":")[1];
+          const cfg = taxConfigs.find((t) => String(t.id) === cfgId);
+          ctype = "INCOME_TAX";
+          cOrderBase = 70;
+          cSourceType = "TAX_CONFIG";
+          cSourceId = Number(cfgId) || null;
+          cLabel = cfg ? `PAYE – ${cfg.tax_name}` : `Income Tax ${cfgId}`;
+        } else if (key.startsWith("SSF:")) {
+          const cfgId = String(key).split(":")[1];
+          const cfg = taxConfigs.find((t) => String(t.id) === cfgId);
+          ctype = "SOCIAL_SECURITY";
+          cOrderBase = 50;
+          cSourceType = "TAX_CONFIG";
+          cSourceId = Number(cfgId) || null;
+          cLabel = cfg ? `SSF Employee – ${cfg.tax_name}` : `SSF ${cfgId}`;
+        } else if (key.startsWith("TIER3:")) {
+          const cfgId = String(key).split(":")[1];
+          const cfg = taxConfigs.find((t) => String(t.id) === cfgId);
+          ctype = "PROVIDENT_FUND";
+          cOrderBase = 60;
+          cSourceType = "TAX_CONFIG";
+          cSourceId = Number(cfgId) || null;
+          cLabel = cfg ? `Tier 3 – ${cfg.tax_name}` : `Tier 3 ${cfgId}`;
+        } else if (key.startsWith("INCOME_TAX_BRACKET:")) {
+          const bracketName = String(key).split(":")[1] || "";
+          ctype = "INCOME_TAX";
+          cOrderBase = 72;
+          cLabel = `PAYE Bracket – ${bracketName}`;
+        }
+        await registerSalaryComponent(companyId, {
+          column_name: cleanName,
+          label: cLabel,
+          component_type: ctype,
+          display_order: cOrderBase,
+          is_earning: cEarning,
+          is_fixed: 0,
+          source_type: cSourceType,
+          source_id: cSourceId,
+        });
+      }
+      // Do not register a 'loan_deductions_total' component to avoid duplication on payslips
+
+      // Add dynamic columns if they don't exist
+      const colDefs = [];
+      const placeholders = [];
+      const values = {
+        payroll_id: payrollId,
+        employee_id: e.id,
+        basic_salary: basic || 0,
+        allowances: allowances || 0,
+        deductions: deductions || 0,
+        income_tax: incomeTax || 0,
+        ssf_employee: ssfEmployee || 0,
+        net_salary: net || 0,
+        period_id: period_id,
+      };
+
+      for (const [col, val] of Object.entries(dynamicCols)) {
+        let ok = false;
+        if (col.endsWith("_id")) {
+          ok =
+            (await ensureCol("hr_payroll_items", col, "BIGINT NULL")) &&
+            (await ensureCol("hr_payslips", col, "BIGINT NULL"));
+        } else {
+          ok =
+            (await ensureCol(
+              "hr_payroll_items",
+              col,
+              "DECIMAL(18,4) NOT NULL DEFAULT 0",
+            )) &&
+            (await ensureCol(
+              "hr_payslips",
+              col,
+              "DECIMAL(18,4) NOT NULL DEFAULT 0",
+            ));
+        }
+        if (ok) {
+          colDefs.push(col);
+          placeholders.push(`:${col}`);
+          values[col] = val;
+        }
+      }
+
+      // Insert fixed columns first into hr_payroll_items
       await query(
-        `INSERT INTO hr_payroll_items (payroll_id, employee_id, basic_salary, allowances, deductions, income_tax, ssf_employee, net_salary)
-         VALUES (:payroll_id, :employee_id, :basic_salary, :allowances, :deductions, :income_tax, :ssf_employee, :net_salary)`,
-        {
-          payroll_id: payrollId,
-          employee_id: e.id,
-          basic_salary: basic || 0,
-          allowances: allowances || 0,
-          deductions: deductions || 0,
-          income_tax: incomeTax || 0,
-          ssf_employee: ssfEmployee || 0,
-          net_salary: net || 0,
-        },
+        `INSERT INTO hr_payroll_items 
+           (payroll_id, employee_id, basic_salary, allowances, deductions, income_tax, ssf_employee, net_salary)
+         VALUES 
+           (:payroll_id, :employee_id, :basic_salary, :allowances, :deductions, :income_tax, :ssf_employee, :net_salary)`,
+        values,
       );
+      // Ensure and update dynamic columns for items
+      for (const col of colDefs) {
+        const isId = col.endsWith("_id");
+        await ensureCol(
+          "hr_payroll_items",
+          col,
+          isId ? "BIGINT NULL" : "DECIMAL(18,4) NOT NULL DEFAULT 0",
+        );
+        await query(
+          `UPDATE hr_payroll_items SET ${col} = :val WHERE payroll_id = :pid AND employee_id = :eid`,
+          { val: values[col] ?? 0, pid: payrollId, eid: e.id },
+        ).catch(() => {});
+      }
+      // Insert or update payslip with fixed columns
       await query(
-        `INSERT INTO hr_payslips (employee_id, period_id, basic_salary, allowances, deductions, net_salary, status)
-         VALUES (:employee_id, :period_id, :basic_salary, :allowances, :deductions, :net_salary, 'DRAFT')
-         ON DUPLICATE KEY UPDATE basic_salary = VALUES(basic_salary), allowances = VALUES(allowances), deductions = VALUES(deductions), net_salary = VALUES(net_salary)`,
-        {
-          employee_id: e.id,
-          period_id,
-          basic_salary: basic || 0,
-          allowances: allowances || 0,
-          deductions: deductions || 0,
-          net_salary: net || 0,
-        },
+        `INSERT INTO hr_payslips 
+           (period_id, employee_id, basic_salary, allowances, deductions, income_tax, ssf_employee, net_salary, status)
+         VALUES 
+           (:period_id, :employee_id, :basic_salary, :allowances, :deductions, :income_tax, :ssf_employee, :net_salary, 'DRAFT')
+         ON DUPLICATE KEY UPDATE 
+           basic_salary = VALUES(basic_salary),
+           allowances = VALUES(allowances),
+           deductions = VALUES(deductions),
+           income_tax = VALUES(income_tax),
+           ssf_employee = VALUES(ssf_employee),
+           net_salary = VALUES(net_salary),
+           status = VALUES(status)`,
+        values,
       );
+      // Ensure and update dynamic columns for payslips
+      for (const col of colDefs) {
+        const isId = col.endsWith("_id");
+        await ensureCol(
+          "hr_payslips",
+          col,
+          isId ? "BIGINT NULL" : "DECIMAL(18,4) NOT NULL DEFAULT 0",
+        );
+        await query(
+          `UPDATE hr_payslips SET ${col} = :val WHERE employee_id = :eid AND period_id = :period_id`,
+          { val: values[col] ?? 0, eid: e.id, period_id },
+        ).catch(() => {});
+      }
     }
 
     await query(`UPDATE hr_payroll SET status = 'GENERATED' WHERE id = :id`, {
@@ -2493,6 +2654,27 @@ export async function generatePayroll(req, res, next) {
     });
 
     res.json({ id: payrollId, message: "Payroll generated" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Salary Components Registry
+ * Returns the full metadata list of salary component columns for hr_payslips.
+ */
+export async function listSalaryComponents(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const items = await query(
+      `SELECT id, column_name, label, component_type, display_order,
+              is_earning, is_fixed, source_type, source_id, is_active
+       FROM hr_salary_components
+       WHERE company_id = :companyId AND is_active = 1
+       ORDER BY display_order ASC, component_type ASC, column_name ASC`,
+      { companyId },
+    );
+    res.json({ items });
   } catch (err) {
     next(err);
   }
@@ -2513,8 +2695,25 @@ export async function listPayslips(req, res, next) {
       params.employee_id = employee_id;
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const items = await query(
-      `SELECT p.*, e.first_name, e.last_name, e.emp_code, e.email, pr.period_name
+
+    // Dynamic columns for loans
+    const loanColRows = await query(
+      `SELECT COLUMN_NAME AS name
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'hr_payslips'
+         AND COLUMN_NAME LIKE 'loan\\_%' ESCAPE '\\'
+       ORDER BY COLUMN_NAME ASC`,
+      {},
+    ).catch(() => []);
+    const loanCols = Array.isArray(loanColRows)
+      ? loanColRows.map((r) => String(r.name))
+      : [];
+
+    const selectCols = ["p.*"].concat(loanCols.map((c) => `p.${c}`)).join(", ");
+
+    const itemsRaw = await query(
+      `SELECT ${selectCols}, e.first_name, e.last_name, e.emp_code, e.email, pr.period_name
        FROM hr_payslips p
        JOIN hr_employees e ON e.id = p.employee_id
        JOIN hr_payroll_periods pr ON pr.id = p.period_id
@@ -2522,6 +2721,60 @@ export async function listPayslips(req, res, next) {
        ORDER BY pr.start_date DESC`,
       params,
     );
+
+    // Fetch actual repayment items for precise breakdown
+    const pids = itemsRaw.map((it) => it.period_id);
+    const uniquePids = [...new Set(pids)];
+
+    const repayRows = await query(
+      `SELECT lr.employee_id, lr.loan_id, lr.amount_paid, l.loan_type, lr.payroll_id, pr.period_id
+       FROM hr_loan_repayments lr 
+       LEFT JOIN hr_loans l ON l.id = lr.loan_id
+       JOIN hr_payroll pr ON pr.id = lr.payroll_id
+       WHERE pr.period_id IN (:uniquePids)`,
+      { uniquePids: uniquePids.length ? uniquePids : [0] },
+    ).catch(() => []);
+
+    const repayByEmpPeriod = {};
+    for (const rr of repayRows || []) {
+      const key = `${rr.employee_id}_${rr.period_id}`;
+      if (!repayByEmpPeriod[key]) repayByEmpPeriod[key] = [];
+      repayByEmpPeriod[key].push({
+        loan_id: Number(rr.loan_id),
+        loan_type: rr.loan_type || null,
+        amount: Number(rr.amount_paid || 0),
+      });
+    }
+
+    const items = itemsRaw.map((r) => {
+      const loans = {};
+      const key = `${r.employee_id}_${r.period_id}`;
+      if (repayByEmpPeriod[key]) {
+        for (const it of repayByEmpPeriod[key]) {
+          loans[String(it.loan_id)] = {
+            loan_id: it.loan_id,
+            loan_type: it.loan_type,
+            amount: it.amount,
+          };
+        }
+      } else {
+        // Fallback to columns if repayment table fails
+        for (const col of loanCols) {
+          const val = Number(r[col] || 0);
+          if (val !== 0) {
+            const lid = col.replace("loan_", "");
+            loans[lid] = { loan_id: lid, amount: val };
+          }
+        }
+      }
+
+      return {
+        ...r,
+        loan_deductions_total: Number(r.loan_deductions_total || 0),
+        loan_items: loans,
+      };
+    });
+
     res.json({ items });
   } catch (err) {
     next(err);
@@ -2544,11 +2797,11 @@ export async function sendPayslipEmail(req, res, next) {
     const p = rows[0];
     if (!p.email) throw httpError(400, "BAD_REQUEST", "Employee email not set");
 
-    const html = `
+    const htmlBody = `
       <div style="font-family: sans-serif; padding: 20px; border: 1px solid #ddd; max-width: 600px;">
         <h2 style="color: #1d4ed8; margin-top: 0;">Payslip for ${p.period_name}</h2>
         <p>Dear ${p.first_name} ${p.last_name},</p>
-        <p>Your payslip for ${p.period_name} has been generated and is now available for your review.</p>
+        <p>Your payslip for ${p.period_name} has been generated and is now available for your review. Please find the detailed PDF copy attached.</p>
         <div style="background: #f8fafc; padding: 15px; border-radius: 4px; margin: 20px 0;">
           <table style="width: 100%; border-collapse: collapse;">
             <tr>
@@ -2573,13 +2826,228 @@ export async function sendPayslipEmail(req, res, next) {
       </div>
     `;
 
+    // Two-step PDF generation: 1) fetch rendered HTML, 2) convert to PDF
+    let attachments = [];
+    try {
+      const port = req.socket.localPort || process.env.PORT || 5000;
+      const baseUrl = `http://127.0.0.1:${port}`;
+      const token = req.headers.authorization;
+      const fwdHeaders = {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: token } : {}),
+        ...((req.headers["x-company-id"]) ? { "x-company-id": req.headers["x-company-id"] } : {}),
+        ...((req.headers["x-branch-id"]) ? { "x-branch-id": req.headers["x-branch-id"] } : {}),
+      };
+
+      // Step 1: Get the rendered HTML
+      const htmlUrl = `${baseUrl}/api/documents/salary-slip/${payslipId}/render`;
+      const htmlRes = await fetch(htmlUrl, {
+        method: "POST",
+        headers: fwdHeaders,
+        body: JSON.stringify({ format: "html" }),
+      });
+      if (!htmlRes.ok) {
+        console.warn("[SEND-PAYSLIP] Failed to fetch HTML, status:", htmlRes.status);
+        throw new Error("HTML fetch failed");
+      }
+      const payslipHtml = await htmlRes.text();
+
+      // Step 2: Convert HTML to PDF via the raw-html-to-pdf endpoint
+      const pdfUrl = `${baseUrl}/api/documents/raw-html-to-pdf`;
+      const pdfRes = await fetch(pdfUrl, {
+        method: "POST",
+        headers: fwdHeaders,
+        body: JSON.stringify({ html: payslipHtml }),
+      });
+      if (!pdfRes.ok) {
+        console.warn("[SEND-PAYSLIP] Failed to generate PDF, status:", pdfRes.status);
+        throw new Error("PDF generation failed");
+      }
+      const arrayBuffer = await pdfRes.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      if (buffer.length > 0) {
+        const safeName = `Payslip_${p.period_name.replace(/\s+/g, "_")}_${p.first_name}_${p.last_name}.pdf`;
+        attachments.push({
+          filename: safeName,
+          content: buffer,
+          contentType: "application/pdf",
+        });
+        console.log(`[SEND-PAYSLIP] PDF attached: ${safeName} (${buffer.length} bytes)`);
+      }
+    } catch (e) {
+      console.warn(
+        "[SEND-PAYSLIP] Warning: Error generating PDF attachment:",
+        e.message,
+      );
+    }
+
     await sendMail({
       to: p.email,
       subject: `Your Payslip for ${p.period_name}`,
-      html,
+      html: htmlBody,
+      attachments,
     });
 
     res.json({ message: "Payslip sent to " + p.email });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getPayrollBreakdown(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const { payroll_id, period_id } = req.query;
+    let pid = payroll_id ? Number(payroll_id) : null;
+    if (!pid && period_id) {
+      const r = await query(
+        `SELECT id, period_id FROM hr_payroll WHERE company_id = :companyId AND period_id = :period_id ORDER BY id DESC LIMIT 1`,
+        { companyId, period_id },
+      );
+      if (r.length) pid = Number(r[0].id);
+    }
+    if (!pid) {
+      const r = await query(
+        `SELECT id, period_id FROM hr_payroll WHERE company_id = :companyId ORDER BY id DESC LIMIT 1`,
+        { companyId },
+      );
+      if (!r.length) {
+        res.json({ payroll_id: null, period_id: null, items: [] });
+        return;
+      }
+      pid = Number(r[0].id);
+    }
+    const colRows = await query(
+      `SELECT COLUMN_NAME AS name
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'hr_payroll_items'
+         AND COLUMN_NAME LIKE 'allowance\\_%' ESCAPE '\\'
+       ORDER BY COLUMN_NAME ASC`,
+      {},
+    ).catch(() => []);
+    const allowanceCols = Array.isArray(colRows)
+      ? colRows.map((r) => String(r.name))
+      : [];
+    const loanColRows = await query(
+      `SELECT COLUMN_NAME AS name
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'hr_payroll_items'
+         AND COLUMN_NAME LIKE 'loan\\_%' ESCAPE '\\'
+       ORDER BY COLUMN_NAME ASC`,
+      {},
+    ).catch(() => []);
+    const loanCols = Array.isArray(loanColRows)
+      ? loanColRows.map((r) => String(r.name))
+      : [];
+    const fixedCols = [
+      "pi.employee_id",
+      "pi.basic_salary",
+      "pi.allowances",
+      "pi.deductions",
+      "pi.income_tax",
+      "pi.ssf_employee",
+      "pi.loan_deductions_total",
+      "pi.tier3_employee",
+      "pi.net_salary",
+      "pi.subtotal_a",
+      "pi.subtotal_b",
+      "pi.paye_bracket_id",
+      "pi.paye_rate",
+    ];
+    const selectCols = fixedCols
+      .concat(allowanceCols.map((c) => `pi.${c}`))
+      .concat(loanCols.map((c) => `pi.${c}`))
+      .join(", ");
+    const rows = await query(
+      `SELECT pi.payroll_id, ${selectCols},
+              e.first_name, e.last_name, e.emp_code
+       FROM hr_payroll_items pi
+       JOIN hr_employees e ON e.id = pi.employee_id
+       WHERE pi.payroll_id = :pid AND e.company_id = :companyId
+       ORDER BY e.emp_code ASC`,
+      { pid, companyId },
+    );
+    // Load actual loan repayments for this payroll to expose real per-loan items
+    // and exclude completed/non-active loans from Salary Breakdown display.
+    const repayRows = await query(
+      `SELECT lr.employee_id, lr.loan_id, lr.amount_paid, l.loan_type, l.status AS loan_status
+       FROM hr_loan_repayments lr 
+       LEFT JOIN hr_loans l ON l.id = lr.loan_id
+       WHERE lr.payroll_id = :pid 
+         AND lr.amount_paid > 0
+         AND l.status = 'ACTIVE'`,
+      { pid },
+    ).catch(() => []);
+    const repayByEmp = {};
+    for (const rr of repayRows || []) {
+      const eid = Number(rr.employee_id);
+      if (!repayByEmp[eid]) repayByEmp[eid] = [];
+      repayByEmp[eid].push({
+        loan_id: Number(rr.loan_id),
+        loan_type: rr.loan_type || null,
+        amount: Number(rr.amount_paid || 0),
+      });
+    }
+
+    const items = rows.map((r) => {
+      const allowances = {};
+      for (const col of allowanceCols) {
+        const id = col.replace("allowance_", "");
+        const val = Number(r[col] || 0);
+        if (val !== 0) allowances[id] = val;
+      }
+      const loans = {};
+      for (const col of loanCols) {
+        const id = col.replace("loan_", "");
+        const val = Number(r[col] || 0);
+        if (val !== 0) loans[id] = val;
+      }
+      const out = {
+        employee_id: r.employee_id,
+        emp_code: r.emp_code,
+        first_name: r.first_name,
+        last_name: r.last_name,
+        basic_salary: Number(r.basic_salary || 0),
+        allowances_total: Number(r.allowances || 0),
+        allowances,
+        ssf_employee: Number(r.ssf_employee || 0),
+        tier3_employee: Number(r.tier3_employee || 0),
+        loan_deductions: Number(r.loan_deductions_total || 0),
+        income_tax: Number(r.income_tax || 0),
+        subtotal_a: Number(r.subtotal_a || 0),
+        subtotal_b: Number(r.subtotal_b || 0),
+        paye_bracket_id: r.paye_bracket_id || null,
+        paye_rate: r.paye_rate !== null ? Number(r.paye_rate) : null,
+        deductions: Number(r.deductions || 0),
+        net_salary: Number(r.net_salary || 0),
+        loan_items: loans,
+      };
+      // Merge actual repayments for precise per-loan breakdown
+      if (repayByEmp[r.employee_id]) {
+        const realLoans = {};
+        for (const it of repayByEmp[r.employee_id]) {
+          realLoans[String(it.loan_id)] = {
+            loan_id: it.loan_id,
+            loan_type: it.loan_type,
+            amount: it.amount,
+          };
+        }
+        // Build map for UI compatibility
+        out.loan_items = realLoans;
+        // Prefer actual total if columns were absent
+        const sum = repayByEmp[r.employee_id].reduce(
+          (s, v) => s + Number(v.amount || 0),
+          0,
+        );
+        if (!out.loan_deductions || out.loan_deductions === 0) {
+          out.loan_deductions = sum;
+        }
+      }
+      return out;
+    });
+    res.json({ payroll_id: pid, items });
   } catch (err) {
     next(err);
   }
@@ -2791,6 +3259,17 @@ export async function saveAllowance(req, res, next) {
 export async function listLoans(req, res, next) {
   try {
     const { companyId } = req.scope;
+
+    // Auto-activate loans reaching their start date
+    try {
+      await query(
+        `UPDATE hr_loans SET status = 'ACTIVE' WHERE company_id = :companyId AND status = 'APPROVED' AND start_date <= CURDATE()`,
+        { companyId },
+      );
+    } catch (updateErr) {
+      console.error("Failed to auto-activate loans:", updateErr);
+    }
+
     const { employee_id } = req.query;
     const clauses = ["l.company_id = :companyId"];
     const params = { companyId };
@@ -2811,6 +3290,7 @@ export async function listLoans(req, res, next) {
     );
     res.json({ items });
   } catch (err) {
+    console.error("Error in listLoans:", err);
     next(err);
   }
 }
@@ -2831,37 +3311,237 @@ export async function saveLoan(req, res, next) {
       status,
     } = req.body;
 
+    // Lookup loan_id from hr_setup_loan_types
+    const ltRows = await query(
+      "SELECT id FROM hr_setup_loan_types WHERE name = :loan_type AND company_id = :companyId LIMIT 1",
+      { loan_type, companyId },
+    );
+    const loan_id = ltRows?.[0]?.id || null;
+
     const params = {
       employee_id,
       loan_type,
+      loan_id,
       amount: toNumber(amount, 0),
       interest_rate: toNumber(interest_rate, 0),
       repayment_period_months: toNumber(repayment_period_months, 0),
       monthly_installment: toNumber(monthly_installment, 0),
-      start_date,
+      start_date: start_date || null,
       status: status || "PENDING",
       userId,
       companyId,
     };
 
+    // Use frontend values if provided, otherwise default to current calculation
+    // Note: Database triggers will also ensure these are calculated on insert/update
+    let endDate = req.body.end_date || null;
+    let amountDue =
+      req.body.amount_due !== undefined
+        ? toNumber(req.body.amount_due, params.amount)
+        : params.amount;
+
+    if (!endDate && params.start_date) {
+      const start = new Date(params.start_date);
+      const end = new Date(start);
+      end.setMonth(start.getMonth() + params.repayment_period_months);
+      endDate = end.toISOString().split("T")[0];
+    }
+
+    const finalParams = { ...params, endDate, amountDue };
+
     if (id) {
       await query(
         `UPDATE hr_loans SET 
-          loan_type = :loan_type, amount = :amount, interest_rate = :interest_rate, 
+          loan_type = :loan_type, loan_id = :loan_id, amount = :amount, interest_rate = :interest_rate, 
           repayment_period_months = :repayment_period_months, monthly_installment = :monthly_installment, 
-          start_date = :start_date, status = :status, updated_by = :userId
+          start_date = :start_date, status = :status, end_date = :endDate, amount_due = :amountDue, updated_by = :userId
          WHERE id = :id AND company_id = :companyId`,
-        { ...params, id },
+        { ...finalParams, id },
       );
+
+      if (params.loan_id) {
+        const colName = `loan_${params.loan_id}`;
+        await ensureCol(
+          "hr_payroll_items",
+          colName,
+          "DECIMAL(15,2) DEFAULT 0",
+        ).catch(() => {});
+        await ensureCol(
+          "hr_payslips",
+          colName,
+          "DECIMAL(15,2) DEFAULT 0",
+        ).catch(() => {});
+      }
+
+      const colName = `loan_${id}`;
+      await ensureCol(
+        "hr_payroll_items",
+        colName,
+        "DECIMAL(15,2) DEFAULT 0",
+      ).catch(() => {});
+      await ensureCol("hr_payslips", colName, "DECIMAL(15,2) DEFAULT 0").catch(
+        () => {},
+      );
+
       res.json({ message: "Loan updated" });
     } else {
       const result = await query(
-        `INSERT INTO hr_loans (company_id, branch_id, employee_id, loan_type, amount, interest_rate, repayment_period_months, monthly_installment, start_date, status, created_by)
-         VALUES (:companyId, :branchId, :employee_id, :loan_type, :amount, :interest_rate, :repayment_period_months, :monthly_installment, :start_date, :status, :userId)`,
-        { ...params, branchId },
+        `INSERT INTO hr_loans (company_id, branch_id, employee_id, loan_type, loan_id, amount, interest_rate, repayment_period_months, monthly_installment, start_date, status, end_date, amount_due, created_by)
+         VALUES (:companyId, :branchId, :employee_id, :loan_type, :loan_id, :amount, :interest_rate, :repayment_period_months, :monthly_installment, :start_date, :status, :endDate, :amountDue, :userId)`,
+        { ...finalParams, branchId },
       );
+
+      if (params.loan_id) {
+        const colName = `loan_${params.loan_id}`;
+        await ensureCol(
+          "hr_payroll_items",
+          colName,
+          "DECIMAL(15,2) DEFAULT 0",
+        ).catch(() => {});
+        await ensureCol(
+          "hr_payslips",
+          colName,
+          "DECIMAL(15,2) DEFAULT 0",
+        ).catch(() => {});
+      }
+
+      const lref = result.insertId;
+      if (lref) {
+        const colName = `loan_${lref}`;
+        await ensureCol(
+          "hr_payroll_items",
+          colName,
+          "DECIMAL(15,2) DEFAULT 0",
+        ).catch(() => {});
+        await ensureCol(
+          "hr_payslips",
+          colName,
+          "DECIMAL(15,2) DEFAULT 0",
+        ).catch(() => {});
+      }
+
       res.status(201).json({ id: result.insertId, message: "Loan created" });
     }
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function listLoanTypes(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    await query(
+      `CREATE TABLE IF NOT EXISTS hr_setup_loan_types (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        company_id BIGINT UNSIGNED NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        account_id BIGINT UNSIGNED NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        PRIMARY KEY (id),
+        KEY idx_company (company_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+      {},
+    ).catch(() => {});
+    const items = await query(
+      `SELECT id, name, is_active FROM hr_setup_loan_types WHERE company_id = :companyId AND is_active = 1 ORDER BY name ASC`,
+      { companyId },
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function saveLoanType(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    await query(
+      `CREATE TABLE IF NOT EXISTS hr_setup_loan_types (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        company_id BIGINT UNSIGNED NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        account_id BIGINT UNSIGNED NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        PRIMARY KEY (id),
+        KEY idx_company (company_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+      {},
+    ).catch(() => {});
+    const { id, name, is_active } = req.body;
+    let targetId = id;
+    if (id) {
+      await query(
+        `UPDATE hr_setup_loan_types SET name = :name, is_active = :is_active WHERE id = :id AND company_id = :companyId`,
+        { id, name, is_active: is_active ? 1 : 0, companyId },
+      );
+    } else {
+      const r = await query(
+        `INSERT INTO hr_setup_loan_types (company_id, name, is_active) VALUES (:companyId, :name, :is_active)`,
+        { companyId, name, is_active: is_active ? 1 : 0 },
+      );
+      targetId = r.insertId;
+    }
+
+    // FINANCE SYNC
+    const loanTypeRows = await query(
+      "SELECT id, name, is_active, account_id FROM hr_setup_loan_types WHERE id = :id AND company_id = :companyId",
+      { id: targetId, companyId },
+    );
+    const lt = loanTypeRows?.[0];
+    if (lt) {
+      const gpRows = await query(
+        "SELECT id FROM fin_account_groups WHERE company_id = :companyId AND name = 'Employee Loan Repayments Payable' LIMIT 1",
+        { companyId },
+      );
+      let groupId = gpRows?.[0]?.id;
+      if (!groupId) {
+        const insGp = await query(
+          "INSERT INTO fin_account_groups (company_id, code, name, nature, is_active) VALUES (:companyId, 'EMP_LOAN_PAYABLE', 'Employee Loan Repayments Payable', 'LIABILITY', 1)",
+          { companyId },
+        );
+        groupId = insGp.insertId;
+      }
+
+      const curRows = await query(
+        "SELECT id FROM fin_currencies WHERE company_id = :companyId AND is_base = 1 LIMIT 1",
+        { companyId },
+      );
+      const currencyId = curRows?.[0]?.id || null;
+
+      if (lt.account_id) {
+        await query(
+          "UPDATE fin_accounts SET name = :name, is_active = :is_active WHERE id = :accountId AND company_id = :companyId",
+          {
+            name: lt.name,
+            is_active: lt.is_active,
+            accountId: lt.account_id,
+            companyId,
+          },
+        );
+      } else {
+        const accCode = `LOAN-${targetId}`;
+        const insAcc = await query(
+          `INSERT INTO fin_accounts (company_id, group_id, code, name, currency_id, is_control_account, is_postable, is_active)
+           VALUES (:companyId, :groupId, :code, :name, :currencyId, 0, 1, :is_active)`,
+          {
+            companyId,
+            groupId,
+            code: accCode,
+            name: lt.name,
+            currencyId,
+            is_active: lt.is_active,
+          },
+        );
+        await query(
+          "UPDATE hr_setup_loan_types SET account_id = :accountId WHERE id = :id",
+          { accountId: insAcc.insertId, id: targetId },
+        );
+      }
+    }
+    res.status(id ? 200 : 201).json({
+      id: targetId,
+      message: id ? "Loan type updated" : "Loan type created",
+    });
   } catch (err) {
     next(err);
   }
@@ -3104,6 +3784,10 @@ export async function saveSalaryStructure(req, res, next) {
       );
       res.json({ message: "Salary structure updated" });
     } else {
+      await query(
+        `DELETE FROM hr_salary_structures WHERE company_id = :companyId`,
+        { companyId },
+      ).catch(() => []);
       const result = await query(
         `INSERT INTO hr_salary_structures (company_id, name, description, is_active, components)
          VALUES (:companyId, :name, :description, :is_active, :components)`,
@@ -3130,6 +3814,122 @@ export async function getActiveSalaryStructure(req, res, next) {
     );
     const item = rows[0] || null;
     res.json({ item });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function listBaseSalaries(req, res, next) {
+  try {
+    await ensureHRTables();
+    const { companyId } = req.scope;
+
+    // Get the latest base salary per employee using a more robust join
+    const items = await query(
+      `SELECT e.id as employee_id, e.emp_code, e.first_name, e.last_name, 
+              COALESCE(bs.base_salary, e.base_salary, 0) as base_salary,
+              bs.effective_date
+       FROM hr_employees e
+       LEFT JOIN (
+         SELECT t1.employee_id, t1.base_salary, t1.effective_date
+         FROM hr_employee_base_salaries t1
+         INNER JOIN (
+           SELECT employee_id, MAX(id) as max_id
+           FROM hr_employee_base_salaries
+           WHERE company_id = :companyId
+           GROUP BY employee_id
+         ) t2 ON t1.id = t2.max_id
+       ) bs ON bs.employee_id = e.id
+       WHERE e.company_id = :companyId 
+         AND e.status = 'ACTIVE' 
+         AND e.deleted_at IS NULL
+       ORDER BY e.first_name ASC`,
+      { companyId },
+    );
+
+    res.json({ items });
+  } catch (err) {
+    console.error("DEBUG: listBaseSalaries ERROR:", err);
+    next(err);
+  }
+}
+
+export async function saveBaseSalary(req, res, next) {
+  try {
+    await ensureHRTables();
+    const { companyId } = req.scope;
+    const userId = toNumber(req.user?.id || req.user?.sub, null);
+    const { employee_id, base_salary } = req.body;
+    const effective_date = new Date().toISOString().slice(0, 10);
+
+    // 1. Insert historical record into hr_employee_base_salaries
+    await query(
+      `INSERT INTO hr_employee_base_salaries (company_id, employee_id, base_salary, effective_date, created_by)
+       VALUES (:companyId, :employee_id, :base_salary, :effective_date, :userId)`,
+      {
+        companyId,
+        employee_id,
+        base_salary: Number(base_salary || 0),
+        effective_date,
+        userId,
+      },
+    );
+
+    // 2. Update the base_salary directly on hr_employees table
+    await query(
+      `UPDATE hr_employees SET base_salary = :base_salary WHERE id = :employee_id AND company_id = :companyId`,
+      { base_salary: Number(base_salary || 0), employee_id, companyId },
+    );
+
+    res.json({ message: "Base salary updated successfully" });
+  } catch (err) {
+    console.error("DEBUG saveBaseSalary ERROR:", err);
+    next(err);
+  }
+}
+
+export async function saveBaseSalariesBulk(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const userId = toNumber(req.user?.id || req.user?.sub, null);
+    const { rows } = req.body;
+    if (!Array.isArray(rows)) {
+      return res
+        .status(400)
+        .json({ message: "Invalid payload: rows must be an array" });
+    }
+
+    const effective_date = new Date().toISOString().slice(0, 10);
+    let successCount = 0;
+
+    for (const row of rows) {
+      if (!row || !row.emp_code || row.base_salary == null) continue;
+
+      const empRes = await query(
+        `SELECT id FROM hr_employees WHERE emp_code = :emp_code AND company_id = :companyId AND status = 'ACTIVE'`,
+        { emp_code: String(row.emp_code).trim(), companyId },
+      );
+      if (!empRes.length) continue;
+
+      const employee_id = empRes[0].id;
+      const base_salary = Number(row.base_salary || 0);
+
+      await query(
+        `INSERT INTO hr_employee_base_salaries (company_id, employee_id, base_salary, effective_date, created_by)
+         VALUES (:companyId, :employee_id, :base_salary, :effective_date, :userId)`,
+        { companyId, employee_id, base_salary, effective_date, userId },
+      );
+
+      await query(
+        `UPDATE hr_employees SET base_salary = :base_salary WHERE id = :employee_id AND company_id = :companyId`,
+        { base_salary, employee_id, companyId },
+      );
+      successCount++;
+    }
+
+    res.json({
+      message: `Successfully updated ${successCount} base salaries.`,
+    });
   } catch (err) {
     next(err);
   }
@@ -3353,6 +4153,66 @@ export async function assignOnboardingChecklist(req, res, next) {
     res
       .status(201)
       .json({ id: result.insertId, message: "Onboarding assigned" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function backfillTier3(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const taxRows = await query(
+      `SELECT employee_contribution_rate 
+       FROM hr_tax_config 
+       WHERE company_id = :companyId AND is_active = 1 AND 
+             (tax_type = 'PROVIDENT_FUND' OR UPPER(tax_name) LIKE '%TIER 3%' OR UPPER(tax_name) LIKE '%TIER-3%')`,
+      { companyId },
+    );
+    let rate = 0;
+    for (const r of taxRows) {
+      rate += Number(r.employee_contribution_rate || 0);
+    }
+    rate = rate / 100;
+    const existCol = async (table, col) => {
+      const r = await query(
+        `SELECT COUNT(*) AS c FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c`,
+        { t: table, c: col },
+      ).catch(() => []);
+      return Number(r?.[0]?.c || 0) > 0;
+    };
+    if (!(await existCol("hr_payroll_items", "tier3_employee"))) {
+      await query(
+        `ALTER TABLE hr_payroll_items ADD COLUMN tier3_employee DECIMAL(18,4) NOT NULL DEFAULT 0`,
+        {},
+      ).catch(() => {});
+    }
+    if (!(await existCol("hr_payslips", "tier3_employee"))) {
+      await query(
+        `ALTER TABLE hr_payslips ADD COLUMN tier3_employee DECIMAL(18,4) NOT NULL DEFAULT 0`,
+        {},
+      ).catch(() => {});
+    }
+    const rows = await query(
+      `SELECT pi.payroll_id, pi.employee_id, pi.basic_salary, p.period_id
+       FROM hr_payroll_items pi
+       JOIN hr_payroll p ON p.id = pi.payroll_id
+       WHERE p.company_id = :companyId`,
+      { companyId },
+    );
+    let updated = 0;
+    for (const r of rows) {
+      const amount = Number(r.basic_salary || 0) * rate;
+      await query(
+        `UPDATE hr_payroll_items SET tier3_employee = :amt WHERE payroll_id = :pid AND employee_id = :eid`,
+        { amt: amount, pid: r.payroll_id, eid: r.employee_id },
+      ).catch(() => {});
+      await query(
+        `UPDATE hr_payslips SET tier3_employee = :amt WHERE employee_id = :eid AND period_id = :period_id`,
+        { amt: amount, eid: r.employee_id, period_id: r.period_id },
+      ).catch(() => {});
+      updated++;
+    }
+    res.json({ message: "Tier 3 backfill completed", updated });
   } catch (err) {
     next(err);
   }
@@ -3647,39 +4507,6 @@ export async function reportEmployeeAllowances(req, res, next) {
 }
 
 /**
- * Salary - Base Salary
- */
-export async function listBaseSalaries(req, res, next) {
-  try {
-    const { companyId } = req.scope;
-    const items = await query(
-      `SELECT e.id as employee_id, e.emp_code, e.first_name, e.last_name, e.base_salary
-       FROM hr_employees e
-       WHERE e.company_id = :companyId AND e.deleted_at IS NULL
-       ORDER BY e.emp_code ASC`,
-      { companyId },
-    );
-    res.json({ items });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function saveBaseSalary(req, res, next) {
-  try {
-    const { companyId } = req.scope;
-    const { employee_id, base_salary } = req.body;
-    await query(
-      `UPDATE hr_employees SET base_salary = :base_salary WHERE id = :employee_id AND company_id = :companyId`,
-      { base_salary, employee_id, companyId },
-    );
-    res.json({ message: "Base salary updated" });
-  } catch (err) {
-    next(err);
-  }
-}
-
-/**
  * Bulk Payslip Emails
  */
 export async function sendEmailBulk(req, res, next) {
@@ -3744,10 +4571,65 @@ export async function sendEmailBulk(req, res, next) {
           </div>
         `;
 
+        let attachments = [];
+        try {
+          const port = req.socket.localPort || process.env.PORT || 5000;
+          const baseUrl = `http://127.0.0.1:${port}`;
+          const token = req.headers.authorization;
+          const fwdHeaders = {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: token } : {}),
+            ...((req.headers["x-company-id"]) ? { "x-company-id": req.headers["x-company-id"] } : {}),
+            ...((req.headers["x-branch-id"]) ? { "x-branch-id": req.headers["x-branch-id"] } : {}),
+          };
+
+          // Step 1: Get the rendered HTML
+          const htmlUrl = `${baseUrl}/api/documents/salary-slip/${payslipId}/render`;
+          const htmlRes = await fetch(htmlUrl, {
+            method: "POST",
+            headers: fwdHeaders,
+            body: JSON.stringify({ format: "html" }),
+          });
+          if (!htmlRes.ok) {
+            console.warn("[SEND-PAYSLIP-BULK] Failed to fetch HTML, status:", htmlRes.status);
+            throw new Error("HTML fetch failed");
+          }
+          const payslipHtml = await htmlRes.text();
+
+          // Step 2: Convert HTML to PDF
+          const pdfUrl = `${baseUrl}/api/documents/raw-html-to-pdf`;
+          const pdfRes = await fetch(pdfUrl, {
+            method: "POST",
+            headers: fwdHeaders,
+            body: JSON.stringify({ html: payslipHtml }),
+          });
+          if (!pdfRes.ok) {
+            console.warn("[SEND-PAYSLIP-BULK] Failed to generate PDF, status:", pdfRes.status);
+            throw new Error("PDF generation failed");
+          }
+          const arrayBuffer = await pdfRes.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          if (buffer.length > 0) {
+            const safeName = `Payslip_${p.period_name.replace(/\s+/g, "_")}_${p.first_name}_${p.last_name}.pdf`;
+            attachments.push({
+              filename: safeName,
+              content: buffer,
+              contentType: "application/pdf",
+            });
+            console.log(`[SEND-PAYSLIP-BULK] PDF attached: ${safeName} (${buffer.length} bytes)`);
+          }
+        } catch (e) {
+          console.warn(
+            "[SEND-PAYSLIP-BULK] Warning: Error generating PDF attachment:",
+            e.message,
+          );
+        }
+
         await sendMail({
           to: p.email,
           subject: `Your Payslip for ${p.period_name}`,
           html,
+          attachments,
         });
         count++;
       }
@@ -3920,20 +4802,686 @@ export async function saveWorkSchedule(req, res, next) {
   try {
     await ensureWorkSchedulesTable();
     const { companyId } = req.scope;
-    const { employee_id, shift_id, off_days } = req.body;
-    const offDaysJson = JSON.stringify(Array.isArray(off_days) ? off_days : []);
-    await query(
-      `INSERT INTO hr_work_schedules (company_id, employee_id, shift_id, off_days)
-       VALUES (:companyId, :employee_id, :shift_id, :off_days)
-       ON DUPLICATE KEY UPDATE shift_id = :shift_id, off_days = :off_days`,
-      {
+    const { id, employee_id, shift_id, off_days, is_active } = req.body;
+
+    if (id) {
+      await query(
+        `UPDATE hr_work_schedules 
+         SET shift_id = :shift_id, off_days = :off_days, is_active = :is_active
+         WHERE id = :id AND company_id = :companyId`,
+        {
+          id,
+          shift_id: shift_id || null,
+          off_days: JSON.stringify(off_days || []),
+          is_active: is_active !== false ? 1 : 0,
+          companyId,
+        },
+      );
+      res.json({ message: "Work schedule updated" });
+    } else {
+      await query(
+        `INSERT INTO hr_work_schedules (company_id, employee_id, shift_id, off_days, is_active)
+         VALUES (:companyId, :employee_id, :shift_id, :off_days, 1)
+         ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), off_days = VALUES(off_days), is_active = VALUES(is_active)`,
+        {
+          companyId,
+          employee_id,
+          shift_id: shift_id || null,
+          off_days: JSON.stringify(off_days || []),
+        },
+      );
+      res.json({ message: "Work schedule saved" });
+    }
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
+//  LEAVE MANAGEMENT ERP – Enterprise Leave System
+//  Priority: APPLICATION > SCHEDULE > ROSTER
+// ============================================================
+
+async function ensureLeaveTables() {
+  // Leave Types (e.g. Annual, Sick, Maternity)
+  await query(
+    `CREATE TABLE IF NOT EXISTS hr_leave_types (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      company_id      INT NOT NULL,
+      type_name       VARCHAR(100) NOT NULL,
+      max_days        INT DEFAULT 0,
+      is_paid         TINYINT(1) DEFAULT 1,
+      is_active       TINYINT(1) DEFAULT 1,
+      created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_type (company_id, type_name)
+    )`,
+    {},
+  );
+  try {
+    const hasIsActive = await hasColumn("hr_leave_types", "is_active");
+    if (!hasIsActive) {
+      await query(
+        "ALTER TABLE hr_leave_types ADD COLUMN is_active TINYINT(1) DEFAULT 1 AFTER is_paid",
+        {},
+      );
+    }
+    const hasMaxDays = await hasColumn("hr_leave_types", "max_days");
+    if (!hasMaxDays) {
+      await query(
+        "ALTER TABLE hr_leave_types ADD COLUMN max_days INT DEFAULT 0 AFTER type_name",
+        {},
+      );
+    }
+  } catch {}
+
+  // Leave Records – master audit log
+  await query(
+    `CREATE TABLE IF NOT EXISTS hr_leave_records (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      company_id      INT NOT NULL,
+      employee_id     INT NOT NULL,
+      leave_type_id   INT,
+      start_date      DATE NOT NULL,
+      end_date        DATE NOT NULL,
+      total_days      DECIMAL(5,1) DEFAULT 0,
+      source          ENUM('APPLICATION','SCHEDULE','ROSTER') NOT NULL DEFAULT 'APPLICATION',
+      status          ENUM('ACTIVE','OVERRIDDEN','CANCELLED') NOT NULL DEFAULT 'ACTIVE',
+      reason          TEXT,
+      remarks         TEXT,
+      created_by      INT,
+      created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_emp_dates (employee_id, start_date, end_date),
+      INDEX idx_company_status (company_id, status),
+      INDEX idx_source (source)
+    )`,
+    {},
+  );
+
+  // Leave Balances – allocation per employee per year per leave type
+  await query(
+    `CREATE TABLE IF NOT EXISTS hr_leave_balances (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      company_id      INT NOT NULL,
+      employee_id     INT NOT NULL,
+      leave_type_id   INT NOT NULL,
+      year            INT NOT NULL,
+      allocated_days  DECIMAL(5,1) DEFAULT 0,
+      created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_emp_type_year (company_id, employee_id, leave_type_id, year)
+    )`,
+    {},
+  );
+}
+
+// ── Leave Types ──────────────────────────────────────────────
+export async function listLeaveTypes(req, res, next) {
+  try {
+    await ensureLeaveTables();
+    const { companyId } = req.scope;
+    const items = await query(
+      `SELECT * FROM hr_leave_types WHERE company_id = :companyId AND is_active = 1 ORDER BY type_name ASC`,
+      { companyId },
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getLeaveType(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const { id } = req.params;
+    const rows = await query(
+      `SELECT * FROM hr_leave_types WHERE id = :id AND company_id = :companyId`,
+      { id, companyId },
+    );
+    if (!rows.length) throw httpError(404, "NOT_FOUND", "Leave type not found");
+    res.json({ item: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function saveLeaveType(req, res, next) {
+  try {
+    await ensureLeaveTables();
+    const { companyId } = req.scope;
+    const { id, type_name, max_days, is_paid, is_active } = req.body;
+    if (id) {
+      await query(
+        `UPDATE hr_leave_types SET type_name=:type_name, max_days=:max_days, is_paid=:is_paid, is_active=:is_active
+         WHERE id=:id AND company_id=:companyId`,
+        {
+          id,
+          type_name,
+          max_days: toNumber(max_days, 0),
+          is_paid: is_paid ? 1 : 0,
+          is_active: is_active ? 1 : 0,
+          companyId,
+        },
+      );
+      res.json({ message: "Leave type updated" });
+    } else {
+      const r = await query(
+        `INSERT INTO hr_leave_types (company_id, type_name, max_days, is_paid, is_active)
+         VALUES (:companyId, :type_name, :max_days, :is_paid, 1)`,
+        {
+          companyId,
+          type_name,
+          max_days: toNumber(max_days, 0),
+          is_paid: is_paid !== false ? 1 : 0,
+        },
+      );
+      res.status(201).json({ id: r.insertId, message: "Leave type created" });
+    }
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Dashboard ────────────────────────────────────────────────
+export async function getLeaveDashboard(req, res, next) {
+  try {
+    await ensureLeaveTables();
+    const { companyId } = req.scope;
+    const today = new Date().toISOString().slice(0, 10);
+    const currentYear = new Date().getFullYear();
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 14);
+    const futureIso = futureDate.toISOString().slice(0, 10);
+
+    const [onLeaveRows, upcomingRows, totalRows] = await Promise.all([
+      query(
+        `SELECT COUNT(DISTINCT employee_id) AS cnt
+         FROM hr_leave_records
+         WHERE company_id = :companyId AND status = 'ACTIVE'
+           AND start_date <= :today AND end_date >= :today`,
+        { companyId, today },
+      ),
+      query(
+        `SELECT COUNT(DISTINCT employee_id) AS cnt
+         FROM hr_leave_records
+         WHERE company_id = :companyId AND status = 'ACTIVE'
+           AND start_date > :today AND start_date <= :futureIso`,
+        { companyId, today, futureIso },
+      ),
+      query(
+        `SELECT COALESCE(SUM(total_days), 0) AS total
+         FROM hr_leave_records
+         WHERE company_id = :companyId AND status = 'ACTIVE'
+           AND YEAR(start_date) = :currentYear`,
+        { companyId, currentYear },
+      ),
+    ]);
+
+    res.json({
+      onLeaveToday: Number(onLeaveRows[0]?.cnt || 0),
+      upcomingLeave: Number(upcomingRows[0]?.cnt || 0),
+      totalUsedThisYear: Number(totalRows[0]?.total || 0),
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Apply Leave (APPLICATION – highest priority) ─────────────
+export async function applyLeave(req, res, next) {
+  const conn = await pool.getConnection();
+  try {
+    await ensureLeaveTables();
+    await conn.beginTransaction();
+    const { companyId } = req.scope;
+    const { employee_id, leave_type_id, start_date, end_date, reason } =
+      req.body;
+
+    if (!employee_id || !leave_type_id || !start_date || !end_date) {
+      throw httpError(
+        400,
+        "VALIDATION",
+        "employee_id, leave_type_id, start_date and end_date are required",
+      );
+    }
+
+    const totalDays =
+      (new Date(end_date).getTime() - new Date(start_date).getTime()) /
+        (1000 * 3600 * 24) +
+      1;
+
+    // Mark overlapping ACTIVE records as OVERRIDDEN
+    await conn.query(
+      `UPDATE hr_leave_records
+       SET status = 'OVERRIDDEN', updated_at = NOW()
+       WHERE company_id = ? AND employee_id = ? AND status = 'ACTIVE'
+         AND source IN ('SCHEDULE','ROSTER')
+         AND start_date <= ? AND end_date >= ?`,
+      [companyId, employee_id, end_date, start_date],
+    );
+
+    // Insert new APPLICATION record
+    const [result] = await conn.query(
+      `INSERT INTO hr_leave_records
+         (company_id, employee_id, leave_type_id, start_date, end_date, total_days, source, status, reason, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, 'APPLICATION', 'ACTIVE', ?, ?)`,
+      [
         companyId,
-        employee_id: toNumber(employee_id, null),
-        shift_id: shift_id ? toNumber(shift_id, null) : null,
-        off_days: offDaysJson,
+        employee_id,
+        leave_type_id,
+        start_date,
+        end_date,
+        totalDays,
+        reason || null,
+        req.user?.id || null,
+      ],
+    );
+
+    await conn.commit();
+
+    // Email HR notification (fire-and-forget)
+    try {
+      const [empRow] = await conn.query(
+        `SELECT e.first_name, e.last_name, e.emp_code, lt.type_name
+         FROM hr_employees e
+         LEFT JOIN hr_leave_types lt ON lt.id = ?
+         WHERE e.id = ? LIMIT 1`,
+        [leave_type_id, employee_id],
+      );
+      const emp = empRow;
+      if (emp) {
+        sendMail({
+          to: "hr@company.com",
+          subject: `Leave Application – ${emp.first_name} ${emp.last_name} (${emp.emp_code})`,
+          html: `<p><strong>${emp.first_name} ${emp.last_name}</strong> has applied for <strong>${emp.type_name}</strong> leave from <strong>${start_date}</strong> to <strong>${end_date}</strong> (${totalDays} day(s)).</p>${reason ? `<p>Reason: ${reason}</p>` : ""}`,
+        }).catch(() => {});
+      }
+    } catch {}
+
+    res.status(201).json({
+      id: result.insertId,
+      message: "Leave application submitted",
+      totalDays,
+    });
+  } catch (err) {
+    await conn.rollback();
+    next(err);
+  } finally {
+    conn.release();
+  }
+}
+
+// ── Schedule Leave (HR assigns, SCHEDULE priority) ───────────
+export async function scheduleLeave(req, res, next) {
+  try {
+    await ensureLeaveTables();
+    const { companyId } = req.scope;
+    const { employee_ids, leave_type_id, start_date, end_date, remarks } =
+      req.body;
+
+    if (!Array.isArray(employee_ids) || !employee_ids.length) {
+      throw httpError(
+        400,
+        "VALIDATION",
+        "employee_ids must be a non-empty array",
+      );
+    }
+    if (!leave_type_id || !start_date || !end_date) {
+      throw httpError(
+        400,
+        "VALIDATION",
+        "leave_type_id, start_date and end_date are required",
+      );
+    }
+
+    const totalDays =
+      (new Date(end_date).getTime() - new Date(start_date).getTime()) /
+        (1000 * 3600 * 24) +
+      1;
+
+    let scheduled = 0;
+    const employeeDetails = [];
+
+    for (const empId of employee_ids) {
+      // Skip if APPLICATION already covers this period (APPLICATION wins)
+      const existing = await query(
+        `SELECT id FROM hr_leave_records
+         WHERE company_id = :companyId AND employee_id = :empId
+           AND status = 'ACTIVE' AND source = 'APPLICATION'
+           AND start_date <= :end_date AND end_date >= :start_date
+         LIMIT 1`,
+        { companyId, empId, start_date, end_date },
+      );
+      if (existing.length) continue; // APPLICATION has priority, skip
+
+      await query(
+        `INSERT INTO hr_leave_records
+           (company_id, employee_id, leave_type_id, start_date, end_date, total_days, source, status, remarks, created_by)
+         VALUES (:companyId, :empId, :leave_type_id, :start_date, :end_date, :totalDays, 'SCHEDULE', 'ACTIVE', :remarks, :createdBy)`,
+        {
+          companyId,
+          empId,
+          leave_type_id,
+          start_date,
+          end_date,
+          totalDays,
+          remarks: remarks || null,
+          createdBy: req.user?.id || null,
+        },
+      );
+      scheduled++;
+      employeeDetails.push(empId);
+    }
+
+    // Notify employees (fire-and-forget)
+    try {
+      const empRows = await query(
+        `SELECT e.first_name, e.last_name, e.email, lt.type_name
+         FROM hr_employees e
+         LEFT JOIN hr_leave_types lt ON lt.id = :leave_type_id
+         WHERE e.id IN (${employeeDetails.map(() => "?").join(",")}) AND e.email IS NOT NULL`,
+        {
+          leave_type_id,
+          ...Object.fromEntries(employeeDetails.map((id, i) => [i, id])),
+        },
+      );
+      for (const emp of empRows || []) {
+        if (emp.email) {
+          sendMail({
+            to: emp.email,
+            subject: `Leave Scheduled: ${emp.type_name} (${start_date} – ${end_date})`,
+            html: `<p>Dear ${emp.first_name},</p><p>HR has scheduled <strong>${emp.type_name}</strong> leave for you from <strong>${start_date}</strong> to <strong>${end_date}</strong> (${totalDays} day(s)).</p>`,
+          }).catch(() => {});
+        }
+      }
+    } catch {}
+
+    res.json({ scheduled, message: `${scheduled} leave record(s) scheduled` });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Roster Leave (annual plan, lowest priority) ───────────────
+export async function saveLeaveRoster(req, res, next) {
+  try {
+    await ensureLeaveTables();
+    const { companyId } = req.scope;
+    const { year, items } = req.body;
+
+    if (!Array.isArray(items) || !items.length) {
+      throw httpError(400, "VALIDATION", "items must be a non-empty array");
+    }
+
+    let rostered = 0;
+    for (const item of items) {
+      const { employee_id, leave_type_id, start_date, end_date } = item;
+      if (!employee_id || !start_date || !end_date) continue;
+
+      const totalDays =
+        (new Date(end_date).getTime() - new Date(start_date).getTime()) /
+          (1000 * 3600 * 24) +
+        1;
+
+      // Only insert if no APPLICATION or SCHEDULE covering same period
+      const existing = await query(
+        `SELECT id FROM hr_leave_records
+         WHERE company_id = :companyId AND employee_id = :employee_id
+           AND status = 'ACTIVE' AND source IN ('APPLICATION','SCHEDULE')
+           AND start_date <= :end_date AND end_date >= :start_date
+         LIMIT 1`,
+        { companyId, employee_id, start_date, end_date },
+      );
+      if (existing.length) continue;
+
+      await query(
+        `INSERT INTO hr_leave_records
+           (company_id, employee_id, leave_type_id, start_date, end_date, total_days, source, status, remarks, created_by)
+         VALUES (:companyId, :employee_id, :leave_type_id, :start_date, :end_date, :totalDays, 'ROSTER', 'ACTIVE', :remarks, :createdBy)`,
+        {
+          companyId,
+          employee_id,
+          leave_type_id: leave_type_id || null,
+          start_date,
+          end_date,
+          totalDays,
+          remarks: year ? `Roster ${year}` : null,
+          createdBy: req.user?.id || null,
+        },
+      );
+      rostered++;
+    }
+
+    res.json({ rostered, message: `${rostered} roster record(s) saved` });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── List Leave Records (full audit trail) ────────────────────
+export async function listLeaveRecords(req, res, next) {
+  try {
+    await ensureLeaveTables();
+    const { companyId } = req.scope;
+    const { employee_id, source, status, start_date, end_date, dept_id, q } =
+      req.query;
+
+    const clauses = ["lr.company_id = :companyId"];
+    const params = { companyId };
+
+    if (employee_id) {
+      clauses.push("lr.employee_id = :employee_id");
+      params.employee_id = toNumber(employee_id, null);
+    }
+    if (source && source !== "ALL") {
+      clauses.push("lr.source = :source");
+      params.source = source;
+    }
+    if (status && status !== "ALL") {
+      clauses.push("lr.status = :status");
+      params.status = status;
+    }
+    if (start_date) {
+      clauses.push("lr.end_date >= :start_date");
+      params.start_date = start_date;
+    }
+    if (end_date) {
+      clauses.push("lr.start_date <= :end_date");
+      params.end_date = end_date;
+    }
+    if (dept_id && dept_id !== "ALL") {
+      clauses.push("e.dept_id = :dept_id");
+      params.dept_id = toNumber(dept_id, null);
+    }
+    if (q) {
+      clauses.push(
+        "(e.first_name LIKE :q OR e.last_name LIKE :q OR e.emp_code LIKE :q)",
+      );
+      params.q = `%${q}%`;
+    }
+
+    const where = `WHERE ${clauses.join(" AND ")}`;
+
+    const items = await query(
+      `SELECT lr.id, lr.employee_id, lr.leave_type_id, lr.start_date, lr.end_date, lr.total_days,
+              lr.source, lr.status, lr.reason, lr.remarks, lr.created_at, lr.updated_at,
+              e.first_name, e.last_name, e.emp_code,
+              d.dept_name,
+              lt.type_name
+       FROM hr_leave_records lr
+       JOIN hr_employees e ON e.id = lr.employee_id AND e.deleted_at IS NULL
+       LEFT JOIN hr_departments d ON d.id = e.dept_id
+       LEFT JOIN hr_leave_types lt ON lt.id = lr.leave_type_id
+       ${where}
+       ORDER BY lr.created_at DESC`,
+      params,
+    );
+
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Delete Leave Record ──────────────────────────────────────
+export async function deleteLeaveRecord(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const { id } = req.params;
+    const rows = await query(
+      `SELECT id FROM hr_leave_records WHERE id = :id AND company_id = :companyId LIMIT 1`,
+      { id, companyId },
+    );
+    if (!rows.length) throw httpError(404, "NOT_FOUND", "Record not found");
+    await query(`DELETE FROM hr_leave_records WHERE id = :id`, { id });
+    res.json({ message: "Leave record deleted" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Update Leave Record ──────────────────────────────────────
+export async function updateLeave(req, res, next) {
+  try {
+    const { companyId } = req.scope;
+    const { id } = req.params;
+    const { start_date, end_date, status, remarks, leave_type_id } = req.body;
+
+    const rows = await query(
+      `SELECT id FROM hr_leave_records WHERE id = :id AND company_id = :companyId LIMIT 1`,
+      { id, companyId },
+    );
+    if (!rows.length) throw httpError(404, "NOT_FOUND", "Record not found");
+
+    let totalDays = null;
+    if (start_date && end_date) {
+      totalDays =
+        (new Date(end_date).getTime() - new Date(start_date).getTime()) /
+          (1000 * 3600 * 24) +
+        1;
+    }
+
+    await query(
+      `UPDATE hr_leave_records
+       SET start_date   = COALESCE(:start_date, start_date),
+           end_date     = COALESCE(:end_date, end_date),
+           total_days   = COALESCE(:total_days, total_days),
+           status       = COALESCE(:status, status),
+           remarks      = COALESCE(:remarks, remarks),
+           leave_type_id = COALESCE(:leave_type_id, leave_type_id)
+       WHERE id = :id`,
+      {
+        id,
+        start_date: start_date || null,
+        end_date: end_date || null,
+        total_days: totalDays,
+        status: status || null,
+        remarks: remarks || null,
+        leave_type_id: leave_type_id || null,
       },
     );
-    res.json({ message: "Work schedule saved" });
+    res.json({ message: "Leave record updated" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Leave Calendar (ACTIVE only, color by source) ────────────
+export async function leaveCalendar(req, res, next) {
+  try {
+    await ensureLeaveTables();
+    const { companyId } = req.scope;
+    const { year, month } = req.query;
+
+    const clauses = ["lr.company_id = :companyId", "lr.status = 'ACTIVE'"];
+    const params = { companyId };
+
+    if (year && month) {
+      // Get records that overlap the given month
+      const firstDay = `${year}-${String(month).padStart(2, "0")}-01`;
+      const lastDay = new Date(Number(year), Number(month), 0)
+        .toISOString()
+        .slice(0, 10); // last day of month
+      clauses.push("lr.start_date <= :lastDay AND lr.end_date >= :firstDay");
+      params.firstDay = firstDay;
+      params.lastDay = lastDay;
+    } else if (year) {
+      clauses.push("YEAR(lr.start_date) = :year");
+      params.year = year;
+    }
+
+    const where = `WHERE ${clauses.join(" AND ")}`;
+
+    const events = await query(
+      `SELECT lr.id, lr.employee_id, lr.start_date, lr.end_date, lr.total_days, lr.source, lr.status,
+              e.first_name, e.last_name, e.emp_code,
+              lt.type_name
+       FROM hr_leave_records lr
+       JOIN hr_employees e ON e.id = lr.employee_id AND e.deleted_at IS NULL
+       LEFT JOIN hr_leave_types lt ON lt.id = lr.leave_type_id
+       ${where}
+       ORDER BY lr.start_date ASC`,
+      params,
+    );
+
+    res.json({ events });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Leave Balances (dynamic: allocated vs used) ──────────────
+export async function listLeaveBalances(req, res, next) {
+  try {
+    await ensureLeaveTables();
+    const { companyId } = req.scope;
+    const { year, dept_id, employee_id } = req.query;
+    const currentYear = year ? Number(year) : new Date().getFullYear();
+
+    const clauses = [
+      "e.company_id = :companyId",
+      "e.deleted_at IS NULL",
+      "e.status = 'ACTIVE'",
+    ];
+    const params = { companyId, currentYear };
+
+    if (dept_id && dept_id !== "ALL") {
+      clauses.push("e.dept_id = :dept_id");
+      params.dept_id = toNumber(dept_id, null);
+    }
+    if (employee_id) {
+      clauses.push("e.id = :employee_id");
+      params.employee_id = toNumber(employee_id, null);
+    }
+
+    const where = `WHERE ${clauses.join(" AND ")}`;
+
+    const items = await query(
+      `SELECT
+         e.id AS employee_id,
+         e.emp_code,
+         e.first_name,
+         e.last_name,
+         d.dept_name,
+         lt.id AS leave_type_id,
+         lt.type_name,
+         COALESCE(lb.allocated_days, lt.max_days, 0)    AS allocated_days,
+         COALESCE(SUM(CASE WHEN lr.status = 'ACTIVE' AND YEAR(lr.start_date) = :currentYear THEN lr.total_days ELSE 0 END), 0) AS used_days
+       FROM hr_employees e
+       LEFT JOIN hr_departments d ON d.id = e.dept_id
+       CROSS JOIN hr_leave_types lt ON lt.company_id = :companyId AND lt.is_active = 1
+       LEFT JOIN hr_leave_balances lb
+         ON lb.employee_id = e.id AND lb.leave_type_id = lt.id AND lb.year = :currentYear AND lb.company_id = :companyId
+       LEFT JOIN hr_leave_records lr
+         ON lr.employee_id = e.id AND lr.leave_type_id = lt.id AND lr.company_id = :companyId
+       ${where}
+       GROUP BY e.id, lt.id, lb.allocated_days, lt.max_days
+       ORDER BY e.first_name ASC, lt.type_name ASC`,
+      params,
+    );
+
+    res.json({ items, year: currentYear });
   } catch (err) {
     next(err);
   }

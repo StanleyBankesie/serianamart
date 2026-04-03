@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
-import { renderHtmlToA4Pdf } from "@/utils/pdfUtils.js";
+import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
@@ -347,34 +347,15 @@ export default function QuotationList() {
   async function downloadQuotationPdf(id) {
     try {
       const resp = await api.post(
-        `/documents/quotation/${id}/render?format=pdf`,
-        {},
-        { responseType: "blob" },
-      );
-      const blob = resp.data;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `quotation-${id}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {}
-    try {
-      const htmlRes = await api.post(
         `/documents/quotation/${id}/render`,
         { format: "html" },
         { headers: { "Content-Type": "application/json" } },
       );
-      const html =
-        typeof htmlRes.data === "string"
-          ? htmlRes.data
-          : String(htmlRes.data || "");
-      await renderHtmlToA4Pdf(html, `quotation-${id}.pdf`);
-    } catch (e2) {
-      setError(
-        e2?.response?.data?.message ||
-          "Failed to download quotation. Please try again.",
-      );
+      const html = typeof resp.data === "string" ? resp.data : String(resp.data || "");
+      await renderHtmlToPdf(html, `quotation-${id}.pdf`);
+    } catch (err) {
+      console.error("PDF Download Error:", err);
+      toast.error(err?.response?.data?.message || "Failed to download Quotation PDF");
     }
   }
 

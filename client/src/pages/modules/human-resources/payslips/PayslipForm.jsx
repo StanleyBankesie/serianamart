@@ -1,54 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
-
-function escapeHtml(v) {
-  return String(v ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function wrapDoc(bodyHtml) {
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Payslip</title>
-    <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 16px; color: #0f172a; }
-      table { border-collapse: collapse; width: 100%; }
-      th, td { border: 1px solid #e2e8f0; padding: 6px 8px; vertical-align: top; }
-      th { background: #f8fafc; text-align: left; }
-    </style>
-  </head>
-  <body>${bodyHtml || ""}</body>
-</html>`;
-}
-
-async function waitForImages(container) {
-  const imgs = Array.from(container?.querySelectorAll?.("img") || []);
-  if (imgs.length === 0) return;
-  await Promise.race([
-    Promise.all(
-      imgs.map(
-        (img) =>
-          new Promise((resolve) => {
-            if (img.complete) return resolve();
-            const done = () => resolve();
-            img.addEventListener("load", done, { once: true });
-            img.addEventListener("error", done, { once: true });
-          }),
-      ),
-    ),
-    new Promise((r) => setTimeout(r, 1500)),
-  ]);
-}
 
 export default function PayslipForm() {
   const navigate = useNavigate();
@@ -112,7 +64,7 @@ export default function PayslipForm() {
   const sampleData = useMemo(() => {
     const logoUrl = String(companyInfo.logoUrl || "").trim();
     const logoHtml = logoUrl
-      ? `<img src="${logoUrl}" alt="${escapeHtml(companyInfo.name || "Company")}" style="max-height:80px;object-fit:contain;" />`
+      ? `<img src="${logoUrl}" alt="${String(companyInfo.name || "Company")}" style="max-height:80px;object-fit:contain;" />`
       : "";
     return {
       company: {
@@ -132,119 +84,6 @@ export default function PayslipForm() {
 
   function update(name, value) {
     setForm((p) => ({ ...p, [name]: value }));
-  }
-
-  async function printPayslip() {
-    const companyName = escapeHtml(sampleData.company.name);
-    const logo = sampleData.company.logoUrl
-      ? `<img src="${sampleData.company.logoUrl}" alt="${companyName}" style="max-height:80px;object-fit:contain;" />`
-      : "";
-    const body = `<div style="display:flex;justify-content:space-between;align-items:flex-start;">
-  <div>
-    ${logo}
-    <div style="font-weight:800;font-size:18px;">${companyName}</div>
-    <div style="font-size:12px;color:#475569;">${escapeHtml(sampleData.company.address)}</div>
-  </div>
-  <div style="text-align:right;">
-    <div style="font-weight:800;font-size:20px;">PAYSLIP</div>
-    <div style="font-size:12px;">Period: ${escapeHtml(sampleData.payslip.period)}</div>
-  </div>
-</div>
-<hr />
-<div style="font-size:12px;margin-bottom:10px;"><strong>Employee:</strong> ${escapeHtml(sampleData.payslip.employee)}</div>
-<table style="font-size:12px;">
-  <tbody>
-    <tr><td>Net Pay</td><td style="text-align:right;">${escapeHtml(sampleData.payslip.netPay)}</td></tr>
-    <tr><td>Status</td><td style="text-align:right;">${escapeHtml(sampleData.payslip.status)}</td></tr>
-  </tbody>
-</table>`;
-    const html = wrapDoc(body);
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    document.body.appendChild(iframe);
-    const doc =
-      iframe.contentWindow?.document || iframe.contentDocument || null;
-    if (!doc) {
-      document.body.removeChild(iframe);
-      return;
-    }
-    doc.open();
-    doc.write(html);
-    doc.close();
-    const win = iframe.contentWindow || window;
-    const handlePrint = () => {
-      win.focus();
-      try {
-        win.print();
-      } catch {}
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 100);
-    };
-    setTimeout(handlePrint, 200);
-  }
-
-  async function downloadPayslipPdf() {
-    const companyName = escapeHtml(sampleData.company.name);
-    const logo = sampleData.company.logoUrl
-      ? `<img src="${sampleData.company.logoUrl}" alt="${companyName}" style="max-height:80px;object-fit:contain;" />`
-      : "";
-    const body = `<div style="display:flex;justify-content:space-between;align-items:flex-start;">
-  <div>
-    ${logo}
-    <div style="font-weight:800;font-size:18px;">${companyName}</div>
-    <div style="font-size:12px;color:#475569;">${escapeHtml(sampleData.company.address)}</div>
-  </div>
-  <div style="text-align:right;">
-    <div style="font-weight:800;font-size:20px;">PAYSLIP</div>
-    <div style="font-size:12px;">Period: ${escapeHtml(sampleData.payslip.period)}</div>
-  </div>
-</div>
-<hr />
-<div style="font-size:12px;margin-bottom:10px;"><strong>Employee:</strong> ${escapeHtml(sampleData.payslip.employee)}</div>
-<table style="font-size:12px;">
-  <tbody>
-    <tr><td>Net Pay</td><td style="text-align:right;">${escapeHtml(sampleData.payslip.netPay)}</td></tr>
-    <tr><td>Status</td><td style="text-align:right;">${escapeHtml(sampleData.payslip.status)}</td></tr>
-  </tbody>
-</table>`;
-    const container = document.createElement("div");
-    container.style.position = "fixed";
-    container.style.left = "-10000px";
-    container.style.top = "0";
-    container.style.width = "794px";
-    container.style.background = "white";
-    container.style.padding = "32px";
-    container.innerHTML = body;
-    document.body.appendChild(container);
-    try {
-      await waitForImages(container);
-      const canvas = await html2canvas(container, { scale: 2, useCORS: true });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let rendered = 0;
-      while (rendered < imgHeight) {
-        pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
-        rendered += pageHeight;
-        if (rendered < imgHeight) pdf.addPage();
-      }
-      const fname =
-        "Payslip_" +
-        (sampleData.payslip.period || new Date().toISOString().slice(0, 10)) +
-        ".pdf";
-      pdf.save(fname);
-    } finally {
-      document.body.removeChild(container);
-    }
   }
 
   async function submit(e) {
@@ -267,20 +106,6 @@ export default function PayslipForm() {
             </h1>
           </div>
           <div className="flex gap-2">
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={printPayslip}
-            >
-              Print
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={downloadPayslipPdf}
-            >
-              Download PDF
-            </button>
             <Link to="/human-resources/payslips" className="btn-success">
               Back
             </Link>

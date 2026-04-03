@@ -22,6 +22,10 @@ Handlebars.registerHelper("formatDate", function (date) {
 Handlebars.registerHelper("inc", function (value, options) {
   return parseInt(value) + 1;
 });
+Handlebars.registerHelper("salary_slip_amount", function(val) {
+  if (!val || String(val).trim() === "") return "";
+  return Number(val || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+});
 
 function expandDocumentTypeAliases(type) {
   const t = String(type || "")
@@ -237,7 +241,13 @@ function canonicalDocumentType(type) {
   if (t === "direct-purchase" || t === "direct purchase") {
     return "direct-purchase";
   }
-  if (t === "salary-slip" || t === "salaryslip" || t === "payslip" || t === "salary slip" || t === "salary_slip") {
+  if (
+    t === "salary-slip" ||
+    t === "salaryslip" ||
+    t === "payslip" ||
+    t === "salary slip" ||
+    t === "salary_slip"
+  ) {
     return "salary-slip";
   }
   return String(type || "").trim();
@@ -769,6 +779,121 @@ ${commonHead}
 </div>
 `;
   }
+  if (type === "salary-slip") {
+    return `
+${commonHead}
+<div class="doc">
+  <div class="header">
+    <div><img class="logo" src="{{company.logo}}" alt="Logo"/></div>
+    <div class="company">
+      <div class="name">{{company.name}}</div>
+      <div>{{company.address}}</div>
+      <div>{{company.address2}}</div>
+      <div>Contact No: {{company.phone}}</div>
+      <div>Email: {{company.email}}</div>
+    </div>
+  </div>
+  <div class="titlebar">
+    <div class="line"></div>
+    <div class="title">* Salary Slip *</div>
+    <div class="line"></div>
+  </div>
+  
+  <div class="info" style="margin-bottom: 24px;">
+    <div class="info-left">
+      <div class="kv">
+        <div class="kv-row"><div class="kv-label">Employee Name</div><div class="kv-sep">:</div><div class="kv-val">{{employee.name}}</div></div>
+        <div class="kv-row"><div class="kv-label">Employee Code</div><div class="kv-sep">:</div><div class="kv-val">{{employee.code}}</div></div>
+        <div class="kv-row"><div class="kv-label">Department</div><div class="kv-sep">:</div><div class="kv-val">{{employee.department}}</div></div>
+        <div class="kv-row"><div class="kv-label">Designation</div><div class="kv-sep">:</div><div class="kv-val">{{employee.job_title}}</div></div>
+      </div>
+    </div>
+    <div class="info-mid">
+      <div class="kv">
+        <div class="kv-row"><div class="kv-label">Pay Period</div><div class="kv-sep">:</div><div class="kv-val">{{salary_slip.pay_period}}</div></div>
+        <div class="kv-row"><div class="kv-label">Pay Date</div><div class="kv-sep">:</div><div class="kv-val">{{formatDate salary_slip.pay_date}}</div></div>
+        {{#if employee.bank_name}}
+        <div class="kv-row"><div class="kv-label">Bank Name</div><div class="kv-sep">:</div><div class="kv-val">{{employee.bank_name}}</div></div>
+        <div class="kv-row"><div class="kv-label">Account No.</div><div class="kv-sep">:</div><div class="kv-val">{{employee.bank_account_no}}</div></div>
+        {{/if}}
+      </div>
+    </div>
+    <div class="info-right">
+      <div class="qr-box"><img src="{{salary_slip.qr_code}}" alt="QR"/></div>
+    </div>
+  </div>
+  
+  <table style="border: 1px solid #000; margin-bottom: 0;">
+    <thead>
+      <tr>
+        <th class="left" style="width: 50%; border-right: 1px solid #000; text-align: center; font-size: 11px;">EARNINGS</th>
+        <th class="left" style="width: 50%; text-align: center; font-size: 11px;">DEDUCTIONS</th>
+      </tr>
+      <tr style="border-top: 1px solid #000;">
+        <th style="padding: 0; border: none; border-right: 1px solid #000;">
+           <table style="margin: 0; border: none;">
+              <tr><td style="font-weight: bold; border: none;">Description</td><td class="num" style="font-weight: bold; border: none;">Amount</td></tr>
+           </table>
+        </th>
+        <th style="padding: 0; border: none;">
+           <table style="margin: 0; border: none;">
+              <tr><td style="font-weight: bold; border: none; padding-left: 4px;">Description</td><td class="num" style="font-weight: bold; border: none;">Amount</td></tr>
+           </table>
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+       {{#each payslip.rows}}
+       <tr>
+         <td style="padding: 0; border: none; width: 50%; border-right: 1px solid #000;">
+           <table style="margin: 0; border: none;">
+             <tr>
+               <td style="border: none;">{{earning_label}}</td>
+               <td class="num" style="border: none;">{{salary_slip_amount earning_amount}}</td>
+             </tr>
+           </table>
+         </td>
+         <td style="padding: 0; border: none; width: 50%;">
+           <table style="margin: 0; border: none;">
+             <tr>
+               <td style="border: none; padding-left: 4px;">{{deduction_label}}</td>
+               <td class="num" style="border: none;">{{salary_slip_amount deduction_amount}}</td>
+             </tr>
+           </table>
+         </td>
+       </tr>
+       {{/each}}
+    </tbody>
+  </table>
+  <div style="display: flex; border: 1px solid #000; border-top: 2px solid #000;">
+    <div style="flex: 1; border-right: 1px solid #000; padding: 6px; display: flex; justify-content: space-between; font-weight: bold;">
+       <span>Total Earnings</span>
+       <span>{{salary_slip_amount salary_slip.total_earnings}}</span>
+    </div>
+    <div style="flex: 1; padding: 6px; display: flex; justify-content: space-between; font-weight: bold;">
+       <span>Total Deductions</span>
+       <span>{{salary_slip_amount salary_slip.total_deductions}}</span>
+    </div>
+  </div>
+  
+  <div style="margin-top: 16px; border: 1px solid #000; display: flex; align-items: stretch;">
+    <div style="flex: 1; padding: 12px; font-weight: bold; display: flex; flex-direction: column; justify-content: center; background: #f0f0f0;">
+      <div style="font-size: 14px;">Net Pay: &nbsp; <span style="font-size: 16px;">{{salary_slip_amount salary_slip.net_pay}}</span></div>
+      {{#if salary_slip.net_pay_in_words}}
+      <div style="font-size: 11px; margin-top: 6px; font-weight: normal; text-transform: uppercase;">Amount in Words: {{salary_slip.net_pay_in_words}}</div>
+      {{/if}}
+    </div>
+  </div>
+  
+  <div class="footer-prepared">
+    <div style="display: flex; justify-content: space-between;">
+        <div style="margin-top: 10px;"><span class="lbl" style="margin-right: 8px;">Employer Signature:</span> _________________________</div>
+        <div style="margin-top: 10px;"><span class="lbl" style="margin-right: 8px;">Employee Signature:</span> _________________________</div>
+    </div>
+  </div>
+</div>
+`;
+  }
   if (type === "receipt-voucher") {
     return `
 ${commonHead}
@@ -826,82 +951,6 @@ ${commonHead}
     <div>
       <div>Receiver Signature</div>
       <div class="sign"></div>
-    </div>
-  </div>
-</div>
-`;
-  }
-  if (type === "salary-slip") {
-    return `
-${commonHead}
-<div class="doc">
-  <div class="header">
-    <div><img class="logo" src="{{company.logo}}" alt="Logo"/></div>
-    <div class="company">
-      <div class="name">{{company.name}}</div>
-      <div>{{company.address}}</div>
-      <div>{{company.address2}}</div>
-      <div>Contact No: {{company.phone}}</div>
-      <div>Email: {{company.email}}</div>
-    </div>
-  </div>
-  <div class="titlebar">
-    <div class="line"></div>
-    <div class="title">* Salary Slip *</div>
-    <div class="line"></div>
-  </div>
-  <div class="info">
-    <div class="info-left">
-      <div class="kv">
-        <div class="kv-row"><div class="kv-label">Employee Name</div><div class="kv-sep">:</div><div class="kv-val">{{employee.name}}</div></div>
-        <div class="kv-row"><div class="kv-label">Employee ID</div><div class="kv-sep">:</div><div class="kv-val">{{employee.code}}</div></div>
-        <div class="kv-row"><div class="kv-label">Department</div><div class="kv-sep">:</div><div class="kv-val">{{employee.department}}</div></div>
-        <div class="kv-row"><div class="kv-label">Location/Branch</div><div class="kv-sep">:</div><div class="kv-val">{{employee.branch}}</div></div>
-      </div>
-    </div>
-    <div class="info-mid">
-      <div class="kv">
-        <div class="kv-row"><div class="kv-label">Payslip No.</div><div class="kv-sep">:</div><div class="kv-val">{{payslip.id}}</div></div>
-        <div class="kv-row"><div class="kv-label">Payroll Period</div><div class="kv-sep">:</div><div class="kv-val">{{payslip.period_name}}</div></div>
-        <div class="kv-row"><div class="kv-label">Status</div><div class="kv-sep">:</div><div class="kv-val">{{payslip.status}}</div></div>
-      </div>
-    </div>
-    <div class="info-right">
-      <div class="qr-box"></div>
-    </div>
-  </div>
-  <table style="margin-top:20px;">
-    <thead>
-      <tr><th class="left">Earnings</th><th class="center">Amount</th><th class="left">Deductions</th><th class="center">Amount</th></tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>Basic Salary</td><td class="num">{{payslip.basic_salary}}</td>
-        <td>Total Deductions</td><td class="num">{{payslip.deductions}}</td>
-      </tr>
-      <tr>
-        <td>Allowances</td><td class="num">{{payslip.allowances}}</td>
-        <td></td><td class="num"></td>
-      </tr>
-    </tbody>
-  </table>
-  <div class="bottom-section" style="margin-top: 20px;">
-    <div class="bottom-left">
-    </div>
-    <div class="bottom-right">
-      <div class="summary-row"><div class="s-label">Gross Earnings</div><div class="s-val">{{payslip.gross_pay}}</div></div>
-      <div class="summary-row"><div class="s-label">Total Deductions</div><div class="s-val">{{payslip.deductions}}</div></div>
-      <div class="summary-row"><div class="s-label">Net Payable</div><div class="s-val" style="font-weight: bold; font-size: 14px;">{{payslip.net_salary}}</div></div>
-    </div>
-  </div>
-  <div class="footer-prepared" style="display:flex; justify-content:space-between; margin-top:40px;">
-    <div>
-      <div class="lbl">Employer Signature</div>
-      <div style="height:30px; border-bottom:1px solid #000; width:150px; margin-top:10px;"></div>
-    </div>
-    <div>
-      <div class="lbl">Employee Signature</div>
-      <div style="height:30px; border-bottom:1px solid #000; width:150px; margin-top:10px;"></div>
     </div>
   </div>
 </div>
@@ -1156,23 +1205,52 @@ async function loadPreviewData(type, companyId, branchId) {
   }
   if (type === "salary-slip") {
     return {
-      company: company || {},
+      company: company || {
+        name: "Acme Ghana Ltd",
+        address: "123 Business Lane, Accra",
+        phone: "+233 50 123 4567",
+        email: "info@acmeghana.com",
+        logo: `/api/admin/companies/${companyId}/logo`,
+      },
       employee: {
         name: "Jane Smith",
         code: "EMP-001",
         email: "jane@example.com",
         department: "Engineering",
         branch: "Headquarters",
+        job_title: "Senior Engineer",
+        bank_name: "Ecobank Ghana",
+        bank_account_no: "1441000123456",
       },
       payslip: {
         id: "1024",
-        period_name: "Oct 2023",
+        period_name: "October 2023",
+        paid_at: new Date().toLocaleDateString(),
         basic_salary: "5000.00",
         allowances: "1500.00",
         deductions: "800.00",
         gross_pay: "6500.00",
         net_salary: "5700.00",
         status: "PAID",
+        qr_code: `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent("PREVIEW_PAYSLIP")}`,
+      },
+      salary_slip: {
+        pay_period: "October 2023",
+        pay_date: new Date().toLocaleDateString(),
+        earnings: [
+          { name: "Basic Salary", amount: "5000.00" },
+          { name: "Housing Allowance", amount: "1000.00" },
+          { name: "Transport Allowance", amount: "500.00" },
+        ],
+        deductions: [
+          { name: "Income Tax (PAYE)", amount: "450.00" },
+          { name: "SSF (Employee)", amount: "250.00" },
+          { name: "Tier 3", amount: "100.00" },
+        ],
+        total_earnings: "6500.00",
+        total_deductions: "800.00",
+        net_pay: "5700.00",
+        net_pay_in_words: "Five Thousand Seven Hundred Ghana Cedis Only",
       },
     };
   }
@@ -2248,44 +2326,220 @@ async function loadData(type, id, companyId, branchId) {
   }
   if (type === "salary-slip") {
     const [payslip] = await query(
-      `SELECT p.*, e.first_name, e.last_name, e.emp_code, e.email, pr.period_name, d.dept_name, b.branch_name
+      `SELECT p.*, e.first_name, e.last_name, e.emp_code, e.email, e.joining_date, e.ssnit_no, e.tin, e.bank_name, e.bank_account_no,
+              pr.period_name, d.dept_name, b.name AS branch_name, pos.pos_name AS position_name, p.paid_at
        FROM hr_payslips p
        JOIN hr_employees e ON e.id = p.employee_id
        JOIN hr_payroll_periods pr ON pr.id = p.period_id
        LEFT JOIN hr_departments d ON d.id = e.dept_id
-       LEFT JOIN hr_branches b ON b.id = e.branch_id
+       LEFT JOIN adm_branches b ON b.id = e.location_id
+       LEFT JOIN hr_positions pos ON pos.id = e.pos_id
        WHERE p.id = :id AND e.company_id = :companyId
        LIMIT 1`,
-      { id, companyId }
+      { id, companyId },
     ).catch(() => []);
     if (!payslip) throw httpError(404, "NOT_FOUND", "Payslip not found");
     const [company] = await query(
-      `SELECT id, name, address, city, state, postal_code, country, telephone, email, website
+      `SELECT id, name, address, address2, city, state, postal_code, country, telephone, email, website, logo
        FROM adm_companies WHERE id = :companyId LIMIT 1`,
-      { companyId }
+      { companyId },
     ).catch(() => []);
+
+    let earnings = [];
+    if (Number(payslip.basic_salary) > 0) {
+      earnings.push({
+        label: "Basic Salary",
+        amount: Number(payslip.basic_salary),
+      });
+    }
+    if (Number(payslip.allowances) > 0) {
+      earnings.push({
+        label: "Allowances",
+        amount: Number(payslip.allowances),
+      });
+    }
+
+    let deductions = [];
+    if (Number(payslip.ssf_employee) > 0) {
+      deductions.push({ label: "SSF (Emp)", amount: Number(payslip.ssf_employee) });
+    }
+    if (Number(payslip.tier3_employee) > 0) {
+      deductions.push({ label: "Tier 3", amount: Number(payslip.tier3_employee) });
+    }
+    if (Number(payslip.income_tax) > 0) {
+      deductions.push({ label: "PAYE Tax", amount: Number(payslip.income_tax) });
+    }
+    if (Number(payslip.loan_deductions_total) > 0) {
+      deductions.push({ label: "Loan Deductions", amount: Number(payslip.loan_deductions_total) });
+    }
+
+    // Remove 0 amount manually added components (safety measure)
+    earnings = earnings.filter((e) => e.amount > 0);
+    deductions = deductions.filter((d) => d.amount > 0);
+
+    // Build Zip array for Handlebars rendering
+    const maxLen = Math.max(earnings.length, deductions.length);
+    const rows = [];
+    for (let i = 0; i < maxLen; i++) {
+      rows.push({
+        earning_label: earnings[i] ? earnings[i].label : "",
+        earning_amount: earnings[i] ? earnings[i].amount.toFixed(2) : "",
+        deduction_label: deductions[i] ? deductions[i].label : "",
+        deduction_amount: deductions[i] ? deductions[i].amount.toFixed(2) : "",
+      });
+    }
+
+    // Try converting net pay to words (simple hack if we don't have a library, we'll leave it out or put "")
+    let netInWords = "";
+    try {
+      if (typeof window === "undefined" && global.require) {
+        // Attempt to use a library if it exists somewhere in the project, else empty.
+        // Actually, let's just leave it blank for now since the prompt didn't mandate exact number to words.
+      }
+    } catch (e) {}
+
+    const qrData = JSON.stringify({
+      id: payslip.id,
+      emp: payslip.emp_code,
+      period: payslip.period_id,
+      net: payslip.net_salary,
+    });
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(qrData)}`;
+
     return {
       company: company || {},
       employee: {
-         name: `${payslip.first_name || ""} ${payslip.last_name || ""}`.trim(),
-         code: payslip.emp_code,
-         email: payslip.email,
-         department: payslip.dept_name,
-         branch: payslip.branch_name
+        id: payslip.emp_code || "-",
+        name: `${payslip.first_name || ""} ${payslip.last_name || ""}`.trim(),
+        code: payslip.emp_code || "-",
+        email: payslip.email || "-",
+        department: payslip.dept_name || "-",
+        branch: payslip.branch_name || "-",
+        designation: payslip.position_name || "-",
+        job_title: payslip.position_name || "-",
+        joining_date: payslip.joining_date || null,
+        ssnit_no: payslip.ssnit_no || "-",
+        tin: payslip.tin || "-",
+        bank_name: payslip.bank_name || "-",
+        bank_account: payslip.bank_account_no || "-",
+        bank_account_no: payslip.bank_account_no || "-",
       },
       payslip: {
-         id: payslip.id,
-         period_name: payslip.period_name,
-         basic_salary: Number(payslip.basic_salary || 0).toFixed(2),
-         allowances: Number(payslip.allowances || 0).toFixed(2),
-         deductions: Number(payslip.deductions || 0).toFixed(2),
-         gross_pay: (Number(payslip.basic_salary || 0) + Number(payslip.allowances || 0)).toFixed(2),
-         net_salary: Number(payslip.net_salary || 0).toFixed(2),
-         status: payslip.status
-      }
+        id: payslip.id,
+        period_name: payslip.period_name,
+        paid_at: payslip.paid_at,
+        basic_salary: Number(payslip.basic_salary || 0).toFixed(2),
+        allowances: Number(payslip.allowances || 0).toFixed(2),
+        deductions: Number(payslip.deductions || 0).toFixed(2),
+        gross_pay: (
+          Number(payslip.basic_salary || 0) + Number(payslip.allowances || 0)
+        ).toFixed(2),
+        net_salary: Number(payslip.net_salary || 0).toFixed(2),
+        net_in_words: netInWords || "UNSPECIFIED",
+        status: payslip.status,
+        working_days: payslip.working_days || 0,
+        days_present: payslip.days_present || 0,
+        leave_taken: payslip.leave_taken || 0,
+        remarks: payslip.remarks || "-",
+        qr_code: qrCodeUrl,
+        rows: rows,
+        has_earnings: earnings.length > 0,
+        has_deductions: deductions.length > 0,
+      },
+      salary_slip: {
+        pay_period: payslip.period_name,
+        pay_date: payslip.paid_at,
+        earnings: earnings.map((e) => ({
+          name: String(e.label || ""),
+          amount: Number(e.amount || 0).toFixed(2),
+        })),
+        deductions: deductions.map((d) => ({
+          name: String(d.label || ""),
+          amount: Number(d.amount || 0).toFixed(2),
+        })),
+        total_earnings: (
+          Number(payslip.basic_salary || 0) + Number(payslip.allowances || 0)
+        ).toFixed(2),
+        total_deductions: Number(payslip.deductions || 0).toFixed(2),
+        net_pay: Number(payslip.net_salary || 0).toFixed(2),
+        working_days: payslip.working_days || 0,
+        days_present: payslip.days_present || 0,
+        leave_taken: payslip.leave_taken || 0,
+        net_pay_in_words: netInWords || "",
+        qr_code: qrCodeUrl,
+        remarks: payslip.remarks || "",
+      },
     };
   }
   throw httpError(400, "VALIDATION_ERROR", "Unsupported type");
+}
+
+import { join } from "path";
+import { existsSync } from "fs";
+
+/**
+ * Robustly launch puppeteer with path detection
+ */
+async function launchBrowser() {
+  const mod = await import("puppeteer");
+  const puppeteer = mod.default || mod;
+
+  // Try to find the browser executable in the common local cache path if default launch fails
+  // On Windows: C:\Users\stanl\.cache\puppeteer
+  const possiblePaths = [
+    join(
+      "C:",
+      "Users",
+      "stanl",
+      ".cache",
+      "puppeteer",
+      "chrome",
+      "win64-146.0.7680.153",
+      "chrome-win64",
+      "chrome.exe",
+    ),
+    join(
+      process.cwd(),
+      "node_modules",
+      "puppeteer",
+      ".local-chromium",
+      "win64-123456",
+      "chrome-win64",
+      "chrome.exe",
+    ),
+  ];
+
+  let executablePath = undefined;
+  for (const p of possiblePaths) {
+    if (existsSync(p)) {
+      executablePath = p;
+      break;
+    }
+  }
+
+  const launchArgs = {
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+    ],
+    executablePath,
+  };
+
+  try {
+    return await puppeteer.launch(launchArgs);
+  } catch (err) {
+    console.error("Puppeteer primary launch failed:", err.message);
+    // Retry without explicit path if provided one failed
+    if (executablePath) {
+      return await puppeteer.launch({
+        ...launchArgs,
+        executablePath: undefined,
+      });
+    }
+    throw err;
+  }
 }
 
 router.post(
@@ -2310,7 +2564,7 @@ router.post(
             : null;
       let tplObj = null;
       if (templateId && Number.isFinite(templateId)) {
-        const [row] = await query(
+        let [row] = await query(
           `
           SELECT id, html_content,
                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
@@ -2335,23 +2589,44 @@ router.post(
       }
       // Resolve template with alias support when override not provided/invalid
       const aliasesLower = tplObj ? [] : docTypeSynonymsLower(type);
-      // Try default template first
+      // Try default template first (company-wide, no branch restriction for salary-slip)
       if (!tplObj) {
         const placeholders = aliasesLower.map((_, i) => `:dt${i}`).join(", ");
         const params = { companyId };
         aliasesLower.forEach((val, i) => (params[`dt${i}`] = val));
-        const items = await query(
+        let items = await query(
           `
           SELECT id, html_content,
                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
           FROM document_templates 
-          WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholders}) AND is_default = 1
+          WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders}) AND is_default = 1
+          ORDER BY updated_at DESC
           LIMIT 1
           `,
           params,
         ).catch(() => []);
         if (Array.isArray(items) && items.length) tplObj = items[0];
       }
+      // If no default found, try latest matching template (company-wide)
+      if (!tplObj) {
+        const placeholders = aliasesLower.map((_, i) => `:dtx${i}`).join(", ");
+        const paramsAny = { companyId };
+        aliasesLower.forEach((val, i) => (paramsAny[`dtx${i}`] = val));
+        let anyItems = await query(
+          `
+          SELECT id, html_content,
+                 header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                 document_type, is_default, updated_at
+          FROM document_templates
+          WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders})
+          ORDER BY is_default DESC, updated_at DESC, id DESC
+          LIMIT 1
+          `,
+          paramsAny,
+        ).catch(() => []);
+        if (Array.isArray(anyItems) && anyItems.length) tplObj = anyItems[0];
+      }
+
       // Strict requirement: must have default template configured (unless explicit override used)
       if (!tplObj) {
         // Auto-seed a default from the built-in sample into Administration templates
@@ -2363,19 +2638,22 @@ router.post(
               ? "Default Invoice Template"
               : canonical === "delivery-note"
                 ? "Default Delivery Note Template"
-                : "Default Template";
+                : canonical === "salary-slip"
+                  ? "Default Salary Slip Template"
+                  : "Default Template";
         const html = getDefaultSampleTemplate(canonical);
         try {
           const ins = await query(
             `
             INSERT INTO document_templates 
-              (company_id, name, document_type, html_content, is_default, created_by,
+              (company_id, branch_id, name, document_type, html_content, is_default, created_by,
                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
             VALUES
-              (:companyId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+              (:companyId, :branchId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
             `,
             {
               companyId,
+              branchId,
               name,
               dt: canonical,
               html,
@@ -2388,19 +2666,20 @@ router.post(
               `
               UPDATE document_templates 
                  SET is_default = 0 
-               WHERE company_id = :companyId AND document_type = :dt AND id <> :id
+               WHERE company_id = :companyId AND branch_id = :branchId AND document_type = :dt AND id <> :id
               `,
-              { companyId, dt: canonical, id: ins.insertId },
+              { companyId, branchId, dt: canonical, id: ins.insertId },
             ).catch(() => null);
             const [row] = await query(
               `
               SELECT id, html_content,
-                     header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
+                     header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                     document_type
               FROM document_templates
-              WHERE id = :id AND company_id = :companyId
+              WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
               LIMIT 1
               `,
-              { id: ins.insertId, companyId },
+              { id: ins.insertId, companyId, branchId },
             ).catch(() => []);
             if (row) tplObj = row;
           }
@@ -2409,6 +2688,24 @@ router.post(
           throw httpError(404, "NOT_FOUND", "Default template not found");
         }
       }
+
+      // Diagnostic header: selected template
+      try {
+        if (tplObj?.id) {
+          res.setHeader("X-Template-Id", String(tplObj.id));
+        }
+        if (tplObj?.document_type) {
+          res.setHeader(
+            "X-Template-Document-Type",
+            String(tplObj.document_type),
+          );
+        } else {
+          res.setHeader(
+            "X-Template-Document-Type",
+            String(canonicalDocumentType(type)),
+          );
+        }
+      } catch {}
       let generalTpl = null;
       try {
         const aliasesLowerG = docTypeSynonymsLower("general-template");
@@ -2518,16 +2815,8 @@ router.post(
         const tmpl = Handlebars.compile(String(tplObj.html_content || ""));
         html = tmpl(data);
       } catch (e) {
-        try {
-          const fallback = getDefaultSampleTemplate(type);
-          const tmpl2 = Handlebars.compile(String(fallback || ""));
-          html = tmpl2(data);
-        } catch {
-          html = `<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif}</style></head><body>
-          <h3>${String(type).toUpperCase()} Document</h3>
-          <pre>${JSON.stringify(data, null, 2)}</pre>
-          </body></html>`;
-        }
+        console.error("[documents.routes] Handlebars compile/render error for template", tplObj?.id, ":", e.message);
+        throw httpError(500, "TEMPLATE_RENDER_ERROR", `Template rendering failed: ${e.message}. Please check the template HTML in Settings > Document Templates.`);
       }
       // Post-process to remove any "Tax ID" blocks or labels from arbitrary templates
       try {
@@ -2598,14 +2887,19 @@ router.post(
         }
       }
       // Ensure background colors render in browser print and PDF
-      const printStyle = `<style>
-          @media print { * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-          * { print-color-adjust: exact; }
-          .doc { height: auto !important; min-height: auto !important; }
-          .titlebar, .title-section, .info, .info-grid { margin-top: 6px !important; margin-bottom: 6px !important; }
-          table { margin-top: 6px !important; }
-        </style>`;
-      html = printStyle + html;
+      // Only inject printStyle if the HTML does NOT already have a full document structure
+      const hasFullHtmlDoc = String(html).trimStart().toLowerCase().startsWith('<!doctype') ||
+        String(html).trimStart().toLowerCase().startsWith('<html');
+      if (!hasFullHtmlDoc) {
+        const printStyle = `<style>
+            @media print { * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+            * { print-color-adjust: exact; }
+            .doc { height: auto !important; min-height: auto !important; }
+            .titlebar, .title-section, .info, .info-grid { margin-top: 6px !important; margin-bottom: 6px !important; }
+            table { margin-top: 6px !important; }
+          </style>`;
+        html = printStyle + html;
+      }
       const format = String(
         req.query.format || req.body?.format || "html",
       ).toLowerCase();
@@ -2653,31 +2947,52 @@ router.post(
             img { max-width: 100%; height: auto; }
           </style>`;
           const doc = `<!DOCTYPE html><html><head>${head}</head><body>${cleaned}</body></html>`;
-          const mod = await import("puppeteer");
-          const puppeteer = mod.default || mod;
-          const browser = await puppeteer.launch({
-            headless: "new",
-            args: ["--no-sandbox", "--disable-setuid-sandbox"],
-          });
-          const page = await browser.newPage();
-          await page.setContent(doc, { waitUntil: "networkidle0" });
-          const pdf = await page.pdf({
-            format: "A4",
-            printBackground: true,
-            margin: {
-              top: "25mm",
-              bottom: "25mm",
-              left: "25mm",
-              right: "25mm",
-            },
-          });
-          await browser.close();
+          let pdf = null;
+          let browser = null;
+          try {
+            browser = await launchBrowser();
+            const page = await browser.newPage();
+
+            // Set reasonable timeouts
+            page.setDefaultNavigationTimeout(30000);
+            page.setDefaultTimeout(30000);
+
+            await page.setContent(doc, {
+              waitUntil: "domcontentloaded",
+            });
+            await page.emulateMediaType("screen");
+
+            // Use CSS @page size if provided, otherwise gracefully format pages
+            pdf = await page.pdf({
+              preferCSSPageSize: true,
+              printBackground: true,
+              margin: {
+                top: "20mm",
+                bottom: "20mm",
+                left: "20mm",
+                right: "20mm",
+              },
+            });
+          } catch (renderErr) {
+            console.error("PDF Render Error:", renderErr);
+            throw httpError(
+              500,
+              "PDF_RENDER_ERROR",
+              `Failed to render PDF: ${renderErr.message}`,
+            );
+          } finally {
+            if (browser) await browser.close().catch(() => {});
+          }
           res.setHeader("Content-Type", "application/pdf");
-          res.setHeader("Content-Length", pdf.length);
-          res.send(pdf);
+          res.setHeader("Content-Length", Buffer.byteLength(Buffer.from(pdf)));
+          res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="${type}-${id}.pdf"`,
+          );
+          res.send(Buffer.from(pdf));
           return;
         } catch (e) {
-          throw httpError(501, "NOT_IMPLEMENTED", "PDF rendering unavailable");
+          throw e;
         }
       }
       res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -2710,7 +3025,7 @@ router.post(
         res
           .status(200)
           .send(
-            "<html><body><h3>Document</h3><p>Unable to render template; minimal fallback shown.</p></body></html>",
+            `<html><body><h3>Document Error</h3><p>Unable to render template; minimal fallback shown.</p><p>Error: ${err ? err.message : 'Unknown error'}</p></body></html>`,
           );
       }
     }
@@ -2740,7 +3055,7 @@ router.post(
           SELECT id, html_content,
                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
           FROM document_templates 
-          WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholders}) AND is_default = 1
+          WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders}) AND is_default = 1
           LIMIT 1
           `,
           params,
@@ -2756,7 +3071,7 @@ router.post(
           SELECT id, html_content,
                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
           FROM document_templates 
-          WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholders})
+          WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders})
           ORDER BY is_default DESC, updated_at DESC
           LIMIT 1
           `,
@@ -2892,6 +3207,7 @@ router.post(
         } catch {
           html = `<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif}</style></head><body>
           <h3>${String(type).toUpperCase()} Document Preview</h3>
+          <p>Error: ${e.message}</p>
           <pre>${JSON.stringify(data, null, 2)}</pre>
           </body></html>`;
         }
@@ -2998,29 +3314,46 @@ router.post(
           const doc = `<!DOCTYPE html><html><head>${head}</head><body>${cleaned}</body></html>`;
           const mod = await import("puppeteer");
           const puppeteer = mod.default || mod;
-          const browser = await puppeteer.launch({
-            headless: "new",
-            args: ["--no-sandbox", "--disable-setuid-sandbox"],
-          });
-          const page = await browser.newPage();
-          await page.setContent(doc, { waitUntil: "networkidle0" });
-          const pdf = await page.pdf({
-            format: "A4",
-            printBackground: true,
-            margin: {
-              top: "0",
-              bottom: "0",
-              left: "0",
-              right: "0",
-            },
-          });
-          await browser.close();
+          let pdf = null;
+          let browser = null;
+          try {
+            browser = await puppeteer.launch({
+              headless: true,
+              args: ["--no-sandbox", "--disable-setuid-sandbox"],
+            });
+            const page = await browser.newPage();
+            await page.setContent(doc, { waitUntil: "networkidle0" });
+            await page.emulateMediaType("screen");
+            pdf = await page.pdf({
+              format: "A4",
+              printBackground: true,
+              margin: { top: "0", bottom: "0", left: "0", right: "0" },
+            });
+          } catch (firstErr) {
+            try {
+              if (browser) await browser.close().catch(() => {});
+              browser = await puppeteer.launch({ headless: true });
+              const page = await browser.newPage();
+              await page.setContent(doc, { waitUntil: "domcontentloaded" });
+              await page.emulateMediaType("screen");
+              pdf = await page.pdf({ format: "A4", printBackground: true });
+            } catch (secondErr) {
+              if (browser) await browser.close().catch(() => {});
+              throw httpError(500, "PDF_ERROR", "Failed to render PDF");
+            }
+          } finally {
+            if (browser) await browser.close().catch(() => {});
+          }
           res.setHeader("Content-Type", "application/pdf");
           res.setHeader("Content-Length", pdf.length);
+          res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="document.pdf"`,
+          );
           res.send(pdf);
           return;
         } catch (e) {
-          throw httpError(501, "NOT_IMPLEMENTED", "PDF rendering unavailable");
+          throw e;
         }
       }
       res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -3345,5 +3678,60 @@ router.delete(
     }
   },
 );
+
+router.post("/raw-html-to-pdf", requireAuth, async (req, res, next) => {
+  try {
+    const html = req.body.html || "";
+    if (!html) throw httpError(400, "BAD_REQUEST", "HTML content required");
+
+    const cleaned = sanitizeHtml(html, {
+      allowedTags: [
+        "div", "p", "span", "br", "strong", "em", "b", "i", "u",
+        "h1", "h2", "h3", "h4", "h5", "h6",
+        "table", "thead", "tbody", "tfoot", "tr", "td", "th",
+        "img", "a", "style",
+      ],
+      allowedAttributes: {
+        "*": ["class", "style"],
+        img: ["src", "alt", "class", "style"],
+        a: ["href", "class", "style"],
+      },
+      allowVulnerableTags: true,
+    });
+    const head = `<meta charset="utf-8"><style>
+      * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      img { max-width: 100%; height: auto; }
+    </style>`;
+    const doc = `<!DOCTYPE html><html><head>${head}</head><body>${cleaned}</body></html>`;
+
+    let pdf = null;
+    let browser = null;
+    try {
+      browser = await launchBrowser();
+      const page = await browser.newPage();
+      page.setDefaultNavigationTimeout(30000);
+      page.setDefaultTimeout(30000);
+      await page.setContent(doc, { waitUntil: "domcontentloaded" });
+      await page.emulateMediaType("screen");
+      pdf = await page.pdf({
+        preferCSSPageSize: true,
+        printBackground: true,
+        margin: { top: "20mm", bottom: "20mm", left: "20mm", right: "20mm" },
+      });
+    } catch (err) {
+      console.error("raw-html-to-pdf error:", err);
+      throw httpError(500, "RENDER_ERROR", "Failed to generate PDF from HTML");
+    } finally {
+      if (browser) await browser.close().catch(() => {});
+    }
+
+    if (!pdf) throw httpError(500, "RENDER_FAILED", "Failed to generate PDF");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Length", Buffer.byteLength(Buffer.from(pdf)));
+    res.send(Buffer.from(pdf));
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;

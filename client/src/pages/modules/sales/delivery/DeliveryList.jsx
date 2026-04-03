@@ -527,65 +527,15 @@ export default function DeliveryList() {
     try {
       setError("");
       const resp = await api.post(
-        `/documents/delivery-note/${id}/render?format=pdf`,
-        {},
-        { responseType: "blob" },
+        `/documents/delivery-note/${id}/render`,
+        { format: "html" },
+        { headers: { "Content-Type": "application/json" } },
       );
-      const blob = resp.data;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `delivery-note-${id}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const html = typeof resp.data === "string" ? resp.data : String(resp.data || "");
+      await renderHtmlToPdf(html, `delivery-note-${id}.pdf`);
     } catch (err) {
-      try {
-        // Fallback to HTML -> client-side PDF
-        const htmlRes = await api.post(
-          `/documents/delivery-note/${id}/render`,
-          { format: "html" },
-          { headers: { "Content-Type": "application/json" } },
-        );
-        const html =
-          typeof htmlRes.data === "string"
-            ? htmlRes.data
-            : String(htmlRes.data || "");
-        const container = document.createElement("div");
-        container.style.position = "fixed";
-        container.style.left = "-10000px";
-        container.style.top = "0";
-        container.style.background = "white";
-        container.style.width = "794px";
-        container.style.padding = "32px";
-        container.innerHTML = html;
-        document.body.appendChild(container);
-        await waitForImages(container);
-        const canvas = await html2canvas(container, {
-          scale: 2,
-          useCORS: true,
-        });
-        const imgData = canvas.toDataURL("image/png");
-        const pdf = new jsPDF("p", "mm", "a4");
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const imgWidth = pageWidth;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        let rendered = 0;
-        while (rendered < imgHeight) {
-          pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
-          rendered += pageHeight;
-          if (rendered < imgHeight) pdf.addPage();
-        }
-        document.body.removeChild(container);
-        pdf.save(`delivery-note-${id}.pdf`);
-      } catch (e2) {
-        setError(
-          err?.response?.data?.message ||
-            e2?.message ||
-            "Failed to download delivery (default template missing)",
-        );
-        console.error(err);
-      }
+      console.error("PDF Download Error:", err);
+      setError(err?.response?.data?.message || "Failed to download Delivery Note PDF");
     }
   }
 
