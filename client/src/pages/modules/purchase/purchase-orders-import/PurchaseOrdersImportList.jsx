@@ -738,7 +738,7 @@ export default function PurchaseOrdersImportList() {
                       </span>
                     </td>
                     <td>
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2 whitespace-nowrap">
                         {canPerformAction(
                           "purchase:purchase-orders-import",
                           "view",
@@ -801,7 +801,7 @@ export default function PurchaseOrdersImportList() {
                             type="button"
                             disabled
                             title="Assigned approver"
-                            className="ml-3 inline-flex items-center px-3 py-1.5 rounded bg-amber-500 text-white text-xs font-semibold cursor-default select-none"
+                            className="ml-3 inline-flex items-center px-3 py-1.5 rounded bg-amber-500 text-white text-xs font-semibold cursor-default select-none whitespace-nowrap"
                           >
                             Forwarded to: {po.forwarded_to_username}
                           </button>
@@ -810,7 +810,7 @@ export default function PurchaseOrdersImportList() {
                           <button
                             type="button"
                             onClick={() => openForwardModal(po)}
-                            className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 transition-colors"
+                            className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 transition-colors whitespace-nowrap inline-flex items-center"
                           >
                             Forward for Approval
                           </button>

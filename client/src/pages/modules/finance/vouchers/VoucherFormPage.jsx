@@ -3,8 +3,7 @@ import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 
 import { api } from "api/client";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
 function emptyLine() {
@@ -1188,32 +1187,35 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       },
     };
   };
-  async function waitForImages(rootEl) {
-    const imgs = Array.from(rootEl?.querySelectorAll?.("img") || []);
-    if (imgs.length === 0) return;
-    await Promise.race([
-      Promise.all(
-        imgs.map(
-          (img) =>
-            new Promise((resolve) => {
-              if (img.complete) return resolve();
-              const done = () => resolve();
-              img.addEventListener("load", done, { once: true });
-              img.addEventListener("error", done, { once: true });
-            }),
-        ),
-      ),
-      new Promise((r) => setTimeout(r, 1500)),
-    ]);
-  }
   const handlePrintVoucher = async () => {
     try {
-      const body = isRV
-        ? renderReceiptVoucherHtml(buildReceiptVoucherTemplateData())
+      if (!isEdit) return;
+      const templateType = isRV
+        ? "receipt-voucher"
         : isPV
-          ? renderPaymentVoucherHtml(buildPaymentVoucherTemplateData())
+          ? "payment-voucher"
           : "";
-      const html = wrapDoc(body);
+      if (!templateType) return;
+      const templateName = isRV
+        ? "Receipt Voucher"
+        : isPV
+          ? "Payment voucher"
+          : "";
+      let templateId = null;
+      try {
+        const tRes = await api.get(`/templates/${templateType}`, {
+          params: { name: templateName },
+        });
+        const tItems = Array.isArray(tRes.data?.items) ? tRes.data.items : [];
+        templateId = Number(tItems?.[0]?.id || 0) || null;
+      } catch {}
+      const resp = await api.post(
+        `/documents/${templateType}/${id}/render`,
+        { format: "html", ...(templateId ? { template_id: templateId } : {}) },
+        { headers: { "Content-Type": "application/json" } },
+      );
+      const html =
+        typeof resp.data === "string" ? resp.data : String(resp.data || "");
       const iframe = document.createElement("iframe");
       iframe.style.position = "fixed";
       iframe.style.right = "0";
@@ -1229,8 +1231,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         window.print();
         return;
       }
+      const printStyle = `<style>@media print { img, svg { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }</style>`;
       doc.open();
-      doc.write(html);
+      doc.write(printStyle + html);
       doc.close();
       const win = iframe.contentWindow || window;
       const doPrint = () => {
@@ -1243,55 +1246,49 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         }, 100);
       };
       setTimeout(doPrint, 200);
-    } catch {}
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to print voucher");
+    }
   };
   const handleDownloadVoucherPdf = async () => {
     try {
-      const body = isRV
-        ? renderReceiptVoucherHtml(buildReceiptVoucherTemplateData())
+      if (!isEdit) return;
+      const templateType = isRV
+        ? "receipt-voucher"
         : isPV
-          ? renderPaymentVoucherHtml(buildPaymentVoucherTemplateData())
+          ? "payment-voucher"
           : "";
-      if (!body) return;
-      const container = document.createElement("div");
-      container.style.position = "fixed";
-      container.style.left = "-10000px";
-      container.style.top = "0";
-      container.style.width = "794px";
-      container.style.background = "white";
-      container.style.padding = "40px";
-      container.style.margin = "0";
-      container.style.boxSizing = "border-box";
-      container.style.textAlign = "left";
-      container.innerHTML = body;
-      document.body.appendChild(container);
+      if (!templateType) return;
+      const templateName = isRV
+        ? "Receipt Voucher"
+        : isPV
+          ? "Payment voucher"
+          : "";
+      let templateId = null;
       try {
-        await waitForImages(container);
-        const canvas = await html2canvas(container, {
-          scale: 2,
-          useCORS: true,
+        const tRes = await api.get(`/templates/${templateType}`, {
+          params: { name: templateName },
         });
-        const imgData = canvas.toDataURL("image/png");
-        const pdf = new jsPDF("p", "mm", "a4");
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const imgWidth = pageWidth;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        let rendered = 0;
-        while (rendered < imgHeight) {
-          pdf.addImage(imgData, "PNG", 0, -rendered, imgWidth, imgHeight);
-          rendered += pageHeight;
-          if (rendered < imgHeight) pdf.addPage();
-        }
-        const fname =
-          (isRV ? "ReceiptVoucher_" : isPV ? "PaymentVoucher_" : "Voucher_") +
-          (voucherNoPreview || new Date().toISOString().slice(0, 10)) +
-          ".pdf";
-        pdf.save(fname);
-      } finally {
-        document.body.removeChild(container);
-      }
-    } catch {}
+        const tItems = Array.isArray(tRes.data?.items) ? tRes.data.items : [];
+        templateId = Number(tItems?.[0]?.id || 0) || null;
+      } catch {}
+      const resp = await api.post(
+        `/documents/${templateType}/${id}/render`,
+        { format: "html", ...(templateId ? { template_id: templateId } : {}) },
+        { headers: { "Content-Type": "application/json" } },
+      );
+      const html =
+        typeof resp.data === "string" ? resp.data : String(resp.data || "");
+      const fname =
+        (isRV ? "ReceiptVoucher_" : isPV ? "PaymentVoucher_" : "Voucher_") +
+        (voucherNoPreview || new Date().toISOString().slice(0, 10)) +
+        ".pdf";
+      await renderHtmlToPdf(html, fname);
+    } catch (err) {
+      toast.error(
+        err?.response?.data?.message || "Failed to download voucher PDF",
+      );
+    }
   };
 
   function updateLine(index, patch) {

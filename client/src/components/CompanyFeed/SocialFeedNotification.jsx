@@ -50,7 +50,7 @@ export default function SocialFeedNotification() {
       if ("Notification" in window && Notification.permission === "granted") {
         new Notification(`${data.comment.full_name} commented`, {
           body: data.comment.comment_text.substring(0, 100),
-          icon: data.comment.profile_picture || " ",
+          icon: data.comment.profile_picture_url || " ",
         });
       }
     });

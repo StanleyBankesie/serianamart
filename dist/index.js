@@ -35,8 +35,13 @@ import documentsRoutes from "./routes/documents.routes.js";
 import socialFeedRoutes from "./routes/social-feed.routes.js";
 import accessRoutes from "./routes/access.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
+import emailTestRoutes from "./routes/email-test.routes.js";
 import { initializeSocket } from "./utils/socket.js";
-import { ensureExceptionalPermissionsTable } from "./utils/dbUtils.js";
+import {
+  ensureExceptionalPermissionsTable,
+  ensureSystemLogsTable,
+} from "./utils/dbUtils.js";
+import { seedDefaultTemplates } from "./services/seed-defaults.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,6 +59,21 @@ if (forceLocal && fs.existsSync(localPath)) {
 } else if (fs.existsSync(localPath)) {
   dotenv.config({ path: localPath, override: true });
 }
+try {
+  if (fs.existsSync(prodPath)) {
+    const parsed = dotenv.config({ path: prodPath }).parsed || {};
+    [
+      "SMTP_HOST",
+      "SMTP_PORT",
+      "SMTP_USER",
+      "SMTP_PASS",
+      "SMTP_FROM",
+      "SMTP_SECURE",
+    ].forEach((k) => {
+      if (parsed[k]) process.env[k] = parsed[k];
+    });
+  }
+} catch {}
 
 const app = express();
 
@@ -108,6 +128,311 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 /* ---------------- DB ---------------- */
+(async () => {
+  try {
+    await query("SELECT 1");
+
+    // Check if the column already exists
+    const columns = await query(
+      "SHOW COLUMNS FROM `fin_voucher_lines` LIKE 'payment_method'",
+    );
+
+    if (!columns || columns.length === 0) {
+      console.log(
+        "Adding `payment_method` column to `fin_voucher_lines` table...",
+      );
+      await query(
+        "ALTER TABLE `fin_voucher_lines` ADD COLUMN `payment_method` VARCHAR(50) NULL DEFAULT NULL AFTER `cheque_date`",
+      );
+      console.log("Successfully added the `payment_method` column.");
+    }
+
+    // Check if created_by exists in fin_pdc_postings
+    const pdcColumns = await query(
+      "SHOW COLUMNS FROM `fin_pdc_postings` LIKE 'created_by'",
+    );
+    if (!pdcColumns || pdcColumns.length === 0) {
+      console.log("Adding `created_by` column to `fin_pdc_postings` table...");
+      await query(
+        "ALTER TABLE `fin_pdc_postings` ADD COLUMN `created_by` BIGINT UNSIGNED NULL DEFAULT NULL",
+      );
+      console.log(
+        "Successfully added the `created_by` column to `fin_pdc_postings`.",
+      );
+    }
+
+    // Check if created_by exists in fin_vouchers
+    const voucherColumns = await query(
+      "SHOW COLUMNS FROM `fin_vouchers` LIKE 'created_by'",
+    );
+    if (!voucherColumns || voucherColumns.length === 0) {
+      console.log("Adding `created_by` column to `fin_vouchers` table...");
+      await query(
+        "ALTER TABLE `fin_vouchers` ADD COLUMN `created_by` BIGINT UNSIGNED NULL DEFAULT NULL",
+      );
+      console.log(
+        "Successfully added the `created_by` column to `fin_vouchers`.",
+      );
+    }
+
+    // Check if created_by exists in fin_voucher_reversals
+    const reversalColumns = await query(
+      "SHOW COLUMNS FROM `fin_voucher_reversals` LIKE 'created_by'",
+    );
+    if (!reversalColumns || reversalColumns.length === 0) {
+      console.log(
+        "Adding `created_by` column to `fin_voucher_reversals` table...",
+      );
+      await query(
+        "ALTER TABLE `fin_voucher_reversals` ADD COLUMN `created_by` BIGINT UNSIGNED NULL DEFAULT NULL",
+      );
+      console.log(
+        "Successfully added the `created_by` column to `fin_voucher_reversals`.",
+      );
+    }
+
+    // Check if created_by exists in fin_bank_reconciliations
+    const reconColumns = await query(
+      "SHOW COLUMNS FROM `fin_bank_reconciliations` LIKE 'created_by'",
+    );
+    if (!reconColumns || reconColumns.length === 0) {
+      console.log(
+        "Adding `created_by` column to `fin_bank_reconciliations` table...",
+      );
+      await query(
+        "ALTER TABLE `fin_bank_reconciliations` ADD COLUMN `created_by` BIGINT UNSIGNED NULL DEFAULT NULL",
+      );
+      console.log(
+        "Successfully added the `created_by` column to `fin_bank_reconciliations`.",
+      );
+    }
+
+    try {
+      await query(
+        "ALTER TABLE `fin_account_groups` MODIFY COLUMN `code` VARCHAR(100) NOT NULL",
+      );
+    } catch (e) {
+      console.warn(
+        "Could not modify fin_account_groups code column: ",
+        e.message,
+      );
+    }
+
+    // Ensure HR Loan Type has account_id
+    try {
+      const resp = await query("SHOW TABLES LIKE 'hr_setup_loan_types'");
+      if (resp && resp.length > 0) {
+        const loanTypeCols = await query(
+          "SHOW COLUMNS FROM `hr_setup_loan_types` LIKE 'account_id'",
+        );
+        if (!loanTypeCols || loanTypeCols.length === 0) {
+          console.log("Adding `account_id` column to `hr_setup_loan_types`...");
+          await query(
+            "ALTER TABLE `hr_setup_loan_types` ADD COLUMN `account_id` BIGINT UNSIGNED NULL DEFAULT NULL",
+          );
+        }
+      }
+    } catch (e) {
+      console.warn(
+        "Could not add account_id to hr_setup_loan_types: ",
+        e.message,
+      );
+    }
+
+    // Ensure HR Loans has amount_due, end_date and correct status type
+    try {
+      const resp = await query("SHOW TABLES LIKE 'hr_loans'");
+      if (resp && resp.length > 0) {
+        const loanAmountDueCols = await query(
+          "SHOW COLUMNS FROM `hr_loans` LIKE 'amount_due'",
+        );
+        if (!loanAmountDueCols || loanAmountDueCols.length === 0) {
+          console.log("Adding `amount_due` column to `hr_loans`...");
+          await query(
+            "ALTER TABLE `hr_loans` ADD COLUMN `amount_due` DECIMAL(18,4) NULL DEFAULT NULL",
+          );
+        }
+        const loanEndDateCols = await query(
+          "SHOW COLUMNS FROM `hr_loans` LIKE 'end_date'",
+        );
+        if (!loanEndDateCols || loanEndDateCols.length === 0) {
+          console.log("Adding `end_date` column to `hr_loans`...");
+          await query(
+            "ALTER TABLE `hr_loans` ADD COLUMN `end_date` DATE NULL DEFAULT NULL",
+          );
+        }
+        const loanIdCols = await query(
+          "SHOW COLUMNS FROM `hr_loans` LIKE 'loan_id'",
+        );
+        if (!loanIdCols || loanIdCols.length === 0) {
+          console.log("Adding `loan_id` column to `hr_loans`...");
+          await query(
+            "ALTER TABLE `hr_loans` ADD COLUMN `loan_id` BIGINT UNSIGNED NULL DEFAULT NULL",
+          );
+        }
+
+        // CRITICAL: Ensure status is VARCHAR to avoid ENUM errors with NEW 'ACTIVE' and 'COMPLETED' statuses
+        await query(
+          "ALTER TABLE `hr_loans` MODIFY COLUMN `status` VARCHAR(50) NOT NULL DEFAULT 'PENDING'",
+        );
+      }
+    } catch (e) {
+      console.warn(
+        "Could not add columns or modify status in hr_loans: ",
+        e.message,
+      );
+    }
+
+    // Update HR Loan Statuses
+    try {
+      const resp = await query("SHOW TABLES LIKE 'hr_loans'");
+      if (resp && resp.length > 0) {
+        await query(
+          "UPDATE hr_loans SET status = 'ACTIVE' WHERE status = 'REPAID'",
+        );
+        await query(
+          "UPDATE hr_loans SET status = 'COMPLETED' WHERE status = 'DISBURSED'",
+        );
+      }
+    } catch (e) {
+      console.warn("Could not update hr_loans statuses: ", e.message);
+    }
+
+    // HR Loan Repayments Table
+    try {
+      await query(
+        `CREATE TABLE IF NOT EXISTS hr_loan_repayments (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          company_id BIGINT UNSIGNED NOT NULL,
+          employee_id BIGINT UNSIGNED NOT NULL,
+          loan_id BIGINT UNSIGNED NOT NULL,
+          amount_paid DECIMAL(18,4) NOT NULL,
+          payment_date DATE NOT NULL,
+          payroll_id BIGINT UNSIGNED NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_loan (loan_id),
+          KEY idx_employee (employee_id),
+          KEY idx_payroll (payroll_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+      );
+    } catch (e) {
+      console.warn("Could not create hr_loan_repayments table: ", e.message);
+    }
+
+    // Add Triggers for hr_loans
+    try {
+      const resp = await query("SHOW TABLES LIKE 'hr_loans'");
+      if (resp && resp.length > 0) {
+        // Calculation Trigger (Insert)
+        await query("DROP TRIGGER IF EXISTS `tg_hr_loans_before_insert`").catch(
+          () => {},
+        );
+        await query(
+          `CREATE TRIGGER \`tg_hr_loans_before_insert\` BEFORE INSERT ON \`hr_loans\` FOR EACH ROW
+           BEGIN
+             IF NEW.start_date IS NOT NULL THEN
+               SET NEW.end_date = DATE_ADD(NEW.start_date, INTERVAL NEW.repayment_period_months MONTH);
+               SET NEW.amount_due = GREATEST(0, NEW.amount - (NEW.monthly_installment * GREATEST(0, TIMESTAMPDIFF(MONTH, NEW.start_date, CURDATE()))));
+             ELSE
+               SET NEW.end_date = NULL;
+               SET NEW.amount_due = NEW.amount;
+             END IF;
+           END`,
+        );
+
+        // Calculation Trigger (Update) - ONLY recalculate if amount_due is NOT being changed explicitly
+        await query("DROP TRIGGER IF EXISTS `tg_hr_loans_before_update`").catch(
+          () => {},
+        );
+        await query(
+          `CREATE TRIGGER \`tg_hr_loans_before_update\` BEFORE UPDATE ON \`hr_loans\` FOR EACH ROW
+           BEGIN
+             IF NEW.start_date IS NOT NULL THEN
+               SET NEW.end_date = DATE_ADD(NEW.start_date, INTERVAL NEW.repayment_period_months MONTH);
+               -- Only recalculate balance if NOT explicitly changing amount_due (avoids conflict with payroll)
+               IF NEW.amount_due = OLD.amount_due THEN
+                 SET NEW.amount_due = GREATEST(0, NEW.amount - (NEW.monthly_installment * GREATEST(0, TIMESTAMPDIFF(MONTH, NEW.start_date, CURDATE()))));
+               END IF;
+             ELSE
+               SET NEW.end_date = NULL;
+               -- Only reset if not explicitly changing
+               IF NEW.amount_due = OLD.amount_due THEN
+                 SET NEW.amount_due = NEW.amount;
+               END IF;
+             END IF;
+           END`,
+        );
+
+        // Approval Logic Trigger
+        await query(
+          "DROP TRIGGER IF EXISTS `trg_hr_loans_set_start_date`",
+        ).catch(() => {});
+        await query(
+          `CREATE TRIGGER \`trg_hr_loans_set_start_date\` BEFORE UPDATE ON \`hr_loans\` FOR EACH ROW
+           BEGIN
+             IF NEW.status = 'APPROVED' AND OLD.status <> 'APPROVED' THEN
+               IF NEW.start_date IS NULL THEN
+                 SET NEW.start_date = DATE_ADD(CURDATE(), INTERVAL 1 MONTH);
+               END IF;
+             END IF;
+           END`,
+        );
+      }
+    } catch (e) {
+      console.warn("Could not add triggers to hr_loans: ", e.message);
+    }
+
+    // Task 1: Remove constraints causing error in fin_pdc_postings
+    try {
+      // 1. Remove foreign key constraint fk_pdc_bank
+      const fkConstraints = await query(
+        `SELECT CONSTRAINT_NAME 
+         FROM information_schema.KEY_COLUMN_USAGE 
+         WHERE TABLE_SCHEMA = DATABASE() 
+           AND TABLE_NAME = 'fin_pdc_postings' 
+           AND CONSTRAINT_NAME = 'fk_pdc_bank'`,
+      );
+      if (fkConstraints && fkConstraints.length > 0) {
+        console.log(
+          "Dropping foreign key constraint `fk_pdc_bank` from `fin_pdc_postings`...",
+        );
+        await query(
+          "ALTER TABLE `fin_pdc_postings` DROP FOREIGN KEY `fk_pdc_bank`",
+        ).catch((e) => {
+          console.warn("Could not drop foreign key: ", e.message);
+        });
+        console.log("Successfully dropped `fk_pdc_bank`.");
+      }
+
+      // 2. Remove unique index uq_pdc_unique
+      const uniqueIndexes = await query(
+        `SELECT INDEX_NAME 
+         FROM information_schema.STATISTICS 
+         WHERE TABLE_SCHEMA = DATABASE() 
+           AND TABLE_NAME = 'fin_pdc_postings' 
+           AND INDEX_NAME = 'uq_pdc_unique'`,
+      );
+      if (uniqueIndexes && uniqueIndexes.length > 0) {
+        console.log(
+          "Dropping unique index `uq_pdc_unique` from `fin_pdc_postings`...",
+        );
+        await query(
+          "ALTER TABLE `fin_pdc_postings` DROP INDEX `uq_pdc_unique`",
+        ).catch((e) => {
+          console.warn("Could not drop unique index: ", e.message);
+        });
+        console.log("Successfully dropped `uq_pdc_unique`.");
+      }
+    } catch (e) {
+      console.warn("Error checking for constraints: ", e.message);
+    }
+  } catch (err) {
+    console.error("Error during database initialization:", err);
+    // Don't exit process in dev if it's just a migration issue, but here it might be critical
+    // process.exit(1);
+  }
+})();
 
 /* ---------------- ROUTES ---------------- */
 if (boolEnv(process.env.DISABLE_KEEP_ALIVE)) {
@@ -120,6 +445,13 @@ if (boolEnv(process.env.DISABLE_KEEP_ALIVE)) {
 }
 app.use(
   "/uploads",
+  express.static(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "uploads"),
+  ),
+);
+// Expose uploads also under /api/uploads so dev proxies can access files
+app.use(
+  "/api/uploads",
   express.static(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "uploads"),
   ),
@@ -146,6 +478,7 @@ app.use("/api/documents", documentsRoutes);
 app.use("/api/social-feed", socialFeedRoutes);
 app.use("/api/access", accessRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/email-test", emailTestRoutes);
 
 /* ---------------- STATIC FILES & SPA FALLBACK ---------------- */
 const serveFrontendFlag = (() => {
@@ -264,32 +597,18 @@ if (process.env.NODE_ENV !== "test") {
     (async () => {
       try {
         await query("SELECT 1");
-        console.log("Database connectivity: ok");
         try {
           await ensureExceptionalPermissionsTable();
         } catch {}
-        const admin = await query(
-          "SELECT id, is_active FROM adm_users WHERE username = :u LIMIT 1",
-          { u: "admin" },
-        );
-        if (!admin.length) {
-          console.log("Admin user 'admin' not found");
-        } else {
-          const a = admin[0];
-          console.log(
-            `Admin user status: id=${a.id}, active=${Number(a.is_active) === 1 ? "yes" : "no"}`,
-          );
-        }
+        try {
+          await ensureSystemLogsTable();
+        } catch {}
+        try {
+          await seedDefaultTemplates();
+        } catch {}
       } catch (e) {
         console.log(`[StartupCheck] ${e?.message || e}`);
       }
-      try {
-        const allowDefault =
-          String(process.env.AUTH_ALLOW_DEFAULT_LOGIN || "").trim() === "1";
-        if (allowDefault) {
-          console.log("Emergency default login is ENABLED");
-        }
-      } catch {}
       try {
         const secret = process.env.JWT_SECRET || "";
         if (!secret) {
@@ -396,7 +715,21 @@ if (process.env.NODE_ENV !== "test") {
               u.email
             ) {
               try {
-                await sendMail({ to: u.email, subject, text, html });
+                await sendMail({
+                  to: u.email,
+                  subject,
+                  text,
+                  html,
+                  meta: {
+                    moduleName: "Inventory",
+                    action: "EMAIL_SENT",
+                    userId: u.id,
+                    companyId,
+                    branchId,
+                    message: `Low stock alert email sent to ${u.email}`,
+                    urlPath: "/inventory/alerts/low-stock",
+                  },
+                });
               } catch (e) {
                 console.log(`[EMAIL ERROR] ${e?.message || e}`);
               }

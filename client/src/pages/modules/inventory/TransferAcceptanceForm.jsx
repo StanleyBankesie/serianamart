@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "api/client";
+import { toast } from "react-toastify";
 
 export default function TransferAcceptanceForm() {
   const { id } = useParams();
@@ -29,13 +30,16 @@ export default function TransferAcceptanceForm() {
           : [];
 
         setDetails(
-          fetchedDetails.map((d) => ({
-            ...d,
-            received_qty: Number(d.remaining_qty ?? d.qty ?? 0),
-            variance: 0,
-            rejected_now: 0,
-            remarks: "",
-          }))
+          fetchedDetails.map((d) => {
+            const transferable = Number(d.remaining_qty ?? d.qty);
+            return {
+              ...d,
+              received_qty: transferable,
+              rejected_now: 0,
+              variance: 0,
+              remarks: "",
+            };
+          }),
         );
       })
       .catch((e) => {
@@ -53,38 +57,49 @@ export default function TransferAcceptanceForm() {
   }, [id]);
 
   const handleReceivedQtyChange = (detailId, value) => {
-    const received = parseFloat(value) || 0;
+    const received = parseFloat(value);
     setDetails((prev) =>
       prev.map((d) => {
         if (d.id === detailId) {
-          const remaining = Number(d.remaining_qty ?? d.qty ?? 0);
-          const rejected = Number(d.rejected_now || 0);
-          const variance = received + rejected - remaining;
-          return { ...d, received_qty: received, variance };
+          const transferable = Number(d.remaining_qty ?? d.qty);
+          const rejected = Math.max(0, transferable - received);
+          // variance = received + rejected - transferred (should be 0 if we follow the rule)
+          // However, user usually wants Variance to show if they are receiving LESS than transferred total
+          // But here, whatever is not received is rejected.
+          return {
+            ...d,
+            received_qty: received,
+            rejected_now: rejected,
+            variance: 0,
+          };
         }
         return d;
-      })
+      }),
     );
   };
 
   const handleRejectedQtyChange = (detailId, value) => {
-    const rejected = parseFloat(value) || 0;
+    const rejected = parseFloat(value);
     setDetails((prev) =>
       prev.map((d) => {
         if (d.id === detailId) {
-          const remaining = Number(d.remaining_qty ?? d.qty ?? 0);
-          const received = Number(d.received_qty || 0);
-          const variance = received + rejected - remaining;
-          return { ...d, rejected_now: rejected, variance };
+          const transferable = Number(d.remaining_qty ?? d.qty);
+          const received = Math.max(0, transferable - rejected);
+          return {
+            ...d,
+            rejected_now: rejected,
+            received_qty: received,
+            variance: 0,
+          };
         }
         return d;
-      })
+      }),
     );
   };
 
   const handleRemarksChange = (detailId, value) => {
     setDetails((prev) =>
-      prev.map((d) => (d.id === detailId ? { ...d, remarks: value } : d))
+      prev.map((d) => (d.id === detailId ? { ...d, remarks: value } : d)),
     );
   };
 
@@ -96,21 +111,15 @@ export default function TransferAcceptanceForm() {
       // Send the accepted details with variance and remarks
       const payload = {
         details: details.map((d) => {
-          const remaining = Math.max(0, Number(d.remaining_qty ?? 0));
-          const accepted = Math.max(
-            0,
-            Math.min(Number(d.received_qty) || 0, remaining)
-          );
-          const rejectedWanted = Math.max(0, Number(d.rejected_now) || 0);
-          const rejected = Math.max(
-            0,
-            Math.min(rejectedWanted, Math.max(0, remaining - accepted))
-          );
+          const remaining = Math.max(0, Number(d.remaining_qty || d.qty));
+          const accepted = Math.max(0, Number(d.received_qty || 0));
+          const rejected = Math.max(0, Number(d.rejected_now || 0));
+          
           return {
             id: d.id,
             item_id: d.item_id,
-            qty: Number(d.qty) || 0,
-            received_qty: accepted,
+            qty: Number(d.qty),
+            received_qty: Number(d.qty), // "Transferred" value
             accepted_qty: accepted,
             rejected_qty: rejected,
             acceptance_remarks: d.remarks,
@@ -119,7 +128,8 @@ export default function TransferAcceptanceForm() {
       };
 
       await api.put(`/inventory/transfer-acceptance/${id}`, payload);
-      navigate("/inventory/transfer-acceptance");
+      toast.success("Transfer accepted successfully!");
+      navigate("/inventory");
     } catch (e) {
       setError(e?.response?.data?.message || "Failed to accept transfer");
     } finally {
@@ -185,7 +195,7 @@ export default function TransferAcceptanceForm() {
                 <div>
                   <span
                     className={`badge ${
-                      transfer.status === "IN_TRANSIT"
+                      ["IN_TRANSIT", "IN TRANSIT"].includes(transfer.status)
                         ? "badge-warning"
                         : "badge-info"
                     }`}
@@ -236,7 +246,7 @@ export default function TransferAcceptanceForm() {
                         </td>
                         <td>{d.item_name}</td>
                         <td>{d.qty}</td>
-                        <td>{Number(d.remaining_qty ?? 0)}</td>
+                        <td>{Math.max(0, Number(d.rejected_now || 0))}</td>
                         <td>
                           <input
                             type="number"
@@ -245,13 +255,9 @@ export default function TransferAcceptanceForm() {
                             onChange={(e) =>
                               handleReceivedQtyChange(d.id, e.target.value)
                             }
-                            min="0"
-                            step="0.001"
-                            max={Math.max(
-                              0,
-                              Number(d.remaining_qty ?? 0) -
-                                Number(d.rejected_now || 0)
-                            )}
+                            min=""
+                            step="1"
+                            max={Number(d.remaining_qty ?? d.qty)}
                             disabled={transfer?.status === "RECEIVED"}
                           />
                         </td>
@@ -263,13 +269,9 @@ export default function TransferAcceptanceForm() {
                             onChange={(e) =>
                               handleRejectedQtyChange(d.id, e.target.value)
                             }
-                            min="0"
-                            step="0.001"
-                            max={Math.max(
-                              0,
-                              Number(d.remaining_qty ?? 0) -
-                                Number(d.received_qty || 0)
-                            )}
+                            min=""
+                            step="1"
+                            max={Number(d.remaining_qty ?? d.qty)}
                             disabled={transfer?.status === "RECEIVED"}
                           />
                         </td>
@@ -279,8 +281,8 @@ export default function TransferAcceptanceForm() {
                               d.variance < 0
                                 ? "text-red-600"
                                 : d.variance > 0
-                                ? "text-blue-600"
-                                : "text-green-600"
+                                  ? "text-blue-600"
+                                  : "text-green-600"
                             }`}
                           >
                             {d.variance > 0 ? "+" : ""}

@@ -2,8 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { toast } from "react-toastify";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import addNotification from "react-push-notification";
@@ -516,7 +515,7 @@ export default function SalesOrderList() {
         return;
       }
       doc.open();
-      const patchCss = `<style>@media print{*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>`;
+      const patchCss = `<style>@media print{img{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>`;
       doc.write(patchCss + html);
       doc.close();
       const win = iframe.contentWindow || window;
@@ -541,12 +540,14 @@ export default function SalesOrderList() {
         { format: "html" },
         { headers: { "Content-Type": "application/json" } },
       );
-      const html = typeof resp.data === "string" ? resp.data : String(resp.data || "");
-      const fname = `sales-order-${id}.pdf`;
-      await renderHtmlToPdf(html, fname);
+      const html =
+        typeof resp.data === "string" ? resp.data : String(resp.data || "");
+      await renderHtmlToPdf(html, `sales-order-${id}.pdf`);
     } catch (err) {
       console.error("PDF Download Error:", err);
-      toast.error(err?.response?.data?.message || "Failed to download Sales Order PDF");
+      toast.error(
+        err?.response?.data?.message || "Failed to download Sales Order PDF",
+      );
     }
   }
 
@@ -1104,7 +1105,7 @@ export default function SalesOrderList() {
                               type="button"
                               disabled
                               title="Assigned approver"
-                              className="ml-3 inline-flex items-center px-3 py-1.5 rounded bg-amber-500 text-white text-xs font-semibold cursor-default select-none"
+                              className="ml-3 inline-flex items-center px-3 py-1.5 rounded bg-amber-500 text-white text-xs font-semibold cursor-default select-none whitespace-nowrap"
                             >
                               Forwarded to:{" "}
                               {(order.forwarded_to_username ||
@@ -1117,7 +1118,7 @@ export default function SalesOrderList() {
                             <span className="ml-3 inline-flex items-center gap-2">
                               <button
                                 type="button"
-                                className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 transition-colors"
+                                className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 transition-colors whitespace-nowrap"
                                 onClick={() => openForwardModal(order)}
                                 disabled={submittingForward}
                               >

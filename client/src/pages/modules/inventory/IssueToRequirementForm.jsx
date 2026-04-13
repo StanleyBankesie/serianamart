@@ -97,7 +97,7 @@ export default function IssueToRequirementForm() {
     } catch (e) {
       // keep existing form; surface error for visibility
       setError(
-        e?.response?.data?.message || "Failed to populate from requisition"
+        e?.response?.data?.message || "Failed to populate from requisition",
       );
     }
   };
@@ -116,22 +116,22 @@ export default function IssueToRequirementForm() {
 
         if (mounted) {
           setAvailableItems(
-            Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : []
+            Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : [],
           );
           setWarehouses(
             Array.isArray(warehousesRes.data?.items)
               ? warehousesRes.data.items
-              : []
+              : [],
           );
           setDepartments(
-            Array.isArray(deptsRes.data?.items) ? deptsRes.data.items : []
+            Array.isArray(deptsRes.data?.items) ? deptsRes.data.items : [],
           );
           setRequisitions(
             Array.isArray(reqRes.data?.items)
               ? reqRes.data.items.filter(
-                  (r) => String(r.status || "").toUpperCase() === "APPROVED"
+                  (r) => String(r.status || "").toUpperCase() === "APPROVED",
                 )
-              : []
+              : [],
           );
         }
       } catch (e) {
@@ -200,13 +200,13 @@ export default function IssueToRequirementForm() {
                   batchNumber: "",
                   serialNumber: "",
                 },
-              ]
+              ],
         );
       })
       .catch((e) => {
         if (!mounted) return;
         setError(
-          e?.response?.data?.message || "Failed to load issue to requirement"
+          e?.response?.data?.message || "Failed to load issue to requirement",
         );
       })
       .finally(() => {
@@ -287,7 +287,7 @@ export default function IssueToRequirementForm() {
       navigate("/inventory/issue-to-requirement");
     } catch (e2) {
       setError(
-        e2?.response?.data?.message || "Failed to save issue to requirement"
+        e2?.response?.data?.message || "Failed to save issue to requirement",
       );
     } finally {
       setSaving(false);
@@ -417,21 +417,6 @@ export default function IssueToRequirementForm() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="label">Status</label>
-                <select
-                  className="input"
-                  value={formData.status}
-                  onChange={(e) =>
-                    setFormData({ ...formData, status: e.target.value })
-                  }
-                >
-                  <option value="DRAFT">DRAFT</option>
-                  <option value="ISSUED">ISSUED</option>
-                  <option value="POSTED">POSTED</option>
-                  <option value="CANCELLED">CANCELLED</option>
-                </select>
-              </div>
               <div className="col-span-2">
                 <label className="label">Remarks</label>
                 <input
@@ -486,7 +471,7 @@ export default function IssueToRequirementForm() {
                             onChange={(e) => {
                               const selectedId = e.target.value;
                               const selected = availableItems.find(
-                                (ai) => String(ai.id) === String(selectedId)
+                                (ai) => String(ai.id) === String(selectedId),
                               );
                               setLines(
                                 lines.map((l) =>
@@ -498,8 +483,8 @@ export default function IssueToRequirementForm() {
                                         itemName: selected?.item_name || "",
                                         uom: selected?.uom || "",
                                       }
-                                    : l
-                                )
+                                    : l,
+                                ),
                               );
                             }}
                             required
@@ -528,8 +513,8 @@ export default function IssueToRequirementForm() {
                                         ...l,
                                         qtyIssued: Number.isFinite(v) ? v : 0,
                                       }
-                                    : l
-                                )
+                                    : l,
+                                ),
                               );
                             }}
                             min="0"
@@ -554,8 +539,8 @@ export default function IssueToRequirementForm() {
                                 lines.map((l) =>
                                   l.id === line.id
                                     ? { ...l, batchNumber: e.target.value }
-                                    : l
-                                )
+                                    : l,
+                                ),
                               )
                             }
                             placeholder="Batch No"
@@ -571,8 +556,8 @@ export default function IssueToRequirementForm() {
                                 lines.map((l) =>
                                   l.id === line.id
                                     ? { ...l, serialNumber: e.target.value }
-                                    : l
-                                )
+                                    : l,
+                                ),
                               )
                             }
                             placeholder="Serial No"
@@ -604,18 +589,10 @@ export default function IssueToRequirementForm() {
               <button
                 type="button"
                 onClick={(e) => handleSubmit(e, "DRAFT")}
-                className="px-4 py-2 bg-slate-500 text-white rounded hover:bg-slate-600"
-                disabled={saving}
-              >
-                Save as Draft
-              </button>
-              <button
-                type="button"
-                onClick={(e) => handleSubmit(e, "POSTED")}
                 className="btn-success"
                 disabled={saving}
               >
-                {saving ? "Saving..." : "Save & Post"}
+                {saving ? "Saving..." : "Save"}
               </button>
             </div>
           </form>

@@ -5,7 +5,7 @@ const newCode = `  const commonHead = \`
 <style>
   :root { --text: #000; }
   body { font-family: Arial, sans-serif; color: var(--text); font-size: 11px; margin: 0; padding: 0; }
-  .doc { width: 19cm; margin: 0 auto; padding: 16px; }
+  .doc { width: 17cm; margin: 0 auto; padding: 16px; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
   .logo { height: 90px; object-fit: contain; }
   .company { font-size: 10px; line-height: 1.4; text-align: right; }

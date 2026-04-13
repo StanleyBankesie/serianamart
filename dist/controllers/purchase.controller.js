@@ -554,7 +554,14 @@ export const listShippingAdvices = async (req, res, next) => {
   try {
     const { companyId, branchId } = req.scope;
     const { status, po_type } = req.query;
-    let sql = `SELECT sa.*, s.supplier_name, p.po_no, p.po_type
+    let sql = `SELECT sa.*, s.supplier_name, p.po_no, p.po_type,
+         EXISTS(
+           SELECT 1 FROM pur_port_clearances pc
+            WHERE pc.company_id = sa.company_id 
+              AND pc.branch_id = sa.branch_id
+              AND pc.advice_id = sa.id
+            LIMIT 1
+         ) AS has_clearing
          FROM pur_shipping_advices sa
          JOIN pur_suppliers s ON s.id = sa.supplier_id
          JOIN pur_orders p ON p.id = sa.po_id
@@ -758,7 +765,14 @@ export const listPortClearances = async (req, res, next) => {
   try {
     const { companyId, branchId } = req.scope;
     const { status } = req.query;
-    let sql = `SELECT pc.*, sa.advice_no, p.po_no, s.supplier_name
+    let sql = `SELECT pc.*, sa.advice_no, p.po_no, s.supplier_name,
+         EXISTS(
+           SELECT 1 FROM inv_goods_receipt_notes g
+            WHERE g.company_id = pc.company_id
+              AND g.branch_id = pc.branch_id
+              AND g.port_clearance_id = pc.id
+            LIMIT 1
+         ) AS has_grn
          FROM pur_port_clearances pc
          LEFT JOIN pur_shipping_advices sa ON sa.id = pc.advice_id
          LEFT JOIN pur_orders p ON p.id = sa.po_id
@@ -1167,19 +1181,27 @@ async function ensureProspectCustomersTable() {
     CREATE TABLE IF NOT EXISTS sal_prospect_customers (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       company_id BIGINT UNSIGNED NOT NULL,
-      prospect_customer VARCHAR(200) NOT NULL,
+      prospect_customer VARCHAR(200) NULL,
+      customer_name VARCHAR(255) NULL,
       address VARCHAR(255) NULL,
       city VARCHAR(100) NULL,
       state VARCHAR(100) NULL,
       country VARCHAR(100) NULL,
       telephone VARCHAR(50) NULL,
+      phone VARCHAR(100) NULL,
       email VARCHAR(150) NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
-      UNIQUE KEY uq_prospect_scope_name (company_id, prospect_customer),
       KEY idx_prospect_scope (company_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  // Also ensure prospect_customer is nullable if it was created as NOT NULL
+  try {
+    await pool.query(
+      "ALTER TABLE sal_prospect_customers MODIFY COLUMN prospect_customer VARCHAR(200) NULL",
+    );
+  } catch (e) {}
 }
 
 export const listServiceRequests = async (req, res, next) => {
@@ -1366,26 +1388,30 @@ export const createServiceRequest = async (req, res, next) => {
       await conn.execute(
         `
         INSERT INTO sal_prospect_customers (
-          company_id, prospect_customer, address, city, state, country, telephone, email
+          company_id, prospect_customer, customer_name, address, city, state, country, telephone, phone, email
         ) VALUES (
-          :companyId, :prospect_customer, :address, :city, :state, :country, :telephone, :email
+          :companyId, :prospect_customer, :customer_name, :address, :city, :state, :country, :telephone, :phone, :email
         )
         ON DUPLICATE KEY UPDATE
+          customer_name = VALUES(customer_name),
           address = VALUES(address),
           city = VALUES(city),
           state = VALUES(state),
           country = VALUES(country),
           telephone = VALUES(telephone),
+          phone = VALUES(phone),
           email = VALUES(email)
         `,
         {
           companyId,
           prospect_customer: pName,
+          customer_name: pName,
           address: prospect.address || null,
           city: prospect.city || null,
           state: prospect.state || null,
           country: prospect.country || null,
           telephone: prospect.telephone || null,
+          phone: prospect.telephone || null,
           email: prospect.email || null,
         },
       );
@@ -1520,26 +1546,30 @@ export const updateServiceRequest = async (req, res, next) => {
       await conn.execute(
         `
         INSERT INTO sal_prospect_customers (
-          company_id, prospect_customer, address, city, state, country, telephone, email
+          company_id, prospect_customer, customer_name, address, city, state, country, telephone, phone, email
         ) VALUES (
-          :companyId, :prospect_customer, :address, :city, :state, :country, :telephone, :email
+          :companyId, :prospect_customer, :customer_name, :address, :city, :state, :country, :telephone, :phone, :email
         )
         ON DUPLICATE KEY UPDATE
+          customer_name = VALUES(customer_name),
           address = VALUES(address),
           city = VALUES(city),
           state = VALUES(state),
           country = VALUES(country),
           telephone = VALUES(telephone),
+          phone = VALUES(phone),
           email = VALUES(email)
         `,
         {
           companyId,
           prospect_customer: pName,
+          customer_name: pName,
           address: prospect.address || null,
           city: prospect.city || null,
           state: prospect.state || null,
           country: prospect.country || null,
           telephone: prospect.telephone || null,
+          phone: prospect.telephone || null,
           email: prospect.email || null,
         },
       );

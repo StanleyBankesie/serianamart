@@ -5,32 +5,6 @@ import { renderHtmlToPdf } from "../../../../utils/pdfUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
 
-// Mirrors the backend canonicalDocumentType / docTypeSynonymsLower for salary-slip
-const SALARY_SLIP_ALIASES = [
-  "salary-slip",
-  "salary slip",
-  "salary_slip",
-  "salaryslip",
-  "ss",
-  "salary slip document",
-  "payslip",
-  "pay slip",
-  "pay-slip",
-  "pay_slip",
-  "payslips",
-  "pay slips",
-  "pay-slips",
-  "pay_slips",
-];
-
-function isSalarySlipTemplate(template) {
-  return SALARY_SLIP_ALIASES.includes(
-    String(template?.document_type || "")
-      .trim()
-      .toLowerCase(),
-  );
-}
-
 export default function PayslipList() {
   const { canPerformAction } = usePermission();
   const [items, setItems] = useState([]);
@@ -46,16 +20,14 @@ export default function PayslipList() {
   const [periods, setPeriods] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [branches, setBranches] = useState([]);
-  const [templates, setTemplates] = useState([]);
-
   const [filterPeriod, setFilterPeriod] = useState("");
   const [filterEmp, setFilterEmp] = useState("");
   const [filterDept, setFilterDept] = useState("");
   const [filterBranch, setFilterBranch] = useState("");
 
   const [expandedLoans, setExpandedLoans] = useState({});
-  const [sendingEmailId, setSendingEmailId] = useState(null);  // tracks which row is sending
-  const [emailProgress, setEmailProgress] = useState(0);       // countdown seconds elapsed
+  const [sendingEmailId, setSendingEmailId] = useState(null); // tracks which row is sending
+  const [emailProgress, setEmailProgress] = useState(0); // countdown seconds elapsed
 
   // Template Modal State
   const [selectedRecord, setSelectedRecord] = useState(null);
@@ -69,16 +41,14 @@ export default function PayslipList() {
 
   const loadData = async () => {
     try {
-      const [pRes, dRes, bRes, tRes] = await Promise.all([
+      const [pRes, dRes, bRes] = await Promise.all([
         api.get("/hr/payroll/periods"),
         api.get("/admin/departments"),
         api.get("/admin/branches"),
-        api.get("/templates/salary-slip"),
       ]);
       setPeriods(pRes.data?.items || []);
       setDepartments(dRes.data?.items || []);
       setBranches(bRes.data?.items || []);
-      setTemplates(tRes.data?.items || []);
     } catch (err) {
       console.error("Error loading payslip data:", err);
     }
@@ -204,26 +174,23 @@ export default function PayslipList() {
   const handleActionClick = (r, type) => {
     setSelectedRecord(r);
     setActionType(type);
-
-    // Match by document_type using the same aliases as the backend salary-slip synonyms
-    const targetTpl = templates.find((t) => isSalarySlipTemplate(t));
-
-    // Fallback: is_default template, then first available
-    const deftpl = templates.find((t) => Number(t.is_default) === 1);
-    const tId =
-      targetTpl?.id ||
-      deftpl?.id ||
-      (templates.length > 0 ? templates[0].id : "");
-
-    executeAction(r, tId, type);
+    executeAction(r, type);
   };
 
-  const executeAction = async (r, templateId, type) => {
+  const executeAction = async (r, type) => {
     try {
       setLoading(true);
+      let templateId = null;
+      try {
+        const tRes = await api.get("/templates/salary-slip", {
+          params: { name: "Salary Slip" },
+        });
+        const tItems = Array.isArray(tRes.data?.items) ? tRes.data.items : [];
+        templateId = Number(tItems?.[0]?.id || 0) || null;
+      } catch {}
       const res = await api.post(
         `/documents/salary-slip/${r.id}/render`,
-        { format: "html", template_id: templateId },
+        { format: "html", ...(templateId ? { template_id: templateId } : {}) },
         { headers: { "Content-Type": "application/json" } },
       );
       const html =
@@ -244,9 +211,9 @@ export default function PayslipList() {
           document.body.removeChild(iframe);
           return;
         }
+        const printStyle = `<style>@media print { img, svg { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }</style>`;
         doc.open();
-        const patchCss = `<style>@media print{*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>`;
-        doc.write(patchCss + html);
+        doc.write(printStyle + html);
         doc.close();
         const win = iframe.contentWindow || window;
         const handlePrint = () => {

@@ -138,7 +138,7 @@ export default function DirectPurchaseList() {
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            className="btn-outline text-xs"
+                            className="text-brand hover:text-brand-600 font-medium text-sm"
                             onClick={() =>
                               navigate(
                                 `/purchase/direct-purchase/${it.id}?mode=view`,
@@ -149,7 +149,7 @@ export default function DirectPurchaseList() {
                           </button>
                           <button
                             type="button"
-                            className="text-slate-700 hover:text-slate-900 text-xs font-medium"
+                            className="inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
                             title="Print"
                             onClick={() =>
                               window.open(
@@ -162,7 +162,7 @@ export default function DirectPurchaseList() {
                           </button>
                           <button
                             type="button"
-                            className="text-slate-700 hover:text-slate-900 text-xs font-medium"
+                            className="inline-flex items-center px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold"
                             title="PDF"
                             onClick={async () => {
                               try {
@@ -182,7 +182,7 @@ export default function DirectPurchaseList() {
                           </button>
                           <button
                             type="button"
-                            className="btn-ghost text-xs"
+                            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
                             onClick={() =>
                               navigate(
                                 `/purchase/direct-purchase/${it.id}/edit`,

@@ -289,7 +289,39 @@ export const getCompanyLogo = async (req, res, next) => {
     const logoBuffer = Buffer.isBuffer(logoData)
       ? logoData
       : Buffer.from(logoData);
-    res.setHeader("Content-Type", "image/jpeg");
+    // Detect mime type from magic bytes to ensure correct rendering (color fidelity)
+    let mime = "application/octet-stream";
+    if (
+      logoBuffer.length >= 8 &&
+      logoBuffer[0] === 0x89 &&
+      logoBuffer[1] === 0x50 &&
+      logoBuffer[2] === 0x4e &&
+      logoBuffer[3] === 0x47 &&
+      logoBuffer[4] === 0x0d &&
+      logoBuffer[5] === 0x0a &&
+      logoBuffer[6] === 0x1a &&
+      logoBuffer[7] === 0x0a
+    ) {
+      mime = "image/png";
+    } else if (
+      logoBuffer.length >= 3 &&
+      logoBuffer[0] === 0xff &&
+      logoBuffer[1] === 0xd8 &&
+      logoBuffer[2] === 0xff
+    ) {
+      mime = "image/jpeg";
+    } else if (
+      logoBuffer.length >= 6 &&
+      logoBuffer[0] === 0x47 &&
+      logoBuffer[1] === 0x49 &&
+      logoBuffer[2] === 0x46 &&
+      logoBuffer[3] === 0x38 &&
+      (logoBuffer[4] === 0x39 || logoBuffer[4] === 0x37) &&
+      logoBuffer[5] === 0x61
+    ) {
+      mime = "image/gif";
+    }
+    res.setHeader("Content-Type", mime);
     res.setHeader("Content-Length", logoBuffer.length);
     // Disable caching to avoid stale logo responses; a versioned query param
     // is already used by clients for optimal cache busting.
@@ -545,8 +577,9 @@ export const updateDepartment = async (req, res, next) => {
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
     const { company_id, branch_id, name, code, is_active } = req.body || {};
+    const effectiveCompanyId = company_id || req.scope?.companyId;
 
-    if (!company_id)
+    if (!effectiveCompanyId)
       throw httpError(400, "VALIDATION_ERROR", "company_id is required");
     if (!name || !code)
       throw httpError(400, "VALIDATION_ERROR", "name and code are required");
@@ -555,7 +588,7 @@ export const updateDepartment = async (req, res, next) => {
       "UPDATE adm_departments SET company_id = :company_id, branch_id = :branch_id, name = :name, code = :code, is_active = :is_active WHERE id = :id",
       {
         id,
-        company_id,
+        company_id: effectiveCompanyId,
         branch_id: branch_id || null,
         name,
         code,
@@ -591,14 +624,16 @@ export const getDepartmentById = async (req, res, next) => {
 export const createDepartment = async (req, res, next) => {
   try {
     const { company_id, branch_id, name, code, is_active } = req.body || {};
-    if (!company_id)
+    const effectiveCompanyId = company_id || req.scope?.companyId;
+
+    if (!effectiveCompanyId)
       throw httpError(400, "VALIDATION_ERROR", "company_id is required");
     if (!name || !code)
       throw httpError(400, "VALIDATION_ERROR", "name and code are required");
     const result = await query(
       "INSERT INTO adm_departments (company_id, branch_id, name, code, is_active) VALUES (:company_id, :branch_id, :name, :code, :is_active)",
       {
-        company_id,
+        company_id: effectiveCompanyId,
         branch_id: branch_id || null,
         name,
         code,

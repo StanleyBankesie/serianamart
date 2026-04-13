@@ -495,7 +495,7 @@ export default function StockAdjustmentList() {
                       </span>
                     </td>
                     <td>
-                      <div className="flex gap-2 items-center">
+                      <div className="flex items-center gap-2 whitespace-nowrap">
                         <Link
                           to={`/inventory/stock-adjustments/${adj.id}?mode=view`}
                           className="text-brand hover:text-brand-700 text-sm font-medium"
@@ -536,7 +536,7 @@ export default function StockAdjustmentList() {
                             />
                           </>
                         ) : adj.forwarded_to_username ? (
-                          <span className="text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
+                          <span className="text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white whitespace-nowrap inline-flex items-center">
                             Forwarded to {adj.forwarded_to_username}
                           </span>
                         ) : adj.status === "DRAFT" ||
@@ -544,7 +544,7 @@ export default function StockAdjustmentList() {
                           <button
                             type="button"
                             onClick={() => openForwardModal(adj)}
-                            className="text-sm font-medium px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                            className="text-sm font-medium px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors whitespace-nowrap inline-flex items-center"
                             disabled={hasInactiveWorkflow}
                           >
                             Forward

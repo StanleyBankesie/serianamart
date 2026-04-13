@@ -557,7 +557,7 @@ export default function GRNImportList() {
                       </button>
                     </td>
                     <td>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 whitespace-nowrap">
                         <Link
                           to={`/inventory/grn-import/${g.id}?mode=view`}
                           className="text-brand hover:text-brand-700 text-sm font-medium"
@@ -603,7 +603,7 @@ export default function GRNImportList() {
                         )}
                         {String(g.status || "").toUpperCase() === "APPROVED" ? (
                           <>
-                            <span className="ml-2 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
+                            <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
                               Approved
                             </span>
                             {canReverseApproval() ? (
@@ -646,13 +646,13 @@ export default function GRNImportList() {
                             ) : null}
                           </>
                         ) : g.forwarded_to_username ? (
-                          <span className="ml-2 text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
+                          <span className="ml-2 text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white whitespace-nowrap inline-flex items-center">
                             Forwarded to {g.forwarded_to_username}
                           </span>
                         ) : (
                           <button
                             type="button"
-                            className="btn-success ml-2"
+                            className="btn-success text-xs whitespace-nowrap inline-flex items-center"
                             onClick={() => openForwardModal(g)}
                             disabled={
                               submittingId === g.id ||

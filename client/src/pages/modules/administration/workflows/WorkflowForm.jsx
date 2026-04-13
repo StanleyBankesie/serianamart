@@ -156,6 +156,15 @@ const WorkflowForm = () => {
           ? a.label.localeCompare(b.label)
           : a.module.localeCompare(b.module),
       );
+      const extra = {
+        module: "Purchase",
+        label: "General Requisition",
+        code: toCode("Purchase", "General Requisition"),
+        route: "/purchase/general-requisitions",
+      };
+      if (!list.some((dt) => dt.code === extra.code)) {
+        list.push(extra);
+      }
       setDocTypes(list);
     } catch (error) {
       console.error(
@@ -210,7 +219,8 @@ const WorkflowForm = () => {
       setFormData({
         ...data,
         is_active: !!data.is_active,
-        email_notify: data.email_notify == null ? true : Boolean(data.email_notify),
+        email_notify:
+          data.email_notify == null ? true : Boolean(data.email_notify),
         steps: mappedSteps,
       });
       const initialCode = toCode(
@@ -469,6 +479,9 @@ const WorkflowForm = () => {
                     <option value="SALES|Sales Order">Sales Order</option>
                     <option value="PURCHASE|Purchase Order">
                       Purchase Order
+                    </option>
+                    <option value="PURCHASE|General Requisition">
+                      General Requisition
                     </option>
                     <option value="SALES|Invoice">Invoice</option>
                     <option value="INVENTORY|Work Order">Work Order</option>

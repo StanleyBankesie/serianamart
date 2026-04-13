@@ -1318,22 +1318,6 @@ router.post(
           const quantity = Number(it?.quantity || 0);
           const unit_price = Number(it?.unit_price || 0);
           const uom = String(it?.uom || "PCS").trim();
-          if (!Number.isFinite(item_id) || quantity <= 0) continue;
-          await conn.execute(
-            `
-            INSERT INTO sal_delivery_details
-              (delivery_id, item_id, quantity, unit_price, uom)
-            VALUES
-              (:delivery_id, :item_id, :quantity, :unit_price, :uom)
-            `,
-            {
-              delivery_id: deliveryId,
-              item_id,
-              quantity,
-              unit_price,
-              uom,
-            },
-          );
           await conn.execute(
             `
             INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
@@ -1348,6 +1332,16 @@ router.post(
               qty: quantity,
             },
           );
+          await allocateFromBatchesTx(conn, {
+            companyId,
+            branchId,
+            warehouseId: Number(warehouseId || 0),
+            itemId: item_id,
+            qty: quantity,
+            refType: "DELIVERY",
+            refId: deliveryId,
+            refDate: ddate,
+          });
         }
         await conn.commit();
         const [item] = await query(
@@ -2174,6 +2168,19 @@ router.get(
     try {
       const companyId = req.scope.companyId;
       const branchId = req.scope.branchId;
+
+      // Ensure is_active and deleted_at columns exist
+      try {
+        await query(
+          "ALTER TABLE sal_orders ADD COLUMN is_active ENUM('Y','N') NOT NULL DEFAULT 'Y'",
+        );
+      } catch {}
+      try {
+        await query(
+          "ALTER TABLE sal_orders ADD COLUMN deleted_at DATETIME NULL",
+        );
+      } catch {}
+
       const items = await query(
         `
         SELECT 
@@ -2235,6 +2242,7 @@ router.get(
           ON c.id = o.customer_id AND c.company_id = :companyId
         LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
         WHERE o.company_id = :companyId AND o.branch_id = :branchId
+          AND COALESCE(o.is_active,'Y') = 'Y'
         ORDER BY o.order_date DESC, o.id DESC
         `,
         { companyId, branchId },
@@ -2290,10 +2298,19 @@ router.delete(
           "Cannot cancel: order linked to an invoice",
         );
       }
-      await query("DELETE FROM sal_order_details WHERE order_id = :id", { id });
+      try {
+        await query(
+          "ALTER TABLE sal_orders ADD COLUMN is_active ENUM('Y','N') NOT NULL DEFAULT 'Y'",
+        );
+      } catch {}
+      try {
+        await query(
+          "ALTER TABLE sal_orders ADD COLUMN deleted_at DATETIME NULL",
+        );
+      } catch {}
       await query(
-        "DELETE FROM sal_orders WHERE id = :id AND company_id = :companyId AND branch_id = :BranchId",
-        { id, companyId, BranchId: branchId },
+        "UPDATE sal_orders SET status = 'CANCELLED', is_active = 'N', deleted_at = NOW() WHERE id = :id AND company_id = :CompanyId AND branch_id = :BranchId",
+        { id, CompanyId: companyId, BranchId: branchId },
       );
       res.json({ success: true, id });
     } catch (e) {
@@ -2711,101 +2728,107 @@ router.post(
       }
 
       // If a workflow is defined, create/advance document workflow and assign
-      if (activeWf) {
-        const steps = await query(
-          `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
-          { wf: activeWf.id },
-        );
-        if (!steps.length)
-          throw httpError(400, "BAD_REQUEST", "Workflow has no steps");
-        const first = steps[0];
-        if (!first.approver_user_id) {
-          throw httpError(
-            400,
-            "BAD_REQUEST",
-            "Workflow step 1 has no approver_user_id configured",
-          );
-        }
-        const allowedUsers = await query(
-          `SELECT approver_user_id 
-             FROM adm_workflow_step_approvers 
-             WHERE workflow_id = :wf AND step_order = :ord`,
-          { wf: activeWf.id, ord: first.step_order },
-        );
-        const allowedSet = new Set(
-          allowedUsers.map((r) => Number(r.approver_user_id)),
-        );
-        let assignedToUserId = Number(first.approver_user_id);
-        if (
-          targetUserId != null &&
-          Number.isFinite(targetUserId) &&
-          allowedSet.has(Number(targetUserId))
-        ) {
-          assignedToUserId = Number(targetUserId);
-        } else if (allowedUsers.length > 0) {
-          assignedToUserId = Number(allowedUsers[0].approver_user_id);
-        }
-
-        const dwRes = await query(
-          `
-          INSERT INTO adm_document_workflows
-            (company_id, workflow_id, document_id, document_type, amount, current_step_order, status, assigned_to_user_id)
-          VALUES
-            (:companyId, :workflowId, :documentId, 'SALES_ORDER', :amount, :stepOrder, 'PENDING', :assignedTo)
-          `,
-          {
-            companyId,
-            workflowId: activeWf.id,
-            documentId: id,
-            amount: amount === null ? null : Number(amount),
-            stepOrder: first.step_order,
-            assignedTo: assignedToUserId,
-          },
-        );
-        const instanceId = dwRes.insertId;
+      if (!activeWf) {
         await query(
-          `
-          INSERT INTO adm_workflow_tasks
-            (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
-          VALUES
-            (:companyId, :workflowId, :dwId, :documentId, 'SALES_ORDER', :stepOrder, :assignedTo, 'PENDING')
-          `,
-          {
-            companyId,
-            workflowId: activeWf.id,
-            dwId: instanceId,
-            documentId: id,
-            stepOrder: first.step_order,
-            assignedTo: assignedToUserId,
-          },
+          `UPDATE sal_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+          { id, companyId, branchId },
         );
-        await query(
-          `
-          INSERT INTO adm_workflow_logs
-            (document_workflow_id, step_order, action, actor_user_id, comments)
-          VALUES
-            (:dwId, :stepOrder, 'SUBMIT', :actor, :comments)
-          `,
-          {
-            dwId: instanceId,
-            stepOrder: first.step_order,
-            actor: req.user.sub,
-            comments: "",
-          },
-        );
+        return res.json({ id, status: "APPROVED" });
       }
 
-      // Update header status for UI
-      const nextStatus = "SUBMITTED";
+      const steps = await query(
+        `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+        { wf: activeWf.id },
+      );
+      if (!steps.length) {
+        await query(
+          `UPDATE sal_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+          { id, companyId, branchId },
+        );
+        return res.json({ id, status: "APPROVED" });
+      }
+
+      const first = steps[0];
+      if (!first.approver_user_id) {
+        throw httpError(
+          400,
+          "BAD_REQUEST",
+          "Workflow step 1 has no approver_user_id configured",
+        );
+      }
+      const allowedUsers = await query(
+        `SELECT approver_user_id 
+           FROM adm_workflow_step_approvers 
+           WHERE workflow_id = :wf AND step_order = :ord`,
+        { wf: activeWf.id, ord: first.step_order },
+      );
+      const allowedSet = new Set(
+        allowedUsers.map((r) => Number(r.approver_user_id)),
+      );
+      let assignedToUserId = Number(first.approver_user_id);
+      if (
+        targetUserId != null &&
+        Number.isFinite(targetUserId) &&
+        allowedSet.has(Number(targetUserId))
+      ) {
+        assignedToUserId = Number(targetUserId);
+      } else if (allowedUsers.length > 0) {
+        assignedToUserId = Number(allowedUsers[0].approver_user_id);
+      }
+
+      const dwRes = await query(
+        `
+        INSERT INTO adm_document_workflows
+          (company_id, workflow_id, document_id, document_type, amount, current_step_order, status, assigned_to_user_id)
+        VALUES
+          (:companyId, :workflowId, :documentId, 'SALES_ORDER', :amount, :stepOrder, 'PENDING', :assignedTo)
+        `,
+        {
+          companyId,
+          workflowId: activeWf.id,
+          documentId: id,
+          amount: amount === null ? null : Number(amount),
+          stepOrder: first.step_order,
+          assignedTo: assignedToUserId,
+        },
+      );
+      const instanceId = dwRes.insertId;
       await query(
         `
-        UPDATE sal_orders
-           SET status = :status
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+        INSERT INTO adm_workflow_tasks
+          (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
+        VALUES
+          (:companyId, :workflowId, :dwId, :documentId, 'SALES_ORDER', :stepOrder, :assignedTo, 'PENDING')
         `,
-        { id, companyId, branchId, status: nextStatus },
+        {
+          companyId,
+          workflowId: activeWf.id,
+          dwId: instanceId,
+          documentId: id,
+          stepOrder: first.step_order,
+          assignedTo: assignedToUserId,
+        },
       );
-      res.json({ id, status: nextStatus });
+      await query(
+        `
+        INSERT INTO adm_workflow_logs
+          (document_workflow_id, step_order, action, actor_user_id, comments)
+        VALUES
+          (:dwId, :stepOrder, 'SUBMIT', :actor, :comments)
+        `,
+        {
+          dwId: instanceId,
+          stepOrder: first.step_order,
+          actor: req.user.sub,
+          comments: "",
+        },
+      );
+
+      await query(
+        `UPDATE sal_orders SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
+      );
+      res.json({ id, status: "PENDING_APPROVAL" });
     } catch (e) {
       next(e);
     }
@@ -5255,13 +5278,25 @@ router.post(
           break;
         }
       }
-      if (activeWf) {
-        const steps = await query(
-          `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
-          { wf: activeWf.id },
+      if (!activeWf) {
+        await query(
+          `UPDATE sal_returns SET status = 'APPROVED' WHERE id = :id`,
+          { id },
         );
-        if (!steps.length)
-          throw httpError(400, "BAD_REQUEST", "Workflow has no steps");
+        return res.json({ status: "APPROVED" });
+      }
+
+      const steps = await query(
+        `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+        { wf: activeWf.id },
+      );
+      if (!steps.length) {
+        await query(
+          `UPDATE sal_returns SET status = 'APPROVED' WHERE id = :id`,
+          { id },
+        );
+        return res.json({ status: "APPROVED" });
+      }
         const first = steps[0];
         if (!first.approver_user_id) {
           throw httpError(
@@ -5363,7 +5398,6 @@ router.post(
         }
         res.status(201).json({ instanceId, status: "PENDING" });
         return;
-      }
       let behavior = null;
       if (wfDefs.length) {
         const firstWf = wfDefs[0];
@@ -5710,6 +5744,28 @@ router.delete(
       res.json({ success: true });
     } catch (e) {
       next(e);
+    }
+  },
+);
+
+router.get(
+  "/prices/standard",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const rows = await query(
+        `SELECT sp.*, i.item_code, i.item_name
+         FROM sal_standard_prices sp
+         JOIN inv_items i ON i.id = sp.product_id
+         WHERE sp.company_id = :companyId AND sp.is_active = 1`,
+        { companyId },
+      );
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
     }
   },
 );

@@ -504,7 +504,8 @@ export default function DeliveryList() {
         return;
       }
       doc.open();
-      doc.write(html);
+      const patchCss = `<style>@media print{img{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>`;
+      doc.write(patchCss + html);
       doc.close();
       const win = iframe.contentWindow || window;
       const doPrint = () => {

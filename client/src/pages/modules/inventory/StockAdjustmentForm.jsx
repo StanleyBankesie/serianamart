@@ -161,7 +161,7 @@ export default function StockAdjustmentForm() {
                 itemName: d.item_name || "",
                 currentStock: Number(d.current_stock) || 0,
                 adjustedStock: Number(d.adjusted_stock) || 0,
-                uom: "PCS", // Assuming default for now
+                uom: d.uom || "PCS",
                 unitCost: Number(d.unit_cost) || 0,
                 remarks: d.remarks || "",
               }))
@@ -253,26 +253,72 @@ export default function StockAdjustmentForm() {
     setItems(items.filter((item) => item.id !== id));
   };
 
-  const updateItem = (id, field, value) => {
-    setItems(
-      items.map((item) => {
+  const fetchCurrentStock = async (itemId, warehouseId) => {
+    if (!itemId || !warehouseId) return 0;
+    try {
+      const res = await api.get("/inventory/stock/balance", {
+        params: {
+          item_id: itemId,
+          warehouse_id: warehouseId,
+        },
+      });
+      return Number(res.data?.qty || 0);
+    } catch {
+      return 0;
+    }
+  };
+
+  const updateItem = async (id, field, value) => {
+    // We update state first
+    setItems((prev) =>
+      prev.map((item) => {
         if (item.id === id) {
           const updated = { ...item, [field]: value };
-          // If item changed, try to find info (though we don't have stock info in availableItems usually)
           if (field === "item_id") {
             const selected = availableItems.find(
               (ai) => String(ai.id) === String(value),
             );
             updated.itemCode = selected?.item_code || "";
             updated.itemName = selected?.item_name || "";
-            updated.unitCost = selected?.cost_price || 0; // Assuming cost_price exists
+            updated.unitCost = selected?.cost_price || 0;
+            updated.uom = selected?.uom || defaultUomCode;
           }
           return updated;
         }
         return item;
       }),
     );
+
+    // If item_id changed, fetch its stock
+    if (field === "item_id" && value && formData.warehouseId) {
+      const wid = formData.warehouseId;
+      const stock = await fetchCurrentStock(value, wid);
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === id ? { ...item, currentStock: stock } : item,
+        ),
+      );
+    }
   };
+
+  // Refresh all stocks when warehouseId changes
+  useEffect(() => {
+    if (!formData.warehouseId || !items.length) return;
+
+    const refreshAllStocks = async () => {
+      const wid = formData.warehouseId;
+      const updatedItems = await Promise.all(
+        items.map(async (item) => {
+          if (!item.item_id) return item;
+          const stock = await fetchCurrentStock(item.item_id, wid);
+          return { ...item, currentStock: stock };
+        }),
+      );
+      setItems(updatedItems);
+    };
+
+    refreshAllStocks();
+  }, [formData.warehouseId]);
 
   const selectReason = (reason) => {
     setFormData((prev) => ({ ...prev, reason: reason }));
@@ -560,7 +606,8 @@ export default function StockAdjustmentForm() {
                   <table className="w-full text-sm text-left">
                     <thead className="bg-slate-100 text-slate-700 uppercase font-bold">
                       <tr>
-                        <th className="p-3">Item</th>
+                        <th className="p-3 w-96">Item</th>
+                        <th className="p-3 w-28">Item Code</th>
                         <th className="p-3 w-24">Current Stock</th>
                         <th className="p-3 w-40">Adjusted Stock</th>
                         <th className="p-3 w-24">Diff</th>
@@ -599,16 +646,18 @@ export default function StockAdjustmentForm() {
                             </td>
                             <td className="p-2">
                               <input
+                                type="text"
+                                className="input text-sm py-1 bg-slate-50"
+                                value={item.itemCode || ""}
+                                readOnly
+                              />
+                            </td>
+                            <td className="p-2">
+                              <input
                                 type="number"
                                 className="input text-sm py-1 bg-slate-50"
                                 value={item.currentStock}
-                                onChange={(e) =>
-                                  updateItem(
-                                    item.id,
-                                    "currentStock",
-                                    e.target.value,
-                                  )
-                                }
+                                readOnly
                               />
                             </td>
                             <td className="p-2">
@@ -753,7 +802,7 @@ export default function StockAdjustmentForm() {
                       {items.length === 0 && (
                         <tr>
                           <td
-                            colSpan="9"
+                            colSpan="10"
                             className="p-8 text-center text-slate-500"
                           >
                             No items added. Click "Add Item" to begin.

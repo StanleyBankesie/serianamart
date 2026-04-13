@@ -55,6 +55,7 @@ export default function PurchaseOrdersLocalForm() {
   const [availableItems, setAvailableItems] = useState([]);
   const [quotations, setQuotations] = useState([]);
   const [allQuotations, setAllQuotations] = useState([]);
+  const [approvedItemRequisitions, setApprovedItemRequisitions] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [standardPrices, setStandardPrices] = useState([]);
   const [unitConversions, setUnitConversions] = useState([]);
@@ -139,13 +140,20 @@ export default function PurchaseOrdersLocalForm() {
     let mounted = true;
     async function loadLookups() {
       try {
-        const [supRes, whRes, itemsRes, quotRes, convRes] =
+        const [supRes, whRes, itemsRes, quotRes, convRes, reqRes] =
           await Promise.allSettled([
             api.get("/purchase/suppliers"),
             api.get("/inventory/warehouses"),
             api.get("/inventory/items"),
             api.get("/purchase/quotations"),
             api.get("/inventory/unit-conversions"),
+            api.get("/purchase/general-requisitions", {
+              params: {
+                status: "APPROVED",
+                requisition_type: "ITEM",
+                only_unlinked: 1,
+              },
+            }),
           ]);
 
         if (!mounted) return;
@@ -188,6 +196,13 @@ export default function PurchaseOrdersLocalForm() {
           setUnitConversions(
             Array.isArray(convRes.value.data?.items)
               ? convRes.value.data.items
+              : [],
+          );
+        }
+        if (reqRes.status === "fulfilled") {
+          setApprovedItemRequisitions(
+            Array.isArray(reqRes.value.data?.items)
+              ? reqRes.value.data.items
               : [],
           );
         }
@@ -936,6 +951,14 @@ export default function PurchaseOrdersLocalForm() {
         await api.put(`/purchase/orders/${id}/status`, {
           status: computedStatus,
         });
+        if (formData.general_requisition_id) {
+          try {
+            await api.post(
+              `/purchase/general-requisitions/${formData.general_requisition_id}/link`,
+              { ref_type: "PO_LOCAL", ref_id: Number(id) },
+            );
+          } catch {}
+        }
         const res = await api.get(`/purchase/orders/${id}`);
         const po = res.data?.item;
         const details = Array.isArray(res.data?.item?.details)
@@ -983,6 +1006,14 @@ export default function PurchaseOrdersLocalForm() {
             status: computedStatus,
           });
         } else if (createdId) {
+        }
+        if (createdId && formData.general_requisition_id) {
+          try {
+            await api.post(
+              `/purchase/general-requisitions/${formData.general_requisition_id}/link`,
+              { ref_type: "PO_LOCAL", ref_id: Number(createdId) },
+            );
+          } catch {}
         }
       }
       navigate("/purchase/purchase-orders-local", { state: { refresh: true } });
@@ -1521,6 +1552,57 @@ export default function PurchaseOrdersLocalForm() {
                             </option>
                           ),
                       )}
+                  </select>
+                </div>
+                <div className="flex flex-col">
+                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5">
+                    Requisition
+                  </label>
+                  <select
+                    name="general_requisition_id"
+                    value={formData.general_requisition_id || ""}
+                    onChange={async (e) => {
+                      const val = e.target.value;
+                      setFormData((p) => ({
+                        ...p,
+                        general_requisition_id: val,
+                      }));
+                      const rid = Number(val);
+                      if (Number.isFinite(rid) && rid > 0) {
+                        try {
+                          const res = await api.get(
+                            `/purchase/general-requisitions/${rid}`,
+                          );
+                          const gr = res.data || null;
+                          const grItems = Array.isArray(gr?.items)
+                            ? gr.items
+                            : [];
+                          const mapped = grItems
+                            .filter((ln) => Number(ln.item_id))
+                            .map((ln) => ({
+                              item_id: String(ln.item_id),
+                              qty: Number(ln.qty || 0),
+                              uom: ln.uom || "",
+                              unit_price: Number(ln.estimated_unit_cost || 0),
+                              discount_percent: 0,
+                              tax_percent: 0,
+                              line_total:
+                                Number(ln.qty || 0) *
+                                Number(ln.estimated_unit_cost || 0),
+                            }));
+                          if (mapped.length) setItems(mapped);
+                        } catch {}
+                      }
+                    }}
+                    className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
+                  >
+                    <option value="">Select Approved Requisition</option>
+                    {approvedItemRequisitions.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.requisition_no} — {r.department || ""} —{" "}
+                        {String(r.requisition_date || "").slice(0, 10)}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="flex flex-col">

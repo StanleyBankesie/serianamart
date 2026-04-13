@@ -20,6 +20,21 @@ if (forceLocal && fs.existsSync(localPath)) {
 } else if (fs.existsSync(localPath)) {
   dotenv.config({ path: localPath, override: true });
 }
+try {
+  if (fs.existsSync(prodPath)) {
+    const parsed = dotenv.config({ path: prodPath }).parsed || {};
+    [
+      "SMTP_HOST",
+      "SMTP_PORT",
+      "SMTP_USER",
+      "SMTP_PASS",
+      "SMTP_FROM",
+      "SMTP_SECURE",
+    ].forEach((k) => {
+      if (parsed[k]) process.env[k] = parsed[k];
+    });
+  }
+} catch {}
 
 function requiredEnv(name) {
   const v = process.env[name];
@@ -79,6 +94,22 @@ export const pool = mysql.createPool({
 });
 
 export async function query(sql, params = {}) {
-  const [rows] = await pool.execute(sql, params);
-  return rows;
+  const isMetadata = /^\s*(SHOW|ALTER|CREATE|DROP|DESCRIBE)\s/i.test(sql);
+  try {
+    if (isMetadata) {
+      const [rows] = await pool.query(sql, params);
+      return rows;
+    }
+    const [rows] = await pool.execute(sql, params);
+    return rows;
+  } catch (err) {
+    if (
+      err.code === "ER_UNSUPPORTED_PS" ||
+      (err.message && (err.message.includes("prepared statement") || err.message.includes("syntax to use near '?'")))
+    ) {
+      const [rows] = await pool.query(sql, params);
+      return rows;
+    }
+    throw err;
+  }
 }

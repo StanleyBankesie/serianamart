@@ -23,7 +23,7 @@ async function nextVoucherNo({ companyId, voucherTypeId }) {
     if (!vt) throw httpError(404, "NOT_FOUND", "Voucher type not found");
     const up = String(vt.code).toUpperCase();
     const seq =
-      up === "PV" || up === "CV" || up === "RV"
+      up === "PV" || up === "CV" || up === "RV" || up === "JV" || up === "SV"
         ? String(vt.next_number).padStart(6, "0")
         : String(vt.next_number);
     const voucherNo = `${vt.prefix}-${seq}`;
@@ -252,7 +252,7 @@ export const getNextVoucherNo = async (req, res, next) => {
     if (!vt) throw httpError(404, "NOT_FOUND", "Voucher type not found");
     const up = String(vt.code).toUpperCase();
     const seq =
-      up === "PV" || up === "CV" || up === "RV"
+    up === "PV" || up === "CV" || up === "RV" || up === "JV" || up === "SV"
         ? String(vt.next_number).padStart(6, "0")
         : String(vt.next_number);
     const nextNo = `${vt.prefix}-${seq}`;
@@ -283,34 +283,43 @@ export const submitVoucher = async (req, res, next) => {
     const isPV = typeCode === "PV";
     const isRV = typeCode === "RV";
     const isCV = typeCode === "CV";
+    const isJV = typeCode === "JV";
     const docTypePrimary = isRV
       ? "RECEIPT_VOUCHER"
       : isPV
         ? "PAYMENT_VOUCHER"
         : isCV
           ? "CONTRA_VOUCHER"
-          : "VOUCHER";
+          : isJV
+            ? "JOURNAL_VOUCHER"
+            : "VOUCHER";
     const titleName = isRV
       ? "Receipt Voucher"
       : isPV
         ? "Payment Voucher"
         : isCV
           ? "Contra Voucher"
-          : "Voucher";
+          : isJV
+            ? "Journal Voucher"
+            : "Voucher";
     const docRouteBase = isRV
       ? "/finance/receipt-voucher"
       : isPV
         ? "/finance/payment-voucher"
         : isCV
           ? "/finance/contra-voucher"
-          : null;
+          : isJV
+            ? "/finance/journal-voucher"
+            : null;
     const typeSynonyms = isRV
       ? ["RECEIPT_VOUCHER", "Receipt Voucher", "RV"]
       : isPV
         ? ["PAYMENT_VOUCHER", "Payment Voucher", "PV"]
         : isCV
           ? ["CONTRA_VOUCHER", "Contra Voucher", "CV"]
-          : ["VOUCHER", "Voucher", typeCode];
+          : isJV
+            ? ["JOURNAL_VOUCHER", "Journal Voucher", "JV"]
+            : ["VOUCHER", "Voucher", typeCode];
     const wfByRoute =
       docRouteBase != null
         ? await query(
@@ -488,6 +497,10 @@ export const submitVoucher = async (req, res, next) => {
       await query(
         `UPDATE fin_vouchers SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
         { id: voucherId, companyId, branchId },
+      );
+      await query(
+        `UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
+        { id: voucherId, companyId },
       );
       res.json({ status: "APPROVED" });
       return;
@@ -709,6 +722,27 @@ export const listAccountGroups = async (req, res, next) => {
   }
 };
 
+export const listChartOfAccounts = async (req, res, next) => {
+  try {
+    const companyId = req.scope.companyId;
+    const search = req.query.search ? String(req.query.search).trim() : null;
+    const items = await query(
+      `SELECT a.id, a.code, a.name, a.is_postable, a.is_active, a.currency_id,
+              g.id AS group_id, g.code AS group_code, g.name AS group_name, g.nature,
+              pg.id AS parent_group_id, pg.name AS parent_group_name
+       FROM fin_accounts a
+       JOIN fin_account_groups g ON g.id = a.group_id AND g.company_id = a.company_id
+       LEFT JOIN fin_account_groups pg ON pg.id = g.parent_id AND pg.company_id = a.company_id
+       WHERE a.company_id = :companyId
+         AND (:search IS NULL OR a.code LIKE CONCAT('%', :search, '%') OR a.name LIKE CONCAT('%', :search, '%') OR g.name LIKE CONCAT('%', :search, '%'))
+       ORDER BY g.code ASC, a.code ASC`,
+      { companyId, search },
+    );
+    res.json({ items });
+  } catch (e) {
+    next(e);
+  }
+};
 export const createTaxCode = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
@@ -1091,6 +1125,55 @@ export const upsertOpeningBalance = async (req, res, next) => {
   }
 };
 
+export const bulkUpsertOpeningBalances = async (req, res, next) => {
+  const conn = await pool.getConnection();
+  try {
+    const companyId = req.scope.companyId;
+    const branchId = req.scope.branchId || null;
+    const { fiscalYearId, items } = req.body || {};
+    if (!fiscalYearId || !Array.isArray(items))
+      throw httpError(
+        400,
+        "VALIDATION_ERROR",
+        "fiscalYearId and items[] are required",
+      );
+    await conn.beginTransaction();
+    let affected = 0;
+    for (const it of items) {
+      const accountId = Number(it?.accountId);
+      const openingDebit = Number(it?.openingDebit || 0);
+      const openingCredit = Number(it?.openingCredit || 0);
+      if (!Number.isFinite(accountId) || accountId <= 0) continue;
+      await conn.execute(
+        `INSERT INTO fin_account_opening_balances
+           (company_id, fiscal_year_id, account_id, branch_id, opening_debit, opening_credit)
+         VALUES
+           (:companyId, :fiscalYearId, :accountId, :branchId, :openingDebit, :openingCredit)
+         ON DUPLICATE KEY UPDATE
+           opening_debit = VALUES(opening_debit),
+           opening_credit = VALUES(opening_credit)`,
+        {
+          companyId,
+          fiscalYearId: Number(fiscalYearId),
+          accountId,
+          branchId,
+          openingDebit,
+          openingCredit,
+        },
+      );
+      affected++;
+    }
+    await conn.commit();
+    res.status(200).json({ upserted: affected });
+  } catch (e) {
+    try {
+      await conn.rollback();
+    } catch {}
+    next(e);
+  } finally {
+    conn.release();
+  }
+};
 export const getAccountGroupsTree = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;

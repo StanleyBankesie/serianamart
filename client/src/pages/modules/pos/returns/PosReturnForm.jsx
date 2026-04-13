@@ -532,8 +532,9 @@ export default function PosReturnForm() {
     const doc =
       iframe.contentWindow?.document || iframe.contentDocument || null;
     if (!doc) return;
+    const printStyle = `<style>@media print { img, svg { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }</style>`;
     doc.open();
-    doc.write(html);
+    doc.write(printStyle + html);
     doc.close();
     const w = iframe.contentWindow;
     if (!w) return;

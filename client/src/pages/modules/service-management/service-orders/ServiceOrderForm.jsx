@@ -65,6 +65,10 @@ export default function ServiceOrderForm() {
     email: "",
     phone: "",
   });
+  const [approvedServiceRequisitions, setApprovedServiceRequisitions] =
+    useState([]);
+  const [selectedServiceRequisitionId, setSelectedServiceRequisitionId] =
+    useState("");
   const [contractors, setContractors] = useState([]);
   const [extReqs, setExtReqs] = useState({
     cat: "",
@@ -108,6 +112,17 @@ export default function ServiceOrderForm() {
         if (mounted) setServiceRequests([]);
       }
     }
+    async function fetchApprovedServiceRequisitions() {
+      try {
+        const resp = await api.get("/purchase/general-requisitions", {
+          params: { status: "APPROVED", requisition_type: "SERVICE" },
+        });
+        const rows = Array.isArray(resp.data?.items) ? resp.data.items : [];
+        if (mounted) setApprovedServiceRequisitions(rows);
+      } catch {
+        if (mounted) setApprovedServiceRequisitions([]);
+      }
+    }
     async function fetchServiceItems() {
       try {
         const resp = await api.get("/inventory/items");
@@ -129,6 +144,7 @@ export default function ServiceOrderForm() {
       }
     }
     fetchServiceRequests();
+    fetchApprovedServiceRequisitions();
     fetchServiceItems();
     async function fetchContractors() {
       try {
@@ -531,6 +547,15 @@ export default function ServiceOrderForm() {
         : api.post("/purchase/service-orders", payload);
     req
       .then((resp) => {
+        const createdId = resp?.data?.id || null;
+        if (createdId && selectedServiceRequisitionId) {
+          api
+            .post(
+              `/purchase/general-requisitions/${selectedServiceRequisitionId}/link`,
+              { ref_type: "SERVICE_ORDER", ref_id: Number(createdId) },
+            )
+            .catch(() => {});
+        }
         const num =
           resp?.data?.order_no ||
           orderNo ||
@@ -905,6 +930,63 @@ export default function ServiceOrderForm() {
               <div>
                 <form onSubmit={submitExternal}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="group">
+                      <label>Requisition</label>
+                      <select
+                        className="input"
+                        value={selectedServiceRequisitionId}
+                        onChange={async (e) => {
+                          const val = e.target.value;
+                          setSelectedServiceRequisitionId(val);
+                          const rid = Number(val);
+                          if (Number.isFinite(rid) && rid > 0) {
+                            try {
+                              const res = await api.get(
+                                `/purchase/general-requisitions/${rid}`,
+                              );
+                              const gr = res.data || null;
+                              const grItems = Array.isArray(gr?.items)
+                                ? gr.items
+                                : [];
+                              const scopeText = grItems
+                                .map((ln) => {
+                                  const desc =
+                                    ln.description || ln.item_name || "Service";
+                                  const qty = Number(ln.qty || 0);
+                                  const uom = String(ln.uom || "").trim();
+                                  return `- ${desc}${qty ? ` (x${qty}${uom ? " " + uom : ""})` : ""}`;
+                                })
+                                .join("\n");
+                              const est = grItems.reduce(
+                                (acc, ln) =>
+                                  acc +
+                                  Number(ln.qty || 0) *
+                                    Number(ln.estimated_unit_cost || 0),
+                                0,
+                              );
+                              setExtReqs((p) => ({
+                                ...p,
+                                scope: scopeText || p.scope,
+                              }));
+                              setExtBudget((p) => ({
+                                ...p,
+                                estCost: est ? String(est) : p.estCost,
+                              }));
+                            } catch {}
+                          }
+                        }}
+                      >
+                        <option value="">
+                          -- Select Approved Requisition --
+                        </option>
+                        {approvedServiceRequisitions.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.requisition_no} • {r.department || ""} •{" "}
+                            {String(r.requisition_date || "").slice(0, 10)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="group">
                       <label>
                         Department <span className="req">*</span>

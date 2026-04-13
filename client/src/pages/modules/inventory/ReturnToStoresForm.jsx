@@ -14,7 +14,7 @@ export default function ReturnToStoresForm() {
   const [availableItems, setAvailableItems] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [requisitions, setRequisitions] = useState([]); // For lookup if needed, or just search
+  const [issues, setIssues] = useState([]);
 
   const [formData, setFormData] = useState({
     rtsNo: isNew ? "Auto-generated" : "RT-000000",
@@ -50,14 +50,16 @@ export default function ReturnToStoresForm() {
 
     const fetchData = async () => {
       try {
-        const [itemsRes, whRes, deptRes, nextNoRes] = await Promise.all([
-          api.get("/inventory/items"),
-          api.get("/inventory/warehouses"),
-          api.get("/admin/departments"),
-          isNew
-            ? api.get("/inventory/return-to-stores/next-no")
-            : Promise.resolve({ data: null }),
-        ]);
+        const [itemsRes, whRes, deptRes, nextNoRes, issuesRes] =
+          await Promise.all([
+            api.get("/inventory/items"),
+            api.get("/inventory/warehouses"),
+            api.get("/admin/departments"),
+            isNew
+              ? api.get("/inventory/return-to-stores/next-no")
+              : Promise.resolve({ data: null }),
+            api.get("/inventory/issue-to-requirement"),
+          ]);
 
         if (mounted) {
           setAvailableItems(
@@ -72,6 +74,15 @@ export default function ReturnToStoresForm() {
           if (isNew && nextNoRes?.data?.next_no) {
             setFormData((prev) => ({ ...prev, rtsNo: nextNoRes.data.next_no }));
           }
+          const allIssues = Array.isArray(issuesRes?.data?.items)
+            ? issuesRes.data.items
+            : [];
+          setIssues(
+            allIssues.filter((x) => {
+              const s = String(x.status || "").toUpperCase();
+              return s === "POSTED" || s === "ISSUED";
+            }),
+          );
         }
       } catch (e) {
         if (mounted) {
@@ -167,7 +178,10 @@ export default function ReturnToStoresForm() {
       .filter((l) => l.item_id)
       .map((l) => ({
         item_id: Number(l.item_id),
+        qty: Number(l.qtyReturned) || 0,
         qty_returned: Number(l.qtyReturned) || 0,
+        qty_issued: Number(l.qtyIssued) || 0,
+        remaining_qty: Number(l.remainingQty) || 0,
         reason: l.reason || null,
         condition: l.condition || null,
         batch_serial: l.batchSerial || null,
@@ -231,60 +245,39 @@ export default function ReturnToStoresForm() {
   };
 
   const updateLine = (lineId, field, value) => {
-    setLines(
-      lines.map((l) => {
+    setLines((prev) =>
+      prev.map((l) => {
         if (l.id !== lineId) return l;
-        return { ...l, [field]: value };
+        const updated = { ...l, [field]: value };
+        if (field === "qtyReturned" || field === "qtyIssued") {
+          updated.remainingQty = (Number(updated.qtyIssued) || 0) - (Number(updated.qtyReturned) || 0);
+        }
+        return updated;
       }),
     );
   };
 
-  const handleRequisitionLookup = async () => {
-    // Mock lookup or modal - for now simple prompt or we can fetch a list
-    // Since we don't have a sophisticated lookup UI component yet, I'll load recent requisitions into a dropdown if not already done?
-    // Or just a simple input for ID for now.
-    // But let's try to fetch active requisitions
-    try {
-      const res = await api.get("/inventory/material-requisitions");
-      if (res.data?.items) {
-        setRequisitions(res.data.items);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  // Fetch requisitions when type changes to UNUSED?
-  useEffect(() => {
-    if (formData.returnType === "UNUSED") {
-      handleRequisitionLookup();
-    }
-  }, [formData.returnType]);
-
-  const handleRequisitionSelect = (reqId) => {
-    setFormData({ ...formData, requisitionId: reqId });
-    const req = requisitions.find((r) => String(r.id) === String(reqId));
-    setSelectedRequisition(req || null);
-    if (!reqId) return;
+  const handleIssueSelect = (issueId) => {
+    setFormData({ ...formData, issueId });
+    const issue = issues.find((r) => String(r.id) === String(issueId));
+    setSelectedRequisition(issue || null);
+    if (!issueId) return;
     api
-      .get(`/inventory/material-requisitions/${reqId}`)
+      .get(`/inventory/issue-to-requirement/${issueId}`)
       .then((res) => {
-        const hdr = res.data?.item;
+        const hdr = res.data?.item || {};
         const details = Array.isArray(res.data?.details)
           ? res.data.details
           : [];
         if (hdr) {
           setFormData((prev) => ({
             ...prev,
-            returnType: "UNUSED",
-            warehouseId: hdr.warehouse_id
-              ? String(hdr.warehouse_id)
-              : prev.warehouseId,
-            departmentId: hdr.department_id
-              ? String(hdr.department_id)
-              : prev.departmentId,
-            requisitionId: String(reqId),
-            remarks: prev.remarks || "",
+            issueId: String(issueId),
+            returnType: prev.returnType || "EXCESS",
+            warehouseId: hdr.warehouse_id ? String(hdr.warehouse_id) : prev.warehouseId,
+            departmentId: hdr.department_id ? String(hdr.department_id) : prev.departmentId,
+            requisitionId: hdr.requisition_id ? String(hdr.requisition_id) : prev.requisitionId || "",
+            remarks: hdr.remarks || prev.remarks || "",
           }));
         }
         if (details.length) {
@@ -299,8 +292,10 @@ export default function ReturnToStoresForm() {
                 item_id: d.item_id ? String(d.item_id) : "",
                 itemCode: d.item_code || "",
                 itemName: d.item_name || "",
-                uom: d.uom || ai?.uom || "PCS",
-                qtyReturned: Number(d.qty_issued) || 0,
+                uom: d.uom || d.item_uom || ai?.uom || "PCS",
+                qtyIssued: Number(d.qty_issued || 0) || 0,
+                qtyReturned: Number(d.qty_issued || 0) || 0,
+                remainingQty: 0, // Since qtyReturned defaults to qtyIssued
                 reason: "UNUSED",
                 condition: "GOOD",
                 batchSerial: "",
@@ -335,6 +330,9 @@ export default function ReturnToStoresForm() {
           : null,
         department_id: formData.departmentId
           ? Number(formData.departmentId)
+          : null,
+        issue_id: formData.issueId
+          ? Number(formData.issueId)
           : null,
         return_type: formData.returnType,
         requisition_id: formData.requisitionId
@@ -481,7 +479,7 @@ export default function ReturnToStoresForm() {
                     <option value="">-- Select Department --</option>
                     {departments.map((d) => (
                       <option key={d.id} value={d.id}>
-                        {d.name}
+                        {d.dept_name || d.name}
                       </option>
                     ))}
                   </select>
@@ -504,36 +502,37 @@ export default function ReturnToStoresForm() {
                   </select>
                 </div>
 
-                {formData.returnType === "UNUSED" && (
-                  <div>
-                    <label className="label">Reference Requisition</label>
-                    <select
-                      className="input"
-                      value={formData.requisitionId}
-                      onChange={(e) => handleRequisitionSelect(e.target.value)}
-                    >
-                      <option value="">-- Select Requisition --</option>
-                      {requisitions.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.requisition_no} - {r.department_name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                <div>
+                  <label className="label">Stock issued number</label>
+                  <select
+                    className="input"
+                    value={formData.issueId || ""}
+                    onChange={(e) => handleIssueSelect(e.target.value)}
+                  >
+                    <option value="">-- Select Issue --</option>
+                    {issues.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.issue_no} - {r.department_name || "-"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
-            {/* Requisition Reference Block */}
-            {formData.returnType === "UNUSED" && selectedRequisition && (
+            {/* Issue Reference Block */}
+            {selectedRequisition && (
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg p-4">
                 <div className="flex justify-between items-start mb-3">
                   <h3 className="text-blue-600 dark:text-blue-400 font-semibold flex items-center">
-                    📋 Requisition Reference
+                    📋 Issue Reference
                   </h3>
                   <button
                     type="button"
-                    onClick={clearRequisition}
+                    onClick={() => {
+                      setSelectedRequisition(null);
+                      setFormData({ ...formData, issueId: "" });
+                    }}
                     className="text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-1 rounded hover:bg-slate-50"
                   >
                     Clear
@@ -541,9 +540,9 @@ export default function ReturnToStoresForm() {
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                   <div>
-                    <div className="text-slate-500">Requisition No</div>
+                    <div className="text-slate-500">Issue No</div>
                     <div className="font-medium">
-                      {selectedRequisition.requisition_no}
+                      {selectedRequisition.issue_no}
                     </div>
                   </div>
                   <div>
@@ -553,15 +552,15 @@ export default function ReturnToStoresForm() {
                     </div>
                   </div>
                   <div>
-                    <div className="text-slate-500">Issued Date</div>
+                    <div className="text-slate-500">Issue Date</div>
                     <div className="font-medium">
-                      {selectedRequisition.requisition_date}
+                      {selectedRequisition.issue_date}
                     </div>
                   </div>
                   <div>
-                    <div className="text-slate-500">Type</div>
+                    <div className="text-slate-500">Issue Type</div>
                     <div className="font-medium">
-                      {selectedRequisition.requisition_type}
+                      {selectedRequisition.issue_type}
                     </div>
                   </div>
                 </div>
@@ -589,6 +588,8 @@ export default function ReturnToStoresForm() {
                     <tr>
                       <th className="px-4 py-3 w-10">#</th>
                       <th className="px-4 py-3 w-64">Item</th>
+                      <th className="px-4 py-3 w-28 text-right">Qty Issued</th>
+                      <th className="px-4 py-3 w-28 text-right">Remaining</th>
                       <th className="px-4 py-3 w-32">Return Qty</th>
                       <th className="px-4 py-3 w-24">UOM</th>
                       <th className="px-4 py-3 w-32">Condition</th>
@@ -619,6 +620,12 @@ export default function ReturnToStoresForm() {
                               </option>
                             ))}
                           </select>
+                        </td>
+                        <td className="px-4 py-2 text-right text-slate-700">
+                          {Number(row.qtyIssued || 0).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2 text-right text-slate-700">
+                          {Number(row.remainingQty || 0).toLocaleString()}
                         </td>
                         <td className="px-4 py-2">
                           <input
@@ -751,33 +758,17 @@ export default function ReturnToStoresForm() {
               >
                 Cancel
               </button>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFormData({ ...formData, status: "DRAFT" });
-                    handleSubmit({ preventDefault: () => {} });
-                  }}
-                  disabled={saving}
-                  className="btn-success"
-                >
-                  {saving && formData.status === "DRAFT"
-                    ? "Saving..."
-                    : "💾 Save Draft"}
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  onClick={() =>
-                    setFormData({ ...formData, status: "PENDING" })
-                  }
-                  className="btn-primary"
-                >
-                  {saving && formData.status === "PENDING"
-                    ? "Saving..."
-                    : "✅ Submit Return"}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setFormData({ ...formData, status: "DRAFT" });
+                  handleSubmit({ preventDefault: () => {} });
+                }}
+                disabled={saving}
+                className="btn-success"
+              >
+                {saving ? "Saving..." : "Save"}
+              </button>
             </div>
           </form>
         </div>

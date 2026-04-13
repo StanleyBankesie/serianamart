@@ -95,9 +95,32 @@ export default function IssueRegisterReportPage() {
                 onClick={() => {
                   const rows = Array.isArray(items) ? items : [];
                   if (!rows.length) return;
-                  const ws = XLSX.utils.json_to_sheet(rows);
+                  const exportRows = rows.map((r) => ({
+                    Date: r.issue_date
+                      ? new Date(r.issue_date).toLocaleDateString()
+                      : "",
+                    "Issue No": r.issue_no || "",
+                    Department: r.department_name || "",
+                    "Item Code": r.item_code || "",
+                    "Item Name": r.item_name || "",
+                    "Qty Issued": Number(r.qty_issued || 0),
+                    Returned: Number(r.returned_qty || 0),
+                    Remaining: Number(r.remaining_qty || 0),
+                  }));
+                  const ws = XLSX.utils.json_to_sheet(exportRows, {
+                    header: [
+                      "Date",
+                      "Issue No",
+                      "Department",
+                      "Item Code",
+                      "Item Name",
+                      "Qty Issued",
+                      "Returned",
+                      "Remaining",
+                    ],
+                  });
                   const wb = XLSX.utils.book_new();
-                  XLSX.utils.book_append_sheet(wb, ws, "IssueRegister");
+                  XLSX.utils.book_append_sheet(wb, ws, "Issue Register");
                   XLSX.writeFile(wb, "issue-register.xlsx");
                 }}
                 disabled={!items.length}
@@ -119,8 +142,10 @@ export default function IssueRegisterReportPage() {
                   doc.text("Date", 10, y);
                   doc.text("Issue No", 45, y);
                   doc.text("Department", 85, y);
-                  doc.text("Item", 130, y);
-                  doc.text("Qty", 190, y, { align: "right" });
+                  doc.text("Item", 120, y);
+                  doc.text("Issued", 160, y, { align: "right" });
+                  doc.text("Returned", 180, y, { align: "right" });
+                  doc.text("Remain", 200, y, { align: "right" });
                   y += 4;
                   doc.line(10, y, 200, y);
                   y += 5;
@@ -129,16 +154,30 @@ export default function IssueRegisterReportPage() {
                       doc.addPage();
                       y = 15;
                     }
-                    const dt = r.issue_date ? new Date(r.issue_date).toLocaleDateString() : "-";
+                    const dt = r.issue_date
+                      ? new Date(r.issue_date).toLocaleDateString()
+                      : "-";
                     const no = String(r.issue_no || "-");
                     const dep = String(r.department_name || "-").slice(0, 35);
-                    const item = String(r.item_name || r.item_code || "-").slice(0, 35);
-                    const qty = String(Number(r.qty || 0).toLocaleString());
+                    const item = String(
+                      r.item_name || r.item_code || "-",
+                    ).slice(0, 30);
+                    const qtyI = String(
+                      Number(r.qty_issued || 0).toLocaleString(),
+                    );
+                    const qtyR = String(
+                      Number(r.returned_qty || 0).toLocaleString(),
+                    );
+                    const qtyM = String(
+                      Number(r.remaining_qty || 0).toLocaleString(),
+                    );
                     doc.text(dt, 10, y);
                     doc.text(no, 45, y);
                     doc.text(dep, 85, y);
-                    doc.text(item, 130, y);
-                    doc.text(qty, 190, y, { align: "right" });
+                    doc.text(item, 120, y);
+                    doc.text(qtyI, 160, y, { align: "right" });
+                    doc.text(qtyR, 180, y, { align: "right" });
+                    doc.text(qtyM, 200, y, { align: "right" });
                     y += 5;
                   });
                   doc.save("issue-register.pdf");
@@ -165,7 +204,9 @@ export default function IssueRegisterReportPage() {
                   <th>Issue No</th>
                   <th>Department</th>
                   <th>Item</th>
-                  <th className="text-right">Quantity</th>
+                  <th className="text-right">Qty Issued</th>
+                  <th className="text-right">Returned</th>
+                  <th className="text-right">Remaining</th>
                 </tr>
               </thead>
               <tbody>
@@ -180,7 +221,13 @@ export default function IssueRegisterReportPage() {
                     <td>{r.department_name || "-"}</td>
                     <td>{r.item_name || r.item_code}</td>
                     <td className="text-right">
-                      {Number(r.qty || 0).toLocaleString()}
+                      {Number(r.qty_issued || 0).toLocaleString()}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.returned_qty || 0).toLocaleString()}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.remaining_qty || 0).toLocaleString()}
                     </td>
                   </tr>
                 ))}

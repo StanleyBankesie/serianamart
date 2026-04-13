@@ -120,10 +120,11 @@ api.interceptors.request.use(
 
 api.interceptors.response.use(
   (response) => {
-    // Cache GET responses for offline usage
+    // Cache GET responses for offline usage (skip for blob/non-JSON data)
     try {
       const method = String(response?.config?.method || "get").toLowerCase();
-      if (method === "get" && response?.config?.__cacheKey) {
+      const isBlob = response.data instanceof Blob;
+      if (method === "get" && response?.config?.__cacheKey && !isBlob) {
         // Fire and forget - don't await caching, just attempt it
         putCache(response.config.__cacheKey, response.data || null).catch(
           (error) => {

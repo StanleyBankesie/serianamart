@@ -9,6 +9,9 @@ import {
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { ensureTemplateTables, toNumber, hasColumn } from "../utils/dbUtils.js";
+import { join } from "path";
+import { existsSync } from "fs";
+import crypto from "crypto";
 
 const router = express.Router();
 
@@ -17,176 +20,19 @@ Handlebars.registerHelper("formatDate", function (date) {
   if (!date) return "";
   const d = new Date(date);
   if (isNaN(d.getTime())) return date;
-  return d.toISOString().split("T")[0]; // Returns YYYY-MM-DD
+  return d.toISOString().split("T")[0];
 });
-Handlebars.registerHelper("inc", function (value, options) {
+Handlebars.registerHelper("inc", function (value) {
   return parseInt(value) + 1;
 });
-Handlebars.registerHelper("salary_slip_amount", function(val) {
-  if (!val || String(val).trim() === "") return "";
-  return Number(val || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+Handlebars.registerHelper("salary_slip_amount", function (val) {
+  const n = Number(val || 0);
+  if (!Number.isFinite(n)) return "";
+  return n.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 });
-
-function expandDocumentTypeAliases(type) {
-  const t = String(type || "")
-    .trim()
-    .toLowerCase();
-  if (
-    t === "sales-order" ||
-    t === "sales order" ||
-    t === "sales_order" ||
-    t === "so"
-  ) {
-    return [
-      "sales-order",
-      "sales order",
-      "sales_order",
-      "SALES_ORDER",
-      "SALES-ORDER",
-      "Sales Order",
-      "SO",
-    ];
-  }
-  if (
-    t === "invoice" ||
-    t === "sales-invoice" ||
-    t === "sales invoice" ||
-    t === "sales_invoice"
-  ) {
-    return [
-      "invoice",
-      "INVOICE",
-      "sales-invoice",
-      "sales invoice",
-      "sales_invoice",
-      "Sales Invoice",
-    ];
-  }
-  if (
-    t === "delivery-note" ||
-    t === "delivery note" ||
-    t === "delivery_note" ||
-    t === "dn"
-  ) {
-    return [
-      "delivery-note",
-      "delivery note",
-      "delivery_note",
-      "DELIVERY_NOTE",
-      "DELIVERY-NOTE",
-      "Delivery Note",
-      "DN",
-    ];
-  }
-  if (t === "quotation" || t === "quote" || t === "sales-quotation") {
-    return [
-      "quotation",
-      "Quotation",
-      "QUOTE",
-      "sales-quotation",
-      "Sales Quotation",
-    ];
-  }
-  if (t === "payment-voucher" || t === "receipt-voucher" || t === "voucher") {
-    return [type]; // leave as-is for now
-  }
-  if (t === "salary-slip" || t === "salaryslip" || t === "payslip") {
-    return ["salary-slip", "salaryslip", "payslip"];
-  }
-  return [type];
-}
-
-function docTypeSynonymsLower(type) {
-  const c = canonicalDocumentType(type).toLowerCase();
-  if (c === "general-template") {
-    return [
-      "general-template",
-      "general template",
-      "general_template",
-      "general",
-      "header",
-      "report-header",
-      "report header",
-    ];
-  }
-  if (c === "sales-order") {
-    return [
-      "sales-order",
-      "sales order",
-      "sales_order",
-      "sales-orders",
-      "sales orders",
-      "sales_orders",
-      "salesorder",
-      "salesorders",
-      "salesorder(s)",
-      "so",
-      "sales_order(s)",
-      "sales-order(s)",
-      "sales order(s)",
-      "sales order document",
-    ];
-  }
-  if (c === "invoice") {
-    return [
-      "invoice",
-      "invoices",
-      "sales-invoice",
-      "sales invoice",
-      "sales_invoice",
-      "sales-invoices",
-      "sales invoices",
-      "sales_invoices",
-      "salesinvoice",
-      "salesinvoices",
-      "sales invoice document",
-    ];
-  }
-  if (c === "delivery-note") {
-    return [
-      "delivery-note",
-      "delivery note",
-      "delivery_note",
-      "delivery-notes",
-      "delivery notes",
-      "delivery_notes",
-      "deliverynote",
-      "deliverynotes",
-      "dn",
-      "delivery note document",
-    ];
-  }
-  if (c === "quotation") {
-    return [
-      "quotation",
-      "quotations",
-      "sales-quotation",
-      "sales quotation",
-      "sales_quotation",
-      "sales-quotations",
-      "sales quotations",
-      "sales_quotations",
-      "quote",
-      "quotes",
-      "sales quote",
-      "sales quotes",
-      "sales_quote",
-      "sales_quote(s)",
-      "quotation document",
-    ];
-  }
-  if (c === "salary-slip") {
-    return [
-      "salary-slip",
-      "salaryslip",
-      "payslip",
-      "payslips",
-      "salary slip",
-      "salary_slip",
-    ];
-  }
-  return [c];
-}
 
 function canonicalDocumentType(type) {
   const t = String(type || "")
@@ -226,737 +72,371 @@ function canonicalDocumentType(type) {
   ) {
     return "delivery-note";
   }
-  if (t === "quotation" || t === "quote" || t === "sales-quotation") {
+  if (t === "quotation" || t === "sales-quotation" || t === "quote") {
     return "quotation";
   }
-  if (t === "purchase-order" || t === "purchase order" || t === "po") {
-    return "purchase-order";
-  }
-  if (t === "grn" || t === "goods-receipt" || t === "goods receipt") {
-    return "grn";
-  }
-  if (t === "purchase-bill" || t === "purchase bill") {
-    return "purchase-bill";
-  }
-  if (t === "direct-purchase" || t === "direct purchase") {
-    return "direct-purchase";
-  }
   if (
-    t === "salary-slip" ||
-    t === "salaryslip" ||
-    t === "payslip" ||
-    t === "salary slip" ||
-    t === "salary_slip"
+    t === "payment-voucher" ||
+    t === "payment voucher" ||
+    t === "payment_voucher" ||
+    t === "pv"
   ) {
+    return "payment-voucher";
+  }
+  if (t === "salary-slip" || t === "salaryslip" || t === "payslip") {
     return "salary-slip";
   }
-  return String(type || "").trim();
+  if (
+    t === "purchase-bill" ||
+    t === "purchase bill" ||
+    t === "purchase_bill" ||
+    t === "pbill" ||
+    t === "bill" ||
+    t === "purchaseinvoice" ||
+    t === "purchase-invoice" ||
+    t === "PURCHASE_BILL"
+  ) {
+    return "purchase-bill";
+  }
+  if (
+    t === "grn" ||
+    t === "GRN" ||
+    t === "goods receipt note" ||
+    t === "goods-receipt-note" ||
+    t === "goods_receipt_note" ||
+    t === "goods receipt" ||
+    t === "GOODS_RECEIPT_NOTE"
+  ) {
+    return "grn";
+  }
+  if (
+    t === "purchase-order" ||
+    t === "purchase order" ||
+    t === "purchase_order" ||
+    t === "po" ||
+    t === "po-local" ||
+    t === "po-import" ||
+    t === "purchase-order-local" ||
+    t === "purchase-order-import" ||
+    t === "PURCHASE_ORDER"
+  ) {
+    return "purchase-order";
+  }
+  if (
+    t === "direct-purchase" ||
+    t === "direct purchase" ||
+    t === "direct_purchase" ||
+    t === "directpurchase" ||
+    t === "DIRECT_PURCHASE"
+  ) {
+    return "direct-purchase";
+  }
+  return t || "general-template";
+}
+
+function expandDocumentTypeAliases(type) {
+  const c = canonicalDocumentType(type);
+  if (c === "general-template") {
+    return [
+      "general-template",
+      "general template",
+      "general_template",
+      "general",
+      "header",
+      "report-header",
+    ];
+  }
+  if (c === "sales-order") {
+    return [
+      "sales-order",
+      "sales order",
+      "sales_order",
+      "SALES_ORDER",
+      "SALES-ORDER",
+      "Sales Order",
+      "SO",
+    ];
+  }
+  if (c === "invoice") {
+    return [
+      "invoice",
+      "INVOICE",
+      "sales-invoice",
+      "sales invoice",
+      "sales_invoice",
+      "Sales Invoice",
+    ];
+  }
+  if (c === "delivery-note") {
+    return [
+      "delivery-note",
+      "delivery note",
+      "delivery_note",
+      "DELIVERY_NOTE",
+      "DELIVERY-NOTE",
+      "Delivery Note",
+      "DN",
+    ];
+  }
+  if (c === "quotation") {
+    return [
+      "quotation",
+      "Quotation",
+      "QUOTE",
+      "quotes",
+      "sales-quotation",
+      "Sales Quotation",
+    ];
+  }
+  if (c === "payment-voucher") {
+    return [
+      "payment-voucher",
+      "payment voucher",
+      "payment_voucher",
+      "PAYMENT_VOUCHER",
+      "PV",
+    ];
+  }
+  if (c === "salary-slip") {
+    return [
+      "salary-slip",
+      "salaryslip",
+      "salary slip",
+      "salary_slip",
+      "payslip",
+      "payslips",
+    ];
+  }
+  if (c === "purchase-bill") {
+    return [
+      "purchase-bill",
+      "purchase bill",
+      "purchase_bill",
+      "pbill",
+      "bill",
+      "purchase-invoice",
+      "purchaseinvoice",
+      "PURCHASE_BILL",
+      "Purchase Bill",
+    ];
+  }
+  if (c === "grn") {
+    return [
+      "grn",
+      "GRN",
+      "goods receipt note",
+      "goods-receipt-note",
+      "goods_receipt_note",
+      "goods receipt",
+      "GOODS_RECEIPT_NOTE",
+      "Goods Receipt Note",
+    ];
+  }
+  if (c === "purchase-order") {
+    return [
+      "purchase-order",
+      "purchase order",
+      "purchase_order",
+      "po",
+      "PO",
+      "PO_LOCAL",
+      "PO_IMPORT",
+      "PURCHASE_ORDER",
+      "Purchase Order",
+    ];
+  }
+  if (c === "direct-purchase") {
+    return [
+      "direct-purchase",
+      "direct purchase",
+      "direct_purchase",
+      "directpurchase",
+      "DIRECT_PURCHASE",
+      "Direct Purchase",
+    ];
+  }
+  return [c];
+}
+
+function docTypeSynonymsLower(type) {
+  return expandDocumentTypeAliases(type).map((v) =>
+    String(v).trim().toLowerCase(),
+  );
 }
 
 function getDefaultSampleTemplate(type) {
-  const commonHead = `
-<style>
-  :root { --text: #000; }
-  body { font-family: Arial, sans-serif; color: var(--text); font-size: 11px; margin: 0; padding: 0; box-sizing: border-box; background: white; }
-  .doc { width: 100%; max-width: 21cm; min-height: 29.7cm; margin: 0 auto; padding: 12mm; box-sizing: border-box; background: white; position: relative; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
-  .logo { height: 90px; object-fit: contain; }
-  .company { font-size: 10px; line-height: 1.4; text-align: right; }
-  .company .name { font-weight: bold; font-size: 18px; margin-bottom: 4px; }
-  .titlebar { display: flex; align-items: center; justify-content: space-between; margin: 12px 0 16px; }
-  .line { flex-grow: 1; border-top: 2px solid #000; height: 0; }
-  .title { font-weight: bold; font-size: 16px; margin: 0 16px; white-space: nowrap; }
-  .info { display: flex; justify-content: space-between; margin-bottom: 16px; }
-  .info-left, .info-mid { flex: 1; }
-  .info-right { display: flex; flex-direction: column; align-items: flex-end; width: 100px; }
-  .kv { font-size: 11px; line-height: 1.4; display: table; }
-  .kv-row { display: table-row; }
-  .kv-label { display: table-cell; font-weight: bold; padding-right: 8px; white-space: nowrap; vertical-align: top; }
-  .kv-sep { display: table-cell; padding-right: 8px; vertical-align: top; }
-  .kv-val { display: table-cell; vertical-align: top; text-transform: uppercase; }
-  .qr-box { width: 80px; height: 80px; }
-  .qr-box img { width: 100%; height: 100%; }
-  table { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 8px; }
-  thead th { border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 6px 4px; text-align: right; font-weight: bold; vertical-align: bottom; }
-  thead th.left { text-align: left; }
-  thead th.center { text-align: center; }
-  tbody td { padding: 4px; border-bottom: 1px dashed #000; vertical-align: top; }
-  tbody tr:last-child td { border-bottom: 2px solid #000; }
-  td.num { text-align: right; }
-  td.center { text-align: center; }
-  .bottom-section { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 40px; }
-  .bottom-left { flex: 1; padding-right: 16px; }
-  .bottom-right { width: 280px; }
-  .summary-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #000; }
-  .summary-row:last-child { border-bottom: 2px dashed #000; }
-  .summary-row .s-label { font-weight: bold; }
-  .summary-row .s-val { text-align: right; }
-  .footer-prepared { margin-top: 24px; font-size: 11px; padding-top: 8px; border-top: 2px solid #000; }
-  .footer-prepared .lbl { font-weight: bold; }
-  @media print {
-    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    html, body { margin: 0 !important; padding: 0 !important; }
-    .doc { max-width: 19cm; margin: 0 auto; }
+  const canonical = canonicalDocumentType(type);
+  const head = `<style>
+    * { box-sizing: border-box; font-family: Arial, sans-serif; }
+    .doc { max-width: 800px; margin: 0 auto; padding: 12px; }
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .logo { height: 60px; object-fit: contain; }
+    .company { text-align: right; font-size: 12px; }
+    .company .name { font-weight: bold; font-size: 18px; }
+    .titlebar { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 12px 0; }
+    .line { flex: 1; border-top: 2px solid #000; }
+    .title { font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
+  </style>`;
+  const header = `
+    <div class="header">
+      <img class="logo" src="{{company.logo}}" alt="Logo"/>
+      <div class="company">
+        <div class="name">{{company.name}}</div>
+        <div>{{company.address}}</div>
+        <div>{{company.address2}}</div>
+        <div>{{company.phone}} • {{company.email}} • {{company.website}}</div>
+      </div>
+    </div>
+  `;
+  const title = (t) =>
+    `<div class="titlebar"><div class="line"></div><div class="title">${t}</div><div class="line"></div></div>`;
+  if (canonical === "sales-order") {
+    return `${head}<div class="doc">${header}${title("* Sales Order *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each sales_order.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td>{{quantity}}</td><td>{{price}}</td><td>{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
   }
-</style>`;
+  if (canonical === "invoice") {
+    return `${head}<div class="doc">${header}${title("* Sales Invoice *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each invoice.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td>{{quantity}}</td><td>{{price}}</td><td>{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
+  }
+  if (canonical === "delivery-note") {
+    return `${head}<div class="doc">${header}${title("* Delivery Note *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Ordered</th><th>Delivered</th></tr></thead><tbody>{{#each delivery.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td>{{qty_ordered}}</td><td>{{qty_delivered}}</td></tr>{{/each}}</tbody></table></div>`;
+  }
+  if (canonical === "quotation") {
+    return `${head}<div class="doc">${header}${title("* Quotation *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each quotation.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td>{{quantity}}</td><td>{{price}}</td><td>{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
+  }
+  if (canonical === "payment-voucher") {
+    return `${head}<div class="doc">${header}${title("* Payment Voucher *")}<table><thead><tr><th>#</th><th>Account</th><th>Description</th><th>Debit</th><th>Credit</th></tr></thead><tbody>{{#each payment_voucher.items}}<tr><td>{{inc @index}}</td><td>{{account_name}}</td><td>{{description}}</td><td>{{debit}}</td><td>{{credit}}</td></tr>{{/each}}</tbody></table></div>`;
+  }
+  if (canonical === "salary-slip") {
+    return `${head}<div class="doc">${header}${title("* Salary Slip *")}<table><thead><tr><th>Description</th><th>Amount</th></tr></thead><tbody>{{#each payslip.rows}}<tr><td>{{earning_label}}</td><td>{{salary_slip_amount earning_amount}}</td></tr>{{/each}}</tbody></table><div style="margin-top:8px;display:flex;gap:12px"><div><strong>Total Earnings:</strong> {{salary_slip_amount salary_slip.total_earnings}}</div><div><strong>Total Deductions:</strong> {{salary_slip_amount salary_slip.total_deductions}}</div></div></div>`;
+  }
+  if (canonical === "purchase-order") {
+    return `${head}<div class="doc">${header}${title("* Purchase Order *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each purchase_order.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{quantity}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
+  }
+  if (canonical === "direct-purchase") {
+    return `${head}<div class="doc">${header}${title("* Direct Purchase *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each direct_purchase.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{quantity}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
+  }
+  if (canonical === "purchase-bill") {
+    return `${head}<div class="doc">${header}${title("* Purchase Bill *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each purchase_bill.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{quantity}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
+  }
+  if (canonical === "grn") {
+    return `${head}<div class="doc">${header}${title("* Goods Receipt Note *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Ordered</th><th>Received</th><th>Accepted</th><th>UOM</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each grn.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{ordered}}</td><td class="num">{{received}}</td><td class="num">{{accepted}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
+  }
+  return `${head}<div class="doc">${header}${title("* Document *")}</div>`;
+}
 
-  if (type === "general-template") {
-    return `
-${commonHead}
-<div class="doc">
-  <div class="header">
-    <div><img class="logo" src="{{company.logo}}" alt="Logo"/></div>
-    <div class="company">
-      <div class="name">{{company.name}}</div>
-      <div>{{company.address}}</div>
-      <div>{{company.address2}}</div>
-      <div>Contact No: {{company.phone}}</div>
-      <div>Email: {{company.email}}</div>
-      <div>{{company.website}}</div>
-    </div>
-  </div>
-</div>`;
+// Browser singleton for PDF rendering
+let _browser = null;
+
+async function launchBrowser() {
+  if (_browser) return _browser;
+
+  const { default: puppeteer } = await import("puppeteer");
+
+  const launchArgs = {
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+    ],
+  };
+
+  // Try known executable paths first (Windows)
+  const candidatePaths = [
+    join(
+      "C:",
+      "Users",
+      "stanl",
+      ".cache",
+      "puppeteer",
+      "chrome",
+      "win64-146.0.7680.153",
+      "chrome-win64",
+      "chrome.exe",
+    ),
+    join(
+      process.cwd(),
+      "node_modules",
+      "puppeteer",
+      ".local-chromium",
+      "win64-123456",
+      "chrome-win64",
+      "chrome.exe",
+    ),
+  ];
+
+  let executablePath;
+  for (const p of candidatePaths) {
+    if (existsSync(p)) {
+      executablePath = p;
+      break;
+    }
   }
 
-  if (type === "sales-order") {
-    return `
-${commonHead}
-<div class="doc">
-  <div class="header">
-    <div><img class="logo" src="{{company.logo}}" alt="Logo"/></div>
-    <div class="company">
-      <div class="name">{{company.name}}</div>
-      <div>{{company.address}}</div>
-      <div>{{company.address2}}</div>
-      <div>Contact No: {{company.phone}}</div>
-      <div>Email: {{company.email}}</div>
-    </div>
-  </div>
-  <div class="titlebar">
-    <div class="line"></div>
-    <div class="title">* Sales Order *</div>
-    <div class="line"></div>
-  </div>
-  <div class="info">
-    <div class="info-left">
-      <div class="kv">
-        <div class="kv-row"><div class="kv-label">Customer Name</div><div class="kv-sep">:</div><div class="kv-val">{{customer.name}}</div></div>
-        <div class="kv-row"><div class="kv-label">Address</div><div class="kv-sep">:</div><div class="kv-val">{{customer.address}}<br/>{{customer.address2}}</div></div>
-        <div class="kv-row"><div class="kv-label">City</div><div class="kv-sep">:</div><div class="kv-val">{{customer.city}}</div></div>
-        <div class="kv-row"><div class="kv-label">State</div><div class="kv-sep">:</div><div class="kv-val">{{customer.state}}</div></div>
-        <div class="kv-row"><div class="kv-label">Country</div><div class="kv-sep">:</div><div class="kv-val">{{customer.country}}</div></div>
-      </div>
-    </div>
-    <div class="info-mid">
-      <div class="kv">
-        <div class="kv-row"><div class="kv-label">Order No.</div><div class="kv-sep">:</div><div class="kv-val">{{sales_order.number}}</div></div>
-        <div class="kv-row"><div class="kv-label">Order Date</div><div class="kv-sep">:</div><div class="kv-val">{{formatDate sales_order.date}}</div></div>
-        <div class="kv-row"><div class="kv-label">Payment Term</div><div class="kv-sep">:</div><div class="kv-val">{{sales_order.payment_terms}}</div></div>
-      </div>
-    </div>
-    <div class="info-right">
-      <div class="qr-box"><img src="{{sales_order.qr_code}}" alt="QR"/></div>
-    </div>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th class="center">Sr.<br/>No.</th>
-        <th class="left">Product<br/>Code</th>
-        <th class="left">Product Description</th>
-        <th>Qty</th>
-        <th>Price</th>
-        <th>Discount</th>
-        <th>Tax</th>
-        <th>Value</th>
-      </tr>
-    </thead>
-    <tbody>
-      {{#each sales_order.items}}
-      <tr>
-        <td class="center">{{inc @index}}</td>
-        <td>{{code}}</td>
-        <td>{{name}}</td>
-        <td class="num">{{quantity}}</td>
-        <td class="num">{{price}}</td>
-        <td class="num">{{discount}}</td>
-        <td class="num">{{tax}}</td>
-        <td class="num">{{amount}}</td>
-      </tr>
-      {{/each}}
-    </tbody>
-  </table>
-  <div class="bottom-section">
-    <div class="bottom-left">
-      <div style="display: grid; grid-template-columns: auto 1fr; gap: 40px; margin-bottom: 8px;">
-        <div><span style="font-weight: bold;">Item Count :</span> {{sales_order.item_count}}</div>
-        <div><span style="font-weight: bold;">Total Quantity :</span> {{sales_order.total_quantity}}</div>
-      </div>
-      <div style="display: flex; margin-bottom: 16px;">
-        <div style="font-weight: bold; white-space: nowrap; margin-right: 8px;">Amount in Words :</div>
-        <div style="text-transform: uppercase;">{{sales_order.amount_in_words}}</div>
-      </div>
-      <div style="margin-bottom: 16px;">
-        <span style="font-weight: bold;">Remarks :</span> <br/>
-        {{sales_order.remarks}}
-      </div>
-      <div>
-        <span style="font-weight: bold;">Terms and Condition :</span> <br/>
-        {{sales_order.terms_and_conditions}}
-      </div>
-    </div>
-    <div class="bottom-right">
-      <div class="summary-row"><div class="s-label">Sales Account</div><div class="s-val">{{sales_order.sub_total}}</div></div>
-      <div class="summary-row"><div class="s-label">Discount</div><div class="s-val">{{sales_order.discount_amount}}</div></div>
-      <div class="summary-row"><div class="s-label">Tax</div><div class="s-val">{{sales_order.tax_amount}}</div></div>
-      <div class="summary-row"><div class="s-label">Net Order Value</div><div class="s-val" style="font-weight: bold;">{{sales_order.total}}</div></div>
-    </div>
-  </div>
-  <div class="footer-prepared">
-    <span class="lbl">Prepared By :</span> {{prepared_by}}
-  </div>
-</div>
-`;
+  try {
+    _browser = await puppeteer.launch({ ...launchArgs, executablePath });
+    _browser.on("disconnected", () => {
+      _browser = null;
+    });
+  } catch {
+    _browser = await puppeteer.launch({
+      ...launchArgs,
+      executablePath: undefined,
+    });
+    _browser.on("disconnected", () => {
+      _browser = null;
+    });
   }
-  if (type === "invoice") {
-    return `
-${commonHead}
-<div class="doc">
-  <div class="header">
-    <div><img class="logo" src="{{company.logo}}" alt="Logo"/></div>
-    <div class="company">
-      <div class="name">{{company.name}}</div>
-      <div>{{company.address}}</div>
-      <div>{{company.address2}}</div>
-      <div>Contact No: {{company.phone}}</div>
-      <div>Email: {{company.email}}</div>
-    </div>
-  </div>
-  <div class="titlebar">
-    <div class="line"></div>
-    <div class="title">* Sales Invoice *</div>
-    <div class="line"></div>
-  </div>
-  <div class="info">
-    <div class="info-left">
-      <div class="kv">
-        <div class="kv-row"><div class="kv-label">Customer Name</div><div class="kv-sep">:</div><div class="kv-val">{{customer.name}}</div></div>
-        <div class="kv-row"><div class="kv-label">Address</div><div class="kv-sep">:</div><div class="kv-val">{{customer.address}}<br/>{{customer.address2}}</div></div>
-        <div class="kv-row"><div class="kv-label">City</div><div class="kv-sep">:</div><div class="kv-val">{{customer.city}}</div></div>
-        <div class="kv-row"><div class="kv-label">State</div><div class="kv-sep">:</div><div class="kv-val">{{customer.state}}</div></div>
-        <div class="kv-row"><div class="kv-label">Country</div><div class="kv-sep">:</div><div class="kv-val">{{customer.country}}</div></div>
-      </div>
-    </div>
-    <div class="info-mid">
-      <div class="kv">
-        <div class="kv-row"><div class="kv-label">Invoice No.</div><div class="kv-sep">:</div><div class="kv-val">{{invoice.number}}</div></div>
-        <div class="kv-row"><div class="kv-label">Invoice Date</div><div class="kv-sep">:</div><div class="kv-val">{{formatDate invoice.date}}</div></div>
-        <div class="kv-row"><div class="kv-label">Payment Term</div><div class="kv-sep">:</div><div class="kv-val">{{invoice.payment_term}}</div></div>
-      </div>
-    </div>
-    <div class="info-right">
-      <div class="qr-box"><img src="{{invoice.qr_code}}" alt="QR"/></div>
-    </div>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th class="center">Sr.<br/>No.</th>
-        <th class="left">Product<br/>Code</th>
-        <th class="left">Product Description</th>
-        <th>Qty</th>
-        <th>Price</th>
-        <th>Discount</th>
-        <th>Tax</th>
-        <th>Value</th>
-      </tr>
-    </thead>
-    <tbody>
-      {{#each invoice.items}}
-      <tr>
-        <td class="center">{{inc @index}}</td>
-        <td>{{code}}</td>
-        <td>{{name}}</td>
-        <td class="num">{{quantity}}</td>
-        <td class="num">{{price}}</td>
-        <td class="num">{{discount}}</td>
-        <td class="num">{{tax}}</td>
-        <td class="num">{{amount}}</td>
-      </tr>
-      {{/each}}
-    </tbody>
-  </table>
-  <div class="bottom-section">
-    <div class="bottom-left">
-      <div style="display: grid; grid-template-columns: auto 1fr; gap: 40px; margin-bottom: 8px;">
-        <div><span style="font-weight: bold;">Item Count :</span> {{invoice.item_count}}</div>
-        <div><span style="font-weight: bold;">Total Quantity :</span> {{invoice.total_quantity}}</div>
-      </div>
-      <div style="display: flex; margin-bottom: 16px;">
-        <div style="font-weight: bold; white-space: nowrap; margin-right: 8px;">Amount in Words :</div>
-        <div style="text-transform: uppercase;">{{invoice.amount_in_words}}</div>
-      </div>
-      <div style="margin-bottom: 16px;">
-        <span style="font-weight: bold;">Remarks :</span> <br/>
-        {{invoice.remarks}}
-      </div>
-      <div>
-        <span style="font-weight: bold;">Terms and Condition :</span> <br/>
-        {{invoice.terms_and_conditions}}
-      </div>
-    </div>
-    <div class="bottom-right">
-      <div class="summary-row"><div class="s-label">Sales Account</div><div class="s-val">{{invoice.net_total}}</div></div>
-      <div class="summary-row"><div class="s-label">NHIL [2.5%]</div><div class="s-val">{{invoice.nhil}}</div></div>
-      <div class="summary-row"><div class="s-label">GET FUND 2.5% ON<br/>SALES</div><div class="s-val">{{invoice.get_fund}}</div></div>
-      <div class="summary-row"><div class="s-label">VAT 15%</div><div class="s-val">{{invoice.vat}}</div></div>
-      <div class="summary-row"><div class="s-label">Net Invoice Value</div><div class="s-val" style="font-weight: bold;">{{invoice.total}}</div></div>
-    </div>
-  </div>
-  <div class="footer-prepared">
-    <span class="lbl">Prepared By :</span> {{prepared_by}}
-  </div>
-</div>
-`;
+
+  return _browser;
+}
+
+async function getCompanyLogoDataUri(companyId) {
+  try {
+    const rows = await query(
+      "SELECT logo FROM adm_companies WHERE id = :companyId LIMIT 1",
+      { companyId },
+    ).catch(() => []);
+    const buf = rows?.[0]?.logo;
+    if (!buf) return null;
+    const logoBuffer = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+    let mime = "application/octet-stream";
+    if (
+      logoBuffer.length >= 8 &&
+      logoBuffer[0] === 0x89 &&
+      logoBuffer[1] === 0x50 &&
+      logoBuffer[2] === 0x4e &&
+      logoBuffer[3] === 0x47 &&
+      logoBuffer[4] === 0x0d &&
+      logoBuffer[5] === 0x0a &&
+      logoBuffer[6] === 0x1a &&
+      logoBuffer[7] === 0x0a
+    ) {
+      mime = "image/png";
+    } else if (
+      logoBuffer.length >= 3 &&
+      logoBuffer[0] === 0xff &&
+      logoBuffer[1] === 0xd8 &&
+      logoBuffer[2] === 0xff
+    ) {
+      mime = "image/jpeg";
+    } else if (
+      logoBuffer.length >= 6 &&
+      logoBuffer[0] === 0x47 &&
+      logoBuffer[1] === 0x49 &&
+      logoBuffer[2] === 0x46 &&
+      logoBuffer[3] === 0x38 &&
+      (logoBuffer[4] === 0x39 || logoBuffer[4] === 0x37) &&
+      logoBuffer[5] === 0x61
+    ) {
+      mime = "image/gif";
+    }
+    const base64 = logoBuffer.toString("base64");
+    return `data:${mime};base64,${base64}`;
+  } catch {
+    return null;
   }
-  if (type === "delivery-note") {
-    return `
-<style> 
-   :root { 
-     --brand: #0E3646; 
-     --brand-50: #f0f7fa; 
-     --text: #1f2937; 
-     --muted: #6b7280; 
-     --border: #e5e7eb; 
-     --border-dark: #9ca3af; 
-   } 
-   @page { size: A4; margin: 0; } 
-   body { font-family: Verdana, sans-serif; color: var(--text); font-size: 14px; } 
-   .doc { width: 21cm; height: 29.7cm; margin: 0 auto; padding: 16px; box-sizing: border-box; } 
-   .header { display: grid; grid-template-columns: 200px auto 1fr; gap: 16px; margin-bottom: 12px; border-bottom: 3px solid var(--brand); padding-bottom: 12px; } 
-   .logo { width: 168px; height: auto; } 
-   .qr-section { text-align: center; display: flex; align-items: center; justify-content: center; } 
-   .qr-code { width: 100px; height: 100px; border: 2px solid var(--brand); background: white; padding: 4px; } 
-   .company { font-size: 16px; line-height: 1.4; text-align: right; } 
-   .company .name { font-weight: 700; font-size: 22px; color: var(--brand); margin-bottom: 4px; } 
-   .title-section { text-align: center; margin: 12px 0; } 
-   .title-section h1 { font-size: 21px; font-weight: 700; color: var(--brand); margin: 0 0 4px 0; } 
-   .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; margin: 12px 0; font-size: 12px; } 
-   .info-grid .row { display: flex; margin-bottom: 4px; } 
-   .info-grid .label { font-weight: 600; min-width: 120px; } 
-   .info-grid .value { flex: 1; } 
-   table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 12px 0; } 
-   thead th { background: var(--brand); color: white; border: 1px solid var(--brand); padding: 6px 4px; text-align: center; font-weight: 600; font-size: 12px; } 
-   tbody td { border: 1px solid var(--border-dark); padding: 4px; vertical-align: top; } 
-   td.center { text-align: center; } 
-   td.right { text-align: right; } 
-   tbody tr { min-height: 30px; } 
-   .summary { display: grid; grid-template-columns: 1fr 280px; gap: 16px; margin-top: 8px; font-size: 12px; } 
-   .summary-box { padding: 8px; margin-bottom: 8px; } 
-   .summary-row { display: flex; justify-content: space-between; margin: 3px 0; padding: 2px 0; } 
-   .summary-row.total { font-weight: 700; border-top: 1px solid var(--border-dark); margin-top: 4px; padding-top: 4px; } 
-   .footer { margin-top: 24px; font-size: 12px; border-top: 2px solid var(--brand); padding-top: 12px; } 
-   .footer-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 12px; } 
-   .footer-item .label { font-weight: 600; margin-bottom: 4px; color: var(--brand); } 
-   .sign-line { border-bottom: 1px solid var(--border-dark); height: 40px; margin: 8px 0 4px 0; } 
-   .footer-note { text-align: center; font-size: 14px; color: var(--muted); margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--border); } 
-</style> 
-<div class="doc"> 
-  <div class="header"> 
-    <div><img class="logo" src="{{company.logo}}" alt="Logo" /></div> 
-    <div class="qr-section"><div class="qr-code"><img src="{{delivery.qr_code}}" style="width:100%;height:100%" alt="QR Code" /></div></div> 
-    <div class="company"> 
-      <div class="name">{{company.name}}</div> 
-      <div>{{company.address}}</div> 
-      <div>{{company.address2}}</div> 
-      <div>{{company.phone}}</div> 
-      <div>Email: {{company.email}}</div> 
-      <div>{{company.registration}}</div> 
-    </div> 
-  </div> 
-  <div class="title-section"><h1>*** Delivery Note ***</h1></div> 
-  <div class="info-grid"> 
-    <div> 
-      <div class="row"><div class="label">Deliver To:</div><div class="value">{{customer.name}}</div></div> 
-      <div class="row"><div class="label">Address:</div><div class="value">{{customer.address}}</div></div> 
-      <div class="row"><div class="label"></div><div class="value">{{customer.address2}}</div></div> 
-      <div class="row"><div class="label">Contact Person:</div><div class="value">{{customer.contact_person}}</div></div> 
-      <div class="row"><div class="label">Phone:</div><div class="value">{{customer.phone}}</div></div> 
-    </div> 
-    <div> 
-      <div class="row"><div class="label">D/N No:</div><div class="value">{{delivery.number}}</div></div> 
-      <div class="row"><div class="label">D/N Date:</div><div class="value">{{delivery.date}}</div></div> 
-      <div class="row"><div class="label">Invoice Ref:</div><div class="value">{{delivery.invoice_ref}}</div></div> 
-      <div class="row"><div class="label">Order No:</div><div class="value">{{delivery.order_number}}</div></div> 
-      <div class="row"><div class="label">Vehicle No:</div><div class="value">{{delivery.vehicle_number}}</div></div> 
-      <div class="row"><div class="label">Driver:</div><div class="value">{{delivery.driver_name}}</div></div> 
-    </div> 
-  </div> 
-  <table> 
-    <thead> 
-      <tr> 
-        <th style="width:30px">No.</th> 
-        <th style="width:80px">Code</th> 
-        <th>Description</th> 
-        <th style="width:60px">Qty Ordered</th> 
-        <th style="width:60px">Qty Delivered</th> 
-        <th style="width:40px">UOM</th> 
-        <th style="width:60px">Batch / Serial No.</th> 
-        <th style="width:80px">Remarks</th> 
-      </tr> 
-    </thead> 
-    <tbody> 
-      {{#each delivery.items}} 
-      <tr> 
-        <td class="center">{{@index}}</td> 
-        <td>{{code}}</td> 
-        <td>{{description}}</td> 
-        <td class="right">{{qty_ordered}}</td> 
-        <td class="right">{{qty_delivered}}</td> 
-        <td class="center">{{uom}}</td> 
-        <td class="center">{{batch_serial}}</td> 
-        <td>{{remarks}}</td> 
-      </tr> 
-      {{/each}} 
-      <tr><td colspan="8" style="height:20px;border:none"></td></tr> 
-      <tr><td colspan="8" style="height:20px;border:none"></td></tr> 
-    </tbody> 
-  </table> 
-  <div class="summary"> 
-    <div class="summary-left"> 
-      <div class="summary-box"><div style="font-weight:600;margin-bottom:4px;color:var(--brand)">Delivery Instructions:</div><div>{{delivery.instructions}}</div></div> 
-      <div class="summary-box"><div style="font-weight:600;margin-bottom:4px;color:var(--brand)">Terms and Conditions:</div><div>{{delivery.terms_and_conditions}}</div></div> 
-    </div> 
-    <div class="summary-right"> 
-      <div class="summary-box"> 
-        <div class="summary-row"><span>Total Items:</span><span>{{delivery.total_items}}</span></div> 
-        <div class="summary-row"><span>Total Qty Ordered:</span><span>{{delivery.total_qty_ordered}}</span></div> 
-        <div class="summary-row total" style="color:var(--brand)"><span>Total Qty Delivered:</span><span>{{delivery.total_qty_delivered}}</span></div> 
-      </div> 
-    </div> 
-  </div> 
-  <div class="footer"> 
-    <div class="footer-grid"> 
-      <div class="footer-item"><div class="label">Prepared By: {{system.created_by}}</div><div class="sign-line"></div><div style="text-align:center;color:var(--muted)">Signature / Date</div></div> 
-      <div class="footer-item"><div class="label">Dispatched By:</div><div class="sign-line"></div><div style="text-align:center;color:var(--muted)">Signature / Date</div></div> 
-      <div class="footer-item"><div class="label">Received By:</div><div class="sign-line"></div><div style="text-align:center;color:var(--muted)">Name / Signature / Date</div></div> 
-    </div> 
-    <div class="footer-note">This is a computer-generated delivery note. Powered by Stanness Technologies<br />{{company.footer_text}}</div> 
-  </div> 
-</div>`;
-  }
-  if (type === "payment-voucher") {
-    return `
-${commonHead}
-<div class="doc">
-  <div class="header">
-    <img class="logo" src="{{company.logo}}" alt="Logo"/>
-    <div class="company">
-      <div class="name">{{company.name}}</div>
-      <div>{{company.address}}</div>
-      <div>{{company.address2}}</div>
-      <div class="meta">{{company.phone}} • {{company.email}} • {{company.website}}</div>
-    </div>
-  </div>
-  <div class="titlebar">
-    <div class="line"></div>
-    <div class="title">* Cash Payment Voucher *</div>
-    <div class="line"></div>
-  </div>
-  <div class="info">
-    <div class="card">
-      <div><strong>Voucher Info</strong></div>
-      <div>Number: {{payment_voucher.number}}</div>
-      <div>Date: {{payment_voucher.date}}</div>
-      <div class="meta">Type: {{payment_voucher.type_code}} • {{payment_voucher.type_name}}</div>
-    </div>
-    <div class="card">
-      <div><strong>Narration</strong></div>
-      <div class="meta">{{payment_voucher.narration}}</div>
-    </div>
-  </div>
-  <table>
-    <thead>
-      <tr><th>#</th><th>Account Code</th><th>Account Name</th><th>Description</th><th>Debit</th><th>Credit</th><th>Ref</th></tr>
-    </thead>
-    <tbody>
-      {{#each payment_voucher.items}}
-      <tr>
-        <td>{{@index}}</td><td>{{account_code}}</td><td>{{account_name}}</td><td>{{description}}</td><td class="num">{{debit}}</td><td class="num">{{credit}}</td><td>{{reference_no}}</td>
-      </tr>
-      {{/each}}
-    </tbody>
-  </table>
-  <div class="totals">
-    <div></div>
-    <div class="box">
-      <div>Total Debit: {{payment_voucher.total_debit}}</div>
-      <div><strong>Total Credit: {{payment_voucher.total_credit}}</strong></div>
-    </div>
-  </div>
-  <div class="footer">
-    <div>
-      <div>Prepared By</div>
-      <div class="sign"></div>
-    </div>
-    <div>
-      <div>Receiver Signature</div>
-      <div class="sign"></div>
-    </div>
-  </div>
-</div>
-`;
-  }
-  if (type === "quotation") {
-    return `
-${commonHead}
-<div class="doc">
-  <div class="header">
-    <img class="logo" src="{{company.logo}}" alt="Logo"/>
-    <div class="company">
-      <div class="name">{{company.name}}</div>
-      <div>{{company.address}}</div>
-      <div>{{company.address2}}</div>
-      <div class="meta">{{company.phone}} • {{company.email}} • {{company.website}}</div>
-    </div>
-  </div>
-  <div class="titlebar">
-    <div class="line"></div>
-    <div class="title">* Quotation *</div>
-    <div class="line"></div>
-  </div>
-  <div class="info">
-    <div class="card">
-      <div class="kv">
-        <div class="row"><div class="label">Customer Name:</div><div class="value">{{customer.name}}</div></div>
-        <div class="row"><div class="label">Address:</div><div class="value">{{customer.address}}</div></div>
-        <div class="row"><div class="label">City:</div><div class="value">{{customer.city}}</div></div>
-        <div class="row"><div class="label">State:</div><div class="value">{{customer.state}}</div></div>
-        <div class="row"><div class="label">Country:</div><div class="value">{{customer.country}}</div></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="kv">
-        <div class="row"><div class="label">Quotation No.:</div><div class="value">{{quotation.number}}</div></div>
-        <div class="row"><div class="label">Quotation Date:</div><div class="value">{{quotation.date}}</div></div>
-      </div>
-    </div>
-    <div class="info-right">
-      <div class="qr-box"><img src="{{quotation.qr_code}}" alt="QR"/></div>
-    </div>
-  </div>
-  <table>
-    <thead>
-      <tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Price</th><th>Disc%</th><th>Tax</th><th>Amount</th></tr>
-    </thead>
-    <tbody>
-      {{#each quotation.items}}
-      <tr>
-        <td>{{@index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{quantity}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{discount}}</td><td class="num">{{tax}}</td><td class="num">{{amount}}</td>
-      </tr>
-      {{/each}}
-    </tbody>
-  </table>
-  <div class="totals">
-    <div></div>
-    <div class="box">
-      <div>Sub Total: {{quotation.sub_total}}</div>
-      <div>Tax: {{quotation.tax_amount}}</div>
-      <div><strong>Total: {{quotation.total}}</strong></div>
-    </div>
-  </div>
-  <div class="footer">
-    <div>
-      <div>Prepared By</div>
-      <div class="sign"></div>
-      <div class="meta">{{prepared_by}}</div>
-    </div>
-    <div>
-      <div>Remarks</div>
-      <div class="meta">{{quotation.remarks}}</div>
-    </div>
-  </div>
-</div>
-`;
-  }
-  if (type === "salary-slip") {
-    return `
-${commonHead}
-<div class="doc">
-  <div class="header">
-    <div><img class="logo" src="{{company.logo}}" alt="Logo"/></div>
-    <div class="company">
-      <div class="name">{{company.name}}</div>
-      <div>{{company.address}}</div>
-      <div>{{company.address2}}</div>
-      <div>Contact No: {{company.phone}}</div>
-      <div>Email: {{company.email}}</div>
-    </div>
-  </div>
-  <div class="titlebar">
-    <div class="line"></div>
-    <div class="title">* Salary Slip *</div>
-    <div class="line"></div>
-  </div>
-  
-  <div class="info" style="margin-bottom: 24px;">
-    <div class="info-left">
-      <div class="kv">
-        <div class="kv-row"><div class="kv-label">Employee Name</div><div class="kv-sep">:</div><div class="kv-val">{{employee.name}}</div></div>
-        <div class="kv-row"><div class="kv-label">Employee Code</div><div class="kv-sep">:</div><div class="kv-val">{{employee.code}}</div></div>
-        <div class="kv-row"><div class="kv-label">Department</div><div class="kv-sep">:</div><div class="kv-val">{{employee.department}}</div></div>
-        <div class="kv-row"><div class="kv-label">Designation</div><div class="kv-sep">:</div><div class="kv-val">{{employee.job_title}}</div></div>
-      </div>
-    </div>
-    <div class="info-mid">
-      <div class="kv">
-        <div class="kv-row"><div class="kv-label">Pay Period</div><div class="kv-sep">:</div><div class="kv-val">{{salary_slip.pay_period}}</div></div>
-        <div class="kv-row"><div class="kv-label">Pay Date</div><div class="kv-sep">:</div><div class="kv-val">{{formatDate salary_slip.pay_date}}</div></div>
-        {{#if employee.bank_name}}
-        <div class="kv-row"><div class="kv-label">Bank Name</div><div class="kv-sep">:</div><div class="kv-val">{{employee.bank_name}}</div></div>
-        <div class="kv-row"><div class="kv-label">Account No.</div><div class="kv-sep">:</div><div class="kv-val">{{employee.bank_account_no}}</div></div>
-        {{/if}}
-      </div>
-    </div>
-    <div class="info-right">
-      <div class="qr-box"><img src="{{salary_slip.qr_code}}" alt="QR"/></div>
-    </div>
-  </div>
-  
-  <table style="border: 1px solid #000; margin-bottom: 0;">
-    <thead>
-      <tr>
-        <th class="left" style="width: 50%; border-right: 1px solid #000; text-align: center; font-size: 11px;">EARNINGS</th>
-        <th class="left" style="width: 50%; text-align: center; font-size: 11px;">DEDUCTIONS</th>
-      </tr>
-      <tr style="border-top: 1px solid #000;">
-        <th style="padding: 0; border: none; border-right: 1px solid #000;">
-           <table style="margin: 0; border: none;">
-              <tr><td style="font-weight: bold; border: none;">Description</td><td class="num" style="font-weight: bold; border: none;">Amount</td></tr>
-           </table>
-        </th>
-        <th style="padding: 0; border: none;">
-           <table style="margin: 0; border: none;">
-              <tr><td style="font-weight: bold; border: none; padding-left: 4px;">Description</td><td class="num" style="font-weight: bold; border: none;">Amount</td></tr>
-           </table>
-        </th>
-      </tr>
-    </thead>
-    <tbody>
-       {{#each payslip.rows}}
-       <tr>
-         <td style="padding: 0; border: none; width: 50%; border-right: 1px solid #000;">
-           <table style="margin: 0; border: none;">
-             <tr>
-               <td style="border: none;">{{earning_label}}</td>
-               <td class="num" style="border: none;">{{salary_slip_amount earning_amount}}</td>
-             </tr>
-           </table>
-         </td>
-         <td style="padding: 0; border: none; width: 50%;">
-           <table style="margin: 0; border: none;">
-             <tr>
-               <td style="border: none; padding-left: 4px;">{{deduction_label}}</td>
-               <td class="num" style="border: none;">{{salary_slip_amount deduction_amount}}</td>
-             </tr>
-           </table>
-         </td>
-       </tr>
-       {{/each}}
-    </tbody>
-  </table>
-  <div style="display: flex; border: 1px solid #000; border-top: 2px solid #000;">
-    <div style="flex: 1; border-right: 1px solid #000; padding: 6px; display: flex; justify-content: space-between; font-weight: bold;">
-       <span>Total Earnings</span>
-       <span>{{salary_slip_amount salary_slip.total_earnings}}</span>
-    </div>
-    <div style="flex: 1; padding: 6px; display: flex; justify-content: space-between; font-weight: bold;">
-       <span>Total Deductions</span>
-       <span>{{salary_slip_amount salary_slip.total_deductions}}</span>
-    </div>
-  </div>
-  
-  <div style="margin-top: 16px; border: 1px solid #000; display: flex; align-items: stretch;">
-    <div style="flex: 1; padding: 12px; font-weight: bold; display: flex; flex-direction: column; justify-content: center; background: #f0f0f0;">
-      <div style="font-size: 14px;">Net Pay: &nbsp; <span style="font-size: 16px;">{{salary_slip_amount salary_slip.net_pay}}</span></div>
-      {{#if salary_slip.net_pay_in_words}}
-      <div style="font-size: 11px; margin-top: 6px; font-weight: normal; text-transform: uppercase;">Amount in Words: {{salary_slip.net_pay_in_words}}</div>
-      {{/if}}
-    </div>
-  </div>
-  
-  <div class="footer-prepared">
-    <div style="display: flex; justify-content: space-between;">
-        <div style="margin-top: 10px;"><span class="lbl" style="margin-right: 8px;">Employer Signature:</span> _________________________</div>
-        <div style="margin-top: 10px;"><span class="lbl" style="margin-right: 8px;">Employee Signature:</span> _________________________</div>
-    </div>
-  </div>
-</div>
-`;
-  }
-  if (type === "receipt-voucher") {
-    return `
-${commonHead}
-<div class="doc">
-  <div class="header">
-    <img class="logo" src="{{company.logo}}" alt="Logo"/>
-    <div class="company">
-      <div class="name">{{company.name}}</div>
-      <div>{{company.address}}</div>
-      <div>{{company.address2}}</div>
-      <div class="meta">{{company.phone}} • {{company.email}} • {{company.website}}</div>
-    </div>
-  </div>
-  <div class="titlebar">
-    <div class="line"></div>
-    <div class="title">* Receipt Voucher *</div>
-    <div class="line"></div>
-  </div>
-  <div class="info">
-    <div class="card">
-      <div><strong>Voucher Info</strong></div>
-      <div>Number: {{receipt_voucher.number}}</div>
-      <div>Date: {{receipt_voucher.date}}</div>
-      <div class="meta">Type: {{receipt_voucher.type_code}} • {{receipt_voucher.type_name}}</div>
-    </div>
-    <div class="card">
-      <div><strong>Narration</strong></div>
-      <div class="meta">{{receipt_voucher.narration}}</div>
-    </div>
-  </div>
-  <table>
-    <thead>
-      <tr><th>#</th><th>Account Code</th><th>Account Name</th><th>Description</th><th>Debit</th><th>Credit</th><th>Ref</th></tr>
-    </thead>
-    <tbody>
-      {{#each receipt_voucher.items}}
-      <tr>
-        <td>{{@index}}</td><td>{{account_code}}</td><td>{{account_name}}</td><td>{{description}}</td><td class="num">{{debit}}</td><td class="num">{{credit}}</td><td>{{reference_no}}</td>
-      </tr>
-      {{/each}}
-    </tbody>
-  </table>
-  <div class="totals">
-    <div></div>
-    <div class="box">
-      <div>Total Debit: {{receipt_voucher.total_debit}}</div>
-      <div><strong>Total Credit: {{receipt_voucher.total_credit}}</strong></div>
-    </div>
-  </div>
-  <div class="footer">
-    <div>
-      <div>Prepared By</div>
-      <div class="sign"></div>
-    </div>
-    <div>
-      <div>Receiver Signature</div>
-      <div class="sign"></div>
-    </div>
-  </div>
-</div>
-`;
-  }
-  return "<div>Define your template here</div>";
 }
 
 async function loadPreviewData(type, companyId, branchId) {
@@ -969,6 +449,7 @@ async function loadPreviewData(type, companyId, branchId) {
     `,
     { companyId },
   ).catch(() => []);
+
   if (type === "sales-order") {
     return {
       company: company || {},
@@ -1038,11 +519,10 @@ async function loadPreviewData(type, companyId, branchId) {
         date: new Date().toDateString(),
         status: "DRAFT",
         payment_status: "PENDING",
-        payment_term: "credit",
-        net_total: 0,
-        total: 0,
+        sub_total: 300,
+        tax_amount: 0,
+        total: 300,
         remarks: "",
-        qr_code: `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent("INVOICE|PREVIEW|INV-PREVIEW|" + new Date().toISOString().slice(0, 10))}`,
         items: [
           {
             name: "Sample Item",
@@ -1099,10 +579,8 @@ async function loadPreviewData(type, companyId, branchId) {
         number: "",
         date: new Date().toDateString(),
         narration: "",
-        total_debit: 0,
-        total_credit: 0,
-        type_code: "PV",
-        type_name: "Payment Voucher",
+        total_debit: 250,
+        total_credit: 250,
         items: [
           {
             account_code: "1000",
@@ -1251,6 +729,84 @@ async function loadPreviewData(type, companyId, branchId) {
         total_deductions: "800.00",
         net_pay: "5700.00",
         net_pay_in_words: "Five Thousand Seven Hundred Ghana Cedis Only",
+      },
+    };
+  }
+  if (type === "purchase-order") {
+    return {
+      company: company || {},
+      supplier: {
+        name: "Sample Supplier Ltd",
+        address: "Industrial Area, Accra",
+        phone: "+233 20 000 0000",
+        email: "supplier@example.com",
+      },
+      purchase_order: {
+        id: 0,
+        number: "PO-PREVIEW",
+        date: new Date().toDateString(),
+        status: "DRAFT",
+        remarks: "",
+        items: [
+          {
+            name: "Sample Item",
+            code: "ITEM001",
+            quantity: 2,
+            uom: "PCS",
+            price: 100,
+            amount: 200,
+          },
+          {
+            name: "Sample Item 2",
+            code: "ITEM002",
+            quantity: 1,
+            uom: "PCS",
+            price: 50,
+            amount: 50,
+          },
+        ],
+        sub_total: 250,
+        tax_amount: 0,
+        total: 250,
+      },
+    };
+  }
+  if (type === "direct-purchase") {
+    return {
+      company: company || {},
+      supplier: {
+        name: "Sample Supplier Ltd",
+        address: "Industrial Area, Accra",
+        phone: "+233 20 000 0000",
+        email: "supplier@example.com",
+      },
+      direct_purchase: {
+        id: 0,
+        number: "DP-PREVIEW",
+        date: new Date().toDateString(),
+        status: "DRAFT",
+        remarks: "",
+        items: [
+          {
+            name: "Sample Item",
+            code: "ITEM001",
+            quantity: 3,
+            uom: "PCS",
+            price: 80,
+            amount: 240,
+          },
+          {
+            name: "Sample Item 2",
+            code: "ITEM002",
+            quantity: 2,
+            uom: "PCS",
+            price: 50,
+            amount: 100,
+          },
+        ],
+        sub_total: 340,
+        tax_amount: 0,
+        total: 340,
       },
     };
   }
@@ -1426,14 +982,12 @@ async function loadData(type, id, companyId, branchId) {
         })),
       },
     };
-    // Attach QR code (unique per document) using a lightweight external generator
     try {
       const qrPayload = encodeURIComponent(
         `SALES_ORDER|${order.id}|${order.order_no || ""}|${order.order_date || ""}|${order.customer_name || ""}`,
       );
       soObj.sales_order.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
     } catch {}
-    // Aliases for template compatibility
     soObj.document = soObj.sales_order;
     soObj.order = soObj.sales_order;
     soObj.items = soObj.sales_order.items;
@@ -1591,7 +1145,6 @@ async function loadData(type, id, companyId, branchId) {
         })),
       },
     };
-    // Attach QR code (unique per document) using a lightweight external generator
     try {
       const qrPayload = encodeURIComponent(
         `INVOICE|${inv.id}|${inv.invoice_no || ""}|${inv.invoice_date || ""}|${inv.customer_name || ""}`,
@@ -1601,6 +1154,283 @@ async function loadData(type, id, companyId, branchId) {
     invObj.document = invObj.invoice;
     invObj.items = invObj.invoice.items;
     return invObj;
+  }
+  if (type === "purchase-order") {
+    const [po] = await query(
+      `
+      SELECT 
+        p.id, p.po_no, p.po_date, p.status, p.po_type,
+        p.supplier_id, s.supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email,
+        p.currency, p.exchange_rate, p.warehouse_id, p.remarks, p.total_amount
+      FROM pur_orders p
+      LEFT JOIN pur_suppliers s ON s.id = p.supplier_id
+      WHERE p.id = :id AND p.company_id = :companyId AND p.branch_id = :branchId
+      LIMIT 1
+      `,
+      { id, companyId, branchId },
+    ).catch(() => []);
+    if (!po) throw httpError(404, "NOT_FOUND", "Document not found");
+    const details = await query(
+      `
+      SELECT d.id, d.item_id, d.qty, d.uom, d.unit_price, d.discount_percent, d.tax_percent, d.line_total, i.item_code, i.item_name
+      FROM pur_order_details d
+      LEFT JOIN inv_items i ON i.id = d.item_id
+      WHERE d.po_id = :id
+      ORDER BY d.id ASC
+      `,
+      { id },
+    ).catch(() => []);
+    const [company] = await query(
+      `
+      SELECT id, name, address, city, state, postal_code, country, telephone, email, website
+      FROM adm_companies
+      WHERE id = :companyId
+      LIMIT 1
+      `,
+      { companyId },
+    ).catch(() => []);
+    const items = Array.isArray(details) ? details : [];
+    const poObj = {
+      company: company || {},
+      supplier: {
+        name: po.supplier_name,
+        address: po.supplier_address || "",
+        phone: po.supplier_phone || "",
+        email: po.supplier_email || "",
+      },
+      purchase_order: {
+        id: po.id,
+        number: po.po_no,
+        date: po.po_date ? String(po.po_date).slice(0, 10) : null,
+        status: po.status,
+        remarks: po.remarks || "",
+        total: po.total_amount || 0,
+        items: items.map((d) => ({
+          name: d.item_name,
+          description: d.item_name,
+          code: d.item_code,
+          quantity: d.qty,
+          uom: d.uom,
+          price: d.unit_price,
+          discount: d.discount_percent || 0,
+          tax: d.tax_percent || 0,
+          amount:
+            d.line_total != null
+              ? d.line_total
+              : Number(d.qty || 0) *
+                Number(d.unit_price || 0) *
+                (1 - Number(d.discount_percent || 0) / 100) *
+                (1 + Number(d.tax_percent || 0) / 100),
+        })),
+      },
+    };
+    poObj.document = poObj.purchase_order;
+    poObj.items = poObj.purchase_order.items;
+    return poObj;
+  }
+  if (type === "direct-purchase") {
+    const [hdr] = await query(
+      `
+      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email
+      FROM pur_direct_purchase_hdr h
+      LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
+      WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+      LIMIT 1
+      `,
+      { id, companyId, branchId },
+    ).catch(() => []);
+    if (!hdr) throw httpError(404, "NOT_FOUND", "Document not found");
+    const details = await query(
+      `
+      SELECT d.id, d.item_id, d.qty, d.uom, d.unit_price, d.discount_percent, d.tax_percent, d.line_total, i.item_code, i.item_name
+      FROM pur_direct_purchase_dtl d
+      LEFT JOIN inv_items i ON i.id = d.item_id
+      WHERE d.hdr_id = :id
+      ORDER BY d.id ASC
+      `,
+      { id },
+    ).catch(() => []);
+    const [company] = await query(
+      `
+      SELECT id, name, address, city, state, postal_code, country, telephone, email, website
+      FROM adm_companies
+      WHERE id = :companyId
+      LIMIT 1
+      `,
+      { companyId },
+    ).catch(() => []);
+    const items = Array.isArray(details) ? details : [];
+    const dpObj = {
+      company: company || {},
+      supplier: {
+        name: hdr.supplier_name,
+        address: hdr.supplier_address || "",
+        phone: hdr.supplier_phone || "",
+        email: hdr.supplier_email || "",
+      },
+      direct_purchase: {
+        id: hdr.id,
+        number: hdr.dp_no,
+        date: hdr.dp_date ? String(hdr.dp_date).slice(0, 10) : null,
+        status: hdr.status,
+        remarks: hdr.remarks || "",
+        total: hdr.net_amount || 0,
+        items: items.map((d) => ({
+          name: d.item_name,
+          description: d.item_name,
+          code: d.item_code,
+          quantity: d.qty,
+          uom: d.uom,
+          price: d.unit_price,
+          discount: d.discount_percent || 0,
+          tax: d.tax_percent || 0,
+          amount:
+            d.line_total != null
+              ? d.line_total
+              : Number(d.qty || 0) * Number(d.unit_price || 0),
+        })),
+      },
+    };
+    dpObj.document = dpObj.direct_purchase;
+    dpObj.items = dpObj.direct_purchase.items;
+    return dpObj;
+  }
+  if (type === "purchase-bill") {
+    const [hdr] = await query(
+      `
+      SELECT b.*, s.supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email
+      FROM pur_bills b
+      LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
+      WHERE b.id = :id AND b.company_id = :companyId AND b.branch_id = :branchId
+      LIMIT 1
+      `,
+      { id, companyId, branchId },
+    ).catch(() => []);
+    if (!hdr) throw httpError(404, "NOT_FOUND", "Document not found");
+    const details = await query(
+      `
+      SELECT d.id, d.item_id, d.qty, d.uom, d.unit_price, d.tax_percent, d.discount_percent, d.line_total, i.item_code, i.item_name
+      FROM pur_bill_items d
+      LEFT JOIN inv_items i ON i.id = d.item_id
+      WHERE d.bill_id = :id
+      ORDER BY d.id ASC
+      `,
+      { id },
+    ).catch(() => []);
+    const [company] = await query(
+      `
+      SELECT id, name, address, city, state, postal_code, country, telephone, email, website
+      FROM adm_companies
+      WHERE id = :companyId
+      LIMIT 1
+      `,
+      { companyId },
+    ).catch(() => []);
+    const items = Array.isArray(details) ? details : [];
+    const billObj = {
+      company: company || {},
+      supplier: {
+        name: hdr.supplier_name,
+        address: hdr.supplier_address || "",
+        phone: hdr.supplier_phone || "",
+        email: hdr.supplier_email || "",
+      },
+      purchase_bill: {
+        id: hdr.id,
+        number: hdr.bill_no,
+        date: hdr.bill_date ? String(hdr.bill_date).slice(0, 10) : null,
+        status: hdr.status,
+        remarks: hdr.remarks || "",
+        total: hdr.net_amount || hdr.total_amount || 0,
+        items: items.map((d) => ({
+          name: d.item_name,
+          description: d.item_name,
+          code: d.item_code,
+          quantity: d.qty,
+          uom: d.uom,
+          price: d.unit_price,
+          discount: d.discount_percent || 0,
+          tax: d.tax_percent || 0,
+          amount:
+            d.line_total != null
+              ? d.line_total
+              : Number(d.qty || 0) *
+                Number(d.unit_price || 0) *
+                (1 - Number(d.discount_percent || 0) / 100) *
+                (1 + Number(d.tax_percent || 0) / 100),
+        })),
+      },
+    };
+    billObj.document = billObj.purchase_bill;
+    billObj.items = billObj.purchase_bill.items;
+    return billObj;
+  }
+  if (type === "grn") {
+    const [hdr] = await query(
+      `
+      SELECT g.*, s.supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email
+      FROM inv_goods_receipt_notes g
+      LEFT JOIN pur_suppliers s ON s.id = g.supplier_id
+      WHERE g.id = :id AND g.company_id = :companyId AND g.branch_id = :branchId
+      LIMIT 1
+      `,
+      { id, companyId, branchId },
+    ).catch(() => []);
+    if (!hdr) throw httpError(404, "NOT_FOUND", "Document not found");
+    const details = await query(
+      `
+      SELECT d.id, d.item_id, d.qty_ordered, d.qty_received, d.qty_accepted, d.uom, d.unit_price, d.line_amount, i.item_code, i.item_name
+      FROM inv_goods_receipt_note_details d
+      LEFT JOIN inv_items i ON i.id = d.item_id
+      WHERE d.grn_id = :id
+      ORDER BY d.id ASC
+      `,
+      { id },
+    ).catch(() => []);
+    const [company] = await query(
+      `
+      SELECT id, name, address, city, state, postal_code, country, telephone, email, website
+      FROM adm_companies
+      WHERE id = :companyId
+      LIMIT 1
+      `,
+      { companyId },
+    ).catch(() => []);
+    const items = Array.isArray(details) ? details : [];
+    const grnObj = {
+      company: company || {},
+      supplier: {
+        name: hdr.supplier_name,
+        address: hdr.supplier_address || "",
+        phone: hdr.supplier_phone || "",
+        email: hdr.supplier_email || "",
+      },
+      grn: {
+        id: hdr.id,
+        number: hdr.grn_no,
+        date: hdr.grn_date ? String(hdr.grn_date).slice(0, 10) : null,
+        status: hdr.status,
+        remarks: hdr.remarks || "",
+        total: hdr.net_amount || 0,
+        items: items.map((d) => ({
+          name: d.item_name,
+          description: d.item_name,
+          code: d.item_code,
+          ordered: d.qty_ordered,
+          received: d.qty_received,
+          accepted: d.qty_accepted,
+          uom: d.uom,
+          price: d.unit_price,
+          amount:
+            d.line_amount != null
+              ? d.line_amount
+              : Number(d.qty_accepted || 0) * Number(d.unit_price || 0),
+        })),
+      },
+    };
+    grnObj.document = grnObj.grn;
+    grnObj.items = grnObj.grn.items;
+    return grnObj;
   }
   if (type === "delivery-note") {
     const [dn] = await query(
@@ -1679,7 +1509,6 @@ async function loadData(type, id, companyId, branchId) {
       `,
       { companyId },
     ).catch(() => []);
-    // Derive currency/warehouse from linked invoice or order if available
     const dnExtra = await query(
       `
       SELECT 
@@ -1718,7 +1547,6 @@ async function loadData(type, id, companyId, branchId) {
     ).catch(() => []);
     const extraRow = extra?.[0] || {};
     const items = Array.isArray(details) ? details : [];
-    // Load related order/invoice references for template fields
     let orderMeta = {};
     if (dn.sales_order_id) {
       const [ord] = await query(
@@ -1745,7 +1573,6 @@ async function loadData(type, id, companyId, branchId) {
       ).catch(() => []);
       if (invh) invoiceMeta = invh;
     }
-    // Build ordered qty map if linked to an order
     let orderedQtyMap = new Map();
     if (dn.sales_order_id) {
       const ordRows = await query(
@@ -1823,7 +1650,6 @@ async function loadData(type, id, companyId, branchId) {
         })),
       },
     };
-    // Attach QR code (unique per document) using a lightweight external generator
     try {
       const qrPayload = encodeURIComponent(
         `DELIVERY_NOTE|${dn.id}|${dn.delivery_no || ""}|${dn.delivery_date || ""}|${dn.customer_name || ""}`,
@@ -1989,7 +1815,7 @@ async function loadData(type, id, companyId, branchId) {
       purchase_bill: {
         id: bill.id,
         number: bill.bill_no,
-        date: bill.bill_date,
+        date: bill.bill_date ? String(bill.bill_date).slice(0, 10) : null,
         status: bill.status,
         sub_total: bill.sub_total,
         tax_amount: bill.tax_amount,
@@ -2129,9 +1955,10 @@ async function loadData(type, id, companyId, branchId) {
       SELECT
         d.id,
         d.item_id,
-        d.qty AS quantity,
+        d.quantity,
         d.unit_price,
         d.discount_percent,
+        d.total_amount,
         d.net_amount,
         d.tax_amount,
         d.uom,
@@ -2285,35 +2112,32 @@ async function loadData(type, id, companyId, branchId) {
         l.credit,
         l.reference_no
       FROM fin_voucher_lines l
-      JOIN fin_accounts a ON a.id = l.account_id
+      LEFT JOIN fin_accounts a ON a.id = l.account_id
       WHERE l.voucher_id = :id
       ORDER BY l.line_no ASC
       `,
       { id },
     ).catch(() => []);
     const [company] = await query(
-      `
-      SELECT id, name, address, city, state, postal_code, country, telephone, email, website
-      FROM adm_companies
-      WHERE id = :companyId
-      LIMIT 1
-      `,
+      `SELECT id, name, address, city, state, postal_code, country, telephone, email, website FROM adm_companies WHERE id = :companyId LIMIT 1`,
       { companyId },
     ).catch(() => []);
-    return {
+    const voucherObj = {
       company: company || {},
       employee: employee || undefined,
       prepared_by: employee?.username || employee?.name || undefined,
       payment_voucher: {
         id: voucher.id,
         number: voucher.voucher_no,
-        date: voucher.voucher_date,
+        date: voucher.voucher_date
+          ? String(voucher.voucher_date).slice(0, 10)
+          : null,
         narration: voucher.narration,
         total_debit: voucher.total_debit,
         total_credit: voucher.total_credit,
         type_code: voucher.voucher_type_code,
         type_name: voucher.voucher_type_name,
-        items: (Array.isArray(lines) ? lines : []).map((l) => ({
+        items: (lines || []).map((l) => ({
           account_code: l.account_code,
           account_name: l.account_name,
           description: l.description,
@@ -2323,19 +2147,40 @@ async function loadData(type, id, companyId, branchId) {
         })),
       },
     };
+    try {
+      const qrPayload = encodeURIComponent(
+        `${voucher.voucher_type_name.toUpperCase()}|${voucher.id}|${voucher.voucher_no || ""}|${voucher.voucher_date || ""}|${voucher.total_credit || voucher.total_debit || ""}`,
+      );
+      voucherObj.payment_voucher.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
+    } catch {}
+    voucherObj.document = voucherObj.payment_voucher;
+    voucherObj.voucher = voucherObj.payment_voucher;
+    voucherObj.items = voucherObj.payment_voucher.items;
+    return voucherObj;
   }
   if (type === "salary-slip") {
     const [payslip] = await query(
-      `SELECT p.*, e.first_name, e.last_name, e.emp_code, e.email, e.joining_date, e.ssnit_no, e.tin, e.bank_name, e.bank_account_no,
-              pr.period_name, d.dept_name, b.name AS branch_name, pos.pos_name AS position_name, p.paid_at
-       FROM hr_payslips p
-       JOIN hr_employees e ON e.id = p.employee_id
-       JOIN hr_payroll_periods pr ON pr.id = p.period_id
-       LEFT JOIN hr_departments d ON d.id = e.dept_id
-       LEFT JOIN adm_branches b ON b.id = e.location_id
-       LEFT JOIN hr_positions pos ON pos.id = e.pos_id
-       WHERE p.id = :id AND e.company_id = :companyId
-       LIMIT 1`,
+      `
+      SELECT
+        p.id, p.period_id, p.status, p.paid_at, p.remarks,
+        p.basic_salary, p.allowances, p.deductions, p.net_salary,
+        p.ssf_employee, p.tier3_employee, p.income_tax, p.loan_deductions_total,
+        p.working_days, p.days_present, p.leave_taken,
+        e.emp_code, e.first_name, e.last_name, e.email, e.joining_date,
+        e.ssnit_no, e.tin, e.bank_name, e.bank_account_no,
+        d.name AS dept_name,
+        b.name AS branch_name,
+        pos.name AS position_name,
+        per.name AS period_name
+      FROM hr_payslips p
+      JOIN hr_employees e ON e.id = p.employee_id AND e.company_id = :companyId
+      LEFT JOIN hr_departments d ON d.id = e.department_id
+      LEFT JOIN adm_branches b ON b.id = e.branch_id
+      LEFT JOIN hr_positions pos ON pos.id = e.position_id
+      LEFT JOIN hr_pay_periods per ON per.id = p.period_id
+      WHERE p.id = :id AND e.company_id = :companyId
+      LIMIT 1
+      `,
       { id, companyId },
     ).catch(() => []);
     if (!payslip) throw httpError(404, "NOT_FOUND", "Payslip not found");
@@ -2361,23 +2206,33 @@ async function loadData(type, id, companyId, branchId) {
 
     let deductions = [];
     if (Number(payslip.ssf_employee) > 0) {
-      deductions.push({ label: "SSF (Emp)", amount: Number(payslip.ssf_employee) });
+      deductions.push({
+        label: "SSF (Emp)",
+        amount: Number(payslip.ssf_employee),
+      });
     }
     if (Number(payslip.tier3_employee) > 0) {
-      deductions.push({ label: "Tier 3", amount: Number(payslip.tier3_employee) });
+      deductions.push({
+        label: "Tier 3",
+        amount: Number(payslip.tier3_employee),
+      });
     }
     if (Number(payslip.income_tax) > 0) {
-      deductions.push({ label: "PAYE Tax", amount: Number(payslip.income_tax) });
+      deductions.push({
+        label: "PAYE Tax",
+        amount: Number(payslip.income_tax),
+      });
     }
     if (Number(payslip.loan_deductions_total) > 0) {
-      deductions.push({ label: "Loan Deductions", amount: Number(payslip.loan_deductions_total) });
+      deductions.push({
+        label: "Loan Deductions",
+        amount: Number(payslip.loan_deductions_total),
+      });
     }
 
-    // Remove 0 amount manually added components (safety measure)
     earnings = earnings.filter((e) => e.amount > 0);
     deductions = deductions.filter((d) => d.amount > 0);
 
-    // Build Zip array for Handlebars rendering
     const maxLen = Math.max(earnings.length, deductions.length);
     const rows = [];
     for (let i = 0; i < maxLen; i++) {
@@ -2388,15 +2243,6 @@ async function loadData(type, id, companyId, branchId) {
         deduction_amount: deductions[i] ? deductions[i].amount.toFixed(2) : "",
       });
     }
-
-    // Try converting net pay to words (simple hack if we don't have a library, we'll leave it out or put "")
-    let netInWords = "";
-    try {
-      if (typeof window === "undefined" && global.require) {
-        // Attempt to use a library if it exists somewhere in the project, else empty.
-        // Actually, let's just leave it blank for now since the prompt didn't mandate exact number to words.
-      }
-    } catch (e) {}
 
     const qrData = JSON.stringify({
       id: payslip.id,
@@ -2417,7 +2263,9 @@ async function loadData(type, id, companyId, branchId) {
         branch: payslip.branch_name || "-",
         designation: payslip.position_name || "-",
         job_title: payslip.position_name || "-",
-        joining_date: payslip.joining_date || null,
+        joining_date: payslip.joining_date
+          ? String(payslip.joining_date).slice(0, 10)
+          : null,
         ssnit_no: payslip.ssnit_no || "-",
         tin: payslip.tin || "-",
         bank_name: payslip.bank_name || "-",
@@ -2435,7 +2283,7 @@ async function loadData(type, id, companyId, branchId) {
           Number(payslip.basic_salary || 0) + Number(payslip.allowances || 0)
         ).toFixed(2),
         net_salary: Number(payslip.net_salary || 0).toFixed(2),
-        net_in_words: netInWords || "UNSPECIFIED",
+        net_in_words: "",
         status: payslip.status,
         working_days: payslip.working_days || 0,
         days_present: payslip.days_present || 0,
@@ -2462,88 +2310,16 @@ async function loadData(type, id, companyId, branchId) {
         ).toFixed(2),
         total_deductions: Number(payslip.deductions || 0).toFixed(2),
         net_pay: Number(payslip.net_salary || 0).toFixed(2),
-        working_days: payslip.working_days || 0,
-        days_present: payslip.days_present || 0,
-        leave_taken: payslip.leave_taken || 0,
-        net_pay_in_words: netInWords || "",
-        qr_code: qrCodeUrl,
-        remarks: payslip.remarks || "",
+        net_pay_in_words: "",
       },
     };
   }
-  throw httpError(400, "VALIDATION_ERROR", "Unsupported type");
+  throw httpError(400, "VALIDATION_ERROR", "Unsupported document type");
 }
 
-import { join } from "path";
-import { existsSync } from "fs";
-
-/**
- * Robustly launch puppeteer with path detection
- */
-async function launchBrowser() {
-  const mod = await import("puppeteer");
-  const puppeteer = mod.default || mod;
-
-  // Try to find the browser executable in the common local cache path if default launch fails
-  // On Windows: C:\Users\stanl\.cache\puppeteer
-  const possiblePaths = [
-    join(
-      "C:",
-      "Users",
-      "stanl",
-      ".cache",
-      "puppeteer",
-      "chrome",
-      "win64-146.0.7680.153",
-      "chrome-win64",
-      "chrome.exe",
-    ),
-    join(
-      process.cwd(),
-      "node_modules",
-      "puppeteer",
-      ".local-chromium",
-      "win64-123456",
-      "chrome-win64",
-      "chrome.exe",
-    ),
-  ];
-
-  let executablePath = undefined;
-  for (const p of possiblePaths) {
-    if (existsSync(p)) {
-      executablePath = p;
-      break;
-    }
-  }
-
-  const launchArgs = {
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-    ],
-    executablePath,
-  };
-
-  try {
-    return await puppeteer.launch(launchArgs);
-  } catch (err) {
-    console.error("Puppeteer primary launch failed:", err.message);
-    // Retry without explicit path if provided one failed
-    if (executablePath) {
-      return await puppeteer.launch({
-        ...launchArgs,
-        executablePath: undefined,
-      });
-    }
-    throw err;
-  }
-}
-
-router.post(
-  "/:type/:id/render",
+// ─── GET /:type/:id ──────────────────────────────────────────────────────────
+router.get(
+  "/:type/:id",
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
@@ -2551,31 +2327,30 @@ router.post(
     try {
       await ensureTemplateTables();
       const { companyId, branchId } = req.scope;
-      const type = String(req.params.type || "").trim();
+      const type = canonicalDocumentType(String(req.params.type || "").trim());
       const id = toNumber(req.params.id);
       if (!type || !id)
         throw httpError(400, "VALIDATION_ERROR", "Invalid request");
-      // Optional override: explicit template_id
-      const templateId =
-        req.query && req.query.template_id
-          ? Number(req.query.template_id)
-          : req.body && req.body.template_id
-            ? Number(req.body.template_id)
-            : null;
+
+      const templateId = req.query?.template_id
+        ? Number(req.query.template_id)
+        : req.body?.template_id
+          ? Number(req.body.template_id)
+          : null;
+
       let tplObj = null;
+
+      // Explicit template override
       if (templateId && Number.isFinite(templateId)) {
-        let [row] = await query(
-          `
-          SELECT id, html_content,
-                 header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                 document_type
-          FROM document_templates
-          WHERE id = :id AND company_id = :companyId
-          LIMIT 1
-          `,
+        const [row] = await query(
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type
+           FROM document_templates
+           WHERE id = :id AND company_id = :companyId
+           LIMIT 1`,
           { id: templateId, companyId },
         ).catch(() => []);
-        // Only accept if the template type matches aliases for safety
         if (row) {
           const aliases = expandDocumentTypeAliases(type);
           if (
@@ -2587,125 +2362,185 @@ router.post(
           }
         }
       }
-      // Resolve template with alias support when override not provided/invalid
+
+      // Priority name lookup for specific types
+      if (!tplObj) {
+        const canonical = canonicalDocumentType(type);
+        if (canonical === "payment-voucher" || canonical === "sales-order") {
+          const priorityName =
+            canonical === "payment-voucher"
+              ? "Default payment-voucher"
+              : "Sales Order";
+          const [namedRow] = await query(
+            `SELECT id, html_content,
+                    header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                    document_type
+             FROM document_templates
+             WHERE name = :priorityName AND company_id = :companyId
+             LIMIT 1`,
+            { priorityName, companyId },
+          ).catch(() => []);
+          if (namedRow) tplObj = namedRow;
+        }
+      }
+
+      // Strict name-based template selection for key document types
+      // Always prefer templates with exact names for these document types
+      const nameMap = {
+        "sales-order": "Sales Order",
+        invoice: "Invoice",
+        "delivery-note": "Delivery Note",
+        "salary-slip": "Salary Slip",
+        "payment-voucher": "Payment voucher",
+        "receipt-voucher": "Receipt Voucher",
+        "purchase-bill": "Purchase Bill",
+        grn: "Goods Receipt Note",
+        "general-template": "Default General Template",
+        "purchase-order": "Purchase Order",
+        "direct-purchase": "Direct Purchase",
+      };
+      const strictName = nameMap[type] || null;
+
+      // Always try to get the strict-named template, even if we already found another template
+      if (strictName) {
+        const [rowByName] = await query(
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type, name
+           FROM document_templates
+           WHERE company_id = :companyId AND LOWER(TRIM(name)) = LOWER(TRIM(:strictName))
+           ORDER BY updated_at DESC, id DESC
+           LIMIT 1`,
+          { companyId, strictName },
+        ).catch(() => []);
+        if (rowByName) {
+          tplObj = rowByName;
+        } else {
+          const fmt = String(
+            req.query.format || req.body?.format || "html",
+          ).toLowerCase();
+          if (fmt === "pdf") {
+            let browser = null;
+            try {
+              browser = await launchBrowser();
+              const page = await browser.newPage();
+              await page.setContent(
+                "<!DOCTYPE html><html><head></head><body></body></html>",
+                { waitUntil: "domcontentloaded" },
+              );
+              const pdf = await page.pdf({
+                printBackground: true,
+                preferCSSPageSize: true,
+                margin: { top: "0", bottom: "0", left: "0", right: "0" },
+              });
+              res.setHeader("Content-Type", "application/pdf");
+              res.setHeader(
+                "Content-Length",
+                Buffer.byteLength(Buffer.from(pdf)),
+              );
+              res.setHeader(
+                "Content-Disposition",
+                `attachment; filename="${type}-${id}.pdf"`,
+              );
+              res.send(Buffer.from(pdf));
+              return;
+            } finally {
+              if (browser) await browser.close().catch(() => {});
+            }
+          }
+          res.setHeader("Content-Type", "text/html; charset=utf-8");
+          res.status(200).send("");
+          return;
+        }
+      }
+
       const aliasesLower = tplObj ? [] : docTypeSynonymsLower(type);
-      // Try default template first (company-wide, no branch restriction for salary-slip)
+
+      // Default template
       if (!tplObj) {
         const placeholders = aliasesLower.map((_, i) => `:dt${i}`).join(", ");
         const params = { companyId };
         aliasesLower.forEach((val, i) => (params[`dt${i}`] = val));
-        let items = await query(
-          `
-          SELECT id, html_content,
-                 header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
-          FROM document_templates 
-          WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders}) AND is_default = 1
-          ORDER BY updated_at DESC
-          LIMIT 1
-          `,
+        const items = await query(
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
+           FROM document_templates
+           WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders}) AND is_default = 1
+           ORDER BY updated_at DESC
+           LIMIT 1`,
           params,
         ).catch(() => []);
         if (Array.isArray(items) && items.length) tplObj = items[0];
       }
-      // If no default found, try latest matching template (company-wide)
+
+      // Any matching template
       if (!tplObj) {
         const placeholders = aliasesLower.map((_, i) => `:dtx${i}`).join(", ");
         const paramsAny = { companyId };
         aliasesLower.forEach((val, i) => (paramsAny[`dtx${i}`] = val));
-        let anyItems = await query(
-          `
-          SELECT id, html_content,
-                 header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                 document_type, is_default, updated_at
-          FROM document_templates
-          WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders})
-          ORDER BY is_default DESC, updated_at DESC, id DESC
-          LIMIT 1
-          `,
+        const anyItems = await query(
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type, is_default, updated_at
+           FROM document_templates
+           WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders})
+           ORDER BY is_default DESC, updated_at DESC, id DESC
+           LIMIT 1`,
           paramsAny,
         ).catch(() => []);
         if (Array.isArray(anyItems) && anyItems.length) tplObj = anyItems[0];
       }
 
-      // Strict requirement: must have default template configured (unless explicit override used)
+      // If no template, return blank output without altering UI
       if (!tplObj) {
-        // Auto-seed a default from the built-in sample into Administration templates
-        const canonical = canonicalDocumentType(type);
-        const name =
-          canonical === "sales-order"
-            ? "Default Sales Order Template"
-            : canonical === "invoice"
-              ? "Default Invoice Template"
-              : canonical === "delivery-note"
-                ? "Default Delivery Note Template"
-                : canonical === "salary-slip"
-                  ? "Default Salary Slip Template"
-                  : "Default Template";
-        const html = getDefaultSampleTemplate(canonical);
-        try {
-          const ins = await query(
-            `
-            INSERT INTO document_templates 
-              (company_id, branch_id, name, document_type, html_content, is_default, created_by,
-               header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
-            VALUES
-              (:companyId, :branchId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
-            `,
-            {
-              companyId,
-              branchId,
-              name,
-              dt: canonical,
-              html,
-              createdBy: req.user?.id || null,
-            },
-          ).catch(() => null);
-          if (ins && ins.insertId) {
-            // Ensure uniqueness of default flag
-            await query(
-              `
-              UPDATE document_templates 
-                 SET is_default = 0 
-               WHERE company_id = :companyId AND branch_id = :branchId AND document_type = :dt AND id <> :id
-              `,
-              { companyId, branchId, dt: canonical, id: ins.insertId },
-            ).catch(() => null);
-            const [row] = await query(
-              `
-              SELECT id, html_content,
-                     header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                     document_type
-              FROM document_templates
-              WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
-              LIMIT 1
-              `,
-              { id: ins.insertId, companyId, branchId },
-            ).catch(() => []);
-            if (row) tplObj = row;
+        const fmt = String(
+          req.query.format || req.body?.format || "html",
+        ).toLowerCase();
+        if (fmt === "pdf") {
+          let browser = null;
+          try {
+            browser = await launchBrowser();
+            const page = await browser.newPage();
+            await page.setContent(
+              "<!DOCTYPE html><html><head></head><body></body></html>",
+              {
+                waitUntil: "domcontentloaded",
+              },
+            );
+            const pdf = await page.pdf({
+              printBackground: true,
+              preferCSSPageSize: true,
+              margin: { top: "0", bottom: "0", left: "0", right: "0" },
+            });
+            res.setHeader("Content-Type", "application/pdf");
+            res.setHeader(
+              "Content-Length",
+              Buffer.byteLength(Buffer.from(pdf)),
+            );
+            res.setHeader(
+              "Content-Disposition",
+              `attachment; filename="${type}-${id}.pdf"`,
+            );
+            res.send(Buffer.from(pdf));
+            return;
+          } finally {
+            if (browser) await browser.close().catch(() => {});
           }
-        } catch {}
-        if (!tplObj) {
-          throw httpError(404, "NOT_FOUND", "Default template not found");
         }
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.status(200).send("");
+        return;
       }
 
-      // Diagnostic header: selected template
+      // Set template type header
       try {
-        if (tplObj?.id) {
-          res.setHeader("X-Template-Id", String(tplObj.id));
-        }
-        if (tplObj?.document_type) {
-          res.setHeader(
-            "X-Template-Document-Type",
-            String(tplObj.document_type),
-          );
-        } else {
-          res.setHeader(
-            "X-Template-Document-Type",
-            String(canonicalDocumentType(type)),
-          );
-        }
+        res.setHeader(
+          "X-Template-Document-Type",
+          String(tplObj.document_type || canonicalDocumentType(type)),
+        );
       } catch {}
+
+      // Load general/header template
       let generalTpl = null;
       try {
         const aliasesLowerG = docTypeSynonymsLower("general-template");
@@ -2713,30 +2548,26 @@ router.post(
         const paramsG = { companyId };
         aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
         const rows = await query(
-          `
-          SELECT id,
-                 header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                 document_type
-          FROM document_templates
-          WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
-          LIMIT 1
-          `,
+          `SELECT id,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type
+           FROM document_templates
+           WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
+           LIMIT 1`,
           paramsG,
         ).catch(() => []);
         if (rows && rows.length) {
           generalTpl = rows[0];
         } else {
           const ins = await query(
-            `
-            INSERT INTO document_templates 
-              (company_id, name, document_type, html_content, is_default, created_by,
-               header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
-            VALUES
-              (:companyId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
-            `,
+            `INSERT INTO document_templates
+               (company_id, name, document_type, html_content, is_default, created_by,
+                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
+             VALUES
+               (:companyId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
             {
               companyId,
-              name: "General Template",
+              name: "Default General Template",
               dt: "general-template",
               html: getDefaultSampleTemplate("general-template"),
               createdBy: req.user?.id || null,
@@ -2744,31 +2575,32 @@ router.post(
           ).catch(() => null);
           if (ins && ins.insertId) {
             await query(
-              `
-              UPDATE document_templates 
-                 SET is_default = 0 
-               WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id
-              `,
+              `UPDATE document_templates SET is_default = 0
+               WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id`,
               { ...paramsG, id: ins.insertId },
             ).catch(() => null);
             const [row] = await query(
-              `
-              SELECT id,
-                     header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                     document_type
-              FROM document_templates
-              WHERE id = :id AND company_id = :companyId
-              LIMIT 1
-              `,
+              `SELECT id,
+                      header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                      document_type
+               FROM document_templates
+               WHERE id = :id AND company_id = :companyId
+               LIMIT 1`,
               { id: ins.insertId, companyId },
             ).catch(() => []);
             if (row) generalTpl = row;
           }
         }
       } catch {}
+
       const data = await loadData(type, id, companyId, branchId);
+
+      // Merge company header fields
       if (data && data.company) {
         const logoDefault = `/api/admin/companies/${companyId}/logo`;
+        const embeddedLogo = tplObj.header_logo_url
+          ? null
+          : await getCompanyLogoDataUri(companyId);
         const merged = {
           ...data.company,
           name:
@@ -2795,13 +2627,14 @@ router.post(
             generalTpl?.header_website ||
             data.company.website,
           logo:
+            embeddedLogo ||
             tplObj.header_logo_url ||
             generalTpl?.header_logo_url ||
             logoDefault,
         };
-        // expose normalized fields
         data.company = { ...merged, telephone: merged.phone };
       }
+
       const preparedBy =
         (req.user &&
           (req.user.username ||
@@ -2810,103 +2643,94 @@ router.post(
             req.user.email)) ||
         "";
       if (!data.prepared_by) data.prepared_by = preparedBy;
+
       let html = "";
       try {
         const tmpl = Handlebars.compile(String(tplObj.html_content || ""));
         html = tmpl(data);
       } catch (e) {
-        console.error("[documents.routes] Handlebars compile/render error for template", tplObj?.id, ":", e.message);
-        throw httpError(500, "TEMPLATE_RENDER_ERROR", `Template rendering failed: ${e.message}. Please check the template HTML in Settings > Document Templates.`);
+        html = "";
       }
-      // Post-process to remove any "Tax ID" blocks or labels from arbitrary templates
-      try {
-        // Remove div.row blocks that contain "Tax ID"
-        html = html.replace(
-          /<div[^>]*class=["'][^"']*row[^"']*["'][^>]*>[\s\S]*?Tax\s*ID[\s\S]*?<\/div>/gi,
-          "",
-        );
-        // Remove table rows that contain "Tax ID"
-        html = html.replace(/<tr[^>]*>[\s\S]*?Tax\s*ID[\s\S]*?<\/tr>/gi, "");
-        // Remove standalone "Tax ID:" labels
-        html = html.replace(/Tax\s*ID\s*:?\s*/gi, "");
-      } catch {}
-      // Auto-inject customer info block if not rendered by template (safety net)
+
+      // Escape helper
+      function esc(v) {
+        return String(v ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      // Auto-inject customer info block if missing
+      const cust = data?.customer || null;
+      const probe = String(cust?.name || "").trim();
       if (
-        type === "sales-order" ||
-        type === "invoice" ||
-        type === "delivery-note" ||
-        type === "quotation"
+        cust &&
+        (!probe || !html.includes(probe)) &&
+        !html.includes('data-auto="customer-info"')
       ) {
-        function esc(v) {
-          return String(v ?? "")
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;");
-        }
-        const cust = data?.customer || null;
-        const probe = String(cust?.name || "").trim();
-        if (
-          cust &&
-          (!probe || !html.includes(probe)) &&
-          !html.includes('data-auto="customer-info"')
-        ) {
-          const keyName =
-            type === "sales-order"
-              ? "sales_order"
-              : type === "delivery-note"
-                ? "delivery_note"
-                : type;
-          const qr = data?.[keyName]?.qr_code || "";
-          const block = `<div data-auto="customer-info" style="margin:8px 0;font-size:12px">
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-                <div>
-                  <div><strong>Name:</strong> ${esc(cust.name || "")}</div>
-                  <div><strong>Address:</strong> ${esc(cust.address || "")} ${esc(cust.address2 || "")}</div>
-                  ${cust.city || cust.state ? `<div><strong>City/State:</strong> ${esc(cust.city || "")} ${esc(cust.state || "")}</div>` : ""}
-                  ${cust.country ? `<div><strong>Country:</strong> ${esc(cust.country || "")}</div>` : ""}
-                  <div><strong>Phone:</strong> ${esc(cust.phone || "")}</div>
-                  <div><strong>Email:</strong> ${esc(cust.email || "")}</div>
-                </div>
-                <div style="text-align:right">${qr ? `<img src="${esc(qr)}" style="width:90px;height:90px;border:1px solid #e5e7eb" />` : ""}</div>
+        const keyName =
+          type === "sales-order"
+            ? "sales_order"
+            : type === "delivery-note"
+              ? "delivery_note"
+              : type;
+        const qr = data?.[keyName]?.qr_code || "";
+        const block = `<div data-auto="customer-info" style="margin:8px 0;font-size:12px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div>
+                <div><strong>Name:</strong> ${esc(cust.name || "")}</div>
+                <div><strong>Address:</strong> ${esc(cust.address || "")} ${esc(cust.address2 || "")}</div>
+                ${cust.city || cust.state ? `<div><strong>City/State:</strong> ${esc(cust.city || "")} ${esc(cust.state || "")}</div>` : ""}
+                ${cust.country ? `<div><strong>Country:</strong> ${esc(cust.country || "")}</div>` : ""}
+                <div><strong>Phone:</strong> ${esc(cust.phone || "")}</div>
+                <div><strong>Email:</strong> ${esc(cust.email || "")}</div>
               </div>
-            </div>`;
-          const tag = '<div class="doc"';
-          const p = html.indexOf(tag);
-          if (p !== -1) {
-            const gt = html.indexOf(">", p);
-            if (gt !== -1) {
-              html = html.slice(0, gt + 1) + block + html.slice(gt + 1);
-            } else {
-              html = block + html;
-            }
+              <div style="text-align:right">${qr ? `<img src="${esc(qr)}" style="width:90px;height:90px;border:1px solid #e5e7eb" />` : ""}</div>
+            </div>
+          </div>`;
+        const tag = '<div class="doc"';
+        const p = html.indexOf(tag);
+        if (p !== -1) {
+          const gt = html.indexOf(">", p);
+          if (gt !== -1) {
+            html = html.slice(0, gt + 1) + block + html.slice(gt + 1);
           } else {
             html = block + html;
           }
+        } else {
+          html = block + html;
         }
       }
-      // Ensure background colors render in browser print and PDF
-      // Only inject printStyle if the HTML does NOT already have a full document structure
-      const hasFullHtmlDoc = String(html).trimStart().toLowerCase().startsWith('<!doctype') ||
-        String(html).trimStart().toLowerCase().startsWith('<html');
+
+      // Inject print styles
+      const hasFullHtmlDoc =
+        String(html).trimStart().toLowerCase().startsWith("<!doctype") ||
+        String(html).trimStart().toLowerCase().startsWith("<html");
       if (!hasFullHtmlDoc) {
         const printStyle = `<style>
-            @media print { * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-            * { print-color-adjust: exact; }
-            .doc { height: auto !important; min-height: auto !important; }
-            .titlebar, .title-section, .info, .info-grid { margin-top: 6px !important; margin-bottom: 6px !important; }
-            table { margin-top: 6px !important; }
-          </style>`;
+          @media print { * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+          * { print-color-adjust: exact; }
+          .doc { height: auto !important; min-height: auto !important; }
+          .titlebar, .title-section, .info, .info-grid { margin-top: 6px !important; margin-bottom: 6px !important; }
+          table { margin-top: 6px !important; }
+        </style>`;
         html = printStyle + html;
+      } else {
+        const printStyle = `<style>
+          @media print { * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+          * { print-color-adjust: exact; }
+        </style>`;
+        html = html.replace("</head>", `${printStyle}</head>`);
       }
+
       const format = String(
         req.query.format || req.body?.format || "html",
       ).toLowerCase();
+
       if (format === "pdf") {
         try {
-          // Note: allowVulnerableTags is intentional here. Style tags are needed for PDF rendering.
-          // This is safe because template HTML is internal/admin-controlled, not user input.
           const cleaned = sanitizeHtml(html, {
             allowedTags: [
               "div",
@@ -2952,17 +2776,13 @@ router.post(
           try {
             browser = await launchBrowser();
             const page = await browser.newPage();
-
-            // Set reasonable timeouts
             page.setDefaultNavigationTimeout(30000);
             page.setDefaultTimeout(30000);
-
             await page.setContent(doc, {
               waitUntil: "domcontentloaded",
+              timeout: 15000,
             });
             await page.emulateMediaType("screen");
-
-            // Use CSS @page size if provided, otherwise gracefully format pages
             pdf = await page.pdf({
               preferCSSPageSize: true,
               printBackground: true,
@@ -2995,43 +2815,346 @@ router.post(
           throw e;
         }
       }
+
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
     } catch (err) {
       const format = String(
         req.query.format || req.body?.format || "",
       ).toLowerCase();
-      if (format === "pdf") {
-        return next(err);
-      }
-      try {
-        const type = String(req.params.type || "").trim();
-        const { companyId } = req.scope || {};
-        const fallback = getDefaultSampleTemplate(type);
-        const data = {
-          company: {
-            name: "",
-            address: "",
-            address2: "",
-            phone: "",
-            email: "",
-            logo: `/api/admin/companies/${companyId}/logo`,
-          },
-        };
-        const html = Handlebars.compile(String(fallback || ""))(data);
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.status(200).send(html);
-      } catch {
-        res
-          .status(200)
-          .send(
-            `<html><body><h3>Document Error</h3><p>Unable to render template; minimal fallback shown.</p><p>Error: ${err ? err.message : 'Unknown error'}</p></body></html>`,
-          );
-      }
+      if (format === "pdf") return next(err);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.status(200).send("");
     }
   },
 );
 
+// ─── POST /:type/:id/render ──────────────────────────────────────────────────
+router.post(
+  "/:type/:id/render",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureTemplateTables();
+      const { companyId, branchId } = req.scope;
+      const type = canonicalDocumentType(String(req.params.type || "").trim());
+      const id = toNumber(req.params.id);
+      if (!type || !id)
+        throw httpError(400, "VALIDATION_ERROR", "Invalid request");
+
+      const templateId = req.query?.template_id
+        ? Number(req.query.template_id)
+        : req.body?.template_id
+          ? Number(req.body.template_id)
+          : null;
+
+      let tplObj = null;
+
+      // Explicit template override
+      if (templateId && Number.isFinite(templateId)) {
+        const [row] = await query(
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type
+           FROM document_templates
+           WHERE id = :id AND company_id = :companyId
+           LIMIT 1`,
+          { id: templateId, companyId },
+        ).catch(() => []);
+        if (row) {
+          const aliases = expandDocumentTypeAliases(type);
+          if (
+            aliases
+              .map((v) => String(v).toLowerCase())
+              .includes(String(row.document_type || "").toLowerCase())
+          ) {
+            tplObj = row;
+          }
+        }
+      }
+
+      const canonical = canonicalDocumentType(type);
+      if (!tplObj) {
+        if (canonical === "payment-voucher" || canonical === "sales-order") {
+          const priorityName =
+            canonical === "payment-voucher"
+              ? "Default payment-voucher"
+              : "Sales Order";
+          const [namedRow] = await query(
+            `SELECT id, html_content,
+                    header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                    document_type
+             FROM document_templates
+             WHERE name = :priorityName AND company_id = :companyId
+             LIMIT 1`,
+            { priorityName, companyId },
+          ).catch(() => []);
+          if (namedRow) tplObj = namedRow;
+        }
+      }
+
+      const nameMap = {
+        "sales-order": "Sales Order",
+        invoice: "Invoice",
+        "delivery-note": "Delivery Note",
+        "salary-slip": "Salary Slip",
+        "payment-voucher": "Payment voucher",
+        "receipt-voucher": "Receipt Voucher",
+      };
+      const strictName = nameMap[canonical] || null;
+      if (strictName) {
+        const [rowByName] = await query(
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type, name
+           FROM document_templates
+           WHERE company_id = :companyId AND LOWER(TRIM(name)) = LOWER(TRIM(:strictName))
+           ORDER BY updated_at DESC, id DESC
+           LIMIT 1`,
+          { companyId, strictName },
+        ).catch(() => []);
+        if (rowByName) {
+          tplObj = rowByName;
+        }
+      }
+
+      const aliasesLower = tplObj ? [] : docTypeSynonymsLower(type);
+      if (!tplObj) {
+        const placeholders = aliasesLower.map((_, i) => `:dt${i}`).join(", ");
+        const params = { companyId };
+        aliasesLower.forEach((val, i) => (params[`dt${i}`] = val));
+        const items = await query(
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
+           FROM document_templates
+           WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders}) AND is_default = 1
+           ORDER BY updated_at DESC
+           LIMIT 1`,
+          params,
+        ).catch(() => []);
+        if (Array.isArray(items) && items.length) tplObj = items[0];
+      }
+
+      if (!tplObj) {
+        const placeholders = aliasesLower.map((_, i) => `:dtx${i}`).join(", ");
+        const paramsAny = { companyId };
+        aliasesLower.forEach((val, i) => (paramsAny[`dtx${i}`] = val));
+        const anyItems = await query(
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type, is_default, updated_at
+           FROM document_templates
+           WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders})
+           ORDER BY is_default DESC, updated_at DESC, id DESC
+           LIMIT 1`,
+          paramsAny,
+        ).catch(() => []);
+        if (Array.isArray(anyItems) && anyItems.length) tplObj = anyItems[0];
+      }
+
+      if (!tplObj) {
+        const fmt = String(
+          req.query.format || req.body?.format || "html",
+        ).toLowerCase();
+        if (fmt === "pdf") {
+          let browser = null;
+          try {
+            browser = await launchBrowser();
+            const page = await browser.newPage();
+            await page.setContent(
+              "<!DOCTYPE html><html><head></head><body></body></html>",
+              { waitUntil: "domcontentloaded" },
+            );
+            const pdf = await page.pdf({
+              printBackground: true,
+              preferCSSPageSize: true,
+              margin: { top: "0", bottom: "0", left: "0", right: "0" },
+            });
+            res.setHeader("Content-Type", "application/pdf");
+            res.setHeader(
+              "Content-Length",
+              Buffer.byteLength(Buffer.from(pdf)),
+            );
+            res.setHeader(
+              "Content-Disposition",
+              `attachment; filename="${type}-${id}.pdf"`,
+            );
+            res.send(Buffer.from(pdf));
+            return;
+          } finally {
+            if (browser) await browser.close().catch(() => {});
+          }
+        }
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.status(200).send("");
+        return;
+      }
+
+      // Set template type header
+      try {
+        res.setHeader(
+          "X-Template-Document-Type",
+          String(tplObj.document_type || canonicalDocumentType(type)),
+        );
+      } catch {}
+
+      // Load general/header template
+      let generalTpl = null;
+      try {
+        const aliasesLowerG = docTypeSynonymsLower("general-template");
+        const placeholdersG = aliasesLowerG.map((_, i) => `:gt${i}`).join(", ");
+        const paramsG = { companyId };
+        aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
+        const rows = await query(
+          `SELECT id,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type
+           FROM document_templates
+           WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
+           LIMIT 1`,
+          paramsG,
+        ).catch(() => []);
+        if (rows && rows.length) {
+          generalTpl = rows[0];
+        } else {
+          const ins = await query(
+            `INSERT INTO document_templates
+               (company_id, name, document_type, html_content, is_default, created_by,
+                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
+             VALUES
+               (:companyId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
+            {
+              companyId,
+              name: "Default General Template",
+              dt: "general-template",
+              html: getDefaultSampleTemplate("general-template"),
+              createdBy: req.user?.id || null,
+            },
+          ).catch(() => null);
+          if (ins && ins.insertId) {
+            await query(
+              `UPDATE document_templates SET is_default = 0
+               WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id`,
+              { ...paramsG, id: ins.insertId },
+            ).catch(() => null);
+            const [row] = await query(
+              `SELECT id,
+                      header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                      document_type
+               FROM document_templates
+               WHERE id = :id AND company_id = :companyId
+               LIMIT 1`,
+              { id: ins.insertId, companyId },
+            ).catch(() => []);
+            if (row) generalTpl = row;
+          }
+        }
+      } catch {}
+
+      const data = await loadData(type, id, companyId, branchId);
+
+      // Merge company header fields (no general template)
+      if (data && data.company) {
+        const origin = `${req.protocol}://${req.get("host")}`;
+        const absolutize = (s) => {
+          const v = String(s || "").trim();
+          if (!v) return v;
+          if (/^https?:\/\//i.test(v)) return v;
+          if (v.startsWith("/")) return `${origin}${v}`;
+          return `${origin}/${v}`;
+        };
+        const logoDefault = `/api/admin/companies/${companyId}/logo`;
+        const embeddedLogo = tplObj.header_logo_url
+          ? null
+          : await getCompanyLogoDataUri(companyId);
+        const merged = {
+          ...data.company,
+          name: tplObj.header_name || data.company.name,
+          address: tplObj.header_address || data.company.address,
+          address2: tplObj.header_address2 || data.company.address2,
+          phone:
+            tplObj.header_phone || data.company.telephone || data.company.phone,
+          email: tplObj.header_email || data.company.email,
+          website: tplObj.header_website || data.company.website,
+          logo:
+            embeddedLogo || absolutize(tplObj.header_logo_url || logoDefault),
+        };
+        data.company = { ...merged, telephone: merged.phone };
+      }
+
+      const preparedBy =
+        (req.user &&
+          (req.user.username ||
+            req.user.full_name ||
+            req.user.name ||
+            req.user.email)) ||
+        "";
+      if (!data.prepared_by) data.prepared_by = preparedBy;
+
+      let html = "";
+      try {
+        const tmpl = Handlebars.compile(String(tplObj.html_content || ""));
+        html = tmpl(data);
+      } catch (e) {
+        html = "";
+      }
+
+      // Do not alter UI formatting; return template-rendered HTML as-is
+
+      const format = String(
+        req.query.format || req.body?.format || "html",
+      ).toLowerCase();
+
+      if (format === "pdf") {
+        try {
+          const content =
+            String(html).trim().toLowerCase().startsWith("<!doctype") ||
+            String(html).trim().toLowerCase().startsWith("<html")
+              ? html
+              : `<!DOCTYPE html><html><head></head><body>${html || ""}</body></html>`;
+          let pdf = null;
+          let browser = null;
+          try {
+            browser = await launchBrowser();
+            const page = await browser.newPage();
+            await page.setContent(content, { waitUntil: "domcontentloaded" });
+            pdf = await page.pdf({
+              preferCSSPageSize: true,
+              printBackground: true,
+              margin: { top: "0", bottom: "0", left: "0", right: "0" },
+            });
+          } finally {
+            if (browser) await browser.close().catch(() => {});
+          }
+          res.setHeader("Content-Type", "application/pdf");
+          res.setHeader("Content-Length", Buffer.byteLength(Buffer.from(pdf)));
+          res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="${type}-${id}.pdf"`,
+          );
+          res.send(Buffer.from(pdf));
+          return;
+        } catch (e) {
+          throw e;
+        }
+      }
+
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (err) {
+      const format = String(
+        req.query.format || req.body?.format || "",
+      ).toLowerCase();
+      if (format === "pdf") return next(err);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.status(200).send("");
+    }
+  },
+);
+
+// ─── POST /:type/preview ─────────────────────────────────────────────────────
 router.post(
   "/:type/preview",
   requireAuth,
@@ -3043,55 +3166,136 @@ router.post(
       const { companyId, branchId } = req.scope;
       const type = String(req.params.type || "").trim();
       if (!type) throw httpError(400, "VALIDATION_ERROR", "Invalid request");
-      // Resolve template with alias support for preview
+
+      const origin = `${req.protocol}://${req.get("host")}`;
+      const absolutize = (s) => {
+        const v = String(s || "").trim();
+        if (!v) return v;
+        if (/^https?:\/\//i.test(v)) return v;
+        if (v.startsWith("/")) return `${origin}${v}`;
+        return `${origin}/${v}`;
+      };
+
       const aliasesLower = docTypeSynonymsLower(type);
       let tplObj = null;
-      {
-        const placeholders = aliasesLower.map((_, i) => `:dt${i}`).join(", ");
-        const params = { companyId };
-        aliasesLower.forEach((val, i) => (params[`dt${i}`] = val));
-        const items = await query(
-          `
-          SELECT id, html_content,
-                 header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
-          FROM document_templates 
-          WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders}) AND is_default = 1
-          LIMIT 1
-          `,
-          params,
+
+      // Priority name lookup for preview
+      const canonical = canonicalDocumentType(type);
+      if (canonical === "payment-voucher" || canonical === "sales-order") {
+        const priorityName =
+          canonical === "payment-voucher"
+            ? "Default payment-voucher"
+            : "Sales Order";
+        const [namedRow] = await query(
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
+           FROM document_templates
+           WHERE name = :priorityName AND company_id = :companyId
+           LIMIT 1`,
+          { priorityName, companyId },
         ).catch(() => []);
-        if (Array.isArray(items) && items.length) tplObj = items[0];
+        if (namedRow) tplObj = namedRow;
       }
+
+      // Strict name-based template selection for mapped types
+      // Always prefer templates with exact names for these document types
+      const nameMap = {
+        "sales-order": "Sales Order",
+        invoice: "Invoice",
+        "delivery-note": "Delivery Note",
+        "salary-slip": "Salary Slip",
+        "payment-voucher": "Payment voucher",
+        "receipt-voucher": "Receipt Voucher",
+      };
+      const strictName = nameMap[canonical] || null;
+
+      // Always try to get the strict-named template, even if we already found another template
+      if (strictName) {
+        const [rowByName] = await query(
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type, name
+           FROM document_templates
+           WHERE company_id = :companyId AND LOWER(TRIM(name)) = LOWER(TRIM(:strictName))
+           ORDER BY updated_at DESC, id DESC
+           LIMIT 1`,
+          { companyId, strictName },
+        ).catch(() => []);
+        if (rowByName) tplObj = rowByName;
+      }
+
       if (!tplObj) {
         const placeholders = aliasesLower.map((_, i) => `:dt${i}`).join(", ");
         const params = { companyId };
         aliasesLower.forEach((val, i) => (params[`dt${i}`] = val));
         const items = await query(
-          `
-          SELECT id, html_content,
-                 header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
-          FROM document_templates 
-          WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders})
-          ORDER BY is_default DESC, updated_at DESC
-          LIMIT 1
-          `,
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
+           FROM document_templates
+           WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders}) AND is_default = 1
+           LIMIT 1`,
           params,
         ).catch(() => []);
         if (Array.isArray(items) && items.length) tplObj = items[0];
       }
+
       if (!tplObj) {
-        tplObj = {
-          id: 0,
-          html_content: getDefaultSampleTemplate(type),
-          header_logo_url: null,
-          header_name: null,
-          header_address: null,
-          header_address2: null,
-          header_phone: null,
-          header_email: null,
-          header_website: null,
-        };
+        const placeholders = aliasesLower.map((_, i) => `:dt${i}`).join(", ");
+        const params = { companyId };
+        aliasesLower.forEach((val, i) => (params[`dt${i}`] = val));
+        const items = await query(
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
+           FROM document_templates
+           WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders})
+           ORDER BY is_default DESC, updated_at DESC
+           LIMIT 1`,
+          params,
+        ).catch(() => []);
+        if (Array.isArray(items) && items.length) tplObj = items[0];
       }
+
+      // If strict name requested and still not found, return blank
+      if (!tplObj && strictName) {
+        const fmt = String(
+          req.query.format || req.body?.format || "html",
+        ).toLowerCase();
+        if (fmt === "pdf") {
+          let browser = null;
+          try {
+            browser = await launchBrowser();
+            const page = await browser.newPage();
+            await page.setContent(
+              "<!DOCTYPE html><html><head></head><body></body></html>",
+              {
+                waitUntil: "domcontentloaded",
+              },
+            );
+            const pdf = await page.pdf({
+              printBackground: true,
+              preferCSSPageSize: true,
+              margin: { top: "0", bottom: "0", left: "0", right: "0" },
+            });
+            res.setHeader("Content-Type", "application/pdf");
+            res.setHeader(
+              "Content-Length",
+              Buffer.byteLength(Buffer.from(pdf)),
+            );
+            res.setHeader(
+              "Content-Disposition",
+              `attachment; filename="${canonical}-preview.pdf"`,
+            );
+            res.send(Buffer.from(pdf));
+            return;
+          } finally {
+            if (browser) await browser.close().catch(() => {});
+          }
+        }
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.status(200).send("");
+        return;
+      }
+
       let generalTpl = null;
       try {
         const aliasesLowerG = docTypeSynonymsLower("general-template");
@@ -3099,30 +3303,26 @@ router.post(
         const paramsG = { companyId };
         aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
         const rows = await query(
-          `
-          SELECT id,
-                 header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                 document_type
-          FROM document_templates
-          WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
-          LIMIT 1
-          `,
+          `SELECT id,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type
+           FROM document_templates
+           WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
+           LIMIT 1`,
           paramsG,
         ).catch(() => []);
         if (rows && rows.length) {
           generalTpl = rows[0];
         } else {
           const ins = await query(
-            `
-            INSERT INTO document_templates 
-              (company_id, name, document_type, html_content, is_default, created_by,
-               header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
-            VALUES
-              (:companyId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
-            `,
+            `INSERT INTO document_templates
+               (company_id, name, document_type, html_content, is_default, created_by,
+                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
+             VALUES
+               (:companyId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
             {
               companyId,
-              name: "General Template",
+              name: "Default General Template",
               dt: "general-template",
               html: getDefaultSampleTemplate("general-template"),
               createdBy: req.user?.id || null,
@@ -3130,29 +3330,26 @@ router.post(
           ).catch(() => null);
           if (ins && ins.insertId) {
             await query(
-              `
-              UPDATE document_templates 
-                 SET is_default = 0 
-               WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id
-              `,
+              `UPDATE document_templates SET is_default = 0
+               WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id`,
               { ...paramsG, id: ins.insertId },
             ).catch(() => null);
             const [row] = await query(
-              `
-              SELECT id,
-                     header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                     document_type
-              FROM document_templates
-              WHERE id = :id AND company_id = :companyId
-              LIMIT 1
-              `,
+              `SELECT id,
+                      header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                      document_type
+               FROM document_templates
+               WHERE id = :id AND company_id = :companyId
+               LIMIT 1`,
               { id: ins.insertId, companyId },
             ).catch(() => []);
             if (row) generalTpl = row;
           }
         }
       } catch {}
+
       const data = await loadPreviewData(type, companyId, branchId);
+
       if (data && data.company) {
         const logoDefault = `/api/admin/companies/${companyId}/logo`;
         const merged = {
@@ -3180,13 +3377,15 @@ router.post(
             tplObj.header_website ||
             generalTpl?.header_website ||
             data.company.website,
-          logo:
+          logo: absolutize(
             tplObj.header_logo_url ||
-            generalTpl?.header_logo_url ||
-            logoDefault,
+              generalTpl?.header_logo_url ||
+              logoDefault,
+          ),
         };
         data.company = { ...merged, telephone: merged.phone };
       }
+
       const preparedBy =
         (req.user &&
           (req.user.username ||
@@ -3195,6 +3394,7 @@ router.post(
             req.user.email)) ||
         "";
       if (!data.prepared_by) data.prepared_by = preparedBy;
+
       let html = "";
       try {
         const tmpl = Handlebars.compile(String(tplObj.html_content || ""));
@@ -3212,159 +3412,54 @@ router.post(
           </body></html>`;
         }
       }
-      try {
-        html = html.replace(
-          /<div[^>]*class=["'][^"']*row[^"']*["'][^>]*>[\s\S]*?Tax\s*ID[\s\S]*?<\/div>/gi,
-          "",
-        );
-        html = html.replace(/<tr[^>]*>[\s\S]*?Tax\s*ID[\s\S]*?<\/tr>/gi, "");
-        html = html.replace(/Tax\s*ID\s*:?\s*/gi, "");
-      } catch {}
-      function esc(v) {
-        return String(v ?? "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/"/g, "&quot;")
-          .replace(/'/g, "&#39;");
-      }
-      if (type === "sales-order" || type === "invoice") {
-        const cust = data?.customer || null;
-        const keyName = type === "sales-order" ? "sales_order" : "invoice";
-        const qr = data?.[keyName]?.qr_code || "";
-        const probe = String(cust?.name || "").trim();
-        if (
-          cust &&
-          (!probe || !html.includes(probe)) &&
-          !html.includes('data-auto="customer-info"')
-        ) {
-          const block = `<div data-auto="customer-info" style="margin:8px 0;font-size:12px">
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-                <div>
-                  <div><strong>Name:</strong> ${esc(cust.name || "")}</div>
-                  <div><strong>Address:</strong> ${esc(cust.address || "")} ${esc(cust.address2 || "")}</div>
-                  <div><strong>Phone:</strong> ${esc(cust.phone || "")}</div>
-                  <div><strong>Email:</strong> ${esc(cust.email || "")}</div>
-                </div>
-                <div style="text-align:right">${qr ? `<img src="${esc(qr)}" style="width:90px;height:90px;border:1px solid #e5e7eb" />` : ""}</div>
-              </div>
-            </div>`;
-          const tag = '<div class="doc"';
-          const p = html.indexOf(tag);
-          if (p !== -1) {
-            const gt = html.indexOf(">", p);
-            if (gt !== -1) {
-              html = html.slice(0, gt + 1) + block + html.slice(gt + 1);
-            } else {
-              html = block + html;
-            }
-          } else {
-            html = block + html;
-          }
-        }
-      }
-      const printStyle = `<style>
-          @media print { * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-          * { print-color-adjust: exact; }
-          .doc { height: auto !important; min-height: auto !important; }
-          .titlebar, .title-section, .info, .info-grid { margin-top: 6px !important; margin-bottom: 6px !important; }
-          table { margin-top: 6px !important; }
-        </style>`;
-      html = printStyle + html;
+
+      // Do not alter UI formatting; keep template HTML as-is
+
       const format = String(
         req.query.format || req.body?.format || "html",
       ).toLowerCase();
+
       if (format === "pdf") {
         try {
-          // Note: allowVulnerableTags is intentional here. Style tags are needed for PDF rendering.
-          // This is safe because template HTML is internal/admin-controlled, not user input.
-          const cleaned = sanitizeHtml(html, {
-            allowedTags: sanitizeHtml.defaults.allowedTags.concat([
-              "img",
-              "style",
-              "table",
-              "thead",
-              "tbody",
-              "tfoot",
-              "tr",
-              "th",
-              "td",
-              "h1",
-              "h2",
-              "h3",
-              "h4",
-              "h5",
-              "h6",
-              "div",
-              "span",
-            ]),
-            allowedAttributes: {
-              ...sanitizeHtml.defaults.allowedAttributes,
-              "*": ["style", "class", "data-auto"],
-              img: ["src", "alt", "style", "class"],
-            },
-            allowVulnerableTags: true,
-          });
-          const head = `<meta charset="utf-8"><style>
-            html, body { margin: 0 !important; padding: 0 !important; width: 100%; height: 100%; -webkit-print-color-adjust: exact; }
-            * { box-sizing: border-box; }
-            img { max-width: 100%; height: auto; }
-            @page { size: A4; margin: 0 !important; }
-          </style>`;
-          const doc = `<!DOCTYPE html><html><head>${head}</head><body>${cleaned}</body></html>`;
-          const mod = await import("puppeteer");
-          const puppeteer = mod.default || mod;
+          const content =
+            String(html).trim().toLowerCase().startsWith("<!doctype") ||
+            String(html).trim().toLowerCase().startsWith("<html")
+              ? html
+              : `<!DOCTYPE html><html><head></head><body>${html || ""}</body></html>`;
           let pdf = null;
           let browser = null;
           try {
-            browser = await puppeteer.launch({
-              headless: true,
-              args: ["--no-sandbox", "--disable-setuid-sandbox"],
-            });
+            browser = await launchBrowser();
             const page = await browser.newPage();
-            await page.setContent(doc, { waitUntil: "networkidle0" });
-            await page.emulateMediaType("screen");
+            await page.setContent(content, { waitUntil: "domcontentloaded" });
             pdf = await page.pdf({
-              format: "A4",
+              preferCSSPageSize: true,
               printBackground: true,
               margin: { top: "0", bottom: "0", left: "0", right: "0" },
             });
-          } catch (firstErr) {
-            try {
-              if (browser) await browser.close().catch(() => {});
-              browser = await puppeteer.launch({ headless: true });
-              const page = await browser.newPage();
-              await page.setContent(doc, { waitUntil: "domcontentloaded" });
-              await page.emulateMediaType("screen");
-              pdf = await page.pdf({ format: "A4", printBackground: true });
-            } catch (secondErr) {
-              if (browser) await browser.close().catch(() => {});
-              throw httpError(500, "PDF_ERROR", "Failed to render PDF");
-            }
           } finally {
             if (browser) await browser.close().catch(() => {});
           }
           res.setHeader("Content-Type", "application/pdf");
-          res.setHeader("Content-Length", pdf.length);
+          res.setHeader("Content-Length", Buffer.byteLength(Buffer.from(pdf)));
           res.setHeader(
             "Content-Disposition",
-            `attachment; filename="document.pdf"`,
+            `attachment; filename="${canonical}-preview.pdf"`,
           );
-          res.send(pdf);
+          res.send(Buffer.from(pdf));
           return;
         } catch (e) {
           throw e;
         }
       }
+
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
     } catch (err) {
       const format = String(
         req.query.format || req.body?.format || "",
       ).toLowerCase();
-      if (format === "pdf") {
-        return next(err);
-      }
+      if (format === "pdf") return next(err);
       try {
         const type = String(req.params.type || "").trim();
         const { companyId } = req.scope || {};
@@ -3393,6 +3488,7 @@ router.post(
   },
 );
 
+// ─── GET /:type/:id/attachments ───────────────────────────────────────────────
 async function ensureDocumentAttachmentsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_document_attachments (
@@ -3409,7 +3505,6 @@ async function ensureDocumentAttachmentsTable() {
       KEY idx_doc (company_id, branch_id, document_type, document_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
-  // Backward-compatible metadata columns
   if (!(await hasColumn("adm_document_attachments", "title"))) {
     await query(
       `ALTER TABLE adm_document_attachments ADD COLUMN title VARCHAR(255) NULL AFTER file_name`,
@@ -3457,8 +3552,8 @@ router.get(
         throw httpError(400, "VALIDATION_ERROR", "Invalid request");
       const rawItems = await query(
         `
-        SELECT id, file_url, file_name, uploaded_by, created_at
-               , title, description, category, tags, mime_type, file_size
+        SELECT id, file_url, file_name, uploaded_by, created_at,
+               title, description, category, tags, mime_type, file_size
         FROM adm_document_attachments
         WHERE company_id = :companyId
           AND branch_id = :branchId
@@ -3473,20 +3568,14 @@ router.get(
         ? rawItems.map((r) => {
             try {
               const s = String(r.file_url || "");
-              if (/^https?:\/\//i.test(s)) {
-                return r;
-              }
-              if (s.startsWith("/uploads")) {
+              if (/^https?:\/\//i.test(s)) return r;
+              if (s.startsWith("/uploads"))
                 return { ...r, file_url: `${origin}${s}` };
-              }
-              if (s.startsWith("uploads")) {
+              if (s.startsWith("uploads"))
                 return { ...r, file_url: `${origin}/${s}` };
-              }
-              // Legacy rows may contain only the bare filename like "file-123.png"
-              if (s && !s.includes("/") && !s.includes("\\")) {
+              if (s && !s.includes("/") && !s.includes("\\"))
                 return { ...r, file_url: `${origin}/uploads/${s}` };
-              }
-              return { ...r, file_url: s };
+              return r;
             } catch {
               return r;
             }
@@ -3565,8 +3654,6 @@ router.post(
   },
 );
 
-import crypto from "crypto";
-
 router.delete(
   "/:type/:id/attachments/:attId",
   requireAuth,
@@ -3636,9 +3723,8 @@ router.delete(
             const resourceType =
               parts.find((p) => p === "image" || p === "video") || "image";
             let remainder = parts.slice(idxUpload + 1);
-            if (remainder[0] && /^v\d+$/i.test(remainder[0])) {
+            if (remainder[0] && /^v\d+$/i.test(remainder[0]))
               remainder = remainder.slice(1);
-            }
             const last = remainder[remainder.length - 1] || "";
             const withoutExt = last.includes(".")
               ? last.slice(0, last.lastIndexOf("."))
@@ -3681,42 +3767,48 @@ router.delete(
 
 router.post("/raw-html-to-pdf", requireAuth, async (req, res, next) => {
   try {
-    const html = req.body.html || "";
-    if (!html) throw httpError(400, "BAD_REQUEST", "HTML content required");
+    const html = typeof req.body.html === "string" ? req.body.html : "";
 
-    const cleaned = sanitizeHtml(html, {
-      allowedTags: [
-        "div", "p", "span", "br", "strong", "em", "b", "i", "u",
-        "h1", "h2", "h3", "h4", "h5", "h6",
-        "table", "thead", "tbody", "tfoot", "tr", "td", "th",
-        "img", "a", "style",
-      ],
-      allowedAttributes: {
-        "*": ["class", "style"],
-        img: ["src", "alt", "class", "style"],
-        a: ["href", "class", "style"],
-      },
-      allowVulnerableTags: true,
-    });
-    const head = `<meta charset="utf-8"><style>
-      * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      img { max-width: 100%; height: auto; }
+    // Extract style tags from the original HTML to preserve styling
+    const styleTags = [];
+    const styleRegex = /<style[^>]*>[\s\S]*?<\/style>/gi;
+    let match;
+    while ((match = styleRegex.exec(html)) !== null) {
+      styleTags.push(match[0]);
+    }
+
+    // Preserve color adjustment for logos and images
+    const colorAdjustStyle = `<style>
+      @media print {
+        img, svg {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+      }
     </style>`;
-    const doc = `<!DOCTYPE html><html><head>${head}</head><body>${cleaned}</body></html>`;
+
+    const doc =
+      String(html).trim().toLowerCase().startsWith("<!doctype") ||
+      String(html).trim().toLowerCase().startsWith("<html")
+        ? html.replace(
+            /<head[^>]*>([\s\S]*?)<\/head>/i,
+            (match, headContent) => {
+              // Add our color adjustment styles to existing head
+              return `<head>${headContent}${colorAdjustStyle}</head>`;
+            },
+          )
+        : `<!DOCTYPE html><html><head>${colorAdjustStyle}${styleTags.join("")}</head><body>${html || ""}</body></html>`;
 
     let pdf = null;
     let browser = null;
     try {
       browser = await launchBrowser();
       const page = await browser.newPage();
-      page.setDefaultNavigationTimeout(30000);
-      page.setDefaultTimeout(30000);
       await page.setContent(doc, { waitUntil: "domcontentloaded" });
-      await page.emulateMediaType("screen");
       pdf = await page.pdf({
         preferCSSPageSize: true,
         printBackground: true,
-        margin: { top: "20mm", bottom: "20mm", left: "20mm", right: "20mm" },
+        margin: { top: "0", bottom: "0", left: "0", right: "0" },
       });
     } catch (err) {
       console.error("raw-html-to-pdf error:", err);

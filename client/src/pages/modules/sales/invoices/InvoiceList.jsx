@@ -340,7 +340,7 @@ export default function InvoiceList() {
         return;
       }
       doc.open();
-      const patchCss = `<style>@media print{*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>`;
+      const patchCss = `<style>@media print{img{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>`;
       doc.write(patchCss + html);
       doc.close();
       const win = iframe.contentWindow || window;
@@ -365,11 +365,14 @@ export default function InvoiceList() {
         { format: "html" },
         { headers: { "Content-Type": "application/json" } },
       );
-      const html = typeof resp.data === "string" ? resp.data : String(resp.data || "");
+      const html =
+        typeof resp.data === "string" ? resp.data : String(resp.data || "");
       await renderHtmlToPdf(html, `invoice-${id}.pdf`);
     } catch (err) {
       console.error("PDF Download Error:", err);
-      toast.error(err?.response?.data?.message || "Failed to download Invoice PDF");
+      toast.error(
+        err?.response?.data?.message || "Failed to download Invoice PDF",
+      );
     }
   }
   const getStatusBadge = (status) => {

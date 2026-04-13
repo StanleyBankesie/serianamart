@@ -131,7 +131,12 @@ export default function ReturnToStoresList() {
 
   const stats = useMemo(() => {
     const total = docs.length;
-    const pending = docs.filter((d) => d.status === "PENDING").length;
+    const pending = docs.filter(
+      (d) =>
+        d.status === "PENDING" ||
+        d.status === "PENDING_APPROVAL" ||
+        d.status === "SUBMITTED",
+    ).length;
     const approved = docs.filter(
       (d) => d.status === "APPROVED" || d.status === "POSTED",
     ).length;
@@ -594,7 +599,7 @@ export default function ReturnToStoresList() {
                       </Link>
                     </td>
                     <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
-                      {d.rts_date}
+                      {d.rts_date ? d.rts_date.split("T")[0] : "-"}
                     </td>
                     <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
@@ -622,24 +627,25 @@ export default function ReturnToStoresList() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <Link
-                        to={`/inventory/return-to-stores/${d.id}`}
-                        className="text-slate-400 hover:text-[#2E7D9F] transition-colors"
-                      >
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
+                      <div className="flex items-center justify-end gap-3 whitespace-nowrap">
+                        <Link
+                          to={`/inventory/return-to-stores/${d.id}`}
+                          className="text-slate-400 hover:text-[#2E7D9F] transition-colors"
                         >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2"
-                            d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                          />
-                        </svg>
-                      </Link>
+                          <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="2"
+                              d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                            />
+                          </svg>
+                        </Link>
                       {d.status === "APPROVED" ? (
                         <>
                           <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
@@ -664,14 +670,14 @@ export default function ReturnToStoresList() {
                           />
                         </>
                       ) : d.forwarded_to_username ? (
-                        <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
+                        <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white whitespace-nowrap inline-flex items-center">
                           Forwarded to {d.forwarded_to_username}
                         </span>
                       ) : (
                         <button
                           type="button"
                           onClick={() => openForwardModal(d)}
-                          className="ml-3 text-sm font-medium px-2 py-1 rounded bg-[#2E7D9F] text-white hover:bg-[#24637e] transition-colors"
+                          className="ml-3 text-sm font-medium px-2 py-1 rounded bg-[#2E7D9F] text-white hover:bg-[#24637e] transition-colors whitespace-nowrap inline-flex items-center"
                           disabled={
                             submittingForward ||
                             d.status === "POSTED" ||
@@ -685,6 +691,7 @@ export default function ReturnToStoresList() {
                             : "Forward for Approval"}
                         </button>
                       )}
+                      </div>
                     </td>
                   </tr>
                 ))}

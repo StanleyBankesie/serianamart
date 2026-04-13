@@ -48,6 +48,8 @@ export default function MaterialRequisitionForm() {
       qtyRequested: 0,
       qtyIssued: 0,
       uom: "PCS",
+      batchNo: "",
+      serialNo: "",
     },
   ]);
 
@@ -56,12 +58,19 @@ export default function MaterialRequisitionForm() {
 
     // Fetch users
     api
-      .get("/admin/users")
+      .get("/admin/users", { params: { active: 1 } })
       .then((res) => {
         if (!mounted) return;
-        setUsers(Array.isArray(res.data?.items) ? res.data.items : []);
+        const items =
+          (res?.data &&
+            res.data.data &&
+            Array.isArray(res.data.data.items) &&
+            res.data.data.items) ||
+          (Array.isArray(res?.data?.items) && res.data.items) ||
+          [];
+        setUsers(items);
       })
-      .catch((err) => console.error("Failed to load users", err));
+      .catch(() => {});
 
     // Fetch warehouses
     api
@@ -96,6 +105,36 @@ export default function MaterialRequisitionForm() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isNew) return;
+    let cancelled = false;
+    async function prefillNextNo() {
+      try {
+        const res = await api.get("/inventory/material-requisitions");
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        let max = 0;
+        for (const it of items) {
+          const no = String(it.requisition_no || "");
+          if (/^MRS-\d{6}$/.test(no)) {
+            const n = parseInt(no.slice(4), 10);
+            if (Number.isFinite(n) && n > max) max = n;
+          }
+        }
+        const next = `MRS-${String(max + 1).padStart(6, "0")}`;
+        if (!cancelled) {
+          setFormData((prev) => ({
+            ...prev,
+            requisitionNo: next,
+          }));
+        }
+      } catch {}
+    }
+    prefillNextNo();
+    return () => {
+      cancelled = true;
+    };
+  }, [isNew]);
 
   useEffect(() => {
     if (isNew) return;
@@ -135,6 +174,8 @@ export default function MaterialRequisitionForm() {
                 qtyRequested: Number(d.qty_requested) || 0,
                 qtyIssued: Number(d.qty_issued) || 0,
                 uom: d.uom || "PCS",
+                batchNo: d.batch_no || "",
+                serialNo: d.serial_no || "",
               }))
             : [
                 {
@@ -171,7 +212,8 @@ export default function MaterialRequisitionForm() {
       .map((r) => ({
         item_id: Number(r.item_id),
         qty_requested: Math.max(0, parseInt(r.qtyRequested, 10) || 0),
-        qty_issued: Number(r.qtyIssued) || 0,
+        batch_no: r.batchNo || null,
+        serial_no: r.serialNo || null,
       }));
   }, [items]);
 
@@ -290,6 +332,8 @@ export default function MaterialRequisitionForm() {
         qtyRequested: 0,
         qtyIssued: 0,
         uom: item.uom || "PCS",
+        batchNo: "",
+        serialNo: "",
       },
     ]);
     setShowItemModal(false);
@@ -439,7 +483,9 @@ export default function MaterialRequisitionForm() {
                 >
                   <option value="INTERNAL">Internal Use</option>
                   <option value="PROJECT">Project</option>
-                  <option value="SALES">Sales Order</option>
+                  <option value="PROJECT">Promotions</option>
+                  <option value="MAINTENANCE">Maintenance</option>
+                  <option value="SALES">Sales Campaign</option>
                   <option value="PRODUCTION">Production</option>
                 </select>
               </div>
@@ -494,11 +540,11 @@ export default function MaterialRequisitionForm() {
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Item Code</th>
                       <th>Item Name</th>
                       <th>Qty Requested</th>
-                      <th>Qty Issued</th>
                       <th>UOM</th>
+                      <th>Batch No</th>
+                      <th>Serial No</th>
                       <th>Action</th>
                     </tr>
                   </thead>
@@ -521,6 +567,7 @@ export default function MaterialRequisitionForm() {
                                       item_id: selectedId,
                                       itemCode: selected?.item_code || "",
                                       itemName: selected?.item_name || "",
+                                      uom: selected?.uom || i.uom || "PCS",
                                     }
                                   : i,
                               );
@@ -534,23 +581,15 @@ export default function MaterialRequisitionForm() {
                             ) &&
                               item.item_id && (
                                 <option value={item.item_id}>
-                                  {item.itemCode || item.item_id}
+                                  {item.itemName || item.item_id}
                                 </option>
                               )}
                             {availableItems.map((ai) => (
                               <option key={ai.id} value={ai.id}>
-                                {ai.item_code || ai.id}
+                                {ai.item_name || ai.item_code || ai.id}
                               </option>
                             ))}
                           </select>
-                        </td>
-                        <td>
-                          <input
-                            type="text"
-                            className="input"
-                            value={item.itemName}
-                            disabled
-                          />
                         </td>
                         <td>
                           <input
@@ -578,17 +617,9 @@ export default function MaterialRequisitionForm() {
                           />
                         </td>
                         <td>
-                          <input
-                            type="number"
-                            className="input bg-slate-100 dark:bg-slate-700"
-                            value={item.qtyIssued}
-                            disabled
-                          />
-                        </td>
-                        <td>
                           <select
                             className="input"
-                            value={item.uom}
+                            value={item.uom || ""}
                             onChange={(e) => {
                               const updated = items.map((i) =>
                                 i.id === item.id
@@ -598,12 +629,57 @@ export default function MaterialRequisitionForm() {
                               setItems(updated);
                             }}
                           >
-                            <option value="EA">EA</option>
-                            <option value="PCS">PCS</option>
-                            <option value="KG">KG</option>
-                            <option value="LTR">LTR</option>
-                            <option value="MTR">MTR</option>
+                            <option value="">UOM</option>
+                            {(Array.isArray(uoms) && uoms.length
+                              ? uoms.map((u) => ({
+                                  code: u.uom_code || u.code || "",
+                                  name: u.uom_name || u.name || "",
+                                }))
+                              : [
+                                  { code: "EA", name: "EA" },
+                                  { code: "PCS", name: "PCS" },
+                                  { code: "KG", name: "KG" },
+                                  { code: "LTR", name: "LTR" },
+                                  { code: "MTR", name: "MTR" },
+                                ]
+                            ).map((u) => (
+                              <option key={u.code} value={u.code}>
+                                {u.name ? `${u.name} (${u.code})` : u.code}
+                              </option>
+                            ))}
                           </select>
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="Batch No"
+                            value={item.batchNo || ""}
+                            onChange={(e) => {
+                              const updated = items.map((i) =>
+                                i.id === item.id
+                                  ? { ...i, batchNo: e.target.value }
+                                  : i,
+                              );
+                              setItems(updated);
+                            }}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="Serial No"
+                            value={item.serialNo || ""}
+                            onChange={(e) => {
+                              const updated = items.map((i) =>
+                                i.id === item.id
+                                  ? { ...i, serialNo: e.target.value }
+                                  : i,
+                              );
+                              setItems(updated);
+                            }}
+                          />
                         </td>
                         <td>
                           <button
@@ -634,15 +710,7 @@ export default function MaterialRequisitionForm() {
                 className="btn-success"
                 disabled={saving}
               >
-                {saving ? "Saving..." : "💾 Save Draft"}
-              </button>
-              <button
-                type="button"
-                onClick={(e) => handleSubmit(e, "PENDING")}
-                className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors"
-                disabled={saving}
-              >
-                {saving ? "Saving..." : "🟡 Save as Pending"}
+                {saving ? "Saving..." : "💾 Save"}
               </button>
             </div>
           </form>

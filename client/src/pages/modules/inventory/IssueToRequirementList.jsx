@@ -116,7 +116,9 @@ export default function IssueToRequirementList() {
                     <td className="font-medium text-brand-700 dark:text-brand-300">
                       {d.issue_no}
                     </td>
-                    <td>{d.issue_date}</td>
+                    <td>
+                      {d.issue_date ? String(d.issue_date).slice(0, 10) : "-"}
+                    </td>
                     <td>{d.issue_type || "-"}</td>
                     <td>{d.warehouse_name || "-"}</td>
                     <td>{d.department_name || "-"}</td>

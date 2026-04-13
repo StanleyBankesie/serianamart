@@ -1,14 +1,19 @@
 {
   "watch": [
-    "."
+    "bootstrap.js",
+    "index.js",
+    "routes",
+    "controllers",
+    "utils",
+    "db",
+    "middleware"
   ],
-  "ext": "js,mjs,cjs,json",
   "ignore": [
-    "../client/dist/**",
-    "../client/.vite/**",
-    "../client/node_modules/**",
-    "**/dist/**",
-    "**/*.map"
+    "../client/**",
+    "uploads/**",
+    "*.log",
+    ".env*"
   ],
-  "delay": "200ms"
+  "ext": "js,json",
+  "delay": "2500"
 }

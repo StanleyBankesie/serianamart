@@ -556,7 +556,7 @@ export default function GRNLocalList() {
                       </button>
                     </td>
                     <td>
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2 whitespace-nowrap">
                         <Link
                           to={`/inventory/grn-local/${g.id}?mode=view`}
                           className="text-brand hover:text-brand-700 text-sm font-medium"
@@ -638,71 +638,77 @@ export default function GRNLocalList() {
                             Edit
                           </Link>
                         )}
-                      </div>
-                      {String(g.status || "").toUpperCase() === "APPROVED" ? (
-                        <>
-                          <span className="ml-2 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                            Approved
-                          </span>
-                          {canReverseApproval() ? (
+                        {String(g.status || "").toUpperCase() === "APPROVED" && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
+                              Approved
+                            </span>
+                            {canReverseApproval() && (
+                              <button
+                                type="button"
+                                className="text-indigo-700 hover:text-indigo-800 text-sm font-medium"
+                                onClick={async () => {
+                                  try {
+                                    await api.post(
+                                      "/workflows/reverse-by-document",
+                                      {
+                                        document_type: "GOODS_RECEIPT",
+                                        document_id: g.id,
+                                      },
+                                    );
+                                    toast.success(
+                                      "Approval reversed and document returned",
+                                    );
+                                    setGrns((prev) =>
+                                      prev.map((x) =>
+                                        x.id === g.id
+                                          ? {
+                                              ...x,
+                                              status: "RETURNED",
+                                              forwarded_to_username: null,
+                                            }
+                                          : x,
+                                      ),
+                                    );
+                                  } catch (e) {
+                                    toast.error(
+                                      e?.response?.data?.message ||
+                                        "Reverse approval failed",
+                                    );
+                                  }
+                                }}
+                              >
+                                Reverse Approval
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {g.forwarded_to_username &&
+                          String(g.status || "").toUpperCase() !==
+                            "APPROVED" && (
+                            <span className="text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white whitespace-nowrap inline-flex items-center">
+                              Forwarded to {g.forwarded_to_username}
+                            </span>
+                          )}
+                        {!g.forwarded_to_username &&
+                          String(g.status || "").toUpperCase() !==
+                            "APPROVED" && (
                             <button
                               type="button"
-                              className="ml-2 text-indigo-700 hover:text-indigo-800 text-sm font-medium"
-                              onClick={async () => {
-                                try {
-                                  await api.post(
-                                    "/workflows/reverse-by-document",
-                                    {
-                                      document_type: "GOODS_RECEIPT",
-                                      document_id: g.id,
-                                    },
-                                  );
-                                  toast.success(
-                                    "Approval reversed and document returned",
-                                  );
-                                  setGrns((prev) =>
-                                    prev.map((x) =>
-                                      x.id === g.id
-                                        ? {
-                                            ...x,
-                                            status: "RETURNED",
-                                            forwarded_to_username: null,
-                                          }
-                                        : x,
-                                    ),
-                                  );
-                                } catch (e) {
-                                  toast.error(
-                                    e?.response?.data?.message ||
-                                      "Reverse approval failed",
-                                  );
-                                }
-                              }}
+                              className="btn-success text-xs whitespace-nowrap inline-flex items-center"
+                              onClick={() => openForwardModal(g)}
+                              disabled={
+                                submittingId === g.id ||
+                                !canForward(g.status) ||
+                                hasInactiveWorkflow
+                              }
                             >
-                              Reverse Approval
+                              {submittingId === g.id
+                                ? "Forwarding..."
+                                : "Forward for Approval"}
                             </button>
-                          ) : null}
-                        </>
-                      ) : g.forwarded_to_username ? (
-                        <span className="ml-2 text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white">
-                          Forwarded to {g.forwarded_to_username}
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn-success ml-2"
-                          onClick={() => openForwardModal(g)}
-                          disabled={
-                            submittingId === g.id ||
-                            !canForward(g.status) ||
-                            hasInactiveWorkflow
-                          }
-                        >
-                          {submittingId === g.id
-                            ? "Forwarding..."
-                            : "Forward for Approval"}
-                        </button>
-                      )}
+                          )}
+                      </div>
                     </td>
                   </tr>
                 ))}

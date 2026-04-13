@@ -66,23 +66,28 @@ export default function Sidebar() {
       children: [
         {
           key: "stock-management",
-          label: "Stock Management",
-          path: "/inventory/stock",
+          label: "Items Setup",
+          path: "/inventory/items",
         },
         {
           key: "item-categories",
           label: "Categories",
-          path: "/inventory/categories",
+          path: "/inventory/item-groups",
         },
         {
           key: "stock-adjustments",
           label: "Stock Adjustments",
-          path: "/inventory/adjustments",
+          path: "/inventory/stock-adjustments",
         },
         {
           key: "stock-transfers",
           label: "Stock Transfers",
-          path: "/inventory/transfers",
+          path: "/inventory/stock-transfers",
+        },
+        {
+          key: "item-batches",
+          label: "Item Batches Tracking",
+          path: "/inventory/batches",
         },
       ],
     },

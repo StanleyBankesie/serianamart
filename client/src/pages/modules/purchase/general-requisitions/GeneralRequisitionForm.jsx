@@ -14,6 +14,7 @@ export default function GeneralRequisitionForm() {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [uoms, setUoms] = useState([]);
+  const [users, setUsers] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -29,30 +30,66 @@ export default function GeneralRequisitionForm() {
   });
 
   const [lines, setLines] = useState([
-    { item_id: "", description: "", qty: "", uom: "", estimated_unit_cost: "", remarks: "" },
+    {
+      item_id: "",
+      description: "",
+      qty: "",
+      uom: "",
+      estimated_unit_cost: "",
+      remarks: "",
+    },
   ]);
 
   const [headerData, setHeaderData] = useState(null);
+
+  const serviceFlag = (it) => {
+    const v = it?.service_item;
+    if (v == null) return false;
+    if (typeof v === "string") return v.toUpperCase() === "Y";
+    return Number(v) === 1;
+  };
+
+  const itemOptions = useMemo(
+    () => inventoryItems.filter((it) => !serviceFlag(it)),
+    [inventoryItems],
+  );
+  const serviceOptions = useMemo(
+    () => inventoryItems.filter((it) => serviceFlag(it)),
+    [inventoryItems],
+  );
 
   // Load reference data
   useEffect(() => {
     let mounted = true;
     async function load() {
       try {
-        const [itemsRes, deptRes, uomRes] = await Promise.all([
+        const [itemsRes, deptRes, uomRes, usersRes] = await Promise.all([
           api.get("/inventory/items").catch(() => ({ data: { items: [] } })),
           api.get("/admin/departments").catch(() => ({ data: { items: [] } })),
           api.get("/inventory/uoms").catch(() => ({ data: { items: [] } })),
+          api
+            .get("/admin/users", { params: { active: 1 } })
+            .catch(() => ({ data: { items: [] } })),
         ]);
         if (mounted) {
           setInventoryItems(itemsRes?.data?.items || []);
           setDepartments(deptRes?.data?.items || []);
           setUoms(uomRes?.data?.items || []);
+          const usersItems =
+            (usersRes?.data &&
+              usersRes.data.data &&
+              Array.isArray(usersRes.data.data.items) &&
+              usersRes.data.data.items) ||
+            (Array.isArray(usersRes?.data?.items) && usersRes.data.items) ||
+            [];
+          setUsers(usersItems);
         }
       } catch {}
     }
     load();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // Load existing if editing/viewing
@@ -72,7 +109,9 @@ export default function GeneralRequisitionForm() {
           requested_by: data.requested_by || "",
           purpose: data.purpose || "",
           priority: data.priority || "MEDIUM",
-          required_date: data.required_date ? String(data.required_date).slice(0, 10) : "",
+          required_date: data.required_date
+            ? String(data.required_date).slice(0, 10)
+            : "",
           remarks: data.remarks || "",
         });
         const existingItems = Array.isArray(data.items) ? data.items : [];
@@ -86,14 +125,25 @@ export default function GeneralRequisitionForm() {
                 estimated_unit_cost: i.estimated_unit_cost || "",
                 remarks: i.remarks || "",
               }))
-            : [{ item_id: "", description: "", qty: "", uom: "", estimated_unit_cost: "", remarks: "" }],
+            : [
+                {
+                  item_id: "",
+                  description: "",
+                  qty: "",
+                  uom: "",
+                  estimated_unit_cost: "",
+                  remarks: "",
+                },
+              ],
         );
       } catch {
         toast.error("Failed to load requisition");
       }
     }
     loadExisting();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [grId]);
 
   function updateForm(key, val) {
@@ -115,9 +165,11 @@ export default function GeneralRequisitionForm() {
       next[idx] = {
         ...next[idx],
         item_id: itemId,
-        description: item ? `${item.item_code} - ${item.item_name}` : next[idx].description,
+        description: item ? item.item_name : next[idx].description,
         uom: item?.uom || next[idx].uom || "PCS",
-        estimated_unit_cost: item?.cost_price ? Number(item.cost_price) : next[idx].estimated_unit_cost,
+        estimated_unit_cost: item?.cost_price
+          ? Number(item.cost_price)
+          : next[idx].estimated_unit_cost,
       };
       return next;
     });
@@ -126,7 +178,14 @@ export default function GeneralRequisitionForm() {
   function addLine() {
     setLines((prev) => [
       ...prev,
-      { item_id: "", description: "", qty: "", uom: "", estimated_unit_cost: "", remarks: "" },
+      {
+        item_id: "",
+        description: "",
+        qty: "",
+        uom: "",
+        estimated_unit_cost: "",
+        remarks: "",
+      },
     ]);
   }
 
@@ -215,17 +274,19 @@ export default function GeneralRequisitionForm() {
           {headerData?.status && (
             <div className="flex gap-2 items-center text-sm">
               <span className="font-semibold text-slate-500">Status:</span>
-              <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase ${
-                headerData.status === "APPROVED"
-                  ? "bg-emerald-100 text-emerald-700"
-                  : headerData.status === "REJECTED"
-                    ? "bg-red-100 text-red-700"
-                    : headerData.status === "SUBMITTED"
-                      ? "bg-blue-100 text-blue-700"
-                      : headerData.status === "CANCELLED"
-                        ? "bg-orange-100 text-orange-700"
-                        : "bg-slate-100 text-slate-700"
-              }`}>
+              <span
+                className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase ${
+                  headerData.status === "APPROVED"
+                    ? "bg-emerald-100 text-emerald-700"
+                    : headerData.status === "REJECTED"
+                      ? "bg-red-100 text-red-700"
+                      : headerData.status === "SUBMITTED"
+                        ? "bg-blue-100 text-blue-700"
+                        : headerData.status === "CANCELLED"
+                          ? "bg-orange-100 text-orange-700"
+                          : "bg-slate-100 text-slate-700"
+                }`}
+              >
                 {headerData.status}
               </span>
             </div>
@@ -274,23 +335,34 @@ export default function GeneralRequisitionForm() {
                 disabled={disabled}
               >
                 <option value="">Select Department</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.dept_name}>
-                    {d.dept_name}
-                  </option>
-                ))}
+                {departments.map((d) => {
+                  const name = d.name || d.dept_name || "";
+                  return (
+                    <option key={d.id} value={name}>
+                      {name}
+                    </option>
+                  );
+                })}
               </select>
             </div>
             <div className="flex flex-col gap-1">
               <label className="label">Requested By</label>
-              <input
-                type="text"
+              <select
                 className="input"
-                placeholder="Name of requester"
                 value={form.requested_by}
                 onChange={(e) => updateForm("requested_by", e.target.value)}
                 disabled={disabled}
-              />
+              >
+                <option value="">Select user</option>
+                {users.map((u) => {
+                  const uname = u.username || "";
+                  return (
+                    <option key={u.id} value={uname}>
+                      {uname}
+                    </option>
+                  );
+                })}
+              </select>
             </div>
             <div className="flex flex-col gap-1">
               <label className="label">Priority</label>
@@ -332,21 +404,25 @@ export default function GeneralRequisitionForm() {
           {/* Line Items */}
           <div className="mt-6">
             <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2 uppercase tracking-wider">
-              {form.requisition_type === "SERVICE" ? "Services" : "Items"} Requested
+              {form.requisition_type === "SERVICE" ? "Services" : "Items"}{" "}
+              Requested
             </h3>
             <div className="overflow-x-auto rounded border border-[#dee2e6]">
               <table className="table">
                 <thead>
                   <tr>
                     {form.requisition_type === "ITEM" && (
-                      <th style={{ width: 200 }}>Inventory Item</th>
+                      <th style={{ width: 200 }}>Description</th>
                     )}
-                    <th style={{ minWidth: 200 }}>Description</th>
+                    {form.requisition_type === "SERVICE" && (
+                      <th style={{ minWidth: 200 }}>Description</th>
+                    )}
                     <th style={{ width: 90 }}>Qty</th>
                     <th style={{ width: 100 }}>UOM</th>
                     <th style={{ width: 130 }}>Est. Unit Cost</th>
-                    <th style={{ width: 130 }} className="text-right">Est. Total</th>
-                    <th style={{ width: 150 }}>Remarks</th>
+                    <th style={{ width: 130 }} className="text-right">
+                      Est. Total
+                    </th>
                     {canEdit && <th style={{ width: 80 }}></th>}
                   </tr>
                 </thead>
@@ -365,7 +441,7 @@ export default function GeneralRequisitionForm() {
                               disabled={disabled}
                             >
                               <option value="">Select item</option>
-                              {inventoryItems.map((it) => (
+                              {itemOptions.map((it) => (
                                 <option key={it.id} value={it.id}>
                                   {it.item_code} - {it.item_name}
                                 </option>
@@ -373,22 +449,23 @@ export default function GeneralRequisitionForm() {
                             </select>
                           </td>
                         )}
-                        <td>
-                          <input
-                            type="text"
-                            className="input text-sm"
-                            placeholder={
-                              form.requisition_type === "SERVICE"
-                                ? "Service description"
-                                : "Item description"
-                            }
-                            value={l.description}
-                            onChange={(e) =>
-                              updateLine(i, "description", e.target.value)
-                            }
-                            disabled={disabled}
-                          />
-                        </td>
+                        {form.requisition_type === "SERVICE" && (
+                          <td>
+                            <select
+                              className="input text-sm"
+                              value={l.item_id}
+                              onChange={(e) => onItemChange(i, e.target.value)}
+                              disabled={disabled}
+                            >
+                              <option value="">Select service</option>
+                              {serviceOptions.map((it) => (
+                                <option key={it.id} value={it.id}>
+                                  {it.item_name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        )}
                         <td>
                           <input
                             type="number"
@@ -440,17 +517,6 @@ export default function GeneralRequisitionForm() {
                             maximumFractionDigits: 2,
                           })}
                         </td>
-                        <td>
-                          <input
-                            type="text"
-                            className="input text-sm"
-                            value={l.remarks}
-                            onChange={(e) =>
-                              updateLine(i, "remarks", e.target.value)
-                            }
-                            disabled={disabled}
-                          />
-                        </td>
                         {canEdit && (
                           <td>
                             <button
@@ -497,14 +563,7 @@ export default function GeneralRequisitionForm() {
                 disabled={saving}
                 onClick={() => submit("draft")}
               >
-                Save Draft
-              </button>
-              <button
-                className="btn btn-primary"
-                disabled={saving}
-                onClick={() => submit("submit")}
-              >
-                Save & Submit
+                Save
               </button>
               <button
                 className="btn"
@@ -515,16 +574,17 @@ export default function GeneralRequisitionForm() {
             </div>
           )}
 
-          {isViewMode && !["DRAFT", "SUBMITTED"].includes(headerData?.status) && (
-            <div className="mt-6">
-              <button
-                className="btn"
-                onClick={() => navigate("/purchase/general-requisitions")}
-              >
-                Back to List
-              </button>
-            </div>
-          )}
+          {isViewMode &&
+            !["DRAFT", "SUBMITTED"].includes(headerData?.status) && (
+              <div className="mt-6">
+                <button
+                  className="btn"
+                  onClick={() => navigate("/purchase/general-requisitions")}
+                >
+                  Back to List
+                </button>
+              </div>
+            )}
         </div>
       </div>
     </div>

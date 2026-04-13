@@ -255,7 +255,7 @@ export default function ServiceRequestsList() {
                             </Link>
                           )}
                         {r.forwarded_to_username ? (
-                          <span className="inline-block ml-2 text-xs font-medium px-2 py-1 rounded bg-amber-500 text-white">
+                          <span className="inline-block ml-2 text-xs font-medium px-2 py-1 rounded bg-amber-500 text-white whitespace-nowrap inline-flex items-center">
                             Forwarded to {r.forwarded_to_username}
                           </span>
                         ) : null}

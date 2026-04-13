@@ -37,7 +37,21 @@ export default function DocumentReview() {
       setNextUser(null);
     }
     const t = String(data.document_type || "").toUpperCase();
-    if (t === "MATERIAL_REQUISITION") {
+    if (t === "GENERAL_REQUISITION" || t === "GENERAL REQUISITION") {
+      setDocLoading(true);
+      client
+        .get(`/purchase/general-requisitions/${data.document_id}`)
+        .then((res) => {
+          const hdr = res.data || null;
+          setDocHeader(hdr);
+          setDocDetails(Array.isArray(hdr?.items) ? hdr.items : []);
+        })
+        .catch(() => {
+          setDocHeader(null);
+          setDocDetails([]);
+        })
+        .finally(() => setDocLoading(false));
+    } else if (t === "MATERIAL_REQUISITION") {
       setDocLoading(true);
       client
         .get(`/inventory/material-requisitions/${data.document_id}`)
@@ -45,6 +59,40 @@ export default function DocumentReview() {
           setDocHeader(res.data?.item || null);
           setDocDetails(
             Array.isArray(res.data?.details) ? res.data.details : [],
+          );
+        })
+        .catch(() => {
+          setDocHeader(null);
+          setDocDetails([]);
+        })
+        .finally(() => setDocLoading(false));
+    } else if (t === "RETURN_TO_STORES") {
+      setDocLoading(true);
+      client
+        .get(`/inventory/return-to-stores/${data.document_id}`)
+        .then((res) => {
+          setDocHeader(res.data?.item || null);
+          setDocDetails(
+            Array.isArray(res.data?.details) ? res.data.details : [],
+          );
+        })
+        .catch(() => {
+          setDocHeader(null);
+          setDocDetails([]);
+        })
+        .finally(() => setDocLoading(false));
+    } else if (
+      t === "GOODS_RECEIPT" ||
+      t === "GRN" ||
+      t === "GOODS RECEIPT NOTE"
+    ) {
+      setDocLoading(true);
+      client
+        .get(`/inventory/grn/${data.document_id}`)
+        .then((res) => {
+          setDocHeader(res.data?.item || null);
+          setDocDetails(
+            Array.isArray(res.data?.item?.details) ? res.data.item.details : [],
           );
         })
         .catch(() => {
@@ -83,28 +131,9 @@ export default function DocumentReview() {
         })
         .finally(() => setDocLoading(false));
     } else if (
-      t === "GOODS_RECEIPT" ||
-      t === "GRN" ||
-      t === "GOODS RECEIPT NOTE"
-    ) {
-      setDocLoading(true);
-      client
-        .get(`/inventory/grn/${data.document_id}`)
-        .then((res) => {
-          setDocHeader(res.data?.item || null);
-          setDocDetails(
-            Array.isArray(res.data?.item?.details) ? res.data.item.details : [],
-          );
-        })
-        .catch(() => {
-          setDocHeader(null);
-          setDocDetails([]);
-        })
-        .finally(() => setDocLoading(false));
-    } else if (
       t === "JOURNAL_VOUCHER" ||
-      t === "JOURNAL VOUCHER" ||
-      t === "JV"
+      t === "JV" ||
+      t === "JOURNAL VOUCHER"
     ) {
       setDocLoading(true);
       client
@@ -120,8 +149,8 @@ export default function DocumentReview() {
         .finally(() => setDocLoading(false));
     } else if (
       t === "PAYMENT_VOUCHER" ||
-      t === "PAYMENT VOUCHER" ||
-      t === "PV"
+      t === "PV" ||
+      t === "PAYMENT VOUCHER"
     ) {
       setDocLoading(true);
       client
@@ -137,8 +166,8 @@ export default function DocumentReview() {
         .finally(() => setDocLoading(false));
     } else if (
       t === "RECEIPT_VOUCHER" ||
-      t === "RECEIPT VOUCHER" ||
-      t === "RV"
+      t === "RV" ||
+      t === "RECEIPT VOUCHER"
     ) {
       setDocLoading(true);
       client
@@ -238,6 +267,377 @@ export default function DocumentReview() {
   if (loading) return <div className="p-6">Loading details...</div>;
   if (!data) return <div className="p-6">Workflow not found</div>;
 
+  const docType = String(data.document_type || "").toUpperCase();
+  const renderPreview = () => {
+    if (docType === "MATERIAL_REQUISITION") {
+      return (
+        <div className="mt-6 space-y-4">
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <div className="text-slate-500">Requisition No</div>
+              <div className="font-medium">
+                {docHeader?.requisition_no || "-"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Requisition Date</div>
+              <div className="font-medium">
+                {docHeader?.requisition_date || "-"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Warehouse</div>
+              <div className="font-medium">
+                {docHeader?.warehouse_name || "-"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Department</div>
+              <div className="font-medium">
+                {docHeader?.department_name || "-"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Requested By</div>
+              <div className="font-medium">
+                {docHeader?.requested_by || "-"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Status</div>
+              <div className="font-medium">{docHeader?.status || "-"}</div>
+            </div>
+          </div>
+          <div>
+            <div className="text-sm font-semibold mb-2">
+              Items ({docDetails.length})
+            </div>
+            {docLoading ? (
+              <div className="text-sm text-slate-500">Loading...</div>
+            ) : docDetails.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Item Code</th>
+                      <th>Item Name</th>
+                      <th>Qty Requested</th>
+                      <th>UOM</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {docDetails.map((d) => (
+                      <tr key={d.id}>
+                        <td>{d.item_code || d.item_id}</td>
+                        <td>{d.item_name || "-"}</td>
+                        <td>{Number(d.qty_requested || 0)}</td>
+                        <td>{d.uom || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-sm text-slate-500">No items found</div>
+            )}
+          </div>
+          {docHeader?.remarks && (
+            <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded text-sm">
+              <div className="text-slate-500">Remarks</div>
+              <div className="text-slate-700 dark:text-slate-300">
+                {docHeader.remarks}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+    if (
+      docType === "GENERAL_REQUISITION" ||
+      docType === "GENERAL REQUISITION"
+    ) {
+      return (
+        <div className="mt-6 space-y-4">
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <div className="text-slate-500">Requisition No</div>
+              <div className="font-medium">
+                {docHeader?.requisition_no || "-"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Requisition Date</div>
+              <div className="font-medium">
+                {docHeader?.requisition_date
+                  ? String(docHeader.requisition_date).slice(0, 10)
+                  : "-"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Type</div>
+              <div className="font-medium">
+                {docHeader?.requisition_type || "-"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Department</div>
+              <div className="font-medium">{docHeader?.department || "-"}</div>
+            </div>
+            <div>
+              <div className="text-slate-500">Requested By</div>
+              <div className="font-medium">
+                {docHeader?.requested_by || "-"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Priority</div>
+              <div className="font-medium">{docHeader?.priority || "-"}</div>
+            </div>
+            <div>
+              <div className="text-slate-500">Status</div>
+              <div className="font-medium">{docHeader?.status || "-"}</div>
+            </div>
+          </div>
+          <div>
+            <div className="text-sm font-semibold mb-2">
+              Items ({docDetails.length})
+            </div>
+            {docLoading ? (
+              <div className="text-sm text-slate-500">Loading...</div>
+            ) : docDetails.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Description</th>
+                      <th className="text-right">Qty</th>
+                      <th>UOM</th>
+                      <th className="text-right">Unit Cost</th>
+                      <th className="text-right">Line Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {docDetails.map((d) => (
+                      <tr key={d.id}>
+                        <td>{d.description || d.item_name || "-"}</td>
+                        <td className="text-right">{Number(d.qty || 0)}</td>
+                        <td>{d.uom || "-"}</td>
+                        <td className="text-right">
+                          {Number(d.estimated_unit_cost || 0).toLocaleString(
+                            "en-US",
+                            { minimumFractionDigits: 2 },
+                          )}
+                        </td>
+                        <td className="text-right">
+                          {Number(
+                            d.estimated_total ||
+                              Number(d.qty || 0) *
+                                Number(d.estimated_unit_cost || 0),
+                          ).toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-sm text-slate-500">No items found</div>
+            )}
+          </div>
+          {docHeader?.remarks && (
+            <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded text-sm">
+              <div className="text-slate-500">Remarks</div>
+              <div className="text-slate-700 dark:text-slate-300">
+                {docHeader.remarks}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+    if (docType === "RETURN_TO_STORES") {
+      return (
+        <div className="mt-6 space-y-4">
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <div className="text-slate-500">RTS No</div>
+              <div className="font-medium">{docHeader?.rts_no || "-"}</div>
+            </div>
+            <div>
+              <div className="text-slate-500">RTS Date</div>
+              <div className="font-medium">
+                {docHeader?.rts_date
+                  ? String(docHeader.rts_date).slice(0, 10)
+                  : "-"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Warehouse</div>
+              <div className="font-medium">
+                {docHeader?.warehouse_name || "-"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Department</div>
+              <div className="font-medium">
+                {docHeader?.department_name || "-"}
+              </div>
+            </div>
+          </div>
+          <div>
+            <div className="text-sm font-semibold mb-2">
+              Items ({docDetails.length})
+            </div>
+            {docLoading ? (
+              <div className="text-sm text-slate-500">Loading...</div>
+            ) : docDetails.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Item Code</th>
+                      <th>Item Name</th>
+                      <th>Qty returned</th>
+                      <th>Condition</th>
+                      <th>Batch/Serial</th>
+                      <th>Location</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {docDetails.map((d) => (
+                      <tr key={d.id}>
+                        <td>{d.item_code || d.item_id}</td>
+                        <td>{d.item_name || "-"}</td>
+                        <td>{Number(d.qty_returned || 0)}</td>
+                        <td>{d.condition || "-"}</td>
+                        <td>{d.batch_serial || "-"}</td>
+                        <td>{d.location || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-sm text-slate-500">No items found</div>
+            )}
+          </div>
+        </div>
+      );
+    }
+    if (docType === "STOCK_ADJUSTMENT") {
+      return (
+        <div className="mt-6 space-y-4">
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <div className="text-slate-500">Adjustment No</div>
+              <div className="font-medium">
+                {docHeader?.adjustment_no || "-"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Adjustment Date</div>
+              <div className="font-medium">
+                {docHeader?.adjustment_date
+                  ? String(docHeader.adjustment_date).slice(0, 10)
+                  : "-"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Type</div>
+              <div className="font-medium">
+                {docHeader?.adjustment_type || "-"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Warehouse</div>
+              <div className="font-medium">
+                {docHeader?.warehouse_name || docHeader?.warehouse_id || "-"}
+              </div>
+            </div>
+            <div className="col-span-2">
+              <div className="text-slate-500">Reason</div>
+              <div className="font-medium">{docHeader?.reason || "-"}</div>
+            </div>
+          </div>
+          <div>
+            <div className="text-sm font-semibold mb-2">
+              Items ({docDetails.length})
+            </div>
+            {docLoading ? (
+              <div className="text-sm text-slate-500">Loading...</div>
+            ) : docDetails.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Item Code</th>
+                      <th>Item Name</th>
+                      <th className="text-right">Current</th>
+                      <th className="text-right">Adjusted</th>
+                      <th className="text-right">Diff</th>
+                      <th>UOM</th>
+                      <th className="text-right">Unit Cost</th>
+                      <th>Remarks</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {docDetails.map((d) => {
+                      const current = Number(d.current_stock || 0);
+                      const adjusted = Number(d.adjusted_stock || 0);
+                      const diff = Number.isFinite(Number(d.qty))
+                        ? Number(d.qty)
+                        : adjusted - current;
+                      return (
+                        <tr key={d.id}>
+                          <td>{d.item_code || d.item_id}</td>
+                          <td>{d.item_name || "-"}</td>
+                          <td className="text-right">
+                            {Number(current || 0).toLocaleString()}
+                          </td>
+                          <td className="text-right">
+                            {Number(adjusted || 0).toLocaleString()}
+                          </td>
+                          <td className="text-right">
+                            {diff > 0 ? "+" : ""}
+                            {Number(diff || 0).toLocaleString()}
+                          </td>
+                          <td>{d.uom || "-"}</td>
+                          <td className="text-right">
+                            {Number(d.unit_cost || 0).toLocaleString("en-US", {
+                              minimumFractionDigits: 2,
+                            })}
+                          </td>
+                          <td>{d.remarks || "-"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-sm text-slate-500">No items found</div>
+            )}
+          </div>
+          {docHeader?.remarks && (
+            <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded text-sm">
+              <div className="text-slate-500">Remarks</div>
+              <div className="text-slate-700 dark:text-slate-300">
+                {docHeader.remarks}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+    return (
+      <div className="mt-6 p-4 bg-slate-50 dark:bg-slate-900/50 rounded border border-dashed border-slate-300 dark:border-slate-700 text-center text-slate-500 italic">
+        Document preview not implemented for {data.document_type}
+      </div>
+    );
+  };
+
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -301,799 +701,7 @@ export default function DocumentReview() {
               </div>
             </div>
 
-            {String(data.document_type || "").toUpperCase() ===
-            "MATERIAL_REQUISITION" ? (
-              <div className="mt-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <div className="text-slate-500">Requisition No</div>
-                    <div className="font-medium">
-                      {docHeader?.requisition_no || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Requisition Date</div>
-                    <div className="font-medium">
-                      {docHeader?.requisition_date || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Warehouse</div>
-                    <div className="font-medium">
-                      {docHeader?.warehouse_name || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Department</div>
-                    <div className="font-medium">
-                      {docHeader?.department_name || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Requested By</div>
-                    <div className="font-medium">
-                      {docHeader?.requested_by || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Status</div>
-                    <div className="font-medium">
-                      {docHeader?.status || "-"}
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm font-semibold mb-2">
-                    Items ({docDetails.length})
-                  </div>
-                  {docLoading ? (
-                    <div className="text-sm text-slate-500">Loading...</div>
-                  ) : docDetails.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="table">
-                        <thead>
-                          <tr>
-                            <th>Item Code</th>
-                            <th>Item Name</th>
-                            <th>Qty Requested</th>
-                            <th>UOM</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {docDetails.map((d) => (
-                            <tr key={d.id}>
-                              <td>{d.item_code || d.item_id}</td>
-                              <td>{d.item_name || "-"}</td>
-                              <td>{Number(d.qty_requested || 0)}</td>
-                              <td>{d.uom || "-"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-sm text-slate-500">No items found</div>
-                  )}
-                </div>
-                {docHeader?.remarks && (
-                  <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded text-sm">
-                    <div className="text-slate-500">Remarks</div>
-                    <div className="text-slate-700 dark:text-slate-300">
-                      {docHeader.remarks}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : String(data.document_type || "").toUpperCase() ===
-                "STOCK_ADJUSTMENT" ||
-              String(data.document_type || "").toUpperCase() ===
-                "STOCK ADJUSTMENT" ? (
-              <div className="mt-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <div className="text-slate-500">Adjustment No</div>
-                    <div className="font-medium">
-                      {docHeader?.adjustment_no || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Date</div>
-                    <div className="font-medium">
-                      {docHeader?.adjustment_date
-                        ? new Date(
-                            docHeader.adjustment_date,
-                          ).toLocaleDateString()
-                        : "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Type</div>
-                    <div className="font-medium">
-                      {docHeader?.adjustment_type || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Status</div>
-                    <div className="font-medium">
-                      {docHeader?.status || "-"}
-                    </div>
-                  </div>
-                  {docHeader?.warehouse_name && (
-                    <div>
-                      <div className="text-slate-500">Warehouse</div>
-                      <div className="font-medium">
-                        {docHeader.warehouse_name}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <div className="text-sm font-semibold mb-2">
-                    Items ({docDetails.length})
-                  </div>
-                  {docLoading ? (
-                    <div className="text-sm text-slate-500">Loading...</div>
-                  ) : docDetails.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="table">
-                        <thead>
-                          <tr>
-                            <th>Item Code</th>
-                            <th>Item Name</th>
-                            <th>Current Stock</th>
-                            <th>Adjusted Stock</th>
-                            <th>Difference</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {docDetails.map((d) => (
-                            <tr key={d.id}>
-                              <td>{d.item_code || d.item_id}</td>
-                              <td>{d.item_name || "-"}</td>
-                              <td>{Number(d.current_stock || 0)}</td>
-                              <td>{Number(d.adjusted_stock || 0)}</td>
-                              <td
-                                className={
-                                  Number(d.qty) < 0
-                                    ? "text-red-500"
-                                    : "text-green-500"
-                                }
-                              >
-                                {Number(d.qty) > 0 ? "+" : ""}
-                                {Number(d.qty)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-sm text-slate-500">No items found</div>
-                  )}
-                </div>
-                {docHeader?.reason && (
-                  <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded text-sm">
-                    <div className="text-slate-500">Reason</div>
-                    <div className="text-slate-700 dark:text-slate-300">
-                      {docHeader.reason}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : String(data.document_type || "").toUpperCase() ===
-                "PURCHASE_ORDER" ||
-              String(data.document_type || "").toUpperCase() ===
-                "PURCHASE ORDER" ? (
-              <div className="mt-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <div className="text-slate-500">PO No</div>
-                    <div className="font-medium">{docHeader?.po_no || "-"}</div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">PO Date</div>
-                    <div className="font-medium">
-                      {docHeader?.po_date
-                        ? new Date(docHeader.po_date).toLocaleDateString()
-                        : "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Order Type</div>
-                    <div className="font-medium">
-                      {docHeader?.po_type || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Supplier</div>
-                    <div className="font-medium">
-                      {docHeader?.supplier_name || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Status</div>
-                    <div className="font-medium">
-                      {docHeader?.status || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Total Amount</div>
-                    <div className="font-medium">
-                      {Number(docHeader?.total_amount || 0).toLocaleString(
-                        "en-US",
-                        { minimumFractionDigits: 2 },
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm font-semibold mb-2">
-                    Items ({docDetails.length})
-                  </div>
-                  {docLoading ? (
-                    <div className="text-sm text-slate-500">Loading...</div>
-                  ) : docDetails.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="table">
-                        <thead>
-                          <tr>
-                            <th>Item Code</th>
-                            <th>Item Name</th>
-                            <th>Qty</th>
-                            <th>Unit Price</th>
-                            <th>Line Total</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {docDetails.map((d) => (
-                            <tr key={d.id}>
-                              <td>{d.item_code || d.item_id}</td>
-                              <td>{d.item_name || "-"}</td>
-                              <td>{Number(d.qty || 0)}</td>
-                              <td>
-                                {Number(d.unit_price || 0).toLocaleString(
-                                  "en-US",
-                                  { minimumFractionDigits: 2 },
-                                )}
-                              </td>
-                              <td>
-                                {Number(d.line_total || 0).toLocaleString(
-                                  "en-US",
-                                  { minimumFractionDigits: 2 },
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-sm text-slate-500">No items found</div>
-                  )}
-                </div>
-              </div>
-            ) : String(data.document_type || "").toUpperCase() ===
-                "GOODS_RECEIPT" ||
-              String(data.document_type || "").toUpperCase() === "GRN" ||
-              String(data.document_type || "").toUpperCase() ===
-                "GOODS RECEIPT NOTE" ? (
-              <div className="mt-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <div className="text-slate-500">GRN No</div>
-                    <div className="font-medium">
-                      {docHeader?.grn_no || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">GRN Date</div>
-                    <div className="font-medium">
-                      {docHeader?.grn_date
-                        ? String(docHeader.grn_date).slice(0, 10)
-                        : "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Supplier</div>
-                    <div className="font-medium">
-                      {docHeader?.supplier_name || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Warehouse</div>
-                    <div className="font-medium">
-                      {docHeader?.warehouse_name || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Status</div>
-                    <div className="font-medium">
-                      {docHeader?.status || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Invoice No</div>
-                    <div className="font-medium">
-                      {docHeader?.invoice_no || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Invoice Date</div>
-                    <div className="font-medium">
-                      {docHeader?.invoice_date
-                        ? String(docHeader.invoice_date).slice(0, 10)
-                        : "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Invoice Amount</div>
-                    <div className="font-medium">
-                      {Number(docHeader?.invoice_amount || 0).toLocaleString(
-                        "en-US",
-                        { minimumFractionDigits: 2 },
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm font-semibold mb-2">
-                    Items ({docDetails.length})
-                  </div>
-                  {docLoading ? (
-                    <div className="text-sm text-slate-500">Loading...</div>
-                  ) : docDetails.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="table">
-                        <thead>
-                          <tr>
-                            <th>Item Code</th>
-                            <th>Item Name</th>
-                            <th>Qty Received</th>
-                            <th>Qty Accepted</th>
-                            <th>UOM</th>
-                            <th>Unit Price</th>
-                            <th>Line Amount</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {docDetails.map((d) => (
-                            <tr key={d.id}>
-                              <td>{d.item_code || d.item_id}</td>
-                              <td>{d.item_name || "-"}</td>
-                              <td>{Number(d.qty_received || 0)}</td>
-                              <td>{Number(d.qty_accepted || 0)}</td>
-                              <td>{d.uom || "-"}</td>
-                              <td>
-                                {Number(d.unit_price || 0).toLocaleString(
-                                  "en-US",
-                                  { minimumFractionDigits: 2 },
-                                )}
-                              </td>
-                              <td>
-                                {Number(d.line_amount || 0).toLocaleString(
-                                  "en-US",
-                                  { minimumFractionDigits: 2 },
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-sm text-slate-500">No items found</div>
-                  )}
-                </div>
-              </div>
-            ) : String(data.document_type || "").toUpperCase() ===
-                "PAYMENT_VOUCHER" ||
-              String(data.document_type || "").toUpperCase() ===
-                "PAYMENT VOUCHER" ||
-              String(data.document_type || "").toUpperCase() === "PV" ? (
-              <div className="mt-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <div className="text-slate-500">Voucher No</div>
-                    <div className="font-medium">
-                      {docHeader?.voucher_no || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Voucher Date</div>
-                    <div className="font-medium">
-                      {docHeader?.voucher_date
-                        ? String(docHeader.voucher_date).slice(0, 10)
-                        : "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Voucher Type</div>
-                    <div className="font-medium">
-                      {docHeader?.voucher_type_name || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Status</div>
-                    <div className="font-medium">
-                      {docHeader?.status || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Total Debit</div>
-                    <div className="font-medium">
-                      {Number(docHeader?.total_debit || 0).toLocaleString(
-                        "en-US",
-                        { minimumFractionDigits: 2 },
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Total Credit</div>
-                    <div className="font-medium">
-                      {Number(docHeader?.total_credit || 0).toLocaleString(
-                        "en-US",
-                        { minimumFractionDigits: 2 },
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm font-semibold mb-2">
-                    Lines ({docDetails.length})
-                  </div>
-                  {docLoading ? (
-                    <div className="text-sm text-slate-500">Loading...</div>
-                  ) : docDetails.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="table">
-                        <thead>
-                          <tr>
-                            <th>Account</th>
-                            <th>Description</th>
-                            <th className="text-right">Debit</th>
-                            <th className="text-right">Credit</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {docDetails.map((d) => (
-                            <tr key={d.id}>
-                              <td>
-                                {d.account_code} - {d.account_name}
-                              </td>
-                              <td>{d.description || "-"}</td>
-                              <td className="text-right">
-                                {Number(d.debit || 0).toLocaleString("en-US", {
-                                  minimumFractionDigits: 2,
-                                })}
-                              </td>
-                              <td className="text-right">
-                                {Number(d.credit || 0).toLocaleString("en-US", {
-                                  minimumFractionDigits: 2,
-                                })}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-sm text-slate-500">No lines found</div>
-                  )}
-                </div>
-              </div>
-            ) : String(data.document_type || "").toUpperCase() ===
-                "JOURNAL_VOUCHER" ||
-              String(data.document_type || "").toUpperCase() ===
-                "JOURNAL VOUCHER" ||
-              String(data.document_type || "").toUpperCase() === "JV" ? (
-              <div className="mt-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <div className="text-slate-500">Voucher No</div>
-                    <div className="font-medium">
-                      {docHeader?.voucher_no || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Voucher Date</div>
-                    <div className="font-medium">
-                      {docHeader?.voucher_date
-                        ? String(docHeader.voucher_date).slice(0, 10)
-                        : "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Voucher Type</div>
-                    <div className="font-medium">
-                      {docHeader?.voucher_type_name || "Journal Voucher"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Status</div>
-                    <div className="font-medium">
-                      {docHeader?.status || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Total Debit</div>
-                    <div className="font-medium">
-                      {Number(docHeader?.total_debit || 0).toLocaleString(
-                        "en-US",
-                        { minimumFractionDigits: 2 },
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Total Credit</div>
-                    <div className="font-medium">
-                      {Number(docHeader?.total_credit || 0).toLocaleString(
-                        "en-US",
-                        { minimumFractionDigits: 2 },
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm font-semibold mb-2">
-                    Lines ({docDetails.length})
-                  </div>
-                  {docLoading ? (
-                    <div className="text-sm text-slate-500">Loading...</div>
-                  ) : docDetails.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="table">
-                        <thead>
-                          <tr>
-                            <th>Account</th>
-                            <th>Description</th>
-                            <th className="text-right">Debit</th>
-                            <th className="text-right">Credit</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {docDetails.map((d) => (
-                            <tr key={d.id}>
-                              <td>
-                                {d.account_code} - {d.account_name}
-                              </td>
-                              <td>{d.description || "-"}</td>
-                              <td className="text-right">
-                                {Number(d.debit || 0).toLocaleString("en-US", {
-                                  minimumFractionDigits: 2,
-                                })}
-                              </td>
-                              <td className="text-right">
-                                {Number(d.credit || 0).toLocaleString("en-US", {
-                                  minimumFractionDigits: 2,
-                                })}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-sm text-slate-500">No lines found</div>
-                  )}
-                </div>
-              </div>
-            ) : String(data.document_type || "").toUpperCase() ===
-                "RECEIPT_VOUCHER" ||
-              String(data.document_type || "").toUpperCase() ===
-                "RECEIPT VOUCHER" ||
-              String(data.document_type || "").toUpperCase() === "RV" ? (
-              <div className="mt-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <div className="text-slate-500">Voucher No</div>
-                    <div className="font-medium">
-                      {docHeader?.voucher_no || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Voucher Date</div>
-                    <div className="font-medium">
-                      {docHeader?.voucher_date
-                        ? String(docHeader.voucher_date).slice(0, 10)
-                        : "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Voucher Type</div>
-                    <div className="font-medium">
-                      {docHeader?.voucher_type_name || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Status</div>
-                    <div className="font-medium">
-                      {docHeader?.status || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Total Debit</div>
-                    <div className="font-medium">
-                      {Number(docHeader?.total_debit || 0).toLocaleString(
-                        "en-US",
-                        { minimumFractionDigits: 2 },
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Total Credit</div>
-                    <div className="font-medium">
-                      {Number(docHeader?.total_credit || 0).toLocaleString(
-                        "en-US",
-                        { minimumFractionDigits: 2 },
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm font-semibold mb-2">
-                    Lines ({docDetails.length})
-                  </div>
-                  {docLoading ? (
-                    <div className="text-sm text-slate-500">Loading...</div>
-                  ) : docDetails.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="table">
-                        <thead>
-                          <tr>
-                            <th>Account</th>
-                            <th>Description</th>
-                            <th className="text-right">Debit</th>
-                            <th className="text-right">Credit</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {docDetails.map((d) => (
-                            <tr key={d.id}>
-                              <td>
-                                {d.account_code} - {d.account_name}
-                              </td>
-                              <td>{d.description || "-"}</td>
-                              <td className="text-right">
-                                {Number(d.debit || 0).toLocaleString("en-US", {
-                                  minimumFractionDigits: 2,
-                                })}
-                              </td>
-                              <td className="text-right">
-                                {Number(d.credit || 0).toLocaleString("en-US", {
-                                  minimumFractionDigits: 2,
-                                })}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-sm text-slate-500">No lines found</div>
-                  )}
-                </div>
-              </div>
-            ) : String(data.document_type || "").toUpperCase() ===
-                "SALES_ORDER" ||
-              String(data.document_type || "").toUpperCase() ===
-                "SALES ORDER" ? (
-              <div className="mt-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <div className="text-slate-500">Order No</div>
-                    <div className="font-medium">
-                      {docHeader?.order_no || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Order Date</div>
-                    <div className="font-medium">
-                      {docHeader?.order_date
-                        ? new Date(docHeader.order_date).toLocaleDateString()
-                        : "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Customer ID</div>
-                    <div className="font-medium">
-                      {docHeader?.customer_id || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Price Type</div>
-                    <div className="font-medium">
-                      {docHeader?.price_type || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Payment Type</div>
-                    <div className="font-medium">
-                      {docHeader?.payment_type || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Status</div>
-                    <div className="font-medium">
-                      {docHeader?.status || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">Total Amount</div>
-                    <div className="font-medium">
-                      {Number(docHeader?.total_amount || 0).toLocaleString(
-                        "en-US",
-                        { minimumFractionDigits: 2 },
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm font-semibold mb-2">
-                    Items ({docDetails.length})
-                  </div>
-                  {docLoading ? (
-                    <div className="text-sm text-slate-500">Loading...</div>
-                  ) : docDetails.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="table">
-                        <thead>
-                          <tr>
-                            <th>Item ID</th>
-                            <th>Qty</th>
-                            <th>Unit Price</th>
-                            <th>Tax Amount</th>
-                            <th>Line Total</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {docDetails.map((d) => (
-                            <tr key={d.id}>
-                              <td>{d.item_id}</td>
-                              <td>{Number(d.quantity || 0)}</td>
-                              <td>
-                                {Number(d.unit_price || 0).toLocaleString(
-                                  "en-US",
-                                  { minimumFractionDigits: 2 },
-                                )}
-                              </td>
-                              <td>
-                                {Number(d.tax_amount || 0).toLocaleString(
-                                  "en-US",
-                                  { minimumFractionDigits: 2 },
-                                )}
-                              </td>
-                              <td>
-                                {Number(d.total_amount || 0).toLocaleString(
-                                  "en-US",
-                                  { minimumFractionDigits: 2 },
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-sm text-slate-500">No items found</div>
-                  )}
-                </div>
-                {docHeader?.remarks && (
-                  <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded text-sm">
-                    <div className="text-slate-500">Remarks</div>
-                    <div className="text-slate-700 dark:text-slate-300">
-                      {docHeader.remarks}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="mt-6 p-4 bg-slate-50 dark:bg-slate-900/50 rounded border border-slate-100 dark:border-slate-800 text-center text-slate-500">
-                <p>Document Preview Not Available</p>
-                <p className="text-xs mt-1">
-                  {`(${data.document_type} preview not implemented)`}
-                </p>
-              </div>
-            )}
+            {renderPreview()}
           </div>
 
           <div className="bg-white dark:bg-slate-800 rounded-lg shadow-erp border border-slate-200 dark:border-slate-700 p-6">

@@ -10,6 +10,7 @@ import { requirePermission } from "../middleware/requirePermission.js";
 import { pool, query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import * as posController from "../controllers/pos.controller.js";
+import { consumeStockFIFOTx } from "../services/stock.service.js";
 import multer from "multer";
 
 const router = express.Router();
@@ -552,6 +553,11 @@ async function ensurePosTables() {
   if (!(await hasColumn("pos_terminals", "warehouse"))) {
     await query(
       "ALTER TABLE pos_terminals ADD COLUMN warehouse VARCHAR(150) NULL",
+    );
+  }
+  if (!(await hasColumn("pos_terminals", "warehouse_id"))) {
+    await query(
+      "ALTER TABLE pos_terminals ADD COLUMN warehouse_id BIGINT UNSIGNED NULL",
     );
   }
   if (!(await hasColumn("pos_terminals", "counter_no"))) {
@@ -1838,14 +1844,16 @@ router.post(
       const finalStatus = st === "DRAFT" ? "DRAFT" : "COMPLETED";
 
       let terminalIdValue = null;
+      let terminalWarehouseId = null;
       if (terminal) {
         const [tRows] = await conn.execute(
-          `SELECT id FROM pos_terminals 
+          `SELECT id, warehouse_id FROM pos_terminals 
            WHERE company_id = :companyId AND branch_id = :branchId AND code = :code 
            LIMIT 1`,
           { companyId, branchId, code: String(terminal || "") },
         );
         terminalIdValue = Number(tRows?.[0]?.id || 0) || null;
+        terminalWarehouseId = Number(tRows?.[0]?.warehouse_id || 0) || null;
       }
       const [saleResult] = await conn.execute(
         `INSERT INTO pos_sales 
@@ -1890,18 +1898,17 @@ router.post(
         );
         const itemId = Number(it?.item_id || 0);
         if (itemId && qty > 0 && finalStatus === "COMPLETED") {
-          await conn.execute(
-            `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
-             VALUES (:companyId, :branchId, :warehouseId, :itemId, :qty)
-             ON DUPLICATE KEY UPDATE qty = qty + :qty`,
-            {
-              companyId,
-              branchId,
-              warehouseId: null,
-              itemId,
-              qty: -qty,
-            },
-          );
+          // Consume stock using FIFO via StockService
+          await consumeStockFIFOTx(conn, {
+            companyId,
+            branchId,
+            warehouseId: terminalWarehouseId, // Use terminal-specific warehouse
+            itemId,
+            transactionType: "POS_SALE",
+            qtyToConsume: qty,
+            sourceRef: receipt_no,
+            createdBy: createdBy,
+          });
         }
       }
 

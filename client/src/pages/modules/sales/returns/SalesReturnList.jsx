@@ -537,14 +537,14 @@ export default function SalesReturnList() {
                             Approved
                           </span>
                         ) : r.forwarded_to_username ? (
-                          <span className="text-xs font-medium px-2 py-1 rounded bg-amber-500 text-white">
+                          <span className="text-xs font-medium px-2 py-1 rounded bg-amber-500 text-white whitespace-nowrap inline-flex items-center">
                             Forwarded to {r.forwarded_to_username}
                           </span>
                         ) : (
                           <button
                             type="button"
                             onClick={() => openForwardModal(r)}
-                            className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700"
+                            className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 whitespace-nowrap inline-flex items-center"
                             disabled={
                               submittingForward ||
                               r.status === "PENDING" ||

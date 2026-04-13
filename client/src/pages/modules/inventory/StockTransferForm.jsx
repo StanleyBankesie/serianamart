@@ -39,12 +39,70 @@ export default function StockTransferForm() {
       item_id: "",
       itemCode: "",
       itemName: "",
-      qty: 0,
+      qty: "",
       uom: "PCS",
       batchNumber: "",
+      availableQty: "",
+      batchOptions: [],
       remarks: "",
     },
   ]);
+
+  const getEffectiveFromWarehouseId = () => {
+    if (formData.transferType === "INTER_WAREHOUSE") {
+      return Number(formData.fromBranchId) || 0;
+    }
+    return Number(formData.fromWarehouseId) || 0;
+  };
+
+  const refreshRowBatchOptions = async (rowId, itemId) => {
+    const wid = getEffectiveFromWarehouseId();
+    const iid = itemId ? Number(itemId) : 0;
+    if (!wid || !iid) {
+      setItems((prev) =>
+        prev.map((r) =>
+          r.id === rowId ? { ...r, batchOptions: [], availableQty: "" } : r,
+        ),
+      );
+      return;
+    }
+    try {
+      const res = await api.get("/inventory/batch-options", {
+        params: { item_id: iid, warehouse_id: wid },
+      });
+      const opts = Array.isArray(res.data?.items) ? res.data.items : [];
+      setItems((prev) =>
+        prev.map((r) => {
+          if (r.id !== rowId) return r;
+          const selectedBatch = (opts || []).find(
+            (x) => String(x.batch_no) === String(r.batchNumber || ""),
+          );
+          return {
+            ...r,
+            batchOptions: opts,
+            availableQty: selectedBatch ? Number(selectedBatch.qty || 0) : "",
+          };
+        }),
+      );
+    } catch {
+      setItems((prev) =>
+        prev.map((r) => (r.id === rowId ? { ...r, batchOptions: [] } : r)),
+      );
+    }
+  };
+
+  useEffect(() => {
+    const wid = getEffectiveFromWarehouseId();
+    if (!wid) return;
+    const snapshot = Array.isArray(items) ? items : [];
+    const rows = snapshot.filter((r) => r.item_id);
+    if (!rows.length) return;
+    (async () => {
+      for (const r of rows) {
+        await refreshRowBatchOptions(r.id, r.item_id);
+      }
+    })();
+  }, [formData.transferType, formData.fromBranchId, formData.fromWarehouseId]);
 
   useEffect(() => {
     let mounted = true;
@@ -59,15 +117,17 @@ export default function StockTransferForm() {
 
         if (mounted) {
           setAvailableItems(
-            Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : []
+            Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : [],
           );
           setBranches(
-            Array.isArray(branchesRes.data?.items) ? branchesRes.data.items : []
+            Array.isArray(branchesRes.data?.items)
+              ? branchesRes.data.items
+              : [],
           );
           setWarehouses(
             Array.isArray(warehousesRes.data?.items)
               ? warehousesRes.data.items
-              : []
+              : [],
           );
         }
       } catch (e) {
@@ -128,12 +188,18 @@ export default function StockTransferForm() {
               ? t.transfer_date.split("T")[0]
               : new Date(t.transfer_date).toISOString().split("T")[0]
             : new Date().toISOString().split("T")[0],
-          transferType: t.transfer_type || "INTER_WAREHOUSE",
+          transferType: String(
+            t.transfer_type || "INTER_WAREHOUSE",
+          ).toUpperCase(),
           deliveryDate: t.delivery_date ? t.delivery_date.split("T")[0] : "",
           driverName: t.driver_name || "",
           vehicleNo: t.vehicle_no || "",
           fromBranchId: t.from_branch_id ? String(t.from_branch_id) : "",
           toBranchId: t.to_branch_id ? String(t.to_branch_id) : "",
+          fromWarehouseId: t.from_warehouse_id
+            ? String(t.from_warehouse_id)
+            : "",
+          toWarehouseId: t.to_warehouse_id ? String(t.to_warehouse_id) : "",
           remarks: t.remarks || "",
           status: t.status || "DRAFT",
         });
@@ -145,9 +211,11 @@ export default function StockTransferForm() {
                 item_id: d.item_id ? String(d.item_id) : "",
                 itemCode: d.item_code || "",
                 itemName: d.item_name || "",
-                qty: Number(d.qty) || 0,
+                qty: Number(d.qty) || "",
                 uom: d.uom || "PCS",
                 batchNumber: d.batch_number || "",
+                availableQty: "",
+                batchOptions: [],
                 remarks: d.remarks || "",
               }))
             : [
@@ -156,12 +224,14 @@ export default function StockTransferForm() {
                   item_id: "",
                   itemCode: "",
                   itemName: "",
-                  qty: 0,
+                  qty: "",
                   uom: "PCS",
+                  availableQty: "",
+                  batchOptions: [],
                   batchNumber: "",
                   remarks: "",
                 },
-              ]
+              ],
         );
       })
       .catch((e) => {
@@ -236,13 +306,13 @@ export default function StockTransferForm() {
 
   useEffect(() => {
     setFormData((prev) =>
-      String(prev.fromBranchId) ? prev : { ...prev, fromWarehouseId: "" }
+      String(prev.fromBranchId) ? prev : { ...prev, fromWarehouseId: "" },
     );
   }, [formData.fromBranchId]);
 
   useEffect(() => {
     setFormData((prev) =>
-      String(prev.toBranchId) ? prev : { ...prev, toWarehouseId: "" }
+      String(prev.toBranchId) ? prev : { ...prev, toWarehouseId: "" },
     );
   }, [formData.toBranchId]);
 
@@ -251,7 +321,7 @@ export default function StockTransferForm() {
       .filter((r) => r.item_id)
       .map((r) => ({
         item_id: Number(r.item_id),
-        qty: Number(r.qty) || 0,
+        qty: Number(r.qty) || "",
         batch_number: r.batchNumber,
         remarks: r.remarks,
       }));
@@ -278,10 +348,10 @@ export default function StockTransferForm() {
 
       if (isInterWarehouse) {
         const fromWh = warehouses.find(
-          (w) => String(w.id) === String(fromWarehouseIdIW)
+          (w) => String(w.id) === String(fromWarehouseIdIW),
         );
         const toWh = warehouses.find(
-          (w) => String(w.id) === String(toWarehouseIdIW)
+          (w) => String(w.id) === String(toWarehouseIdIW),
         );
         fromBranchIdNum =
           fromWh && fromWh.branch_id
@@ -294,7 +364,9 @@ export default function StockTransferForm() {
       const payload = {
         transfer_no: isNew ? undefined : formData.transferNo,
         transfer_date: formData.transferDate,
-        transfer_type: formData.transferType,
+        transfer_type: String(
+          formData.transferType || "INTER_WAREHOUSE",
+        ).toUpperCase(),
         delivery_date: formData.deliveryDate,
         driver_name: formData.driverName || null,
         vehicle_no: formData.vehicleNo || null,
@@ -302,7 +374,7 @@ export default function StockTransferForm() {
         to_branch_id: toBranchIdNum,
         from_warehouse_id: fromWarehouseIdIW,
         to_warehouse_id: toWarehouseIdIW,
-        status: formData.status,
+        status: "DRAFT",
         remarks: formData.remarks,
         details: normalizedDetails,
       };
@@ -329,9 +401,11 @@ export default function StockTransferForm() {
         item_id: "",
         itemCode: "",
         itemName: "",
-        qty: 0,
+        qty: "",
         uom: "PCS",
         batchNumber: "",
+        availableQty: "",
+        batchOptions: [],
         remarks: "",
       },
     ]);
@@ -415,21 +489,6 @@ export default function StockTransferForm() {
                 >
                   <option value="INTER_WAREHOUSE">Inter-Warehouse</option>
                   <option value="INTER_BRANCH">Inter-Branch</option>
-                </select>
-              </div>
-              <div>
-                <label className="label">Status</label>
-                <select
-                  className="input"
-                  value={formData.status}
-                  onChange={(e) =>
-                    setFormData({ ...formData, status: e.target.value })
-                  }
-                >
-                  <option value="DRAFT">DRAFT</option>
-                  <option value="IN_TRANSIT">IN TRANSIT</option>
-                  <option value="RECEIVED">RECEIVED</option>
-                  <option value="CANCELLED">CANCELLED</option>
                 </select>
               </div>
             </div>
@@ -620,7 +679,7 @@ export default function StockTransferForm() {
                       (
                         fromBranchWarehouses.find(
                           (w) =>
-                            String(w.id) === String(formData.fromWarehouseId)
+                            String(w.id) === String(formData.fromWarehouseId),
                         ) || { warehouse_name: "" }
                       ).warehouse_name
                     }
@@ -660,7 +719,8 @@ export default function StockTransferForm() {
                     {
                       (
                         toBranchWarehouses.find(
-                          (w) => String(w.id) === String(formData.toWarehouseId)
+                          (w) =>
+                            String(w.id) === String(formData.toWarehouseId),
                         ) || { warehouse_name: "" }
                       ).warehouse_name
                     }
@@ -700,11 +760,11 @@ export default function StockTransferForm() {
                 <table className="table">
                   <thead>
                     <tr>
-                      <th className="w-1/4 min-w-[200px]">Item Code</th>
-                      <th className="w-1/4 min-w-[200px]">Item Name</th>
+                      <th className="w-1/2 min-w-[300px]">Item Name</th>
+                      <th className="w-48 min-w-[180px]">Batch No</th>
+                      <th className="w-36 min-w-[140px]">Available Qty</th>
                       <th className="w-32 min-w-[120px]">Qty</th>
                       <th className="w-32 min-w-[120px]">UOM</th>
-                      <th className="w-48 min-w-[180px]">Batch No</th>
                       <th className="w-64 min-w-[250px]">Remarks</th>
                       <th className="w-16"></th>
                     </tr>
@@ -719,38 +779,74 @@ export default function StockTransferForm() {
                             onChange={(e) => {
                               const selectedId = e.target.value;
                               const selected = availableItems.find(
-                                (ai) => String(ai.id) === String(selectedId)
+                                (ai) => String(ai.id) === String(selectedId),
                               );
-                              const updated = items.map((i) =>
-                                i.id === item.id
-                                  ? {
-                                      ...i,
-                                      item_id: selectedId,
-                                      itemCode: selected?.item_code || "",
-                                      itemName: selected?.item_name || "",
-                                    }
-                                  : i
+                              setItems((prev) =>
+                                prev.map((i) =>
+                                  i.id === item.id
+                                    ? {
+                                        ...i,
+                                        item_id: selectedId,
+                                        itemCode: selected?.item_code || "",
+                                        itemName: selected?.item_name || "",
+                                        uom: selected?.uom || "PCS",
+                                        batchNumber: "",
+                                        availableQty: "",
+                                      }
+                                    : i,
+                                ),
                               );
-                              setItems(updated);
+                              refreshRowBatchOptions(item.id, selectedId);
                             }}
                             required
                           >
-                            <option value="">Select Item</option>
+                            <option value="">Select Item Name</option>
                             {availableItems.map((ai) => (
                               <option key={ai.id} value={ai.id}>
-                                {(ai.item_code || ai.id) +
-                                  " - " +
-                                  (ai.item_name || "")}
+                                {ai.item_name || ai.id}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <select
+                            className="input"
+                            value={item.batchNumber}
+                            onChange={(e) => {
+                              const batchNo = e.target.value;
+                              const opt = (item.batchOptions || []).find(
+                                (x) => String(x.batch_no) === String(batchNo),
+                              );
+                              const availableQty = opt
+                                ? Number(opt.qty ?? 0)
+                                : "";
+                              setItems((prev) =>
+                                prev.map((i) =>
+                                  i.id === item.id
+                                    ? {
+                                        ...i,
+                                        batchNumber: batchNo,
+                                        availableQty,
+                                      }
+                                    : i,
+                                ),
+                              );
+                            }}
+                          >
+                            <option value="">Select Batch (Optional)</option>
+                            {(item.batchOptions || []).map((b) => (
+                              <option key={b.batch_no} value={b.batch_no}>
+                                {b.batch_no}
                               </option>
                             ))}
                           </select>
                         </td>
                         <td>
                           <input
-                            type="text"
-                            className="input"
-                            value={item.itemName}
-                            disabled
+                            type="number"
+                            className="input bg-slate-50 dark:bg-slate-700/40"
+                            value={item.availableQty}
+                            readOnly
                           />
                         </td>
                         <td>
@@ -765,7 +861,7 @@ export default function StockTransferForm() {
                                       ...i,
                                       qty: parseFloat(e.target.value) || 0,
                                     }
-                                  : i
+                                  : i,
                               );
                               setItems(updated);
                             }}
@@ -781,7 +877,7 @@ export default function StockTransferForm() {
                               const updated = items.map((i) =>
                                 i.id === item.id
                                   ? { ...i, uom: e.target.value }
-                                  : i
+                                  : i,
                               );
                               setItems(updated);
                             }}
@@ -801,28 +897,12 @@ export default function StockTransferForm() {
                           <input
                             type="text"
                             className="input"
-                            value={item.batchNumber}
-                            onChange={(e) => {
-                              const updated = items.map((i) =>
-                                i.id === item.id
-                                  ? { ...i, batchNumber: e.target.value }
-                                  : i
-                              );
-                              setItems(updated);
-                            }}
-                            placeholder="Optional"
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="text"
-                            className="input"
                             value={item.remarks}
                             onChange={(e) => {
                               const updated = items.map((i) =>
                                 i.id === item.id
                                   ? { ...i, remarks: e.target.value }
-                                  : i
+                                  : i,
                               );
                               setItems(updated);
                             }}

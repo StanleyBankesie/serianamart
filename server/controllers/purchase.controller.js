@@ -554,6 +554,16 @@ export const listShippingAdvices = async (req, res, next) => {
   try {
     const { companyId, branchId } = req.scope;
     const { status, po_type } = req.query;
+    if (!(await hasColumn("pur_shipping_advices", "is_active"))) {
+      await query(
+        "ALTER TABLE pur_shipping_advices ADD COLUMN is_active ENUM('Y','N') NOT NULL DEFAULT 'Y'",
+      ).catch(() => {});
+    }
+    if (!(await hasColumn("pur_shipping_advices", "deleted_at"))) {
+      await query(
+        "ALTER TABLE pur_shipping_advices ADD COLUMN deleted_at DATETIME NULL",
+      ).catch(() => {});
+    }
     let sql = `SELECT sa.*, s.supplier_name, p.po_no, p.po_type,
          EXISTS(
            SELECT 1 FROM pur_port_clearances pc
@@ -565,7 +575,8 @@ export const listShippingAdvices = async (req, res, next) => {
          FROM pur_shipping_advices sa
          JOIN pur_suppliers s ON s.id = sa.supplier_id
          JOIN pur_orders p ON p.id = sa.po_id
-         WHERE sa.company_id = :companyId AND sa.branch_id = :branchId`;
+         WHERE sa.company_id = :companyId AND sa.branch_id = :branchId
+           AND COALESCE(sa.is_active,'Y') = 'Y'`;
     if (status) sql += ` AND sa.status = :status`;
     if (po_type) sql += ` AND p.po_type = :po_type`;
     sql += ` ORDER BY sa.advice_date DESC, sa.id DESC`;
@@ -765,6 +776,16 @@ export const listPortClearances = async (req, res, next) => {
   try {
     const { companyId, branchId } = req.scope;
     const { status } = req.query;
+    if (!(await hasColumn("pur_port_clearances", "is_active"))) {
+      await query(
+        "ALTER TABLE pur_port_clearances ADD COLUMN is_active ENUM('Y','N') NOT NULL DEFAULT 'Y'",
+      ).catch(() => {});
+    }
+    if (!(await hasColumn("pur_port_clearances", "deleted_at"))) {
+      await query(
+        "ALTER TABLE pur_port_clearances ADD COLUMN deleted_at DATETIME NULL",
+      ).catch(() => {});
+    }
     let sql = `SELECT pc.*, sa.advice_no, p.po_no, s.supplier_name,
          EXISTS(
            SELECT 1 FROM inv_goods_receipt_notes g
@@ -777,7 +798,8 @@ export const listPortClearances = async (req, res, next) => {
          LEFT JOIN pur_shipping_advices sa ON sa.id = pc.advice_id
          LEFT JOIN pur_orders p ON p.id = sa.po_id
          LEFT JOIN pur_suppliers s ON s.id = sa.supplier_id
-         WHERE pc.company_id = :companyId AND pc.branch_id = :branchId`;
+         WHERE pc.company_id = :companyId AND pc.branch_id = :branchId
+           AND COALESCE(pc.is_active,'Y') = 'Y'`;
     if (status) sql += ` AND pc.status = :status`;
     sql += ` ORDER BY pc.clearance_date DESC, pc.id DESC`;
     const rows = await query(sql, { companyId, branchId, status });

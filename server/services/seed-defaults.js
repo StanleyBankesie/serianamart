@@ -29,8 +29,8 @@ const DEFAULT_INVOICE_TEMPLATE = `<html lang="en">
       font-family: var(--font-body);
       color: var(--text);
       background: #e8e8e8;
-      font-size: 22px;
-      line-height: 1.5;
+      font-size: 11px;
+      line-height: 1.4;
     }
 
     .page-wrap {
@@ -416,14 +416,14 @@ const DEFAULT_INVOICE_TEMPLATE = `<html lang="en">
     <table class="items-table">
       <thead>
         <tr>
-          <th class="center" style="width:40px">Sr.<br />No.</th>
-          <th class="left" style="width:100px">Product<br />Code</th>
+          <th class="center">Sr.<br />No.</th>
+          <th class="left">Product<br />Code</th>
           <th class="left">Product Description</th>
-          <th class="right" style="width:52px">Qty</th>
-          <th class="right" style="width:72px">Price</th>
-          <th class="right" style="width:72px">Discount</th>
-          <th class="right" style="width:60px">Tax</th>
-          <th class="right" style="width:80px">Value</th>
+          <th class="right">Qty</th>
+          <th class="right">Price</th>
+          <th class="right">Discount</th>
+          <th class="right">Tax</th>
+          <th class="right">Value</th>
         </tr>
       </thead>
       <tbody>
@@ -530,8 +530,8 @@ const DEFAULT_SALES_ORDER_TEMPLATE = `<html lang="en">
       font-family: var(--font-body);
       color: var(--text);
       background: #e8e8e8;
-      font-size: 22px;
-      line-height: 1.5;
+      font-size: 11px;
+      line-height: 1.4;
     }
 
     .page-wrap {
@@ -685,6 +685,14 @@ const DEFAULT_SALES_ORDER_TEMPLATE = `<html lang="en">
     .items-table thead th.left { text-align: left; }
     .items-table thead th.right { text-align: right; }
     .items-table thead th.center { text-align: center; }
+
+    .items-table th:nth-child(1) { width: 30px; }
+    .items-table th:nth-child(2) { width: 80px; }
+    .items-table th:nth-child(4) { width: 45px; }
+    .items-table th:nth-child(5) { width: 65px; }
+    .items-table th:nth-child(6) { width: 65px; }
+    .items-table th:nth-child(7) { width: 55px; }
+    .items-table th:nth-child(8) { width: 75px; }
 
     .items-table tbody td {
       padding: 9px 8px;
@@ -917,14 +925,14 @@ const DEFAULT_SALES_ORDER_TEMPLATE = `<html lang="en">
     <table class="items-table">
       <thead>
         <tr>
-          <th class="center" style="width:40px">Sr.<br />No.</th>
-          <th class="left" style="width:100px">Product<br />Code</th>
+          <th class="center">Sr.<br />No.</th>
+          <th class="left">Product<br />Code</th>
           <th class="left">Product Description</th>
-          <th class="right" style="width:52px">Qty</th>
-          <th class="right" style="width:72px">Price</th>
-          <th class="right" style="width:72px">Discount</th>
-          <th class="right" style="width:60px">Tax</th>
-          <th class="right" style="width:80px">Value</th>
+          <th class="right">Qty</th>
+          <th class="right">Price</th>
+          <th class="right">Discount</th>
+          <th class="right">Tax</th>
+          <th class="right">Value</th>
         </tr>
       </thead>
       <tbody>
@@ -1058,7 +1066,7 @@ export async function seedDefaultTemplates() {
              WHERE id = ?`,
             [template, name, existing.id],
           ).catch(() => {});
-          console.log(`✅ Default ${type} template updated`);
+          // console.log(`✅ Default ${type} template updated`);
         } else {
           // Create new template
           await query(
@@ -1067,7 +1075,7 @@ export async function seedDefaultTemplates() {
              VALUES (0, 1, ?, ?, ?, 1, 1)`,
             [name, type, template],
           ).catch(() => {});
-          console.log(`✅ Default ${type} template created`);
+          // console.log(`✅ Default ${type} template created`);
         }
       } catch (err) {
         console.error(`⚠️ Error seeding ${type} template:`, err.message);

@@ -12,6 +12,7 @@ import {
 import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { updateItemAverageCostTx } from "../services/costing.service.js";
+import { recordMovementTx } from "../services/stock.service.js";
 import {
   listServiceConfirmations,
   getServiceConfirmationById,
@@ -123,6 +124,47 @@ async function ensureGrnUomConversionColumns() {
     await pool.query(
       "ALTER TABLE inv_goods_receipt_note_details ADD COLUMN input_qty DECIMAL(18,3) NULL",
     );
+  }
+}
+
+async function ensureGrnMfgExpColumns() {
+  if (!(await hasColumn("inv_goods_receipt_note_details", "mfg_date"))) {
+    await pool
+      .query(
+        "ALTER TABLE inv_goods_receipt_note_details ADD COLUMN mfg_date DATE NULL",
+      )
+      .catch(() => {});
+  }
+  if (!(await hasColumn("inv_goods_receipt_note_details", "exp_date"))) {
+    await pool
+      .query(
+        "ALTER TABLE inv_goods_receipt_note_details ADD COLUMN exp_date DATE NULL",
+      )
+      .catch(() => {});
+  }
+}
+
+async function ensureDirectPurchaseDtlMfgExpColumns() {
+  if (!(await hasColumn("pur_direct_purchase_dtl", "mfg_date"))) {
+    await pool
+      .query(
+        "ALTER TABLE pur_direct_purchase_dtl ADD COLUMN mfg_date DATE NULL",
+      )
+      .catch(() => {});
+  }
+  if (!(await hasColumn("pur_direct_purchase_dtl", "exp_date"))) {
+    await pool
+      .query(
+        "ALTER TABLE pur_direct_purchase_dtl ADD COLUMN exp_date DATE NULL",
+      )
+      .catch(() => {});
+  }
+  if (!(await hasColumn("pur_direct_purchase_dtl", "batch_no"))) {
+    await pool
+      .query(
+        "ALTER TABLE pur_direct_purchase_dtl ADD COLUMN batch_no VARCHAR(100) NULL",
+      )
+      .catch(() => {});
   }
 }
 
@@ -1064,6 +1106,7 @@ router.get(
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       await ensureDirectPurchaseTables();
       await ensureDirectPurchasePaymentTypeColumn();
+      await ensureDirectPurchaseDtlMfgExpColumns();
       const [hdrRows] = await pool.execute(
         `SELECT h.*, s.supplier_name
            FROM pur_direct_purchase_hdr h
@@ -1196,6 +1239,15 @@ router.put(
           taxPercent,
           lineTotal,
           uom: String(d.uom || "PCS"),
+          batchNo: d.batch_no ? String(d.batch_no).trim() : null,
+          mfgDate:
+            d.mfg_date && String(d.mfg_date).length
+              ? normalizeYmd(d.mfg_date)
+              : null,
+          expDate:
+            d.exp_date && String(d.exp_date).length
+              ? normalizeYmd(d.exp_date)
+              : null,
         });
       }
       const netAmount =
@@ -1234,10 +1286,22 @@ router.put(
       for (const d of cleanDetails) {
         await conn.execute(
           `INSERT INTO pur_direct_purchase_dtl
-            (hdr_id, item_id, qty, uom, unit_price, discount_percent, tax_percent, line_total)
+            (hdr_id, item_id, qty, uom, unit_price, discount_percent, tax_percent, line_total, mfg_date, exp_date, batch_no)
            VALUES
-            (:hdrId, :itemId, :qty, :uom, :unitPrice, :discountPercent, :taxPercent, :lineTotal)`,
-          { hdrId: id, ...d },
+            (:hdrId, :itemId, :qty, :uom, :unitPrice, :discountPercent, :taxPercent, :lineTotal, :mfgDate, :expDate, :batchNo)`,
+          {
+            hdrId: id,
+            itemId: d.itemId,
+            qty: d.qty,
+            uom: d.uom,
+            unitPrice: d.unitPrice,
+            discountPercent: d.discountPercent,
+            taxPercent: d.taxPercent,
+            lineTotal: d.lineTotal,
+            mfgDate: d.mfgDate || null,
+            expDate: d.expDate || null,
+            batchNo: d.batchNo || null,
+          },
         );
       }
       if (status === "DRAFT") {
@@ -1272,12 +1336,21 @@ router.put(
         },
       );
       const grnId = Number(grnHdr.insertId);
+      await ensureGrnBatchNoColumn();
+      await ensureItemBatchTables();
+      let lineIdx = 0;
       for (const d of cleanDetails) {
+        lineIdx += 1;
+        const batchNo =
+          (Array.isArray(details) &&
+            details[lineIdx - 1] &&
+            details[lineIdx - 1].batch_no) ||
+          `${String(grnNo)}-${String(lineIdx).padStart(2, "0")}`;
         await conn.execute(
           `INSERT INTO inv_goods_receipt_note_details
-           (grn_id, item_id, qty_ordered, qty_received, qty_accepted, qty_rejected, uom, unit_price, line_amount)
+           (grn_id, item_id, qty_ordered, qty_received, qty_accepted, qty_rejected, uom, unit_price, line_amount, batch_no)
            VALUES
-           (:grnId, :itemId, :qty, :qty, :qty, 0, :uom, :unitPrice, :lineTotal)`,
+           (:grnId, :itemId, :qty, :qty, :qty, 0, :uom, :unitPrice, :lineTotal, :batchNo)`,
           {
             grnId,
             itemId: d.itemId,
@@ -1285,6 +1358,7 @@ router.put(
             uom: d.uom,
             unitPrice: d.unitPrice,
             lineTotal: d.lineTotal,
+            batchNo,
           },
         );
         await updateItemAverageCostTx(conn, {
@@ -1295,6 +1369,89 @@ router.put(
           purchaseQty: d.qty,
           purchaseUnitCost: d.unitPrice,
         });
+        // Upsert batch
+        const [ex] = await conn.execute(
+          `
+          SELECT id FROM inv_item_batches
+           WHERE company_id = :companyId AND branch_id = :branchId
+             AND item_id = :itemId AND batch_no = :batchNo
+           LIMIT 1
+          `,
+          {
+            companyId,
+            branchId,
+            itemId: d.itemId,
+            batchNo,
+          },
+        );
+        let batchId = null;
+        if (Array.isArray(ex) && ex.length) {
+          batchId = ex[0].id;
+          await conn.execute(
+            `UPDATE inv_item_batches SET qty = qty + :addQty, cost = :cost, source_type = 'DIRECT_PURCHASE', source_id = :srcId, source_date = :srcDate, updated_at = NOW() WHERE id = :id`,
+            {
+              addQty: d.qty,
+              cost: d.unitPrice,
+              srcId: grnId,
+              srcDate: dpDateYmd,
+              id: batchId,
+            },
+          );
+        } else {
+          const [insB] = await conn.execute(
+            `
+            INSERT INTO inv_item_batches
+              (company_id, branch_id, item_id, batch_no, expiry_date, cost, qty, source_type, source_id, source_date)
+            VALUES
+              (:companyId, :branchId, :itemId, :batchNo, NULL, :cost, :qty, 'DIRECT_PURCHASE', :srcId, :srcDate)
+            `,
+            {
+              companyId,
+              branchId,
+              itemId: d.itemId,
+              batchNo,
+              cost: d.unitPrice,
+              qty: d.qty,
+              srcId: grnId,
+              srcDate: dpDateYmd,
+            },
+          );
+          batchId = insB?.insertId || null;
+        }
+        if (batchId) {
+          // Record movement in StockService
+          await recordMovementTx(conn, {
+            companyId,
+            branchId,
+            warehouseId: d.warehouseId || null,
+            itemId: d.itemId,
+            transactionType: "DIRECT_PURCHASE",
+            qtyChange: d.qty,
+            batchNo: batchNo,
+            sourceRef: grnId,
+            createdBy: req.user?.sub || null,
+            sourceType: "DIRECT_PURCHASE",
+            sourceId: grnId,
+          });
+
+          await conn.execute(
+            `
+            INSERT INTO inv_batch_movements
+              (company_id, branch_id, item_id, batch_id, movement_type, qty, ref_type, ref_id, ref_date, remarks)
+            VALUES
+              (:companyId, :branchId, :itemId, :batchId, 'IN', :qty, 'DIRECT_PURCHASE', :refId, :refDate, 'Direct Purchase auto-GRN')
+            `,
+            {
+              companyId,
+              branchId,
+              itemId: d.itemId,
+              batchId,
+              qty: d.qty,
+              refId: grnId,
+              refDate: dpDateYmd,
+            },
+          );
+        }
       }
       const { voucherId: grnVoucherId, voucherNo: grnVoucherNo } =
         await postGrnAccrualTx(conn, {
@@ -2935,6 +3092,7 @@ router.get(
         FROM pur_orders p
         LEFT JOIN adm_users u ON u.id = p.created_by
         WHERE p.company_id = :companyId AND p.branch_id = :branchId
+          AND COALESCE(p.is_active,'Y') = 'Y'
         GROUP BY COALESCE(NULLIF(u.department,''), 'N/A')
         ORDER BY department ASC
         `,
@@ -5298,12 +5456,20 @@ router.delete(
         );
       }
       await conn.beginTransaction();
+      try {
+        await conn.execute(
+          "ALTER TABLE pur_shipping_advices ADD COLUMN is_active ENUM('Y','N') NOT NULL DEFAULT 'Y'",
+        );
+      } catch {}
+      try {
+        await conn.execute(
+          "ALTER TABLE pur_shipping_advices ADD COLUMN deleted_at DATETIME NULL",
+        );
+      } catch {}
       await conn.execute(
-        `DELETE FROM pur_shipping_advice_details WHERE advice_id = :id`,
-        { id },
-      );
-      await conn.execute(
-        `DELETE FROM pur_shipping_advices WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        `UPDATE pur_shipping_advices 
+           SET status = 'CANCELLED', is_active = 'N', deleted_at = NOW() 
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
         { id, companyId, branchId },
       );
       await conn.commit();
@@ -5402,8 +5568,20 @@ router.delete(
           "Cannot cancel: clearance linked to a GRN",
         );
       }
+      try {
+        await query(
+          "ALTER TABLE pur_port_clearances ADD COLUMN is_active ENUM('Y','N') NOT NULL DEFAULT 'Y'",
+        );
+      } catch {}
+      try {
+        await query(
+          "ALTER TABLE pur_port_clearances ADD COLUMN deleted_at DATETIME NULL",
+        );
+      } catch {}
       await query(
-        `DELETE FROM pur_port_clearances WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        `UPDATE pur_port_clearances 
+           SET status = 'CANCELLED', is_active = 'N', deleted_at = NOW()
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
         { id, companyId, branchId },
       );
       res.json({ success: true, id });
@@ -5564,11 +5742,18 @@ router.delete(
         }
       }
       await conn.beginTransaction();
-      await conn.execute("DELETE FROM pur_order_details WHERE po_id = :id", {
-        id,
-      });
+      try {
+        await conn.execute(
+          "ALTER TABLE pur_orders ADD COLUMN is_active ENUM('Y','N') NOT NULL DEFAULT 'Y'",
+        );
+      } catch {}
+      try {
+        await conn.execute(
+          "ALTER TABLE pur_orders ADD COLUMN deleted_at DATETIME NULL",
+        );
+      } catch {}
       await conn.execute(
-        "DELETE FROM pur_orders WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
+        "UPDATE pur_orders SET status = 'CANCELLED', is_active = 'N', deleted_at = NOW() WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
         { id, companyId, branchId },
       );
       await conn.commit();
@@ -5763,6 +5948,23 @@ router.post(
           itemId: d.itemId,
           purchaseQty: d.qtyAccepted,
           purchaseUnitCost: d.unitPrice,
+        });
+
+        // Record movement in StockService
+        await recordMovementTx(conn, {
+          companyId,
+          branchId,
+          warehouseId,
+          itemId: d.itemId,
+          transactionType: "GRN",
+          qtyChange: d.qtyAccepted,
+          batchNo: body.batch_no || null,
+          serialNo: body.serial_no || null,
+          expiryDate: body.expiry_date || null,
+          sourceRef: grnId,
+          createdBy: req.user.sub,
+          sourceType: "GRN",
+          sourceId: grnId,
         });
       }
 
@@ -6346,129 +6548,25 @@ router.post(
           break;
         }
       }
-      if (activeWf) {
-        const steps = await query(
-          `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
-          { wf: activeWf.id },
-        );
-        if (!steps.length)
-          throw httpError(400, "BAD_REQUEST", "Workflow has no steps");
-        const first = steps[0];
-        if (!first.approver_user_id) {
-          throw httpError(
-            400,
-            "BAD_REQUEST",
-            "Workflow step 1 has no approver_user_id configured",
-          );
-        }
-        const allowedUsers = await query(
-          `SELECT approver_user_id 
-           FROM adm_workflow_step_approvers 
-           WHERE workflow_id = :wf AND step_order = :ord`,
-          { wf: activeWf.id, ord: first.step_order },
-        );
-        const allowedSet = new Set(
-          allowedUsers.map((r) => Number(r.approver_user_id)),
-        );
-        const targetUserIdRaw = req.body?.target_user_id;
-        let assignedToUserId = Number(first.approver_user_id);
-        if (
-          targetUserIdRaw != null &&
-          allowedSet.has(Number(targetUserIdRaw))
-        ) {
-          assignedToUserId = Number(targetUserIdRaw);
-        } else if (allowedUsers.length > 0) {
-          assignedToUserId = Number(allowedUsers[0].approver_user_id);
-        }
-        const dwRes = await query(
-          `INSERT INTO adm_document_workflows
-            (company_id, workflow_id, document_id, document_type, amount, current_step_order, status, assigned_to_user_id)
-          VALUES
-            (:companyId, :workflowId, :documentId, 'PURCHASE_ORDER', :amount, :stepOrder, 'PENDING', :assignedTo)`,
-          {
-            companyId,
-            workflowId: activeWf.id,
-            documentId: id,
-            amount: amount === null ? null : Number(amount),
-            stepOrder: first.step_order,
-            assignedTo: assignedToUserId,
-          },
-        );
-        const instanceId = dwRes.insertId;
-        await query(
-          `INSERT INTO adm_workflow_tasks
-            (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
-          VALUES
-            (:companyId, :workflowId, :dwId, :documentId, 'PURCHASE_ORDER', :stepOrder, :assignedTo, 'PENDING')`,
-          {
-            companyId,
-            workflowId: activeWf.id,
-            dwId: instanceId,
-            documentId: id,
-            stepOrder: first.step_order,
-            assignedTo: assignedToUserId,
-          },
-        );
-        await query(
-          `INSERT INTO adm_workflow_logs
-            (document_workflow_id, step_order, action, actor_user_id, comments)
-          VALUES
-            (:dwId, :stepOrder, 'SUBMIT', :actor, :comments)`,
-          {
-            dwId: instanceId,
-            stepOrder: first.step_order,
-            actor: req.user.sub,
-            comments: "",
-          },
-        );
-        await query(
-          `UPDATE pur_orders SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-          { id, companyId, branchId },
-        );
-        const refRows = await query(
-          `SELECT po_no FROM pur_orders WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-          { id, companyId, branchId },
-        );
-        const poRef = refRows.length ? refRows[0].po_no : null;
-        await query(
-          `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
-           VALUES (:companyId, :userId, :title, :message, :link, 0)`,
-          {
-            companyId,
-            userId: assignedToUserId,
-            title: "Approval Required",
-            message: poRef
-              ? `Purchase Order ${poRef} requires your approval`
-              : `Purchase Order #${id} requires your approval`,
-            link: `/administration/workflows/approvals/${instanceId}`,
-          },
-        );
-        res.status(201).json({ instanceId, status: "PENDING_APPROVAL" });
-        return;
-      }
-      let behavior = null;
-      if (wfDefs.length) {
-        const firstWf = wfDefs[0];
-        if (Number(firstWf.is_active) === 0) {
-          behavior = firstWf.default_behavior || null;
-          if (!behavior) {
-            behavior = "AUTO_APPROVE";
-          }
-        }
-      }
-      if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
+      if (!activeWf) {
         await query(
           `UPDATE pur_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
           { id, companyId, branchId },
         );
-        res.json({ status: "APPROVED" });
-        return;
+        return res.json({ status: "APPROVED" });
       }
-      await query(
-        `UPDATE pur_orders SET status = 'SUBMITTED' WHERE id = :id AND company_id = :companyId AND branch_id = :BranchId`,
-        { id, companyId, BranchId: branchId },
+
+      const steps = await query(
+        `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+        { wf: activeWf.id },
       );
-      res.json({ status: "SUBMITTED" });
+      if (!steps.length) {
+        await query(
+          `UPDATE pur_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+          { id, companyId, branchId },
+        );
+        return res.json({ status: "APPROVED" });
+      }
     } catch (err) {
       next(err);
     }
@@ -6837,7 +6935,9 @@ router.post(
         if (voucherIds.length) {
           const inList = voucherIds.join(",");
           await conn
-            .execute(`DELETE FROM fin_voucher_lines WHERE voucher_id IN (${inList})`)
+            .execute(
+              `DELETE FROM fin_voucher_lines WHERE voucher_id IN (${inList})`,
+            )
             .catch(() => null);
           await conn
             .execute(`DELETE FROM fin_vouchers WHERE id IN (${inList})`)
@@ -6896,6 +6996,48 @@ async function ensureGeneralRequisitionTables() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
   }
+  if (!(await hasColumn("pur_general_requisitions", "is_active"))) {
+    await pool
+      .query(
+        "ALTER TABLE pur_general_requisitions ADD COLUMN is_active ENUM('Y','N') NOT NULL DEFAULT 'Y' AFTER updated_at",
+      )
+      .catch(() => {});
+  }
+  if (!(await hasColumn("pur_general_requisitions", "deleted_at"))) {
+    await pool
+      .query(
+        "ALTER TABLE pur_general_requisitions ADD COLUMN deleted_at DATETIME NULL AFTER is_active",
+      )
+      .catch(() => {});
+  }
+  if (!(await hasColumn("pur_general_requisitions", "linked_flag"))) {
+    await pool
+      .query(
+        "ALTER TABLE pur_general_requisitions ADD COLUMN linked_flag ENUM('Y','N') NOT NULL DEFAULT 'N' AFTER deleted_at",
+      )
+      .catch(() => {});
+  }
+  if (!(await hasColumn("pur_general_requisitions", "linked_ref_type"))) {
+    await pool
+      .query(
+        "ALTER TABLE pur_general_requisitions ADD COLUMN linked_ref_type VARCHAR(50) NULL AFTER linked_flag",
+      )
+      .catch(() => {});
+  }
+  if (!(await hasColumn("pur_general_requisitions", "linked_ref_id"))) {
+    await pool
+      .query(
+        "ALTER TABLE pur_general_requisitions ADD COLUMN linked_ref_id BIGINT UNSIGNED NULL AFTER linked_ref_type",
+      )
+      .catch(() => {});
+  }
+  if (!(await hasColumn("pur_general_requisitions", "linked_at"))) {
+    await pool
+      .query(
+        "ALTER TABLE pur_general_requisitions ADD COLUMN linked_at DATETIME NULL AFTER linked_ref_id",
+      )
+      .catch(() => {});
+  }
   if (!(await hasTable("pur_general_requisition_items"))) {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS pur_general_requisition_items (
@@ -6946,31 +7088,116 @@ router.get(
     try {
       await ensureGeneralRequisitionTables();
       const { companyId, branchId } = req.scope;
-      const { status, from_date, to_date, department } = req.query;
-      let where = "WHERE r.company_id = :companyId AND r.branch_id = :branchId";
+      const {
+        status,
+        from_date,
+        to_date,
+        department,
+        requisition_type,
+        only_unlinked,
+      } = req.query;
+      let where =
+        "WHERE r.company_id = :companyId AND r.branch_id = :branchId AND COALESCE(r.is_active,'Y') = 'Y'";
       const params = { companyId, branchId };
-      if (status) { where += " AND r.status = :status"; params.status = status; }
-      if (from_date) { where += " AND r.requisition_date >= :from_date"; params.from_date = from_date; }
-      if (to_date) { where += " AND r.requisition_date <= :to_date"; params.to_date = to_date; }
-      if (department) { where += " AND r.department = :department"; params.department = department; }
+      if (status) {
+        where += " AND r.status = :status";
+        params.status = status;
+      }
+      if (requisition_type) {
+        where += " AND r.requisition_type = :requisition_type";
+        params.requisition_type = requisition_type;
+      }
+      if (
+        String(only_unlinked || "").toLowerCase() === "1" ||
+        String(only_unlinked || "").toLowerCase() === "true"
+      ) {
+        where += " AND COALESCE(r.linked_flag,'N') = 'N'";
+      }
+      if (from_date) {
+        where += " AND r.requisition_date >= :from_date";
+        params.from_date = from_date;
+      }
+      if (to_date) {
+        where += " AND r.requisition_date <= :to_date";
+        params.to_date = to_date;
+      }
+      if (department) {
+        where += " AND r.department = :department";
+        params.department = department;
+      }
       const rows = await query(
-        `SELECT r.*, COALESCE(SUM(i.estimated_total), 0) AS total_estimated_cost, COUNT(i.id) AS item_count
-         FROM pur_general_requisitions r
-         LEFT JOIN pur_general_requisition_items i ON i.requisition_id = r.id
-         ${where}
-         GROUP BY r.id
-         ORDER BY r.created_at DESC`,
+        `SELECT 
+             r.*, 
+             COALESCE(SUM(i.estimated_total), 0) AS total_estimated_cost, 
+             COUNT(i.id) AS item_count,
+             MAX(u.username) AS forwarded_to_username
+           FROM pur_general_requisitions r
+           LEFT JOIN pur_general_requisition_items i ON i.requisition_id = r.id
+           LEFT JOIN (
+             SELECT t.document_id, t.assigned_to_user_id
+             FROM adm_document_workflows t
+             JOIN (
+               SELECT document_id, MAX(id) AS max_id
+               FROM adm_document_workflows
+               WHERE company_id = :companyId
+                 AND status = 'PENDING'
+                 AND (document_type = 'GENERAL_REQUISITION' OR document_type = 'General Requisition')
+               GROUP BY document_id
+             ) m ON m.max_id = t.id
+           ) x ON x.document_id = r.id
+           LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
+           ${where}
+           GROUP BY r.id
+           ORDER BY r.created_at DESC`,
         params,
       );
       res.json({ items: rows });
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Link a general requisition to a target document so it stops appearing in pickers
+router.post(
+  "/general-requisitions/:id/link",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureGeneralRequisitionTables();
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
+      const { ref_type, ref_id } = req.body || {};
+      const refType = String(ref_type || "").toUpperCase();
+      const refId = toNumber(ref_id) || null;
+      const rows = await query(
+        `SELECT id, linked_flag FROM pur_general_requisitions WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        { id, companyId, branchId },
+      );
+      if (!rows.length)
+        throw httpError(404, "NOT_FOUND", "Requisition not found");
+      await pool.query(
+        `UPDATE pur_general_requisitions 
+           SET linked_flag = 'Y', linked_ref_type = :refType, linked_ref_id = :refId, linked_at = NOW()
+         WHERE id = :id`,
+        { id, refType: refType || null, refId },
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
   },
 );
 
 // GET single general requisition
 router.get(
   "/general-requisitions/:id",
-  requireAuth, requireCompanyScope, requireBranchScope,
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
   async (req, res, next) => {
     try {
       await ensureGeneralRequisitionTables();
@@ -6981,7 +7208,8 @@ router.get(
         `SELECT * FROM pur_general_requisitions WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
         { id, companyId, branchId },
       );
-      if (!rows.length) throw httpError(404, "NOT_FOUND", "Requisition not found");
+      if (!rows.length)
+        throw httpError(404, "NOT_FOUND", "Requisition not found");
       const items = await query(
         `SELECT gi.*, inv.item_code, inv.item_name
          FROM pur_general_requisition_items gi
@@ -6990,30 +7218,70 @@ router.get(
         { id },
       );
       res.json({ ...rows[0], items });
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
   },
 );
 
 // CREATE general requisition
 router.post(
   "/general-requisitions",
-  requireAuth, requireCompanyScope, requireBranchScope,
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
   async (req, res, next) => {
     try {
       await ensureGeneralRequisitionTables();
       const { companyId, branchId } = req.scope;
       const userId = req.user?.sub || null;
-      const { requisition_date, requisition_type, department, requested_by, purpose, priority, required_date, status, remarks, items } = req.body;
-      if (!requisition_date) throw httpError(400, "VALIDATION_ERROR", "Date is required");
-      const lineItems = Array.isArray(items) ? items.filter((i) => i.description) : [];
-      if (!lineItems.length) throw httpError(400, "VALIDATION_ERROR", "At least one line item is required");
-      const requisition_no = await nextGeneralRequisitionNo(companyId, branchId);
+      const {
+        requisition_date,
+        requisition_type,
+        department,
+        requested_by,
+        purpose,
+        priority,
+        required_date,
+        status,
+        remarks,
+        items,
+      } = req.body;
+      if (!requisition_date)
+        throw httpError(400, "VALIDATION_ERROR", "Date is required");
+      const lineItems = Array.isArray(items)
+        ? items.filter((i) => i.description)
+        : [];
+      if (!lineItems.length)
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "At least one line item is required",
+        );
+      const requisition_no = await nextGeneralRequisitionNo(
+        companyId,
+        branchId,
+      );
       const finalStatus = status === "SUBMITTED" ? "SUBMITTED" : "DRAFT";
       const [result] = await pool.query(
         `INSERT INTO pur_general_requisitions
          (company_id, branch_id, requisition_no, requisition_date, requisition_type, department, requested_by, purpose, priority, required_date, status, remarks, created_by)
          VALUES (:companyId, :branchId, :requisition_no, :requisition_date, :requisition_type, :department, :requested_by, :purpose, :priority, :required_date, :status, :remarks, :created_by)`,
-        { companyId, branchId, requisition_no, requisition_date, requisition_type: requisition_type || "ITEM", department: department || null, requested_by: requested_by || null, purpose: purpose || null, priority: priority || "MEDIUM", required_date: required_date || null, status: finalStatus, remarks: remarks || null, created_by: userId },
+        {
+          companyId,
+          branchId,
+          requisition_no,
+          requisition_date,
+          requisition_type: requisition_type || "ITEM",
+          department: department || null,
+          requested_by: requested_by || null,
+          purpose: purpose || null,
+          priority: priority || "MEDIUM",
+          required_date: required_date || null,
+          status: finalStatus,
+          remarks: remarks || null,
+          created_by: userId,
+        },
       );
       const reqId = Number(result.insertId);
       for (const item of lineItems) {
@@ -7022,18 +7290,36 @@ router.post(
         await pool.query(
           `INSERT INTO pur_general_requisition_items (requisition_id, item_id, description, qty, uom, estimated_unit_cost, estimated_total, remarks)
            VALUES (:requisition_id, :item_id, :description, :qty, :uom, :estimated_unit_cost, :estimated_total, :remarks)`,
-          { requisition_id: reqId, item_id: item.item_id ? Number(item.item_id) : null, description: item.description || "", qty, uom: item.uom || null, estimated_unit_cost: unitCost, estimated_total: qty * unitCost, remarks: item.remarks || null },
+          {
+            requisition_id: reqId,
+            item_id: item.item_id ? Number(item.item_id) : null,
+            description: item.description || "",
+            qty,
+            uom: item.uom || null,
+            estimated_unit_cost: unitCost,
+            estimated_total: qty * unitCost,
+            remarks: item.remarks || null,
+          },
         );
       }
-      res.status(201).json({ id: reqId, requisition_no, status: finalStatus, message: "General Requisition created successfully" });
-    } catch (err) { next(err); }
+      res.status(201).json({
+        id: reqId,
+        requisition_no,
+        status: finalStatus,
+        message: "General Requisition created successfully",
+      });
+    } catch (err) {
+      next(err);
+    }
   },
 );
 
 // UPDATE general requisition
 router.put(
   "/general-requisitions/:id",
-  requireAuth, requireCompanyScope, requireBranchScope,
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
   async (req, res, next) => {
     try {
       await ensureGeneralRequisitionTables();
@@ -7044,40 +7330,96 @@ router.put(
         `SELECT * FROM pur_general_requisitions WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
         { id, companyId, branchId },
       );
-      if (!existing.length) throw httpError(404, "NOT_FOUND", "Requisition not found");
+      if (!existing.length)
+        throw httpError(404, "NOT_FOUND", "Requisition not found");
       if (["APPROVED", "FULFILLED", "CANCELLED"].includes(existing[0].status)) {
-        throw httpError(400, "VALIDATION_ERROR", "Cannot edit a requisition with status: " + existing[0].status);
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "Cannot edit a requisition with status: " + existing[0].status,
+        );
       }
-      const { requisition_date, requisition_type, department, requested_by, purpose, priority, required_date, status, remarks, items } = req.body;
+      const {
+        requisition_date,
+        requisition_type,
+        department,
+        requested_by,
+        purpose,
+        priority,
+        required_date,
+        status,
+        remarks,
+        items,
+      } = req.body;
       const finalStatus = status || existing[0].status;
       await pool.query(
         `UPDATE pur_general_requisitions SET
            requisition_date = :requisition_date, requisition_type = :requisition_type, department = :department, requested_by = :requested_by,
            purpose = :purpose, priority = :priority, required_date = :required_date, status = :status, remarks = :remarks
          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-        { requisition_date: requisition_date || existing[0].requisition_date, requisition_type: requisition_type || existing[0].requisition_type, department: department !== undefined ? department : existing[0].department, requested_by: requested_by !== undefined ? requested_by : existing[0].requested_by, purpose: purpose !== undefined ? purpose : existing[0].purpose, priority: priority || existing[0].priority, required_date: required_date !== undefined ? required_date : existing[0].required_date, status: finalStatus, remarks: remarks !== undefined ? remarks : existing[0].remarks, id, companyId, branchId },
+        {
+          requisition_date: requisition_date || existing[0].requisition_date,
+          requisition_type: requisition_type || existing[0].requisition_type,
+          department:
+            department !== undefined ? department : existing[0].department,
+          requested_by:
+            requested_by !== undefined
+              ? requested_by
+              : existing[0].requested_by,
+          purpose: purpose !== undefined ? purpose : existing[0].purpose,
+          priority: priority || existing[0].priority,
+          required_date:
+            required_date !== undefined
+              ? required_date
+              : existing[0].required_date,
+          status: finalStatus,
+          remarks: remarks !== undefined ? remarks : existing[0].remarks,
+          id,
+          companyId,
+          branchId,
+        },
       );
       if (Array.isArray(items)) {
-        await pool.query("DELETE FROM pur_general_requisition_items WHERE requisition_id = :id", { id });
+        await pool.query(
+          "DELETE FROM pur_general_requisition_items WHERE requisition_id = :id",
+          { id },
+        );
         for (const item of items.filter((i) => i.description)) {
           const qty = Number(item.qty || 0);
           const unitCost = Number(item.estimated_unit_cost || 0);
           await pool.query(
             `INSERT INTO pur_general_requisition_items (requisition_id, item_id, description, qty, uom, estimated_unit_cost, estimated_total, remarks)
              VALUES (:requisition_id, :item_id, :description, :qty, :uom, :estimated_unit_cost, :estimated_total, :remarks)`,
-            { requisition_id: id, item_id: item.item_id ? Number(item.item_id) : null, description: item.description || "", qty, uom: item.uom || null, estimated_unit_cost: unitCost, estimated_total: qty * unitCost, remarks: item.remarks || null },
+            {
+              requisition_id: id,
+              item_id: item.item_id ? Number(item.item_id) : null,
+              description: item.description || "",
+              qty,
+              uom: item.uom || null,
+              estimated_unit_cost: unitCost,
+              estimated_total: qty * unitCost,
+              remarks: item.remarks || null,
+            },
           );
         }
       }
-      res.json({ id, status: finalStatus, message: "General Requisition updated" });
-    } catch (err) { next(err); }
+      res.json({
+        id,
+        status: finalStatus,
+        message: "General Requisition updated",
+      });
+    } catch (err) {
+      next(err);
+    }
   },
 );
 
 // UPDATE status only
 router.put(
   "/general-requisitions/:id/status",
-  requireAuth, requireCompanyScope, requireBranchScope,
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
   async (req, res, next) => {
     try {
       await ensureGeneralRequisitionTables();
@@ -7085,16 +7427,245 @@ router.put(
       const id = toNumber(req.params.id);
       const { status } = req.body;
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
-      const allowed = ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "CANCELLED", "FULFILLED"];
-      if (!status || !allowed.includes(status)) throw httpError(400, "VALIDATION_ERROR", "Invalid status");
+      const allowed = [
+        "DRAFT",
+        "SUBMITTED",
+        "APPROVED",
+        "REJECTED",
+        "CANCELLED",
+        "FULFILLED",
+      ];
+      if (!status || !allowed.includes(status))
+        throw httpError(400, "VALIDATION_ERROR", "Invalid status");
       const existing = await query(
         `SELECT id FROM pur_general_requisitions WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
         { id, companyId, branchId },
       );
-      if (!existing.length) throw httpError(404, "NOT_FOUND", "Requisition not found");
-      await pool.query(`UPDATE pur_general_requisitions SET status = :status WHERE id = :id`, { status, id });
+      if (!existing.length)
+        throw httpError(404, "NOT_FOUND", "Requisition not found");
+      if (status === "CANCELLED") {
+        await pool.query(
+          `UPDATE pur_general_requisitions 
+           SET status = :status, is_active = 'N', deleted_at = NOW() 
+           WHERE id = :id`,
+          { status, id },
+        );
+      } else {
+        await pool.query(
+          `UPDATE pur_general_requisitions SET status = :status WHERE id = :id`,
+          { status, id },
+        );
+      }
       res.json({ id, status, message: `Status updated to ${status}` });
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/general-requisitions/:id/submit",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureGeneralRequisitionTables();
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const amount = req.body?.amount ?? null;
+      const workflowIdOverride = toNumber(req.body?.workflow_id);
+      const docRouteBase = "/purchase/general-requisitions";
+      const wfByRoute = await query(
+        `SELECT * FROM adm_workflows WHERE company_id = :companyId AND document_route = :docRouteBase ORDER BY id ASC`,
+        { companyId, docRouteBase },
+      );
+      const wfDefs = await query(
+        `SELECT * FROM adm_workflows WHERE company_id = :companyId AND (document_type = 'GENERAL_REQUISITION' OR document_type = 'General Requisition') ORDER BY id ASC`,
+        { companyId },
+      );
+      let activeWf = null;
+      if (workflowIdOverride) {
+        const wfRows = await query(
+          `SELECT * FROM adm_workflows 
+           WHERE id = :wfId AND company_id = :companyId 
+             AND (document_type = 'GENERAL_REQUISITION' OR document_type = 'General Requisition')
+           LIMIT 1`,
+          { wfId: workflowIdOverride, companyId },
+        );
+        if (wfRows.length && Number(wfRows[0].is_active) === 1) {
+          activeWf = wfRows[0];
+        }
+      }
+      if (!activeWf && wfByRoute.length) {
+        for (const wf of wfByRoute) {
+          if (Number(wf.is_active) !== 1) continue;
+          if (amount === null) {
+            activeWf = wf;
+            break;
+          }
+          const minOk =
+            wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
+          const maxOk =
+            wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
+          if (minOk && maxOk) {
+            activeWf = wf;
+            break;
+          }
+        }
+      }
+      for (const wf of wfDefs) {
+        if (activeWf) break;
+        if (Number(wf.is_active) !== 1) continue;
+        if (amount === null) {
+          activeWf = wf;
+          break;
+        }
+        const minOk =
+          wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
+        const maxOk =
+          wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
+        if (minOk && maxOk) {
+          activeWf = wf;
+          break;
+        }
+      }
+      if (!activeWf) {
+        await query(
+          `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+          { id, companyId, branchId },
+        );
+        return res.json({ status: "APPROVED" });
+      }
+
+      const steps = await query(
+        `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+        { wf: activeWf.id },
+      );
+      if (!steps.length) {
+        await query(
+          `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+          { id, companyId, branchId },
+        );
+        return res.json({ status: "APPROVED" });
+      }
+        const first = steps[0];
+        if (!first.approver_user_id) {
+          throw httpError(
+            400,
+            "BAD_REQUEST",
+            "Workflow step 1 has no approver_user_id configured",
+          );
+        }
+        const allowedUsers = await query(
+          `SELECT approver_user_id 
+           FROM adm_workflow_step_approvers 
+           WHERE workflow_id = :wf AND step_order = :ord`,
+          { wf: activeWf.id, ord: first.step_order },
+        );
+        const allowedSet = new Set(
+          allowedUsers.map((r) => Number(r.approver_user_id)),
+        );
+        const targetUserIdRaw = req.body?.target_user_id;
+        let assignedToUserId = Number(first.approver_user_id);
+        if (
+          targetUserIdRaw != null &&
+          allowedSet.has(Number(targetUserIdRaw))
+        ) {
+          assignedToUserId = Number(targetUserIdRaw);
+        } else if (allowedUsers.length > 0) {
+          assignedToUserId = Number(allowedUsers[0].approver_user_id);
+        }
+        const dwRes = await query(
+          `INSERT INTO adm_document_workflows
+            (company_id, workflow_id, document_id, document_type, amount, current_step_order, status, assigned_to_user_id)
+          VALUES
+            (:companyId, :workflowId, :documentId, 'GENERAL_REQUISITION', :amount, :stepOrder, 'PENDING', :assignedTo)`,
+          {
+            companyId,
+            workflowId: activeWf.id,
+            documentId: id,
+            amount: amount === null ? null : Number(amount),
+            stepOrder: first.step_order,
+            assignedTo: assignedToUserId,
+          },
+        );
+        const instanceId = dwRes.insertId;
+        await query(
+          `INSERT INTO adm_workflow_tasks
+            (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
+          VALUES
+            (:companyId, :workflowId, :dwId, :documentId, 'GENERAL_REQUISITION', :stepOrder, :assignedTo, 'PENDING')`,
+          {
+            companyId,
+            workflowId: activeWf.id,
+            dwId: instanceId,
+            documentId: id,
+            stepOrder: first.step_order,
+            assignedTo: assignedToUserId,
+          },
+        );
+        await query(
+          `INSERT INTO adm_workflow_logs
+            (document_workflow_id, step_order, action, actor_user_id, comments)
+          VALUES
+            (:dwId, :stepOrder, 'SUBMIT', :actor, :comments)`,
+          {
+            dwId: instanceId,
+            stepOrder: first.step_order,
+            actor: req.user.sub,
+            comments: "",
+          },
+        );
+        await query(
+          `UPDATE pur_general_requisitions SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+          { id, companyId, branchId },
+        );
+        const refRows = await query(
+          `SELECT requisition_no FROM pur_general_requisitions WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+          { id, companyId, branchId },
+        );
+        const grRef = refRows.length ? refRows[0].requisition_no : null;
+        await query(
+          `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
+           VALUES (:companyId, :userId, :title, :message, :link, 0)`,
+          {
+            companyId,
+            userId: assignedToUserId,
+            title: "Approval Required",
+            message: grRef
+              ? `General Requisition ${grRef} requires your approval`
+              : `General Requisition #${id} requires your approval`,
+            link: `/administration/workflows/approvals/${instanceId}`,
+          },
+        );
+        res.status(201).json({ instanceId, status: "PENDING_APPROVAL" });
+        return;
+      let behavior = null;
+      if (wfDefs.length) {
+        const firstWf = wfDefs[0];
+        if (Number(firstWf.is_active) === 0) {
+          behavior = firstWf.default_behavior || null;
+          if (!behavior) behavior = "AUTO_APPROVE";
+        }
+      }
+      if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
+        await query(
+          `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+          { id, companyId, branchId },
+        );
+        res.json({ status: "APPROVED" });
+        return;
+      }
+      await query(
+        `UPDATE pur_general_requisitions SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :CompanyId AND branch_id = :BranchId`,
+        { id, CompanyId: companyId, BranchId: branchId },
+      );
+      res.json({ status: "PENDING_APPROVAL" });
+    } catch (err) {
+      next(err);
+    }
   },
 );
 
@@ -8106,6 +8677,9 @@ router.post(
           taxPercent,
           lineTotal,
           uom: String(d.uom || "PCS"),
+          batchNo: d.batch_no ? String(d.batch_no).trim() : null,
+          mfgDate: d.mfg_date || null,
+          expDate: d.exp_date || null,
         });
       }
       const netAmount =
@@ -8140,10 +8714,22 @@ router.post(
       for (const d of cleanDetails) {
         await conn.execute(
           `INSERT INTO pur_direct_purchase_dtl
-           (hdr_id, item_id, qty, uom, unit_price, discount_percent, tax_percent, line_total)
+           (hdr_id, item_id, qty, uom, unit_price, discount_percent, tax_percent, line_total, mfg_date, exp_date, batch_no)
            VALUES
-           (:hdrId, :itemId, :qty, :uom, :unitPrice, :discountPercent, :taxPercent, :lineTotal)`,
-          { hdrId: dpId, ...d },
+           (:hdrId, :itemId, :qty, :uom, :unitPrice, :discountPercent, :taxPercent, :lineTotal, :mfgDate, :expDate, :batchNo)`,
+          {
+            hdrId: dpId,
+            itemId: d.itemId,
+            qty: d.qty,
+            uom: d.uom,
+            unitPrice: d.unitPrice,
+            discountPercent: d.discountPercent,
+            taxPercent: d.taxPercent,
+            lineTotal: d.lineTotal,
+            mfgDate: d.mfgDate || null,
+            expDate: d.expDate || null,
+            batchNo: d.batchNo || null,
+          },
         );
       }
 
@@ -8162,6 +8748,7 @@ router.post(
         "grn_no",
         "GRN",
       );
+      await ensureGrnMfgExpColumns();
       const [grnHdr] = await conn.execute(
         `INSERT INTO inv_goods_receipt_notes
          (company_id, branch_id, grn_no, grn_date, grn_type, po_id, supplier_id, warehouse_id, status, remarks, created_by)
@@ -8182,9 +8769,9 @@ router.post(
       for (const d of cleanDetails) {
         await conn.execute(
           `INSERT INTO inv_goods_receipt_note_details
-           (grn_id, item_id, qty_ordered, qty_received, qty_accepted, qty_rejected, uom, unit_price, line_amount)
+           (grn_id, item_id, qty_ordered, qty_received, qty_accepted, qty_rejected, uom, unit_price, line_amount, mfg_date, exp_date)
            VALUES
-           (:grnId, :itemId, :qty, :qty, :qty, 0, :uom, :unitPrice, :lineTotal)`,
+           (:grnId, :itemId, :qty, :qty, :qty, 0, :uom, :unitPrice, :lineTotal, :mfgDate, :expDate)`,
           {
             grnId,
             itemId: d.itemId,
@@ -8192,6 +8779,8 @@ router.post(
             uom: d.uom,
             unitPrice: d.unitPrice,
             lineTotal: d.lineTotal,
+            mfgDate: d.mfgDate || null,
+            expDate: d.expDate || null,
           },
         );
         await updateItemAverageCostTx(conn, {

@@ -1,5 +1,9 @@
-import { query } from "../db/pool.js";
+import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
+import {
+  recordMovementTx,
+  consumeStockFIFOTx,
+} from "../services/stock.service.js";
 import { isMailerConfigured, sendMail } from "../utils/mailer.js";
 import { sendDocumentForwardNotification } from "../utils/documentNotification.js";
 import { sendPushToUser } from "../routes/push.routes.js";
@@ -1554,6 +1558,36 @@ export const performAction = async (req, res, next) => {
           `UPDATE sal_orders SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
+      } else if (
+        instance.document_type === "GENERAL_REQUISITION" ||
+        instance.document_type === "General Requisition"
+      ) {
+        try {
+          await query(
+            `UPDATE pur_general_requisitions SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
+            { id: instance.document_id, companyId: instance.company_id },
+          );
+        } catch (e) {}
+      } else if (
+        instance.document_type === "STOCK_UPDATION" ||
+        instance.document_type === "Stock Updation"
+      ) {
+        try {
+          await query(
+            `UPDATE inv_stock_updations SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
+            { id: instance.document_id, companyId: instance.company_id },
+          );
+        } catch (e) {}
+      } else if (
+        instance.document_type === "STOCK_VERIFICATION" ||
+        instance.document_type === "Stock Verification"
+      ) {
+        try {
+          await query(
+            `UPDATE inv_stock_verifications SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
+            { id: instance.document_id, companyId: instance.company_id },
+          );
+        } catch (e) {}
       }
       const initiatorId = await getInitiator();
       await notifyUser(
@@ -1631,7 +1665,7 @@ export const performAction = async (req, res, next) => {
       ) {
         try {
           await query(
-            `UPDATE inv_material_requisitions SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+            `UPDATE inv_material_requisitions SET status = 'RETURNED' WHERE id = :id AND company_id = :companyId`,
             { id: instance.document_id, companyId: instance.company_id },
           );
         } catch (e) {}
@@ -1662,6 +1696,36 @@ export const performAction = async (req, res, next) => {
             { id: instance.document_id, companyId: instance.company_id },
           );
         } catch (e) {}
+      } else if (
+        instance.document_type === "GENERAL_REQUISITION" ||
+        instance.document_type === "General Requisition"
+      ) {
+        try {
+          await query(
+            `UPDATE pur_general_requisitions SET status = 'DRAFT' WHERE id = :id AND company_id = :companyId`,
+            { id: instance.document_id, companyId: instance.company_id },
+          );
+        } catch (e) {}
+      } else if (
+        instance.document_type === "STOCK_UPDATION" ||
+        instance.document_type === "Stock Updation"
+      ) {
+        try {
+          await query(
+            `UPDATE inv_stock_updations SET status = 'DRAFT' WHERE id = :id AND company_id = :companyId`,
+            { id: instance.document_id, companyId: instance.company_id },
+          );
+        } catch (e) {}
+      } else if (
+        instance.document_type === "STOCK_VERIFICATION" ||
+        instance.document_type === "Stock Verification"
+      ) {
+        try {
+          await query(
+            `UPDATE inv_stock_verifications SET status = 'DRAFT' WHERE id = :id AND company_id = :companyId`,
+            { id: instance.document_id, companyId: instance.company_id },
+          );
+        } catch (e) {}
       }
       const initiatorId = await getInitiator();
       await notifyUser(
@@ -1669,6 +1733,113 @@ export const performAction = async (req, res, next) => {
         "Document Returned",
         `Your document #${instance.document_id} was returned for revision.`,
       );
+    } else if (
+      wf.status === "APPROVED" &&
+      (wf.document_type === "STOCK_UPDATION" ||
+        wf.document_type === "Stock Updation")
+    ) {
+      try {
+        const upRows = await query(
+          `SELECT id, status, warehouse_id, branch_id FROM inv_stock_updations WHERE id = :docId AND company_id = :companyId LIMIT 1`,
+          { docId: wf.document_id, companyId: wf.company_id },
+        );
+        if (upRows.length && upRows[0].status !== "APPROVED") {
+          const upHdr = upRows[0];
+          const conn = await pool.getConnection();
+          try {
+            await conn.beginTransaction();
+            await conn.execute(
+              `UPDATE inv_stock_updations SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+              { id: wf.document_id, companyId: wf.company_id },
+            );
+            const details = await conn
+              .execute(
+                `SELECT item_id, qty, batch_no FROM inv_stock_updation_details WHERE updation_id = :id`,
+                { id: wf.document_id },
+              )
+              .then((r) => r[0]);
+
+            for (const d of details) {
+              const itemId = Number(d.item_id);
+              const qtyChange = Number(d.qty || 0);
+              if (itemId && Number.isFinite(qtyChange) && qtyChange !== 0) {
+                await recordMovementTx(conn, {
+                  companyId: wf.company_id,
+                  branchId: upHdr.branch_id || 1,
+                  warehouseId: upHdr.warehouse_id,
+                  itemId,
+                  transactionType: "STOCK_UPDATION",
+                  qtyChange,
+                  batchNo: d.batch_no || null,
+                  sourceRef: wf.document_id,
+                  createdBy: null,
+                });
+              }
+            }
+            await conn.commit();
+          } catch (err) {
+            await conn.rollback();
+            throw err;
+          } finally {
+            conn.release();
+          }
+        }
+      } catch (e) {
+        console.error("Error in STOCK_UPDATION post-approval:", e);
+      }
+    } else if (
+      wf.status === "APPROVED" &&
+      (wf.document_type === "STOCK_VERIFICATION" ||
+        wf.document_type === "Stock Verification")
+    ) {
+      try {
+        const verRows = await query(
+          `SELECT id, status, warehouse_id, branch_id FROM inv_stock_verifications WHERE id = :docId AND company_id = :companyId LIMIT 1`,
+          { docId: wf.document_id, companyId: wf.company_id },
+        );
+        if (verRows.length && verRows[0].status !== "APPROVED") {
+          const verHdr = verRows[0];
+          const conn = await pool.getConnection();
+          try {
+            await conn.beginTransaction();
+            await conn.execute(
+              `UPDATE inv_stock_verifications SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+              { id: wf.document_id, companyId: wf.company_id },
+            );
+            const details = await conn
+              .execute(
+                `SELECT item_id, variance_qty FROM inv_stock_verification_details WHERE verification_id = :id`,
+                { id: wf.document_id },
+              )
+              .then((r) => r[0]);
+
+            for (const d of details) {
+              const itemId = Number(d.item_id);
+              const qtyChange = Number(d.variance_qty || 0);
+              if (itemId && Number.isFinite(qtyChange) && qtyChange !== 0) {
+                await recordMovementTx(conn, {
+                  companyId: wf.company_id,
+                  branchId: verHdr.branch_id || 1,
+                  warehouseId: verHdr.warehouse_id,
+                  itemId,
+                  transactionType: "STOCK_VERIFICATION",
+                  qtyChange,
+                  sourceRef: wf.document_id,
+                  createdBy: null,
+                });
+              }
+            }
+            await conn.commit();
+          } catch (err) {
+            await conn.rollback();
+            throw err;
+          } finally {
+            conn.release();
+          }
+        }
+      } catch (e) {
+        console.error("Error in STOCK_VERIFICATION post-approval:", e);
+      }
     }
     if (action === "APPROVE") {
       const finalCheck = await query(
@@ -1740,23 +1911,31 @@ export const performAction = async (req, res, next) => {
               `SELECT item_id, qty_returned FROM sal_return_details WHERE return_id = :id`,
               { id: header.id },
             );
-            for (const d of details) {
-              const itemId = toNumber(d.item_id);
-              const qtyReturned = Number(d.qty_returned || 0);
-              if (itemId && Number.isFinite(qtyReturned) && qtyReturned > 0) {
-                await query(
-                  `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
-                     VALUES (:companyId, :branchId, :warehouseId, :itemId, :qtyReturned)
-                     ON DUPLICATE KEY UPDATE qty = qty + :qtyReturned`,
-                  {
+            const conn = await pool.getConnection();
+            try {
+              await conn.beginTransaction();
+              for (const d of details) {
+                const itemId = toNumber(d.item_id);
+                const qtyReturned = Number(d.qty_returned || 0);
+                if (itemId && Number.isFinite(qtyReturned) && qtyReturned > 0) {
+                  await recordMovementTx(conn, {
                     companyId: wf.company_id,
                     branchId: header.branch_id,
-                    warehouseId: null,
+                    warehouseId: null, // Default
                     itemId,
-                    qtyReturned,
-                  },
-                );
+                    transactionType: "SALES_RETURN",
+                    qtyChange: qtyReturned,
+                    sourceRef: header.id,
+                    createdBy: null,
+                  });
+                }
               }
+              await conn.commit();
+            } catch (err) {
+              await conn.rollback();
+              throw err;
+            } finally {
+              conn.release();
             }
           }
         }
@@ -1784,14 +1963,47 @@ export const performAction = async (req, res, next) => {
       ) {
         try {
           const rtsRows = await query(
-            `SELECT id, status FROM inv_return_to_stores WHERE id = :docId AND company_id = :CompanyId LIMIT 1`,
-            { docId: wf.document_id, CompanyId: wf.company_id },
+            `SELECT id, status FROM inv_return_to_stores WHERE id = :docId AND company_id = :companyId LIMIT 1`,
+            { docId: wf.document_id, companyId: wf.company_id },
           );
           if (rtsRows.length && rtsRows[0].status !== "APPROVED") {
-            await query(
-              `UPDATE inv_return_to_stores SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
-              { id: wf.document_id, companyId: wf.company_id },
-            );
+            const rtsHdr = rtsRows[0];
+            const conn = await pool.getConnection();
+            try {
+              await conn.beginTransaction();
+              await conn.execute(
+                `UPDATE inv_return_to_stores SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+                { id: wf.document_id, companyId: wf.company_id },
+              );
+              // Fetch details
+              const details = await conn
+                .execute(
+                  `SELECT item_id, qty_returned, batch_serial, location 
+                 FROM inv_return_to_stores_details WHERE rts_id = :id`,
+                  { id: wf.document_id },
+                )
+                .then((r) => r[0]);
+
+              for (const d of details) {
+                await recordMovementTx(conn, {
+                  companyId: wf.company_id,
+                  branchId: wf.branch_id || 1,
+                  warehouseId: rtsHdr.warehouse_id || null,
+                  itemId: d.item_id,
+                  transactionType: "RTS",
+                  qtyChange: Number(d.qty_returned || 0),
+                  batchNo: d.batch_serial,
+                  sourceRef: wf.document_id,
+                  createdBy: null,
+                });
+              }
+              await conn.commit();
+            } catch (err) {
+              await conn.rollback();
+              throw err;
+            } finally {
+              conn.release();
+            }
           }
         } catch (e) {}
       } else if (
@@ -1806,35 +2018,44 @@ export const performAction = async (req, res, next) => {
             `SELECT id, status, branch_id, warehouse_id FROM inv_goods_receipt_notes WHERE id = :docId AND company_id = :companyId LIMIT 1`,
             { docId: wf.document_id, companyId: wf.company_id },
           );
-          if (grnRows.length && grnRows[0].status !== "APPROVED") {
-            await query(
+          const conn = await pool.getConnection();
+          try {
+            await conn.beginTransaction();
+            await conn.execute(
               `UPDATE inv_goods_receipt_notes SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
               { id: wf.document_id, companyId: wf.company_id },
             );
-            const details = await query(
-              `SELECT item_id, qty_accepted FROM inv_goods_receipt_note_details WHERE grn_id = :id`,
-              { id: wf.document_id },
-            );
+            const details = await conn
+              .execute(
+                `SELECT item_id, qty_accepted FROM inv_goods_receipt_note_details WHERE grn_id = :id`,
+                { id: wf.document_id },
+              )
+              .then((r) => r[0]);
+
             const branchId = Number(grnRows[0].branch_id || 0);
             const warehouseId = grnRows[0].warehouse_id || null;
             for (const d of details) {
               const itemId = Number(d.item_id);
               const qtyAccepted = Number(d.qty_accepted || 0);
               if (itemId && Number.isFinite(qtyAccepted) && qtyAccepted > 0) {
-                await query(
-                  `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
-                     VALUES (:companyId, :branchId, :warehouseId, :itemId, :qtyAccepted)
-                     ON DUPLICATE KEY UPDATE qty = qty + :qtyAccepted`,
-                  {
-                    companyId: wf.company_id,
-                    branchId,
-                    warehouseId,
-                    itemId,
-                    qtyAccepted,
-                  },
-                );
+                await recordMovementTx(conn, {
+                  companyId: wf.company_id,
+                  branchId,
+                  warehouseId,
+                  itemId,
+                  transactionType: "GRN",
+                  qtyChange: qtyAccepted,
+                  sourceRef: wf.document_id,
+                  createdBy: null,
+                });
               }
             }
+            await conn.commit();
+          } catch (err) {
+            await conn.rollback();
+            throw err;
+          } finally {
+            conn.release();
           }
         } catch (e) {}
       } else if (
@@ -1859,27 +2080,142 @@ export const performAction = async (req, res, next) => {
             const warehouseId = adjRows[0].warehouse_id;
             const branchId = adjRows[0].branch_id || 0;
             if (warehouseId) {
-              for (const d of details) {
-                const itemId = Number(d.item_id);
-                const qtyDiff = Number(d.qty);
-                if (itemId && Number.isFinite(qtyDiff) && qtyDiff !== 0) {
-                  await query(
-                    `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
-                       VALUES (:companyId, :branchId, :warehouseId, :itemId, :qtyDiff)
-                       ON DUPLICATE KEY UPDATE qty = qty + :qtyDiff`,
-                    {
+              const conn = await pool.getConnection();
+              try {
+                await conn.beginTransaction();
+                for (const d of details) {
+                  const itemId = Number(d.item_id);
+                  const qtyDiff = Number(d.qty);
+                  if (itemId && Number.isFinite(qtyDiff) && qtyDiff !== 0) {
+                    await recordMovementTx(conn, {
                       companyId: wf.company_id,
                       branchId,
                       warehouseId,
                       itemId,
-                      qtyDiff,
-                    },
-                  );
+                      transactionType: "STOCK_ADJUSTMENT",
+                      qtyChange: qtyDiff,
+                      sourceRef: wf.document_id,
+                      createdBy: null,
+                    });
+                  }
                 }
+                await conn.commit();
+              } catch (err) {
+                await conn.rollback();
+                throw err;
+              } finally {
+                conn.release();
               }
             }
           }
         } catch (e) {}
+      } else if (
+        wf.status === "APPROVED" &&
+        (wf.document_type === "STOCK_UPDATION" ||
+          wf.document_type === "Stock Updation")
+      ) {
+        try {
+          const upRows = await query(
+            `SELECT id, status, warehouse_id, branch_id FROM inv_stock_updations WHERE id = :docId AND company_id = :companyId LIMIT 1`,
+            { docId: wf.document_id, companyId: wf.company_id },
+          );
+          if (upRows.length && upRows[0].status !== "APPROVED") {
+            const upHdr = upRows[0];
+            const conn = await pool.getConnection();
+            try {
+              await conn.beginTransaction();
+              await conn.execute(
+                `UPDATE inv_stock_updations SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+                { id: wf.document_id, companyId: wf.company_id },
+              );
+              const details = await conn
+                .execute(
+                  `SELECT item_id, qty, batch_no FROM inv_stock_updation_details WHERE updation_id = :id`,
+                  { id: wf.document_id },
+                )
+                .then((r) => r[0]);
+
+              for (const d of details) {
+                const itemId = Number(d.item_id);
+                const qtyChange = Number(d.qty || 0);
+                if (itemId && Number.isFinite(qtyChange) && qtyChange !== 0) {
+                  await recordMovementTx(conn, {
+                    companyId: wf.company_id,
+                    branchId: upHdr.branch_id || 1,
+                    warehouseId: upHdr.warehouse_id,
+                    itemId,
+                    transactionType: "STOCK_UPDATION",
+                    qtyChange,
+                    batchNo: d.batch_no || null,
+                    sourceRef: wf.document_id,
+                    createdBy: null,
+                  });
+                }
+              }
+              await conn.commit();
+            } catch (err) {
+              await conn.rollback();
+              throw err;
+            } finally {
+              conn.release();
+            }
+          }
+        } catch (e) {
+          console.error("Error in STOCK_UPDATION post-approval:", e);
+        }
+      } else if (
+        wf.status === "APPROVED" &&
+        (wf.document_type === "STOCK_VERIFICATION" ||
+          wf.document_type === "Stock Verification")
+      ) {
+        try {
+          const verRows = await query(
+            `SELECT id, status, warehouse_id, branch_id FROM inv_stock_verifications WHERE id = :docId AND company_id = :companyId LIMIT 1`,
+            { docId: wf.document_id, companyId: wf.company_id },
+          );
+          if (verRows.length && verRows[0].status !== "APPROVED") {
+            const verHdr = verRows[0];
+            const conn = await pool.getConnection();
+            try {
+              await conn.beginTransaction();
+              await conn.execute(
+                `UPDATE inv_stock_verifications SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+                { id: wf.document_id, companyId: wf.company_id },
+              );
+              const details = await conn
+                .execute(
+                  `SELECT item_id, variance_qty FROM inv_stock_verification_details WHERE verification_id = :id`,
+                  { id: wf.document_id },
+                )
+                .then((r) => r[0]);
+
+              for (const d of details) {
+                const itemId = Number(d.item_id);
+                const qtyChange = Number(d.variance_qty || 0);
+                if (itemId && Number.isFinite(qtyChange) && qtyChange !== 0) {
+                  await recordMovementTx(conn, {
+                    companyId: wf.company_id,
+                    branchId: verHdr.branch_id || 1,
+                    warehouseId: verHdr.warehouse_id,
+                    itemId,
+                    transactionType: "STOCK_VERIFICATION",
+                    qtyChange,
+                    sourceRef: wf.document_id,
+                    createdBy: null,
+                  });
+                }
+              }
+              await conn.commit();
+            } catch (err) {
+              await conn.rollback();
+              throw err;
+            } finally {
+              conn.release();
+            }
+          }
+        } catch (e) {
+          console.error("Error in STOCK_VERIFICATION post-approval:", e);
+        }
       } else if (
         wf.status === "APPROVED" &&
         (wf.document_type === "PURCHASE_ORDER" ||
@@ -1893,6 +2229,23 @@ export const performAction = async (req, res, next) => {
           if (poRows.length && poRows[0].status !== "APPROVED") {
             await query(
               `UPDATE pur_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+              { id: wf.document_id, companyId: wf.company_id },
+            );
+          }
+        } catch (e) {}
+      } else if (
+        wf.status === "APPROVED" &&
+        (wf.document_type === "GENERAL_REQUISITION" ||
+          wf.document_type === "General Requisition")
+      ) {
+        try {
+          const grRows = await query(
+            `SELECT id, status FROM pur_general_requisitions WHERE id = :docId AND company_id = :companyId LIMIT 1`,
+            { docId: wf.document_id, companyId: wf.company_id },
+          );
+          if (grRows.length && grRows[0].status !== "APPROVED") {
+            await query(
+              `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
               { id: wf.document_id, companyId: wf.company_id },
             );
           }
@@ -1999,6 +2352,113 @@ export const performAction = async (req, res, next) => {
             );
           }
         } catch (e) {}
+      } else if (
+        wf.status === "APPROVED" &&
+        (wf.document_type === "STOCK_UPDATION" ||
+          wf.document_type === "Stock Updation")
+      ) {
+        try {
+          const updRows = await query(
+            `SELECT id, status, branch_id, warehouse_id FROM inv_stock_updations WHERE id = :docId AND company_id = :companyId LIMIT 1`,
+            { docId: wf.document_id, companyId: wf.company_id },
+          );
+          if (updRows.length && updRows[0].status !== "APPROVED") {
+            const upd = updRows[0];
+            await query(
+              `UPDATE inv_stock_updations SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+              { id: upd.id, companyId: wf.company_id },
+            );
+            const details = await query(
+              `SELECT item_id, qty, batch_no, uom FROM inv_stock_updation_details WHERE updation_id = :id`,
+              { id: upd.id },
+            );
+            const branchId = upd.branch_id || 1;
+            const warehouseId = upd.warehouse_id || null;
+            const conn = await pool.getConnection();
+            try {
+              await conn.beginTransaction();
+              for (const d of details) {
+                const itemId = Number(d.item_id);
+                const qty = Number(d.qty || 0);
+                if (itemId && qty > 0) {
+                  await recordMovementTx(conn, {
+                    companyId: wf.company_id,
+                    branchId,
+                    warehouseId,
+                    itemId,
+                    transactionType: "STOCK_UPDATION",
+                    qtyChange: qty,
+                    batchNo: d.batch_no || null,
+                    sourceRef: wf.document_id,
+                    sourceId: wf.document_id,
+                    sourceType: "STOCK_UPDATION",
+                  });
+                }
+              }
+              await conn.commit();
+            } catch (err) {
+              await conn.rollback();
+              console.error("Stock Updation movement failed:", err);
+            } finally {
+              conn.release();
+            }
+          }
+        } catch (e) {
+          console.error("Error finalizing Stock Updation:", e);
+        }
+      } else if (
+        wf.status === "APPROVED" &&
+        (wf.document_type === "STOCK_VERIFICATION" ||
+          wf.document_type === "Stock Verification")
+      ) {
+        try {
+          const verRows = await query(
+            `SELECT id, status, branch_id, warehouse_id FROM inv_stock_verifications WHERE id = :docId AND company_id = :companyId LIMIT 1`,
+            { docId: wf.document_id, companyId: wf.company_id },
+          );
+          if (verRows.length && verRows[0].status !== "APPROVED") {
+            const ver = verRows[0];
+            await query(
+              `UPDATE inv_stock_verifications SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+              { id: ver.id, companyId: wf.company_id },
+            );
+            const details = await query(
+              `SELECT item_id, variance_qty, uom FROM inv_stock_verification_details WHERE verification_id = :id`,
+              { id: ver.id },
+            );
+            const branchId = ver.branch_id || 1;
+            const warehouseId = ver.warehouse_id || null;
+            const conn = await pool.getConnection();
+            try {
+              await conn.beginTransaction();
+              for (const d of details) {
+                const itemId = Number(d.item_id);
+                const varQty = Number(d.variance_qty || 0);
+                if (itemId && varQty !== 0) {
+                  await recordMovementTx(conn, {
+                    companyId: wf.company_id,
+                    branchId,
+                    warehouseId,
+                    itemId,
+                    transactionType: "STOCK_VERIFICATION",
+                    qtyChange: varQty,
+                    sourceRef: wf.document_id,
+                    sourceId: wf.document_id,
+                    sourceType: "STOCK_VERIFICATION",
+                  });
+                }
+              }
+              await conn.commit();
+            } catch (err) {
+              await conn.rollback();
+              console.error("Stock Verification movement failed:", err);
+            } finally {
+              conn.release();
+            }
+          }
+        } catch (e) {
+          console.error("Error finalizing Stock Verification:", e);
+        }
       }
     }
     res.json({ message: "Action processed successfully" });

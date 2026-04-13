@@ -22,6 +22,14 @@ export default function UserOverrides() {
       code: "PURCHASE.CLEARING_AT_PORT.CANCEL",
       label: "Cancel Clearing at Port",
     },
+    {
+      code: "INVENTORY.MATERIAL_REQUISITION.CANCEL",
+      label: "Material Requisition Cancellations",
+    },
+    {
+      code: "PURCHASE.GENERAL_REQUISITION.CANCEL",
+      label: "General Requisition Cancellations",
+    },
   ];
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);

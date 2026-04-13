@@ -132,7 +132,7 @@ export default function TransferAcceptanceList() {
                     <td>
                       <span
                         className={`badge ${
-                          t.status === "IN_TRANSIT"
+                          ["IN_TRANSIT", "IN TRANSIT"].includes(t.status)
                             ? "badge-warning"
                             : "badge-info"
                         }`}

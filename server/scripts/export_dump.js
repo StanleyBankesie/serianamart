@@ -13,7 +13,8 @@ const serverRoot = path.resolve(__dirname, "..");
 dotenv.config({ path: path.join(serverRoot, ".env") });
 const localEnv = path.join(serverRoot, ".env.local");
 const prodEnv = path.join(serverRoot, ".env.production");
-const isProd = String(process.env.NODE_ENV || "").toLowerCase() === "production";
+const isProd =
+  String(process.env.NODE_ENV || "").toLowerCase() === "production";
 if (isProd && fsSync.existsSync(prodEnv)) {
   dotenv.config({ path: prodEnv, override: true });
 } else if (fsSync.existsSync(localEnv)) {
@@ -40,24 +41,47 @@ async function exportDump() {
     .map((r) => r[tableKey] || Object.values(r)[0])
     .filter(Boolean);
   for (const t of tableNames) {
-    const [createRows] = await conn.query(`SHOW CREATE TABLE \`${t}\``);
-    const createSqlRaw = createRows[0]["Create Table"];
-    const createSql = createSqlRaw.replace(
-      /utf8mb4_0900_ai_ci/gi,
-      "utf8mb4_unicode_ci",
-    );
-    lines.push(`DROP TABLE IF EXISTS \`${t}\`;`);
-    lines.push(createSql + ";");
-    const [rows] = await conn.query(`SELECT * FROM \`${t}\``);
-    if (rows.length > 0) {
-      const cols = Object.keys(rows[0]);
-      const header = `INSERT INTO \`${t}\` (${cols.map((c) => `\`${c}\``).join(", ")}) VALUES`;
-      const valueLines = rows.map((row) => {
-        const vals = cols.map((c) => mysqlCore.escape(row[c]));
-        return `(${vals.join(", ")})`;
-      });
-      lines.push(header + "\n" + valueLines.join(",\n") + ";");
-    }
+    try {
+      const [createRows] = await conn.query(`SHOW CREATE TABLE \`${t}\``);
+      const createRow = createRows && createRows[0] ? createRows[0] : null;
+      const key =
+        createRow &&
+        Object.keys(createRow).find((k) =>
+          /create\s+(table|view)/i.test(k || ""),
+        );
+      if (!key) {
+        continue;
+      }
+      const createSqlRaw = createRow[key];
+      if (!createSqlRaw || typeof createSqlRaw !== "string") {
+        continue;
+      }
+      const createSql = createSqlRaw.replace(
+        /utf8mb4_0900_ai_ci/gi,
+        "utf8mb4_unicode_ci",
+      );
+      lines.push(`DROP TABLE IF EXISTS \`${t}\`;`);
+      lines.push(createSql + ";");
+      const [rows] = await conn
+        .query(`SELECT * FROM \`${t}\``)
+        .catch(() => [[]]);
+      if (Array.isArray(rows) && rows.length > 0) {
+        const cols = Object.keys(rows[0]);
+        const header =
+          "INSERT INTO `" +
+          t +
+          "` (" +
+          cols
+            .map((c) => "`" + String(c).replace(/`/g, "``") + "`")
+            .join(", ") +
+          ") VALUES";
+        const valueLines = rows.map((row) => {
+          const vals = cols.map((c) => mysqlCore.escape(row[c]));
+          return `(${vals.join(", ")})`;
+        });
+        lines.push(header + "\n" + valueLines.join(",\n") + ";");
+      }
+    } catch {}
   }
   lines.push("SET FOREIGN_KEY_CHECKS = 1;");
   lines.push("SET collation_connection = 'utf8mb4_unicode_ci';");

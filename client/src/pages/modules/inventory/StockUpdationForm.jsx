@@ -10,11 +10,16 @@ import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
 import UnitConversionModal from "@/components/UnitConversionModal";
 
-export default function StockUpdationForm() {
+export default function StockUpdationForm({
+  isModal = false,
+  modalId = null,
+  onClose = null,
+}) {
   const { uoms, loading: uomsLoading } = useUoms();
-  const { id } = useParams();
+  const { id: routeId } = useParams();
+  const id = isModal ? modalId : routeId;
   const navigate = useNavigate();
-  const isNew = id === "new";
+  const isNew = id === "new" || !id;
   const [searchParams] = useSearchParams();
   const mode = (searchParams.get("mode") || "").toLowerCase();
   const isView = !isNew && mode === "view";
@@ -22,6 +27,8 @@ export default function StockUpdationForm() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [isWfActive, setIsWfActive] = useState(false);
+  const [checkingWf, setCheckingWf] = useState(false);
   const [availableItems, setAvailableItems] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [unitConversions, setUnitConversions] = useState([]);
@@ -42,16 +49,57 @@ export default function StockUpdationForm() {
   }, [uoms]);
 
   const [formData, setFormData] = useState({
-    adjustmentNo: "",
-    adjustmentDate: new Date().toISOString().split("T")[0],
+    updationNo: "",
+    updationDate: new Date().toISOString().split("T")[0],
     warehouseId: "",
-    adjustmentType: "PHYSICAL_COUNT",
-    referenceDoc: "",
     reason: "",
     status: "DRAFT",
   });
 
   const [items, setItems] = useState([]);
+
+  const refreshRowCurrentStock = async (rowId, itemId, warehouseId) => {
+    const wid = warehouseId ? Number(warehouseId) : 0;
+    const iid = itemId ? Number(itemId) : 0;
+    if (!wid || !iid) {
+      setItems((prev) =>
+        prev.map((r) => (r.id === rowId ? { ...r, currentStock: 0 } : r)),
+      );
+      return;
+    }
+    try {
+      const res = await api.get("/inventory/stock/balance", {
+        params: { item_id: iid, warehouse_id: wid },
+      });
+      const qty = Number(res.data?.available || 0);
+      setItems((prev) =>
+        prev.map((r) => (r.id === rowId ? { ...r, currentStock: qty } : r)),
+      );
+    } catch {}
+  };
+
+  const checkWorkflowStatus = async () => {
+    setCheckingWf(true);
+    try {
+      const res = await api.get("/workflows");
+      const items = Array.isArray(res.data?.items) ? res.data.items : [];
+      const active = items.some(w => 
+        Number(w.is_active) === 1 && 
+        (String(w.document_route) === "/inventory/stock-updation" || 
+         String(w.document_type).toUpperCase() === "STOCK_UPDATION" ||
+         String(w.document_type).toUpperCase() === "STOCK UPDATION")
+      );
+      setIsWfActive(active);
+    } catch (e) {
+      console.error("Workflow status check failed", e);
+    } finally {
+      setCheckingWf(false);
+    }
+  };
+
+  useEffect(() => {
+    checkWorkflowStatus();
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -82,6 +130,34 @@ export default function StockUpdationForm() {
 
   useEffect(() => {
     if (isNew) {
+      api.get("/inventory/stock-updation/next-no")
+        .then(res => {
+          setFormData(prev => ({
+            ...prev,
+            updationNo: res.data?.next_no || ""
+          }));
+        })
+        .catch(err => console.error("Failed to fetch next updation no", err));
+    }
+  }, [isNew]);
+
+  useEffect(() => {
+    const wid = formData.warehouseId ? Number(formData.warehouseId) : 0;
+    if (!wid) return;
+    const snapshot = Array.isArray(items) ? items : [];
+    const targets = snapshot
+      .filter((r) => r.item_id)
+      .map((r) => ({ rowId: r.id, itemId: r.item_id }));
+    if (!targets.length) return;
+    (async () => {
+      for (const t of targets) {
+        await refreshRowCurrentStock(t.rowId, t.itemId, wid);
+      }
+    })();
+  }, [formData.warehouseId]);
+
+  useEffect(() => {
+    if (isNew) {
       // Initialize with one empty row
       setItems([
         {
@@ -104,7 +180,7 @@ export default function StockUpdationForm() {
     setError("");
 
     api
-      .get(`/inventory/stock-adjustments/${id}`)
+      .get(`/inventory/stock-updation/${id}`)
       .then((res) => {
         if (!mounted) return;
         const a = res.data?.item;
@@ -114,13 +190,11 @@ export default function StockUpdationForm() {
         if (!a) return;
 
         setFormData({
-          adjustmentNo: a.adjustment_no || "",
-          adjustmentDate: a.adjustment_date
-            ? new Date(a.adjustment_date).toISOString().split("T")[0]
+          updationNo: a.updation_no || "",
+          updationDate: a.updation_date
+            ? new Date(a.updation_date).toISOString().split("T")[0]
             : new Date().toISOString().split("T")[0],
           warehouseId: a.warehouse_id ? String(a.warehouse_id) : "",
-          adjustmentType: a.adjustment_type || "PHYSICAL_COUNT",
-          referenceDoc: a.reference_doc || "",
           reason: a.reason || "",
           status: a.status || "DRAFT",
         });
@@ -132,9 +206,9 @@ export default function StockUpdationForm() {
                 item_id: d.item_id ? String(d.item_id) : "",
                 itemCode: d.item_code || "",
                 itemName: d.item_name || "",
-                currentStock: Number(d.current_stock) || 0,
-                adjustedStock: Number(d.adjusted_stock) || 0,
-                uom: d.uom || "", // Assuming default for now
+                currentStock: 0, // Not needed for simple updation (addition)
+                qty: Number(d.qty) || 0,
+                uom: d.uom || "",
                 unitCost: Number(d.unit_cost) || 0,
                 remarks: d.remarks || "",
               }))
@@ -162,10 +236,9 @@ export default function StockUpdationForm() {
       .filter((r) => r.item_id)
       .map((r) => ({
         item_id: Number(r.item_id),
-        current_stock: Number(r.currentStock) || 0,
-        adjusted_stock: Number(r.adjustedStock) || 0,
-        qty: Number(r.adjustedStock) - Number(r.currentStock), // Difference
+        qty: Number(r.qty) || 0,
         unit_cost: Number(r.unitCost) || 0,
+        uom: r.uom,
         remarks: r.remarks,
       }));
   }, [items]);
@@ -177,22 +250,20 @@ export default function StockUpdationForm() {
 
     try {
       const payload = {
-        adjustment_no: isNew ? undefined : formData.adjustmentNo,
-        adjustment_date: formData.adjustmentDate,
+        updation_no: isNew ? undefined : formData.updationNo,
+        updation_date: formData.updationDate,
         warehouse_id: formData.warehouseId
           ? Number(formData.warehouseId)
           : null,
-        adjustment_type: formData.adjustmentType,
-        reference_doc: formData.referenceDoc,
         reason: formData.reason,
         status: formData.status,
         details: normalizedDetails,
       };
 
       if (isNew) {
-        await api.post("/inventory/stock-adjustments", payload);
+        await api.post("/inventory/stock-updation", payload);
       } else {
-        await api.put(`/inventory/stock-adjustments/${id}`, payload);
+        await api.put(`/inventory/stock-updation/${id}`, payload);
       }
 
       navigate("/inventory/stock-updation", { state: { refresh: true } });
@@ -208,13 +279,11 @@ export default function StockUpdationForm() {
     setError("");
     try {
       const payload = {
-        adjustment_no: isNew ? undefined : formData.adjustmentNo,
-        adjustment_date: formData.adjustmentDate,
+        updation_no: isNew ? undefined : formData.updationNo,
+        updation_date: formData.updationDate,
         warehouse_id: formData.warehouseId
           ? Number(formData.warehouseId)
           : null,
-        adjustment_type: formData.adjustmentType,
-        reference_doc: formData.referenceDoc,
         reason: formData.reason,
         status: formData.status,
         details: normalizedDetails,
@@ -222,16 +291,16 @@ export default function StockUpdationForm() {
 
       let newId = id;
       if (isNew) {
-        const res = await api.post("/inventory/stock-adjustments", payload);
+        const res = await api.post("/inventory/stock-updation", payload);
         newId = res?.data?.id ? String(res.data.id) : null;
-        if (!newId) throw new Error("Failed to create stock adjustment");
+        if (!newId) throw new Error("Failed to create stock updation");
       } else {
-        await api.put(`/inventory/stock-adjustments/${id}`, payload);
+        await api.put(`/inventory/stock-updation/${id}`, payload);
       }
 
       const targetId = newId || id;
       const submitRes = await api.post(
-        `/inventory/stock-adjustments/${targetId}/submit`,
+        `/inventory/stock-updation/${targetId}/submit`,
         { amount: null },
       );
 
@@ -242,9 +311,14 @@ export default function StockUpdationForm() {
       }));
 
       if (instanceId) {
+        if (isModal) onClose && onClose(true);
         navigate(`/administration/workflows/approvals/${instanceId}`);
       } else {
-        navigate("/inventory/stock-updation", { state: { refresh: true } });
+        if (isModal) {
+          onClose && onClose(true);
+        } else {
+          navigate("/inventory/stock-updation", { state: { refresh: true } });
+        }
       }
     } catch (e2) {
       setError(
@@ -265,8 +339,7 @@ export default function StockUpdationForm() {
         item_id: "",
         itemCode: "",
         itemName: "",
-        currentStock: 0,
-        adjustedStock: 0,
+        qty: 0,
         uom: "",
         unitCost: 0,
         remarks: "",
@@ -279,26 +352,26 @@ export default function StockUpdationForm() {
   };
 
   const updateItem = (id, field, value) => {
-    setItems(
-      items.map((item) => {
-        if (item.id === id) {
-          const updated = { ...item, [field]: value };
-          // If item changed, try to find info (though we don't have stock info in availableItems usually)
-          if (field === "item_id") {
-            const selected = availableItems.find(
-              (ai) => String(ai.id) === String(value),
-            );
-            updated.itemCode = selected?.item_code || "";
-            updated.itemName = selected?.item_name || "";
-            updated.unitCost = selected?.cost_price || 0; // Assuming cost_price exists
-            updated.uom =
-              (selected?.uom && String(selected.uom)) || String(defaultUomCode);
-          }
-          return updated;
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        const updated = { ...item, [field]: value };
+        if (field === "item_id") {
+          const selected = availableItems.find(
+            (ai) => String(ai.id) === String(value),
+          );
+          updated.itemCode = selected?.item_code || "";
+          updated.itemName = selected?.item_name || "";
+          updated.unitCost = selected?.cost_price || 0;
+          updated.uom =
+            (selected?.uom && String(selected.uom)) || String(defaultUomCode);
         }
-        return item;
+        return updated;
       }),
     );
+    if (field === "item_id") {
+      refreshRowCurrentStock(id, value, formData.warehouseId);
+    }
   };
 
   const selectReason = (reason) => {
@@ -328,10 +401,12 @@ export default function StockUpdationForm() {
     return `${base} ${active}`;
   };
 
-  return (
-    <div className="space-y-6">
-      <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg">
+  const formContent = (
+    <>
+      <div className="card border-0 shadow-none">
+        <div
+          className={`card-header bg-brand text-white ${isModal ? "" : "rounded-t-lg"}`}
+        >
           <div className="flex justify-between items-center text-white">
             <div>
               <h1 className="text-2xl font-bold dark:text-brand-300">
@@ -344,12 +419,23 @@ export default function StockUpdationForm() {
               <p className="text-sm mt-1">Update stock levels</p>
             </div>
             <div className="flex gap-2">
-              <Link
-                to="/inventory/stock-updation"
-                className="btn-success bg-green-600 text-white hover:bg-green-700 px-6 py-2 rounded shadow-sm font-medium"
-              >
-                ← Back to List
-              </Link>
+              {!isModal && (
+                <Link
+                  to="/inventory/stock-updation"
+                  className="btn-success bg-green-600 text-white hover:bg-green-700 px-6 py-2 rounded shadow-sm font-medium"
+                >
+                  ← Back to List
+                </Link>
+              )}
+              {isModal && (
+                <button
+                  type="button"
+                  onClick={() => onClose && onClose()}
+                  className="text-white hover:text-slate-200 text-2xl"
+                >
+                  ×
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -364,73 +450,7 @@ export default function StockUpdationForm() {
             )}
 
             <fieldset disabled={isView} className="space-y-8">
-              {/* Adjustment Type Selection */}
-              <div>
-                <h3 className="text-lg font-semibold text-slate-800 mb-4 border-b pb-2">
-                  🎯 Select Updation Type
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div
-                    className={getTypeCardClass("PHYSICAL_COUNT")}
-                    onClick={() =>
-                      setFormData({
-                        ...formData,
-                        adjustmentType: "PHYSICAL_COUNT",
-                      })
-                    }
-                  >
-                    <div className="text-3xl mb-2">📋</div>
-                    <div className="font-bold text-slate-700">
-                      Physical Count
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      Based on actual inventory count
-                    </div>
-                  </div>
-                  <div
-                    className={getTypeCardClass("INCREASE")}
-                    onClick={() =>
-                      setFormData({ ...formData, adjustmentType: "INCREASE" })
-                    }
-                  >
-                    <div className="text-3xl mb-2">📈</div>
-                    <div className="font-bold text-slate-700">
-                      Stock Increase
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      Add stock (found, corrections)
-                    </div>
-                  </div>
-                  <div
-                    className={getTypeCardClass("DECREASE")}
-                    onClick={() =>
-                      setFormData({ ...formData, adjustmentType: "DECREASE" })
-                    }
-                  >
-                    <div className="text-3xl mb-2">📉</div>
-                    <div className="font-bold text-slate-700">
-                      Stock Decrease
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      Reduce stock (damage, theft)
-                    </div>
-                  </div>
-                  <div
-                    className={getTypeCardClass("OTHER")}
-                    onClick={() =>
-                      setFormData({ ...formData, adjustmentType: "OTHER" })
-                    }
-                  >
-                    <div className="text-3xl mb-2">⚙️</div>
-                    <div className="font-bold text-slate-700">
-                      Other Adjustment
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      Miscellaneous adjustments
-                    </div>
-                  </div>
-                </div>
-              </div>
+              {/* UI for Updation usually doesn't need type selection as it's always additions */}
 
               {/* Adjustment Information */}
               <div>
@@ -438,15 +458,7 @@ export default function StockUpdationForm() {
                   📋 Updation Information
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div>
-                    <label className="label">Document No</label>
-                    <input
-                      type="text"
-                      className="input bg-slate-100"
-                      value={formData.adjustmentNo}
-                      disabled
-                    />
-                  </div>
+
                   <div>
                     <label className="label">
                       Date <span className="text-red-500">*</span>
@@ -454,11 +466,11 @@ export default function StockUpdationForm() {
                     <input
                       type="date"
                       className="input"
-                      value={formData.adjustmentDate}
+                      value={formData.updationDate}
                       onChange={(e) =>
                         setFormData({
                           ...formData,
-                          adjustmentDate: e.target.value,
+                          updationDate: e.target.value,
                         })
                       }
                       required
@@ -485,25 +497,25 @@ export default function StockUpdationForm() {
                     </select>
                   </div>
                   <div>
-                    <label className="label">Type</label>
+                    <label className="label">Updation No</label>
                     <input
                       type="text"
                       className="input bg-slate-100"
-                      value={formData.adjustmentType}
-                      disabled
+                      value={formData.updationNo || "NEW"}
+                      readOnly
                     />
                   </div>
                   <div>
-                    <label className="label">Reference Document</label>
+                    <label className="label">Reference (Optional)</label>
                     <input
                       type="text"
                       className="input"
-                      placeholder="e.g., PC-2024-001"
-                      value={formData.referenceDoc}
+                      placeholder="e.g., Opening Balance, Correction"
+                      value={formData.remarks || ""}
                       onChange={(e) =>
                         setFormData({
                           ...formData,
-                          referenceDoc: e.target.value,
+                          remarks: e.target.value,
                         })
                       }
                     />
@@ -586,28 +598,25 @@ export default function StockUpdationForm() {
                     <thead className="bg-slate-100 text-slate-700 uppercase font-bold">
                       <tr>
                         <th className="p-3">Item</th>
-                        <th className="p-3 w-24">Current Stock</th>
-                        <th className="p-3 w-24">Adjusted Stock</th>
-                        <th className="p-3 w-24">Diff</th>
-                        <th className="p-3 w-20">UOM</th>
-                        <th className="p-3 w-24">Unit Cost</th>
-                        <th className="p-3 w-28">Impact</th>
+                        <th className="p-3 w-28 text-center text-blue-600">Available Qty</th>
+                        <th className="p-3 w-32">Qty to Add</th>
+                        <th className="p-3 w-28">UOM</th>
+                        <th className="p-3 w-32">Unit Cost</th>
+                        <th className="p-3 w-32">Total Value</th>
                         <th className="p-3">Remarks</th>
                         <th className="p-3 w-16"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
                       {items.map((item) => {
-                        const diff =
-                          Number(item.adjustedStock) -
-                          Number(item.currentStock);
-                        const impact = diff * Number(item.unitCost);
+                        const totalValue =
+                          Number(item.qty || 0) * Number(item.unitCost || 0);
 
                         return (
                           <tr key={item.id} className="hover:bg-slate-50">
                             <td className="p-2">
                               <select
-                                className="input text-sm py-1"
+                                className="input text-sm py-1 min-w-[300px]"
                                 value={item.item_id}
                                 onChange={(e) =>
                                   updateItem(item.id, "item_id", e.target.value)
@@ -622,97 +631,21 @@ export default function StockUpdationForm() {
                                 ))}
                               </select>
                             </td>
-                            <td className="p-2">
-                              <input
-                                type="number"
-                                className="input text-sm py-1 bg-slate-50"
-                                value={item.currentStock}
-                                onChange={(e) =>
-                                  updateItem(
-                                    item.id,
-                                    "currentStock",
-                                    e.target.value,
-                                  )
-                                }
-                              />
+                            <td className="p-2 text-center">
+                              <span className="font-mono font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-200">
+                                {Number(item.currentStock || 0).toLocaleString()}
+                              </span>
                             </td>
                             <td className="p-2">
                               <input
                                 type="number"
                                 className="input text-sm py-1 font-bold"
-                                value={item.adjustedStock}
+                                value={item.qty}
                                 onChange={(e) =>
-                                  updateItem(
-                                    item.id,
-                                    "adjustedStock",
-                                    e.target.value,
-                                  )
+                                  updateItem(item.id, "qty", e.target.value)
                                 }
+                                required
                               />
-                              {(() => {
-                                const it = availableItems.find(
-                                  (ai) =>
-                                    String(ai.id) === String(item.item_id),
-                                );
-                                const defaultUom =
-                                  (it?.uom && String(it.uom)) ||
-                                  (item.uom && String(item.uom)) ||
-                                  (defaultUomCode
-                                    ? String(defaultUomCode)
-                                    : "");
-                                const nonDefaults = (
-                                  Array.isArray(unitConversions)
-                                    ? unitConversions
-                                    : []
-                                )
-                                  .filter(
-                                    (c) =>
-                                      Number(c.is_active) &&
-                                      Number(c.item_id) ===
-                                        Number(item.item_id) &&
-                                      String(c.to_uom) === defaultUom,
-                                  )
-                                  .map((c) => String(c.from_uom));
-                                const preferredUom =
-                                  item.uom && String(item.uom) !== defaultUom
-                                    ? String(item.uom)
-                                    : nonDefaults[0] || "";
-                                const hasConv =
-                                  nonDefaults.length > 0 &&
-                                  preferredUom &&
-                                  preferredUom !== defaultUom;
-                                return hasConv ? (
-                                  <button
-                                    type="button"
-                                    className="ml-2 px-2 py-1 text-xs border border-brand text-brand rounded hover:bg-brand hover:text-white transition-colors"
-                                    onClick={() =>
-                                      setConvModal({
-                                        open: true,
-                                        itemId: item.item_id,
-                                        defaultUom: defaultUom,
-                                        currentUom: preferredUom,
-                                        rowId: item.id,
-                                      })
-                                    }
-                                  >
-                                    {`number of ${preferredUom}`}
-                                  </button>
-                                ) : null;
-                              })()}
-                            </td>
-                            <td className="p-2 font-bold">
-                              <span
-                                className={
-                                  diff > 0
-                                    ? "text-green-600"
-                                    : diff < 0
-                                      ? "text-red-600"
-                                      : "text-slate-400"
-                                }
-                              >
-                                {diff > 0 ? "+" : ""}
-                                {diff}
-                              </span>
                             </td>
                             <td className="p-2">
                               <select
@@ -748,7 +681,7 @@ export default function StockUpdationForm() {
                               />
                             </td>
                             <td className="p-2 font-medium">
-                              {impact.toFixed(2)}
+                              {totalValue.toFixed(2)}
                             </td>
                             <td className="p-2">
                               <input
@@ -776,8 +709,8 @@ export default function StockUpdationForm() {
                       {items.length === 0 && (
                         <tr>
                           <td
-                            colspan="9"
                             className="p-8 text-center text-slate-500"
+                            colSpan="7"
                           >
                             No items added. Click "Add Item" to begin.
                           </td>
@@ -801,25 +734,18 @@ export default function StockUpdationForm() {
                     </span>
                   </div>
                   <div>
-                    Net Qty Change:{" "}
+                    Total Items Count:{" "}
                     <span className="font-bold text-brand-700">
-                      {items.reduce(
-                        (acc, i) =>
-                          acc +
-                          (Number(i.adjustedStock) - Number(i.currentStock)),
-                        0,
-                      )}
+                      {items.reduce((acc, i) => acc + Number(i.qty || 0), 0)}
                     </span>
                   </div>
                   <div>
-                    Total Value Impact:{" "}
+                    Total Value:{" "}
                     <span className="font-bold text-brand-700">
                       {items
                         .reduce(
                           (acc, i) =>
-                            acc +
-                            (Number(i.adjustedStock) - Number(i.currentStock)) *
-                              Number(i.unitCost),
+                            acc + Number(i.qty || 0) * Number(i.unitCost || 0),
                           0,
                         )
                         .toFixed(2)}
@@ -830,19 +756,75 @@ export default function StockUpdationForm() {
             </fieldset>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-              <Link
-                to="/inventory/stock-updation"
-                className="btn-light bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 px-4 py-2 rounded"
+              <button
+                type="button"
+                onClick={() =>
+                  isModal ? onClose() : navigate("/inventory/stock-updation")
+                }
+                className="btn-light bg-slate-500 text-white hover:bg-slate-600 px-4 py-2 rounded"
               >
                 Cancel
-              </Link>
+              </button>
               {!isView ? (
-                <button
-                  type="submit"
-                  className="btn-success bg-green-600 text-white hover:bg-green-700 px-6 py-2 rounded shadow-sm font-medium"
-                >
-                  {saving ? "Saving..." : "Save Updation"}
-                </button>
+                <>
+                   <button
+                    type="submit"
+                    className="btn-success bg-green-600 text-white hover:bg-green-700 px-4 py-2 rounded shadow-sm font-medium"
+                  >
+                    {saving ? "Saving..." : "Save"}
+                  </button>
+                  {((!isWfActive && !checkingWf) || id !== "new") && (formData.status === "DRAFT" || formData.status === "RETURNED") && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          setSaving(true);
+                          let currentId = id;
+                          // If new, we must save first
+                          if (isNew) {
+                             const saveRes = await api.post("/inventory/stock-updation", {
+                               ...formData,
+                               details: items.filter(i => i.item_id).map(r => ({
+                                 item_id: Number(r.item_id),
+                                 qty: Number(r.qty || 0),
+                                 uom: r.uom || "PCS",
+                                 unit_cost: Number(r.unitCost || 0),
+                                 remarks: r.remarks || null
+                               }))
+                             });
+                             currentId = saveRes.data?.id;
+                          } else {
+                             // Optional: save updates before confirming
+                             await api.put(`/inventory/stock-updation/${id}`, {
+                               ...formData,
+                               details: items.filter(i => i.item_id).map(r => ({
+                                 item_id: Number(r.item_id),
+                                 qty: Number(r.qty || 0),
+                                 uom: r.uom || "PCS",
+                                 unit_cost: Number(r.unitCost || 0),
+                                 remarks: r.remarks || null
+                               }))
+                             });
+                          }
+                          
+                          if (!currentId) throw new Error("Could not resolve document ID");
+                          
+                          await api.post(`/inventory/stock-updation/${currentId}/submit`);
+                          alert("Stock updation confirmed and approved");
+                          if (isModal) onClose && onClose(true);
+                          else navigate("/inventory/stock-updation");
+                        } catch (e) {
+                          setError(e?.response?.data?.message || "Confirmation failed");
+                        } finally {
+                          setSaving(false);
+                        }
+                      }}
+                      className="btn-primary bg-indigo-600 text-white hover:bg-indigo-700 px-4 py-2 rounded shadow-sm font-medium"
+                    >
+                      {saving ? "Confirming..." : "Confirm Updation"}
+                    </button>
+                  )}
+                </>
               ) : null}
             </div>
           </form>
@@ -870,6 +852,18 @@ export default function StockUpdationForm() {
           }
         }}
       />
-    </div>
+    </>
   );
+
+  if (isModal) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-y-auto relative animate-in fade-in zoom-in duration-200">
+          {formContent}
+        </div>
+      </div>
+    );
+  }
+
+  return <div className="space-y-6">{formContent}</div>;
 }

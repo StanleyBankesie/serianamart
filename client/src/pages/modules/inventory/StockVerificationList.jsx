@@ -8,6 +8,7 @@ import {
   Package,
   AlertCircle,
 } from "lucide-react";
+import { toast } from "react-toastify";
 import { api } from "../../../api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
@@ -18,38 +19,49 @@ export default function StockVerificationList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [filterStatus, setFilterStatus] = useState("ALL");
+  const [isWfActive, setIsWfActive] = useState(false);
+  const [checkingWf, setCheckingWf] = useState(false);
+
+  const fetchVerifications = async () => {
+    setLoading(true);
+    try {
+      const [verRes, whRes] = await Promise.all([
+        api.get("/inventory/stock-verification"),
+        api.get("/inventory/warehouses"),
+      ]);
+      setVerifications(
+        Array.isArray(verRes.data?.items) ? verRes.data.items : [],
+      );
+      setWarehouses(Array.isArray(whRes.data?.items) ? whRes.data.items : []);
+    } catch (e) {
+      setError(
+        e?.response?.data?.message || "Failed to load stock verifications",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const checkWorkflowStatus = async () => {
+    setCheckingWf(true);
+    try {
+      const res = await api.get("/workflows");
+      const items = Array.isArray(res.data?.items) ? res.data.items : [];
+      const active = items.some(w => 
+        Number(w.is_active) === 1 && 
+        (w.document_route === "/inventory/stock-verification" || w.document_type === "STOCK_VERIFICATION" || w.document_type === "Stock Verification")
+      );
+      setIsWfActive(active);
+    } catch (e) {
+      console.error("Workflow check failed", e);
+    } finally {
+      setCheckingWf(false);
+    }
+  };
 
   useEffect(() => {
-    let mounted = true;
-    setLoading(true);
-
-    Promise.all([
-      api.get("/inventory/stock-adjustments"),
-      api.get("/inventory/warehouses"),
-    ])
-      .then(([adjRes, whRes]) => {
-        if (!mounted) return;
-        // Filter for verification-related types if possible, or just show all adjustments
-        // Assuming Stock Verification maps to Stock Adjustments for now
-        setVerifications(
-          Array.isArray(adjRes.data?.items) ? adjRes.data.items : [],
-        );
-        setWarehouses(Array.isArray(whRes.data?.items) ? whRes.data.items : []);
-      })
-      .catch((e) => {
-        if (!mounted) return;
-        setError(
-          e?.response?.data?.message || "Failed to load stock verifications",
-        );
-      })
-      .finally(() => {
-        if (!mounted) return;
-        setLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-    };
+    fetchVerifications();
+    checkWorkflowStatus();
   }, []);
 
   const getWarehouseName = (id) => {
@@ -61,19 +73,19 @@ export default function StockVerificationList() {
   const statusOptions = [
     { value: "DRAFT", label: "Draft", color: "bg-gray-100 text-gray-800" },
     {
-      value: "IN_PROGRESS",
-      label: "In Progress",
-      color: "bg-blue-100 text-blue-800",
+      value: "PENDING_APPROVAL",
+      label: "Pending Approval",
+      color: "bg-yellow-100 text-yellow-800",
     },
     {
-      value: "COMPLETED",
-      label: "Completed",
+      value: "APPROVED",
+      label: "Approved",
       color: "bg-green-100 text-green-800",
     },
     {
-      value: "ADJUSTED",
-      label: "Adjusted",
-      color: "bg-purple-100 text-purple-800",
+      value: "REJECTED",
+      label: "Rejected",
+      color: "bg-red-100 text-red-800",
     },
   ];
 
@@ -123,21 +135,9 @@ export default function StockVerificationList() {
     if (!searchTerm.trim()) return base;
     return filterAndSort(base, {
       query: searchTerm,
-      getKeys: (v) => [v.adjustment_no],
+      getKeys: (v) => [v.verification_no],
     });
   }, [verifications, searchTerm, filterStatus]);
-
-  // Calculate stats based on verifications
-  const stats = {
-    total: verifications.length,
-    inProgress: verifications.filter(
-      (v) => v.status === "IN_PROGRESS" || v.status === "DRAFT",
-    ).length,
-    completed: verifications.filter(
-      (v) => v.status === "COMPLETED" || v.status === "POSTED",
-    ).length,
-    variance: 0, // Not available in current API
-  };
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -303,14 +303,14 @@ export default function StockVerificationList() {
                     <tr key={verification.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">
-                          {verification.adjustment_no}
+                          {verification.verification_no}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <input
                           type="date"
                           value={(() => {
-                            const s = verification.adjustment_date;
+                            const s = verification.verification_date;
                             const d = new Date(s);
                             if (!isNaN(d)) return d.toISOString().split("T")[0];
                             const str = String(s || "");
@@ -322,12 +322,13 @@ export default function StockVerificationList() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
-                          {getWarehouseName(verification.warehouse_id)}
+                          {verification.warehouse_name ||
+                            getWarehouseName(verification.warehouse_id)}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
-                          {getTypeLabel(verification.adjustment_type)}
+                          {getTypeLabel(verification.verification_type)}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -354,6 +355,42 @@ export default function StockVerificationList() {
                           >
                             Edit
                           </Link>
+                          {verification.status === "DRAFT" && !isWfActive && !checkingWf && (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await api.post(`/inventory/stock-verification/${verification.id}/submit`);
+                                  toast.success("Verification confirmed and approved");
+                                  fetchVerifications();
+                                } catch (e) {
+                                  toast.error(e?.response?.data?.message || "Confirmation failed");
+                                }
+                              }}
+                              className="text-indigo-600 hover:text-indigo-900 ml-2"
+                              title="Confirm Verification"
+                            >
+                              Confirm
+                            </button>
+                          )}
+                          {verification.status === "DRAFT" && isWfActive && (
+                            <button
+                              onClick={async () => {
+                                // Original forward logic if needed, but user wants to hide forward if inactive
+                                // and implies forward should be there if active
+                                try {
+                                  await api.post(`/inventory/stock-verification/${verification.id}/submit`, { amount: null });
+                                  toast.success("Forwarded for approval");
+                                  fetchVerifications();
+                                } catch (e) {
+                                  toast.error("Forwarding failed");
+                                }
+                              }}
+                              className="text-blue-600 hover:text-blue-900 ml-2"
+                              title="Forward for Approval"
+                            >
+                              Forward
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -364,6 +401,7 @@ export default function StockVerificationList() {
           </div>
         </div>
       </div>
+
     </div>
   );
 }

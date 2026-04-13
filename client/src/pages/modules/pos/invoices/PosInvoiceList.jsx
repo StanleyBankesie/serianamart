@@ -589,8 +589,9 @@ export default function PosInvoiceList() {
         document.body.removeChild(iframe);
         return;
       }
+      const printStyle = `<style>@media print { img, svg { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }</style>`;
       doc.open();
-      doc.write(html);
+      doc.write(printStyle + html);
       doc.close();
       const win = iframe.contentWindow || window;
       const handlePrint = () => {

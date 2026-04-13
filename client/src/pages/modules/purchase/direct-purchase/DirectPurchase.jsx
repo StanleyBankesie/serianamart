@@ -17,6 +17,9 @@ export default function DirectPurchase() {
   const [suppliers, setSuppliers] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [items, setItems] = useState([]);
+  const [approvedItemRequisitions, setApprovedItemRequisitions] = useState([]);
+  const [selectedGeneralRequisitionId, setSelectedGeneralRequisitionId] =
+    useState("");
   const [currencies, setCurrencies] = useState([]);
   const [baseCurrencyId, setBaseCurrencyId] = useState(null);
   const [standardPrices, setStandardPrices] = useState([]);
@@ -49,6 +52,9 @@ export default function DirectPurchase() {
       discount_percent: "",
       tax_percent: "",
       uom: "PCS",
+      batch_no: "",
+      mfg_date: "",
+      exp_date: "",
       line_total: 0,
     },
   ]);
@@ -92,6 +98,9 @@ export default function DirectPurchase() {
                 discount_percent: d.discount_percent,
                 tax_percent: d.tax_percent,
                 uom: d.uom || "PCS",
+                batch_no: d.batch_no || "",
+                mfg_date: d.mfg_date ? String(d.mfg_date).slice(0, 10) : "",
+                exp_date: d.exp_date ? String(d.exp_date).slice(0, 10) : "",
                 line_total: d.line_total,
               }))
             : [
@@ -102,6 +111,9 @@ export default function DirectPurchase() {
                   discount_percent: "",
                   tax_percent: "",
                   uom: "PCS",
+                  batch_no: "",
+                  mfg_date: "",
+                  exp_date: "",
                   line_total: 0,
                 },
               ],
@@ -118,7 +130,7 @@ export default function DirectPurchase() {
     let mounted = true;
     async function load() {
       try {
-        const [sup, wh, it, cur, std, conv, tax] = await Promise.all([
+        const [sup, wh, it, cur, std, conv, tax, reqs] = await Promise.all([
           api.get("/purchase/suppliers").then((r) => r.data.items || []),
           api.get("/inventory/warehouses").then((r) => r.data.items || []),
           api.get("/inventory/items").then((r) => r.data.items || []),
@@ -135,6 +147,15 @@ export default function DirectPurchase() {
             .get("/finance/tax-codes")
             .catch(() => ({ data: { items: [] } }))
             .then((r) => r.data.items || []),
+          api
+            .get("/purchase/general-requisitions", {
+              params: {
+                status: "APPROVED",
+                requisition_type: "ITEM",
+                only_unlinked: 1,
+              },
+            })
+            .then((r) => r.data.items || []),
         ]);
         if (mounted) {
           setSuppliers(sup);
@@ -149,6 +170,7 @@ export default function DirectPurchase() {
             rate: Number(t.rate_percent),
           }));
           setTaxes(mappedTaxes);
+          setApprovedItemRequisitions(Array.isArray(reqs) ? reqs : []);
           const base =
             (cur || []).find((c) => Number(c.is_base) === 1)?.id || null;
           setBaseCurrencyId(base);
@@ -301,6 +323,8 @@ export default function DirectPurchase() {
         discount_percent: "",
         tax_percent: "",
         uom: "PCS",
+        mfg_date: "",
+        exp_date: "",
         line_total: 0,
       },
     ]);
@@ -378,6 +402,9 @@ export default function DirectPurchase() {
             discount_percent: Number(l.discount_percent || 0),
             tax_percent: Number(l.tax_percent || 0),
             uom: String(l.uom || "PCS"),
+            batch_no: l.batch_no || null,
+            mfg_date: l.mfg_date || null,
+            exp_date: l.exp_date || null,
           })),
       };
       if (!payload.details.length) {
@@ -389,6 +416,15 @@ export default function DirectPurchase() {
         ? await api.put(`/purchase/direct-purchases/${dpId}`, payload)
         : await api.post("/purchase/direct-purchases", payload);
       const dp = resp?.data || {};
+      const createdId = dp?.id || dpId || null;
+      if (createdId && selectedGeneralRequisitionId) {
+        try {
+          await api.post(
+            `/purchase/general-requisitions/${selectedGeneralRequisitionId}/link`,
+            { ref_type: "DIRECT_PURCHASE", ref_id: Number(createdId) },
+          );
+        } catch {}
+      }
       const msg = `Direct Purchase ${dp.dp_no || ""} saved`;
       setSuccess(msg);
       navigate("/purchase/direct-purchase", { state: { success: msg } });
@@ -434,6 +470,50 @@ export default function DirectPurchase() {
                 {suppliers.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.supplier_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="label">Requisition</label>
+              <select
+                className="input"
+                value={selectedGeneralRequisitionId}
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  setSelectedGeneralRequisitionId(val);
+                  const rid = Number(val);
+                  if (Number.isFinite(rid) && rid > 0) {
+                    try {
+                      const res = await api.get(
+                        `/purchase/general-requisitions/${rid}`,
+                      );
+                      const gr = res.data || null;
+                      const grItems = Array.isArray(gr?.items) ? gr.items : [];
+                      const mapped = grItems
+                        .filter((ln) => Number(ln.item_id))
+                        .map((ln) => ({
+                          item_id: String(ln.item_id),
+                          qty: Number(ln.qty || 0),
+                          unit_price: Number(ln.estimated_unit_cost || 0),
+                          discount_percent: "",
+                          tax_percent: "",
+                          uom: String(ln.uom || "PCS"),
+                          line_total:
+                            Number(ln.qty || 0) *
+                            Number(ln.estimated_unit_cost || 0),
+                        }));
+                      if (mapped.length) setLines(mapped);
+                    } catch {}
+                  }
+                }}
+                disabled={isViewMode}
+              >
+                <option value="">Select Approved Requisition</option>
+                {approvedItemRequisitions.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.requisition_no} — {r.department || ""} —{" "}
+                    {String(r.requisition_date || "").slice(0, 10)}
                   </option>
                 ))}
               </select>
@@ -546,9 +626,12 @@ export default function DirectPurchase() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th style={{ width: 240 }}>Item</th>
-                    <th style={{ width: 100 }}>Qty</th>
-                    <th style={{ width: 120 }}>UOM</th>
+                    <th style={{ width: 320 }}>Item</th>
+                    <th style={{ width: 140 }}>Qty</th>
+                    <th style={{ width: 160 }}>UOM</th>
+                    <th style={{ width: 200 }}>Batch No</th>
+                    <th style={{ width: 150 }}>Mfg Date</th>
+                    <th style={{ width: 150 }}>Expiry Date</th>
                     <th style={{ width: 140 }}>Unit Price</th>
                     <th style={{ width: 120 }}>Discount %</th>
                     <th style={{ width: 140 }}>Tax Code</th>
@@ -644,6 +727,40 @@ export default function DirectPurchase() {
                             ) : null;
                           })()}
                         </div>
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          className="input"
+                          value={l.batch_no || ""}
+                          onChange={(e) =>
+                            updateLine(i, "batch_no", e.target.value)
+                          }
+                          disabled={isViewMode}
+                          placeholder="Optional"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="date"
+                          className="input"
+                          value={l.mfg_date || ""}
+                          onChange={(e) =>
+                            updateLine(i, "mfg_date", e.target.value)
+                          }
+                          disabled={isViewMode}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="date"
+                          className="input"
+                          value={l.exp_date || ""}
+                          onChange={(e) =>
+                            updateLine(i, "exp_date", e.target.value)
+                          }
+                          disabled={isViewMode}
+                        />
                       </td>
                       <td>
                         <input
