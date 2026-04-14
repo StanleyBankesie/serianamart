@@ -17,7 +17,8 @@ export default function MaintenanceJobOrderForm() {
     order_no: "", order_date: new Date().toISOString().slice(0,10),
     request_id: params.get("request_id") || "",
     asset_name: decodeURIComponent(params.get("asset_name") || ""),
-    order_type: "", assigned_team: "", assigned_technician: "",
+    order_type: "", job_order_type: "Planned", assigned_team: "", assigned_technician: "",
+    location: "", supervisor: "", service_provider: "",
     scheduled_date: "", instructions: "", status: "DRAFT", notes: ""
   });
   const [requests, setRequests] = useState([]);
@@ -80,7 +81,7 @@ export default function MaintenanceJobOrderForm() {
               <label className="label">Linked Request</label>
               <select className="input" value={form.request_id} onChange={e => update("request_id", e.target.value)}>
                 <option value="">-- None --</option>
-                {requests.map(r => <option key={r.id} value={r.id}>{r.request_no} – {r.requester_name}</option>)}
+                {requests.map(r => <option key={r.id} value={r.id}>{r.request_no}</option>)}
               </select>
             </div>
             <div>
@@ -98,8 +99,33 @@ export default function MaintenanceJobOrderForm() {
               </select>
             </div>
             <div>
+              <label className="label">Job Order Type *</label>
+              <div className="flex items-center gap-4 mt-2">
+                <label className="inline-flex items-center gap-2">
+                  <input type="radio" name="job_order_type" value="Adhoc" checked={form.job_order_type === "Adhoc"} onChange={e => update("job_order_type", e.target.value)} />
+                  Adhoc
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input type="radio" name="job_order_type" value="Planned" checked={form.job_order_type === "Planned"} onChange={e => update("job_order_type", e.target.value)} />
+                  Planned
+                </label>
+              </div>
+            </div>
+            <div>
               <label className="label">Scheduled Date</label>
               <input className="input" type="date" value={form.scheduled_date} onChange={e => update("scheduled_date", e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Location</label>
+              <input className="input" value={form.location || ""} onChange={e => update("location", e.target.value)} placeholder="Location" />
+            </div>
+            <div>
+              <label className="label">Supervisor</label>
+              <input className="input" value={form.supervisor || ""} onChange={e => update("supervisor", e.target.value)} placeholder="Supervisor name" />
+            </div>
+            <div>
+              <label className="label">Service Provider</label>
+              <input className="input" value={form.service_provider || ""} onChange={e => update("service_provider", e.target.value)} placeholder="Provider name" />
             </div>
             <div>
               <label className="label">Assigned Team</label>

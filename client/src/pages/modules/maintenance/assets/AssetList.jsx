@@ -1,13 +1,32 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { toast } from 'react-toastify';
+import { api } from '../../../../api/client.js';
 import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
 export default function AssetList() {
   const { canPerformAction } = usePermission();
-  const items = [
-    { id: 1, assetNo: 'AST-001', name: 'Generator', location: 'Plant 1', status: 'ACTIVE' },
-    { id: 2, assetNo: 'AST-002', name: 'Forklift', location: 'Warehouse', status: 'ACTIVE' },
-  ];
+  const [items, setItems] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let mounted = true;
+    async function load() {
+      try {
+        const res = await api.get('/maintenance/assets');
+        if (!mounted) return;
+        setItems(Array.isArray(res.data?.items) ? res.data.items : []);
+      } catch (e) {
+        toast.error(e?.response?.data?.message || 'Failed to load assets');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -26,10 +45,20 @@ export default function AssetList() {
         <table className="table">
           <thead><tr><th>Asset No</th><th>Name</th><th>Location</th><th>Status</th><th /></tr></thead>
           <tbody>
-            {items.map((a) => (
+            {loading && (
+              <tr>
+                <td colSpan="5" className="text-center py-8 text-slate-500">Loading...</td>
+              </tr>
+            )}
+            {!loading && items.length === 0 && (
+              <tr>
+                <td colSpan="5" className="text-center py-8 text-slate-500">No assets found</td>
+              </tr>
+            )}
+            {!loading && items.map((a) => (
               <tr key={a.id}>
-                <td className="font-medium">{a.assetNo}</td>
-                <td>{a.name}</td>
+                <td className="font-medium">{a.asset_no}</td>
+                <td>{a.asset_name}</td>
                 <td>{a.location}</td>
                 <td>{a.status}</td>
                 <td>

@@ -1,5 +1,9 @@
 import express from "express";
-import { requireAuth, requireCompanyScope, requireBranchScope } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+} from "../middleware/auth.js";
 import { requirePermission } from "../middleware/requirePermission.js";
 import * as mc from "../controllers/maintenance.controller.js";
 
@@ -7,12 +11,34 @@ const router = express.Router();
 const auth = [requireAuth, requireCompanyScope, requireBranchScope];
 
 // ===== LEGACY WORK ORDERS =====
-router.get("/work-orders", ...auth, requirePermission("MAINT.WORK_ORDER.VIEW"), mc.listWorkOrders);
-router.get("/work-orders/:id", ...auth, requirePermission("MAINT.WORK_ORDER.VIEW"), mc.getWorkOrderById);
-router.post("/work-orders", ...auth, requirePermission("MAINT.WORK_ORDER.MANAGE"), mc.createWorkOrder);
+router.get(
+  "/work-orders",
+  ...auth,
+  requirePermission("MAINT.WORK_ORDER.VIEW"),
+  mc.listWorkOrders,
+);
+router.get(
+  "/work-orders/:id",
+  ...auth,
+  requirePermission("MAINT.WORK_ORDER.VIEW"),
+  mc.getWorkOrderById,
+);
+router.post(
+  "/work-orders",
+  ...auth,
+  requirePermission("MAINT.WORK_ORDER.MANAGE"),
+  mc.createWorkOrder,
+);
+
+// ===== ASSETS =====
+router.get("/assets", ...auth, mc.listAssets);
+router.get("/assets/:id", ...auth, mc.getAssetById);
+router.post("/assets", ...auth, mc.createAsset);
+router.put("/assets/:id", ...auth, mc.updateAsset);
 
 // ===== MAINTENANCE REQUESTS =====
 router.get("/maintenance-requests", ...auth, mc.listRequests);
+router.get("/maintenance-requests/next-no", ...auth, mc.getNextRequestNo);
 router.get("/maintenance-requests/:id", ...auth, mc.getRequestById);
 router.post("/maintenance-requests", ...auth, mc.createRequest);
 router.put("/maintenance-requests/:id", ...auth, mc.updateRequest);
@@ -69,6 +95,13 @@ router.put("/equipment/:id", ...auth, mc.updateEquipment);
 // ===== PARAMETERS =====
 router.get("/parameters", ...auth, mc.getParameters);
 router.put("/parameters", ...auth, mc.saveParameters);
+router.get("/setup/catalog", ...auth, mc.getSetupCatalog);
+router.post("/setup/catalog/:kind", ...auth, mc.createSetupItem);
+router.put("/setup/catalog/:kind/:id", ...auth, mc.updateSetupItem);
+router.delete("/setup/catalog/:kind/:id", ...auth, mc.deleteSetupItem);
+router.post("/setup/section-users", ...auth, mc.createSectionUser);
+router.put("/setup/section-users/:id", ...auth, mc.updateSectionUser);
+router.delete("/setup/section-users/:id", ...auth, mc.deleteSectionUser);
 
 // ===== CONTRACTS =====
 router.get("/contracts", ...auth, mc.listContracts);

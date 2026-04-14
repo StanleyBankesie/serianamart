@@ -1,13 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import {
-  Search,
-  Plus,
-  Check,
-  FileText,
-  Package,
-  AlertCircle,
-} from "lucide-react";
+import { Search, Plus } from "lucide-react";
 import { toast } from "react-toastify";
 import { api } from "../../../api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
@@ -47,9 +40,12 @@ export default function StockVerificationList() {
     try {
       const res = await api.get("/workflows");
       const items = Array.isArray(res.data?.items) ? res.data.items : [];
-      const active = items.some(w => 
-        Number(w.is_active) === 1 && 
-        (w.document_route === "/inventory/stock-verification" || w.document_type === "STOCK_VERIFICATION" || w.document_type === "Stock Verification")
+      const active = items.some(
+        (w) =>
+          Number(w.is_active) === 1 &&
+          (w.document_route === "/inventory/stock-verification" ||
+            w.document_type === "STOCK_VERIFICATION" ||
+            w.document_type === "Stock Verification"),
       );
       setIsWfActive(active);
     } catch (e) {
@@ -155,57 +151,6 @@ export default function StockVerificationList() {
           <Link to="/inventory" className="btn btn-secondary">
             Return to Menu
           </Link>
-        </div>
-
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white p-4 rounded-lg shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Total Verifications</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {stats.total}
-                </p>
-              </div>
-              <FileText className="w-10 h-10 text-blue-500" />
-            </div>
-          </div>
-
-          <div className="bg-white p-4 rounded-lg shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">In Progress</p>
-                <p className="text-2xl font-bold text-blue-600">
-                  {stats.inProgress}
-                </p>
-              </div>
-              <Package className="w-10 h-10 text-blue-500" />
-            </div>
-          </div>
-
-          <div className="bg-white p-4 rounded-lg shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Completed</p>
-                <p className="text-2xl font-bold text-green-600">
-                  {stats.completed}
-                </p>
-              </div>
-              <Check className="w-10 h-10 text-green-500" />
-            </div>
-          </div>
-
-          <div className="bg-white p-4 rounded-lg shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Total Variance</p>
-                <p className="text-2xl font-bold text-orange-600">
-                  ${stats.variance.toFixed(2)}
-                </p>
-              </div>
-              <AlertCircle className="w-10 h-10 text-orange-500" />
-            </div>
-          </div>
         </div>
 
         {/* Filters and Actions */}
@@ -355,30 +300,42 @@ export default function StockVerificationList() {
                           >
                             Edit
                           </Link>
-                          {verification.status === "DRAFT" && !isWfActive && !checkingWf && (
-                            <button
-                              onClick={async () => {
-                                try {
-                                  await api.post(`/inventory/stock-verification/${verification.id}/submit`);
-                                  toast.success("Verification confirmed and approved");
-                                  fetchVerifications();
-                                } catch (e) {
-                                  toast.error(e?.response?.data?.message || "Confirmation failed");
-                                }
-                              }}
-                              className="text-indigo-600 hover:text-indigo-900 ml-2"
-                              title="Confirm Verification"
-                            >
-                              Confirm
-                            </button>
-                          )}
+                          {verification.status === "DRAFT" &&
+                            !isWfActive &&
+                            !checkingWf && (
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await api.post(
+                                      `/inventory/stock-verification/${verification.id}/submit`,
+                                    );
+                                    toast.success(
+                                      "Verification confirmed and approved",
+                                    );
+                                    fetchVerifications();
+                                  } catch (e) {
+                                    toast.error(
+                                      e?.response?.data?.message ||
+                                        "Confirmation failed",
+                                    );
+                                  }
+                                }}
+                                className="text-indigo-600 hover:text-indigo-900 ml-2"
+                                title="Confirm Verification"
+                              >
+                                Confirm
+                              </button>
+                            )}
                           {verification.status === "DRAFT" && isWfActive && (
                             <button
                               onClick={async () => {
                                 // Original forward logic if needed, but user wants to hide forward if inactive
                                 // and implies forward should be there if active
                                 try {
-                                  await api.post(`/inventory/stock-verification/${verification.id}/submit`, { amount: null });
+                                  await api.post(
+                                    `/inventory/stock-verification/${verification.id}/submit`,
+                                    { amount: null },
+                                  );
                                   toast.success("Forwarded for approval");
                                   fetchVerifications();
                                 } catch (e) {
@@ -401,7 +358,6 @@ export default function StockVerificationList() {
           </div>
         </div>
       </div>
-
     </div>
   );
 }

@@ -82,6 +82,9 @@ export default function MaintenanceWorkOrderForm() {
 
       <form onSubmit={submit}>
         <div className="card">
+          <div className="card-header bg-brand text-white rounded-t-lg font-semibold">
+            Work Order Details
+          </div>
           <div className="card-body space-y-4">
             {error && <div className="alert alert-error mb-4">{error}</div>}
             <fieldset disabled={readOnly}>

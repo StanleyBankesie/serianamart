@@ -350,6 +350,9 @@ const ModuleDashboard = ({
                   .filter((item) => canShowItem(item))
                   .map((item, itemIndex) => {
                     const itemTitle = item.title || item.name;
+                    const itemActions = Array.isArray(item.actions)
+                      ? item.actions.filter((action) => canShowItem(action))
+                      : [];
 
                     return (
                       <div
@@ -369,6 +372,33 @@ const ModuleDashboard = ({
                               <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2">
                                 {item.description}
                               </p>
+                            )}
+                            {itemActions.length > 0 && (
+                              <div className="mt-4 flex flex-wrap gap-2">
+                                {itemActions.map((action, actionIndex) => {
+                                  const actionType = String(
+                                    action.type || "outline",
+                                  ).toLowerCase();
+                                  const actionClass =
+                                    actionType === "primary"
+                                      ? "bg-brand-600 text-white hover:bg-brand-700 border-brand-600"
+                                      : "bg-white dark:bg-slate-800 text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-slate-700 border-brand-200 dark:border-slate-600";
+
+                                  return (
+                                    <button
+                                      key={`${action.path || action.label}-${actionIndex}`}
+                                      type="button"
+                                      className={`inline-flex items-center rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${actionClass}`}
+                                      onClick={(e) =>
+                                        handleNavigate(action.path, e)
+                                      }
+                                      title={action.title || action.label}
+                                    >
+                                      {action.label || "Open"}
+                                    </button>
+                                  );
+                                })}
+                              </div>
                             )}
                           </div>
                         </div>

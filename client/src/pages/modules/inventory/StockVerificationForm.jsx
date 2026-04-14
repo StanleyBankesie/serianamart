@@ -133,7 +133,12 @@ export default function StockVerificationForm({
               item_id: d.item_id ? String(d.item_id) : "",
               system_qty: Number(d.system_qty || 0),
               reserve_qty: Number(d.reserve_qty || 0),
-              counted_qty: Number(d.counted_qty),
+              verified_qty:
+                d.verified_qty !== undefined && d.verified_qty !== null
+                  ? Number(d.verified_qty)
+                  : d.counted_qty !== undefined && d.counted_qty !== null
+                    ? Number(d.counted_qty)
+                    : "",
               uom: d.uom || "",
               remarks: d.remarks || "",
             })),
@@ -172,6 +177,48 @@ export default function StockVerificationForm({
     };
   }, [isNew]);
 
+  useEffect(() => {
+    const warehouseId = formData.warehouse_id ? Number(formData.warehouse_id) : 0;
+    const targets = Array.isArray(items)
+      ? items.filter((item) => item.item_id).map((item) => item.id)
+      : [];
+
+    if (!warehouseId) {
+      setItems((prev) =>
+        prev.map((item) => ({
+          ...item,
+          system_qty: 0,
+          reserve_qty: 0,
+        })),
+      );
+      return;
+    }
+
+    if (!targets.length) return;
+
+    (async () => {
+      for (const rowId of targets) {
+        const row = items.find((item) => item.id === rowId);
+        if (!row?.item_id) continue;
+        const stock = await fetchSystemStock(row.item_id, warehouseId);
+        setItems((prev) =>
+          prev.map((item) =>
+            item.id === rowId
+              ? {
+                  ...item,
+                  system_qty: stock.qty,
+                  reserve_qty: stock.reserved,
+                }
+              : item,
+          ),
+        );
+      }
+    })();
+  }, [
+    formData.warehouse_id,
+    items.map((item) => `${item.id}:${item.item_id || ""}`).join("|"),
+  ]);
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({
@@ -188,7 +235,7 @@ export default function StockVerificationForm({
         item_id: "",
         system_qty: 0,
         reserve_qty: 0,
-        verified_qty: 0,
+        verified_qty: "",
         uom: "PCS",
         remarks: "",
       },
@@ -208,7 +255,7 @@ export default function StockVerificationForm({
         params: { item_id: iid, warehouse_id: wid },
       });
       return {
-        qty: Number(res.data?.available || 0),
+        qty: Number(res.data?.qty || 0),
         reserved: Number(res.data?.reserved || 0),
       };
     } catch {
@@ -229,7 +276,8 @@ export default function StockVerificationForm({
             updated.uom = selectedItem.uom || "";
           }
           updated.system_qty = 0;
-          updated.verified_qty = 0;
+          updated.reserve_qty = 0;
+          updated.verified_qty = "";
         }
         return updated;
       }),
@@ -642,7 +690,9 @@ export default function StockVerificationForm({
                               updateItem(
                                 item.id,
                                 "verified_qty",
-                                parseFloat(e.target.value) || 0,
+                                e.target.value === ""
+                                  ? ""
+                                  : Number(e.target.value),
                               )
                             }
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center font-bold"

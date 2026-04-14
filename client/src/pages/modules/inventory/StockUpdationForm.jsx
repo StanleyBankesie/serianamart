@@ -71,7 +71,7 @@ export default function StockUpdationForm({
       const res = await api.get("/inventory/stock/balance", {
         params: { item_id: iid, warehouse_id: wid },
       });
-      const qty = Number(res.data?.available || 0);
+      const qty = Number(res.data?.qty || 0);
       setItems((prev) =>
         prev.map((r) => (r.id === rowId ? { ...r, currentStock: qty } : r)),
       );
@@ -143,7 +143,12 @@ export default function StockUpdationForm({
 
   useEffect(() => {
     const wid = formData.warehouseId ? Number(formData.warehouseId) : 0;
-    if (!wid) return;
+    if (!wid) {
+      setItems((prev) =>
+        prev.map((r) => ({ ...r, currentStock: 0 })),
+      );
+      return;
+    }
     const snapshot = Array.isArray(items) ? items : [];
     const targets = snapshot
       .filter((r) => r.item_id)
@@ -154,7 +159,10 @@ export default function StockUpdationForm({
         await refreshRowCurrentStock(t.rowId, t.itemId, wid);
       }
     })();
-  }, [formData.warehouseId]);
+  }, [
+    formData.warehouseId,
+    items.map((item) => `${item.id}:${item.item_id || ""}`).join("|"),
+  ]);
 
   useEffect(() => {
     if (isNew) {

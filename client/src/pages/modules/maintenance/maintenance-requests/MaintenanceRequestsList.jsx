@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
+import { Guard } from "../../../../hooks/usePermissions";
 
 const STATUSES = ["DRAFT","OPEN","IN_PROGRESS","COMPLETED","CANCELLED"];
 const PRIORITIES = ["LOW","NORMAL","HIGH","CRITICAL"];
@@ -47,45 +48,53 @@ export default function MaintenanceRequestsList() {
   }, [items, search]);
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg">
-          <div className="flex justify-between items-center">
-            <div className="font-semibold">Maintenance Requests</div>
-            <div className="flex gap-2">
-              <Link to="/maintenance" className="btn btn-secondary">Return to Menu</Link>
-              <Link to="/maintenance/maintenance-requests/new" className="btn-success">+ New Request</Link>
-            </div>
+    <Guard moduleKey="maintenance">
+      <div className="p-4 space-y-4">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h1 className="text-2xl font-bold">Maintenance Requests</h1>
+            <p className="text-sm text-slate-500">Track and manage maintenance requests</p>
+          </div>
+          <div className="flex gap-2">
+            <Link to="/maintenance" className="btn-secondary">Back to Menu</Link>
+            <Link to="/maintenance/maintenance-requests/new" className="btn-primary">+ New Request</Link>
           </div>
         </div>
-        <div className="card-body">
-          <div className="mb-4">
+
+        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-slate-200 dark:border-slate-700">
             <input className="input max-w-md" placeholder="Search by no, requester, type, status..." value={search} onChange={e => setSearch(e.target.value)} />
           </div>
           <div className="overflow-x-auto">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Request No</th><th>Date</th><th>Requester</th><th>Department</th>
-                  <th>Type</th><th>Priority</th><th>Status</th><th>Actions</th>
+            <table className="min-w-full">
+              <thead className="bg-[#f8fafc] dark:bg-slate-900/50">
+                <tr className="text-left bg-slate-50 dark:bg-slate-900/50">
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Request No</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Date</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Requester</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Department</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Type</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
                 </tr>
               </thead>
-              <tbody>
-                {loading && <tr><td colSpan="8" className="text-center py-8 text-slate-500">Loading...</td></tr>}
-                {!loading && !filtered.length && <tr><td colSpan="8" className="text-center py-8 text-slate-500">No maintenance requests found</td></tr>}
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                {loading && <tr><td colSpan="8" className="px-4 py-8 text-center text-slate-500">Loading...</td></tr>}
+                {!loading && !filtered.length && <tr><td colSpan="8" className="px-4 py-8 text-center text-slate-500">No maintenance requests found</td></tr>}
                 {!loading && filtered.map(r => (
-                  <tr key={r.id}>
-                    <td className="font-mono text-sm">{r.request_no}</td>
-                    <td>{r.request_date}</td>
-                    <td>{r.requester_name}</td>
-                    <td>{r.department}</td>
-                    <td>{r.maintenance_type}</td>
-                    <td><Badge value={r.priority} colorMap={priorityColors} /></td>
-                    <td><Badge value={r.status} colorMap={statusColors} /></td>
-                    <td className="whitespace-nowrap space-x-2">
-                      <Link to={`/maintenance/maintenance-requests/${r.id}`} className="btn-secondary btn-sm">Edit</Link>
-                      <Link to={`/maintenance/job-orders/new?request_id=${r.id}&request_no=${r.request_no}&asset_name=${encodeURIComponent(r.asset_name||"")}`} className="btn-primary btn-sm">Create Job Order</Link>
-                      <Link to={`/maintenance/rfq/new?request_id=${r.id}&request_no=${r.request_no}`} className="btn-sm" style={{background:"#6366f1",color:"white",borderRadius:"0.375rem",padding:"0.25rem 0.75rem",fontSize:"0.75rem"}}>Create RFQ</Link>
+                  <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                    <td className="px-4 py-3 font-mono text-sm">{r.request_no}</td>
+                    <td className="px-4 py-3 text-sm">{r.request_date}</td>
+                    <td className="px-4 py-3 text-sm">{r.requester_name}</td>
+                    <td className="px-4 py-3 text-sm">{r.department}</td>
+                    <td className="px-4 py-3 text-sm">{r.maintenance_type}</td>
+                    <td className="px-4 py-3 text-sm"><Badge value={r.priority} colorMap={priorityColors} /></td>
+                    <td className="px-4 py-3 text-sm"><Badge value={r.status} colorMap={statusColors} /></td>
+                    <td className="px-4 py-3 text-sm whitespace-nowrap space-x-2">
+                      <Link to={`/maintenance/maintenance-requests/${r.id}`} className="text-brand hover:underline mr-3">Edit</Link>
+                      <Link to={`/maintenance/job-orders/new?request_id=${r.id}&request_no=${r.request_no}&asset_name=${encodeURIComponent(r.asset_name||"")}`} className="text-emerald-600 hover:underline mr-3">Create Job Order</Link>
+                      <Link to={`/maintenance/rfq/new?request_id=${r.id}&request_no=${r.request_no}`} className="text-indigo-600 hover:underline">Create RFQ</Link>
                     </td>
                   </tr>
                 ))}
@@ -94,6 +103,6 @@ export default function MaintenanceRequestsList() {
           </div>
         </div>
       </div>
-    </div>
+    </Guard>
   );
 }
