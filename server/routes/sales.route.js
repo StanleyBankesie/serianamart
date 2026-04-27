@@ -12,9 +12,12 @@ import {
 import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { ensureSalesOrderColumns } from "../utils/dbUtils.js";
+import { ensureStockBalancesWarehouseInfrastructure } from "../services/stock.service.js";
 import { requireIdParam } from "../controllers/finance.controller.js";
 import { isMailerConfigured, sendMail } from "../utils/mailer.js";
 import * as XLSX from "xlsx";
+
+import { allocateFromBatchesTx } from "./inventory.routes.js";
 
 const router = express.Router();
 
@@ -39,6 +42,35 @@ async function hasColumn(tableName, columnName) {
   );
   return Number(rows?.[0]?.c || 0) > 0;
 }
+
+// Ensure sal_deliveries columns
+(async () => {
+  try {
+    if (!(await hasColumn("sal_deliveries", "delivery_instructions"))) {
+      await query(
+        "ALTER TABLE sal_deliveries ADD COLUMN delivery_instructions TEXT NULL",
+      );
+    }
+    if (!(await hasColumn("sal_deliveries", "terms_and_conditions"))) {
+      await query(
+        "ALTER TABLE sal_deliveries ADD COLUMN terms_and_conditions TEXT NULL",
+      );
+    }
+    if (!(await hasColumn("sal_deliveries", "total_tax"))) {
+      await query(
+        "ALTER TABLE sal_deliveries ADD COLUMN total_tax DECIMAL(18,2) DEFAULT 0",
+      );
+    }
+    if (!(await hasColumn("sal_deliveries", "invoice_amount"))) {
+      await query(
+        "ALTER TABLE sal_deliveries ADD COLUMN invoice_amount DECIMAL(18,2) DEFAULT 0",
+      );
+    }
+  } catch (err) {
+    console.error("Failed to update sal_deliveries schema:", err);
+  }
+})();
+
 // Ensure prospective customers table exists
 async function ensureProspectiveCustomersTable() {
   await query(`
@@ -212,6 +244,8 @@ async function ensureInvoiceTables() {
       total_amount DECIMAL(18,2) DEFAULT 0,
       net_amount DECIMAL(18,2) DEFAULT 0,
       balance_amount DECIMAL(18,2) DEFAULT 0,
+      tax_amount DECIMAL(18,2) DEFAULT 0,
+      tax_components LONGTEXT NULL,
       price_type ENUM('WHOLESALE','RETAIL') DEFAULT 'RETAIL',
       payment_type ENUM('CASH','CHEQUE','CREDIT') DEFAULT 'CASH',
       currency_id BIGINT UNSIGNED DEFAULT 4,
@@ -219,6 +253,7 @@ async function ensureInvoiceTables() {
       warehouse_id BIGINT UNSIGNED NULL,
       sales_order_id BIGINT UNSIGNED NULL,
       remarks TEXT NULL,
+      payment_date DATE NULL,
       created_by BIGINT UNSIGNED NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -227,6 +262,16 @@ async function ensureInvoiceTables() {
       KEY idx_invoice_scope (company_id, branch_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `).catch(() => null);
+  if (!(await hasColumn("sal_invoices", "tax_components"))) {
+    await query(
+      "ALTER TABLE sal_invoices ADD COLUMN tax_components LONGTEXT NULL AFTER tax_amount",
+    ).catch(() => null);
+  }
+  if (!(await hasColumn("sal_invoices", "tax_amount"))) {
+    await query(
+      "ALTER TABLE sal_invoices ADD COLUMN tax_amount DECIMAL(18,2) DEFAULT 0 AFTER balance_amount",
+    ).catch(() => null);
+  }
   await query(`
     CREATE TABLE IF NOT EXISTS sal_invoice_details (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -282,6 +327,10 @@ async function ensureInvoiceTables() {
     await query(
       `ALTER TABLE ${details} ADD COLUMN remarks VARCHAR(255) NULL`,
     ).catch(() => null);
+  if (!(await hasColumn(details, "tax_type")))
+    await query(
+      `ALTER TABLE ${details} ADD COLUMN tax_type BIGINT UNSIGNED NULL`,
+    ).catch(() => null);
   const table = "sal_invoices";
   if (!(await hasColumn(table, "total_amount")))
     await query(
@@ -321,6 +370,10 @@ async function ensureInvoiceTables() {
     ).catch(() => null);
   if (!(await hasColumn(table, "remarks")))
     await query(`ALTER TABLE ${table} ADD COLUMN remarks TEXT NULL`).catch(
+      () => null,
+    );
+  if (!(await hasColumn(table, "payment_date")))
+    await query(`ALTER TABLE ${table} ADD COLUMN payment_date DATE NULL`).catch(
       () => null,
     );
   if (!(await hasColumn(table, "created_by")))
@@ -548,9 +601,12 @@ async function ensureStandardPriceSyncTriggers() {
 }
 async function nextSalesReturnNo(companyId, branchId) {
   const rows = await query(
-    `SELECT return_no
-     FROM sal_returns
-     WHERE company_id = :companyId AND branch_id = :branchId
+    `SELECT return_no,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_returns
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND branch_id = :branchId
        AND return_no REGEXP '^SR-[0-9]{6}$'
      ORDER BY CAST(SUBSTRING(return_no, 4) AS UNSIGNED) DESC
      LIMIT 1`,
@@ -568,9 +624,12 @@ async function nextSalesReturnNo(companyId, branchId) {
 async function userHasExceptionalAllow(userId, permissionCode = null) {
   const rows = await query(
     `
-    SELECT 1
-      FROM adm_exceptional_permissions
-     WHERE user_id = :uid
+    SELECT 1,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_exceptional_permissions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE user_id = :uid
        AND effect = 'ALLOW'
        AND is_active = 1
        ${permissionCode ? "AND permission_code = :code" : ""}
@@ -825,27 +884,528 @@ async function resolveDefaultSalesAccountId(conn, { companyId }) {
   );
   return Number(rows?.[0]?.id || 0) || 0;
 }
-async function ensureStockBalancesWarehouseInfrastructure() {
-  if (!(await hasColumn("inv_stock_balances", "warehouse_id"))) {
-    await query(
-      "ALTER TABLE inv_stock_balances ADD COLUMN warehouse_id BIGINT UNSIGNED NULL",
-    ).catch(() => null);
-    try {
-      await query(
-        "ALTER TABLE inv_stock_balances DROP INDEX uq_stock_scope_item",
-      );
-    } catch {}
-    try {
-      await query(
-        "ALTER TABLE inv_stock_balances ADD CONSTRAINT fk_stock_warehouse FOREIGN KEY (warehouse_id) REFERENCES inv_warehouses(id)",
-      );
-    } catch {}
-    try {
-      await query(
-        "ALTER TABLE inv_stock_balances ADD UNIQUE KEY uq_stock_scope_wh_item (company_id, branch_id, warehouse_id, item_id)",
-      );
-    } catch {}
+async function ensureGroupIdTx(
+  conn,
+  { companyId, code, name, nature, parentId = null },
+) {
+  const [existingRows] = await conn.execute(
+    "SELECT id FROM fin_account_groups WHERE company_id = :companyId AND (code = :code OR name = :name) LIMIT 1",
+    { companyId, code, name },
+  );
+  const existingId = Number(existingRows?.[0]?.id || 0) || 0;
+  if (existingId) return existingId;
+  const [ins] = await conn.execute(
+    `INSERT INTO fin_account_groups
+      (company_id, code, name, nature, parent_id, is_active)
+     VALUES
+      (:companyId, :code, :name, :nature, :parentId, 1)`,
+    { companyId, code, name, nature, parentId },
+  );
+  return Number(ins?.insertId || 0) || 0;
+}
+async function resolveUniqueAccountCodeTx(
+  conn,
+  { companyId, preferredCode, ownerAccountId, fallbackPrefix },
+) {
+  const preferred = String(preferredCode || "").trim();
+  const ownerId = Number(ownerAccountId || 0) || 0;
+  const baseFallback = String(fallbackPrefix || "ACC")
+    .trim()
+    .replace(/\s+/g, "-");
+  const candidates = [];
+  if (preferred) candidates.push(preferred);
+  candidates.push(baseFallback);
+  for (let i = 1; i <= 50; i += 1) candidates.push(`${baseFallback}-${i}`);
+  for (const candidate of candidates) {
+    const [rows] = await conn.execute(
+      "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
+      { companyId, code: candidate },
+    );
+    const existingId = Number(rows?.[0]?.id || 0) || 0;
+    if (!existingId || existingId === ownerId) return candidate;
   }
+  return preferred || `${baseFallback}-${Date.now()}`;
+}
+async function resolveCurrencyIdByCodeOrBaseTx(conn, { companyId, code }) {
+  const wanted = String(code || "")
+    .trim()
+    .toUpperCase();
+  if (wanted) {
+    const [rows] = await conn.execute(
+      "SELECT id FROM fin_currencies WHERE company_id = :companyId AND UPPER(code) = :code LIMIT 1",
+      { companyId, code: wanted },
+    );
+    const id = Number(rows?.[0]?.id || 0) || 0;
+    if (id) return id;
+  }
+  const [baseRows] = await conn.execute(
+    "SELECT id FROM fin_currencies WHERE company_id = :companyId AND is_base = 1 LIMIT 1",
+    { companyId },
+  );
+  return Number(baseRows?.[0]?.id || 0) || 0;
+}
+async function ensureCustomerFinAccountIdTx(conn, { companyId, customerId }) {
+  const [custRows] = await conn.execute(
+    "SELECT id, customer_code, customer_name, currency_id FROM sal_customers WHERE company_id = :companyId AND id = :id LIMIT 1",
+    { companyId, id: customerId },
+  );
+  const cust = custRows?.[0] || null;
+  if (!cust) return 0;
+  const targetId = Number(cust.id || 0) || 0;
+  const code = await resolveUniqueAccountCodeTx(conn, {
+    companyId,
+    preferredCode: `C${String(targetId).padStart(5, "0")}`,
+    ownerAccountId: targetId,
+    fallbackPrefix: `CUST-${targetId}`,
+  });
+  const debtorsGroupId = await ensureGroupIdTx(conn, {
+    companyId,
+    code: "DEBTORS",
+    name: "Debtors",
+    nature: "ASSET",
+  });
+  const [accByIdRows] = await conn.execute(
+    "SELECT id FROM fin_accounts WHERE company_id = :companyId AND id = :id LIMIT 1",
+    { companyId, id: targetId },
+  );
+  const existingById = Number(accByIdRows?.[0]?.id || 0) || 0;
+  if (existingById) {
+    await conn.execute(
+      `UPDATE fin_accounts
+          SET group_id = :groupId,
+              code = :code,
+              name = :name,
+              currency_id = :currencyId,
+              is_active = 1,
+              is_postable = 1
+        WHERE company_id = :companyId AND id = :id`,
+      {
+        companyId,
+        id: targetId,
+        groupId: debtorsGroupId,
+        code,
+        name: cust.customer_name,
+        currencyId: Number(cust.currency_id || 0) || null,
+      },
+    );
+    return existingById;
+  }
+  const currencyId =
+    Number(cust.currency_id || 0) ||
+    (await resolveCurrencyIdByCodeOrBaseTx(conn, { companyId, code: "GHS" })) ||
+    null;
+  try {
+    const [ins] = await conn.execute(
+      `INSERT INTO fin_accounts
+        (id, company_id, group_id, code, name, currency_id, is_control_account, is_postable, is_active)
+       VALUES
+        (:id, :companyId, :groupId, :code, :name, :currencyId, 0, 1, 1)`,
+      {
+        id: targetId,
+        companyId,
+        groupId: debtorsGroupId,
+        code,
+        name: cust.customer_name,
+        currencyId,
+      },
+    );
+    return Number(ins?.insertId || 0) || targetId;
+  } catch (e) {
+    if (String(e?.code || "") !== "ER_DUP_ENTRY") throw e;
+    const [accRows] = await conn.execute(
+      "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
+      { companyId, code },
+    );
+    return Number(accRows?.[0]?.id || 0) || 0;
+  }
+}
+async function ensureSalesVoucherTypeIdTx(conn, { companyId }) {
+  const existingId = await resolveVoucherTypeIdByCode(conn, {
+    companyId,
+    code: "SV",
+  });
+  if (existingId) return existingId;
+  try {
+    await conn.execute(
+      `INSERT INTO fin_voucher_types
+        (company_id, code, name, category, prefix, next_number, requires_approval, is_active)
+       VALUES
+        (:companyId, 'SV', 'Sales Voucher', 'SALES', 'SV', 1, 0, 1)`,
+      { companyId },
+    );
+  } catch (e) {
+    if (String(e?.code || "") !== "ER_DUP_ENTRY") throw e;
+  }
+  return await resolveVoucherTypeIdByCode(conn, { companyId, code: "SV" });
+}
+async function ensureDefaultSalesAccountIdTx(conn, { companyId }) {
+  const existingId = await resolveDefaultSalesAccountId(conn, { companyId });
+  if (existingId) return existingId;
+  const groupId = await ensureGroupIdTx(conn, {
+    companyId,
+    code: "SALES",
+    name: "Sales",
+    nature: "INCOME",
+  });
+  const currencyId =
+    (await resolveCurrencyIdByCodeOrBaseTx(conn, { companyId, code: "GHS" })) ||
+    null;
+  const [rows] = await conn.execute(
+    "SELECT id FROM fin_accounts WHERE company_id = :companyId AND (LOWER(name) = 'sales' OR code IN ('4000','400000')) LIMIT 1",
+    { companyId },
+  );
+  const existing = Number(rows?.[0]?.id || 0) || 0;
+  if (existing) return existing;
+  const [ins] = await conn.execute(
+    `INSERT INTO fin_accounts
+      (company_id, group_id, code, name, currency_id, is_control_account, is_postable, is_active)
+     VALUES
+      (:companyId, :groupId, '4000', 'Sales', :currencyId, 0, 1, 1)`,
+    { companyId, groupId, currencyId },
+  );
+  return Number(ins?.insertId || 0) || 0;
+}
+async function fetchItemSalesAccountMap(conn, { companyId, itemIds }) {
+  const ids = Array.from(
+    new Set((Array.isArray(itemIds) ? itemIds : []).map((n) => Number(n))),
+  ).filter((n) => Number.isFinite(n) && n > 0);
+  if (!ids.length) return new Map();
+  const placeholders = ids.map((_, idx) => `:id${idx}`).join(", ");
+  const params = { companyId };
+  for (let i = 0; i < ids.length; i += 1) {
+    params[`id${i}`] = ids[i];
+  }
+  const [rows] = await conn.execute(
+    `SELECT id, sales_account_id FROM inv_items WHERE company_id = :companyId AND id IN (${placeholders})`,
+    params,
+  );
+  const m = new Map();
+  for (const r of rows || []) {
+    m.set(Number(r.id), Number(r.sales_account_id || 0));
+  }
+  return m;
+}
+async function ensureTaxComponentAccountTx(
+  conn,
+  { companyId, taxDetailId, componentName },
+) {
+  const safeName = String(componentName || "").trim();
+  if (!safeName) return 0;
+  const groupId = await ensureGroupIdTx(conn, {
+    companyId,
+    code: "TAXPAY",
+    name: "Tax Payables",
+    nature: "LIABILITY",
+  });
+  const currencyId =
+    (await resolveCurrencyIdByCodeOrBaseTx(conn, { companyId, code: "GHS" })) ||
+    null;
+  const code = `TAX-${String(Number(taxDetailId || 0)).padStart(4, "0")}`;
+  const [existingRows] = await conn.execute(
+    "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
+    { companyId, code },
+  );
+  const existingId = Number(existingRows?.[0]?.id || 0) || 0;
+  if (existingId) {
+    await conn.execute(
+      `UPDATE fin_accounts
+          SET group_id = :groupId,
+              name = :name,
+              currency_id = :currencyId,
+              is_active = 1
+        WHERE company_id = :companyId AND id = :id`,
+      { companyId, id: existingId, groupId, name: safeName, currencyId },
+    );
+    return existingId;
+  }
+  const [ins] = await conn.execute(
+    `INSERT INTO fin_accounts
+      (company_id, group_id, code, name, currency_id, is_control_account, is_postable, is_active)
+     VALUES
+      (:companyId, :groupId, :code, :name, :currencyId, 0, 1, 1)`,
+    { companyId, groupId, code, name: safeName, currencyId },
+  );
+  return Number(ins?.insertId || 0) || 0;
+}
+async function loadTaxComponentsByCodeTx(conn, { companyId, taxCodeId }) {
+  const [rows] = await conn.execute(
+    `SELECT c.tax_detail_id,
+            COALESCE(c.rate_percent, d.rate_percent, 0) AS rate_percent,
+            COALESCE(c.compound_level, 0) AS compound_level,
+            COALESCE(c.sort_order, 100) AS sort_order,
+            d.component_name
+       FROM fin_tax_components c
+       JOIN fin_tax_details d
+         ON d.id = c.tax_detail_id
+      WHERE c.company_id = :companyId
+        AND c.tax_code_id = :taxCodeId
+        AND c.is_active = 1
+      ORDER BY c.compound_level ASC, c.sort_order ASC, d.component_name ASC`,
+    { companyId, taxCodeId },
+  );
+  return Array.isArray(rows) ? rows : [];
+}
+function allocateTaxComponents(baseAmount, taxAmount, components) {
+  const base = Math.max(0, Number(baseAmount || 0));
+  const expectedTax = Math.max(0, Number(taxAmount || 0));
+  const list = Array.isArray(components) ? components : [];
+  if (!list.length || !(expectedTax > 0)) return [];
+  const grouped = new Map();
+  for (const comp of list) {
+    const level = Number(comp.compound_level || 0);
+    if (!grouped.has(level)) grouped.set(level, []);
+    grouped.get(level).push(comp);
+  }
+  const levels = Array.from(grouped.keys()).sort((a, b) => a - b);
+  let currentBase = base;
+  const raw = [];
+  for (const level of levels) {
+    const comps = grouped.get(level) || [];
+    let levelTotal = 0;
+    for (const comp of comps) {
+      const amt = (currentBase * Number(comp.rate_percent || 0)) / 100;
+      raw.push({ ...comp, amount: amt });
+      levelTotal += amt;
+    }
+    currentBase += levelTotal;
+  }
+  const rounded = raw.map((r) => ({
+    ...r,
+    amount: Math.round(Number(r.amount || 0) * 100) / 100,
+  }));
+  const totalRounded = rounded.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const diff = Math.round((expectedTax - totalRounded) * 100) / 100;
+  if (rounded.length && Math.abs(diff) > 0.00001) {
+    rounded[rounded.length - 1].amount =
+      Math.round(
+        (Number(rounded[rounded.length - 1].amount || 0) + diff) * 100,
+      ) / 100;
+  }
+  return rounded.filter((r) => Number(r.amount || 0) > 0);
+}
+
+async function calculateInvoiceTaxLines(
+  conn,
+  { companyId, details, taxTotal },
+) {
+  const voucherTaxLines = [];
+  for (const l of details) {
+    const qty = Number(l.qty || l.quantity || 0);
+    const price = Number(l.unit_price || 0);
+    const discPct = Number(l.discount_percent || 0);
+    const gross = qty * price;
+    const discount = (gross * discPct) / 100;
+    const net = gross - discount;
+    const taxAmt = Number(l.taxAmt || l.tax_amount || 0);
+    const taxCodeId = Number(l.tax_type || l.taxType || l.tax_id || 0) || 0;
+    if (taxCodeId && taxAmt > 0) {
+      const components = await loadTaxComponentsByCodeTx(conn, {
+        companyId,
+        taxCodeId,
+      });
+      const allocations = allocateTaxComponents(net, taxAmt, components);
+      if (allocations.length) {
+        voucherTaxLines.push(...allocations);
+      }
+    }
+  }
+
+  const taxCreditLines = [];
+  for (const tl of voucherTaxLines) {
+    const key = `${tl.tax_detail_id}|${tl.component_name}`;
+    const found = taxCreditLines.find(
+      (x) => `${x.tax_detail_id}|${x.component_name}` === key,
+    );
+    if (found) found.amount += Number(tl.amount || 0);
+    else taxCreditLines.push({ ...tl, amount: Number(tl.amount || 0) });
+  }
+
+  const creditedTax = taxCreditLines.reduce(
+    (s, x) => s + Number(x.amount || 0),
+    0,
+  );
+  if (Math.abs(creditedTax - taxTotal) > 0.009) {
+    const diff = Math.round((taxTotal - creditedTax) * 100) / 100;
+    if (taxCreditLines.length) {
+      taxCreditLines[taxCreditLines.length - 1].amount =
+        Math.round(
+          (Number(taxCreditLines[taxCreditLines.length - 1].amount || 0) +
+            diff) *
+            100,
+        ) / 100;
+    }
+  }
+
+  return taxCreditLines;
+}
+async function createPostedSalesVoucherForInvoiceTx(
+  conn,
+  {
+    companyId,
+    branchId,
+    invoiceId,
+    invoiceNo,
+    invoiceDate,
+    customerId,
+    grandTotal,
+    baseTotal,
+    taxTotal,
+    discountTotal,
+    currencyId,
+    exchangeRate,
+    createdBy,
+    lineTaxes,
+    itemLines,
+    remarks,
+  },
+) {
+  if (!(Number(grandTotal || 0) > 0)) return 0;
+  const [existingRows] = await conn.execute(
+    `SELECT v.id
+       FROM fin_vouchers v
+       JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id
+       JOIN fin_voucher_lines l ON l.voucher_id = v.id
+      WHERE v.company_id = :companyId
+        AND v.branch_id = :branchId
+        AND vt.code = 'SV'
+        AND l.reference_no = :ref
+      LIMIT 1`,
+    { companyId, branchId, ref: invoiceNo },
+  );
+  const existingId = Number(existingRows?.[0]?.id || 0) || 0;
+  if (existingId) {
+    await conn.execute(
+      "DELETE FROM fin_voucher_lines WHERE voucher_id = :vid",
+      { vid: existingId },
+    );
+    await conn.execute("DELETE FROM fin_vouchers WHERE id = :vid", {
+      vid: existingId,
+    });
+  }
+  const voucherTypeId = await ensureSalesVoucherTypeIdTx(conn, { companyId });
+  const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
+  const voucherNo = await nextVoucherNoTx(conn, { companyId, voucherTypeId });
+  const customerAccountId = await ensureCustomerFinAccountIdTx(conn, {
+    companyId,
+    customerId,
+  });
+  const defaultSalesAccountId = await ensureDefaultSalesAccountIdTx(conn, {
+    companyId,
+  });
+  if (
+    !customerAccountId ||
+    !defaultSalesAccountId ||
+    !voucherTypeId ||
+    !fiscalYearId
+  ) {
+    throw httpError(
+      400,
+      "VALIDATION_ERROR",
+      "Unable to resolve customer, sales account, voucher type, or fiscal year for invoice posting",
+    );
+  }
+  const itemIds = (Array.isArray(itemLines) ? itemLines : [])
+    .map((l) => Number(l.item_id || 0))
+    .filter((n) => n > 0);
+  const itemSalesAccountMap = await fetchItemSalesAccountMap(conn, {
+    companyId,
+    itemIds,
+  });
+  const [hdr] = await conn.execute(
+    `INSERT INTO fin_vouchers
+      (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by)
+     VALUES
+      (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, :currencyId, :exchangeRate, :td, :tc, 'POSTED', :createdBy)`,
+    {
+      companyId,
+      branchId,
+      fiscalYearId,
+      voucherTypeId,
+      voucherNo,
+      voucherDate: invoiceDate || toYmd(new Date()),
+      narration: remarks
+        ? `Invoice ${invoiceNo} posted - ${remarks}`
+        : `Invoice ${invoiceNo} posted`,
+      currencyId: currencyId || null,
+      exchangeRate: exchangeRate || 1,
+      td: grandTotal,
+      tc: grandTotal,
+      createdBy: createdBy || null,
+    },
+  );
+  const voucherId = Number(hdr?.insertId || 0) || 0;
+  let lineNo = 1;
+  await conn.execute(
+    `INSERT INTO fin_voucher_lines
+      (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+     VALUES
+      (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :ref)`,
+    {
+      companyId,
+      voucherId,
+      lineNo: lineNo++,
+      accountId: customerAccountId,
+      description: `Customer receivable for ${invoiceNo}`,
+      debit: grandTotal,
+      ref: invoiceNo,
+    },
+  );
+  const salesCreditByAccount = new Map();
+  for (const item of Array.isArray(itemLines) ? itemLines : []) {
+    const itemId = Number(item.item_id || 0);
+    const qty = Number(item.qty || item.quantity || 0);
+    const price = Number(item.unit_price || 0);
+    const discPct = Number(item.discount_percent || 0);
+    const gross = qty * price;
+    const discount = (gross * discPct) / 100;
+    const net = gross - discount;
+    let accId = Number(itemSalesAccountMap.get(itemId) || 0);
+    if (!accId) accId = defaultSalesAccountId;
+    const prev = salesCreditByAccount.get(accId) || 0;
+    salesCreditByAccount.set(accId, prev + net);
+  }
+  for (const [accId, creditAmt] of salesCreditByAccount) {
+    if (!(Number(creditAmt || 0) > 0)) continue;
+    await conn.execute(
+      `INSERT INTO fin_voucher_lines
+        (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+       VALUES
+        (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :ref)`,
+      {
+        companyId,
+        voucherId,
+        lineNo: lineNo++,
+        accountId: accId,
+        description: `Sales for ${invoiceNo}`,
+        credit: Math.max(0, Math.round(Number(creditAmt) * 100) / 100),
+        ref: invoiceNo,
+      },
+    );
+  }
+  for (const taxLine of Array.isArray(lineTaxes) ? lineTaxes : []) {
+    const accountId = await ensureTaxComponentAccountTx(conn, {
+      companyId,
+      taxDetailId: taxLine.tax_detail_id,
+      componentName: taxLine.component_name,
+    });
+    if (!accountId || !(Number(taxLine.amount || 0) > 0)) continue;
+    await conn.execute(
+      `INSERT INTO fin_voucher_lines
+        (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+       VALUES
+        (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :ref)`,
+      {
+        companyId,
+        voucherId,
+        lineNo: lineNo++,
+        accountId,
+        description: `${taxLine.component_name} on ${invoiceNo}`,
+        credit: Math.max(0, Number(taxLine.amount || 0)),
+        ref: invoiceNo,
+      },
+    );
+  }
+  return voucherId;
 }
 
 router.get(
@@ -887,9 +1447,12 @@ router.get(
                COALESCE(customer_name, prospect_customer) AS prospect_customer, 
                address, city, state, country, 
                COALESCE(phone, telephone) AS telephone, 
-               email
-        FROM sal_prospect_customers
-        WHERE ${where}
+               email,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_prospect_customers
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE ${where}
         ORDER BY prospect_customer ASC
         `,
         params,
@@ -953,7 +1516,11 @@ router.get(
     try {
       const companyId = req.scope.companyId;
       const rows = await query(
-        `SELECT customer_code FROM sal_customers 
+        `SELECT customer_code,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_customers
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId AND customer_code REGEXP '^C(-?[0-9]+)?$'
          ORDER BY id DESC
          LIMIT 1`,
@@ -1015,10 +1582,13 @@ router.get(
            c.zone,
            c.country,
            c.payment_terms,
-           c.currency_id
+           c.currency_id,
+          c.created_at,
+          u.username AS created_by_name
          FROM sal_customers c
          LEFT JOIN sal_price_types pt
            ON pt.id = c.price_type_id AND pt.company_id = c.company_id
+        LEFT JOIN adm_users u ON u.id = c.created_by
          WHERE ${where.join(" AND ")}
          ORDER BY c.customer_name ASC`,
         params,
@@ -1046,10 +1616,13 @@ router.get(
       const rows = await query(
         `SELECT 
            c.*,
-           pt.name AS price_type_name
+           pt.name AS price_type_name,
+          c.created_at,
+          u.username AS created_by_name
          FROM sal_customers c
          LEFT JOIN sal_price_types pt
            ON pt.id = c.price_type_id AND pt.company_id = c.company_id
+        LEFT JOIN adm_users u ON u.id = c.created_by
          WHERE c.id = :id AND c.company_id = :companyId
          LIMIT 1`,
         { id, companyId },
@@ -1295,9 +1868,11 @@ router.post(
         const [ins] = await conn.execute(
           `
           INSERT INTO sal_deliveries
-            (company_id, branch_id, delivery_no, delivery_date, customer_id, sales_order_id, invoice_id, remarks, status)
+            (company_id, branch_id, delivery_no, delivery_date, customer_id, sales_order_id, invoice_id, remarks, status,
+             delivery_instructions, terms_and_conditions, total_tax, invoice_amount)
           VALUES
-            (:companyId, :branchId, :delivery_no, DATE(:delivery_date), :customer_id, :sales_order_id, :invoice_id, :remarks, :status)
+            (:companyId, :branchId, :delivery_no, DATE(:delivery_date), :customer_id, :sales_order_id, :invoice_id, :remarks, :status,
+             :delivery_instructions, :terms_and_conditions, :total_tax, :invoice_amount)
           `,
           {
             companyId,
@@ -1309,6 +1884,10 @@ router.post(
             invoice_id: invoiceIdNum,
             remarks: remarks || null,
             status: st,
+            delivery_instructions: req.body.delivery_instructions || null,
+            terms_and_conditions: req.body.terms_and_conditions || null,
+            total_tax: Number(req.body.total_tax || 0),
+            invoice_amount: Number(req.body.invoice_amount || 0),
           },
         );
         const deliveryId = ins.insertId;
@@ -1318,20 +1897,7 @@ router.post(
           const quantity = Number(it?.quantity || 0);
           const unit_price = Number(it?.unit_price || 0);
           const uom = String(it?.uom || "PCS").trim();
-          await conn.execute(
-            `
-            INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
-            VALUES (:companyId, :branchId, :warehouseId, :item_id, :qty)
-            ON DUPLICATE KEY UPDATE qty = qty - :qty
-            `,
-            {
-              companyId,
-              branchId,
-              warehouseId,
-              item_id,
-              qty: quantity,
-            },
-          );
+          // Stock deduction is now handled inside allocateFromBatchesTx
           await allocateFromBatchesTx(conn, {
             companyId,
             branchId,
@@ -1341,6 +1907,7 @@ router.post(
             refType: "DELIVERY",
             refId: deliveryId,
             refDate: ddate,
+            preferredBatchId: it?.batch_id || null,
           });
         }
         await conn.commit();
@@ -1354,11 +1921,14 @@ router.post(
             d.invoice_id,
             d.customer_id,
             COALESCE(c.customer_name, '') AS customer_name,
-            d.status
-          FROM sal_deliveries d
+            d.status,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_deliveries d
           LEFT JOIN sal_customers c
             ON c.id = d.customer_id AND c.company_id = d.company_id
-          WHERE d.id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.id = :id
           LIMIT 1
           `,
           { id: deliveryId },
@@ -1411,8 +1981,12 @@ router.put(
         .toUpperCase();
       const [existing] = await query(
         `
-        SELECT id FROM sal_deliveries
-        WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+        SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_deliveries
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
         LIMIT 1
         `,
         { id, companyId, branchId },
@@ -1501,9 +2075,12 @@ router.get(
       const where = ["company_id = :companyId"];
       if (onlyActive) where.push("is_active = 1");
       const items = await query(
-        `SELECT id, name, description, is_active
-           FROM sal_price_types
-          WHERE ${where.join(" AND ")}
+        `SELECT id, name, description, is_active,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_price_types
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE ${where.join(" AND ")}
           ORDER BY name ASC`,
         params,
       ).catch(() => []);
@@ -1549,12 +2126,15 @@ router.get(
            q.price_type,
            q.payment_type,
            q.currency_id,
-           q.exchange_rate
+           q.exchange_rate,
+          q.created_at,
+          u.username AS created_by_name
          FROM sal_quotations q
          LEFT JOIN sal_customers c
            ON c.id = q.customer_id AND c.company_id = q.company_id
          LEFT JOIN sal_prospect_customers p
            ON p.id = q.customer_id AND p.company_id = q.company_id
+        LEFT JOIN adm_users u ON u.id = q.created_by
          WHERE q.company_id = :companyId AND q.branch_id = :branchId
          ORDER BY q.quotation_date DESC, q.id DESC`,
         { companyId, branchId },
@@ -1615,13 +2195,16 @@ router.get(
           q.exchange_rate,
           q.warehouse_id,
           q.remarks,
-          q.terms_and_conditions
-        FROM sal_quotations q
+          q.terms_and_conditions,
+          q.created_at,
+          u.username AS created_by_name
+         FROM sal_quotations q
         LEFT JOIN sal_customers c
           ON c.id = q.customer_id AND c.company_id = q.company_id
         LEFT JOIN sal_prospect_customers p
           ON p.id = q.customer_id AND p.company_id = q.company_id
-        WHERE q.id = :id AND q.company_id = :companyId AND q.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = q.created_by
+         WHERE q.id = :id AND q.company_id = :companyId AND q.branch_id = :branchId
         LIMIT 1
         `,
         { id, companyId, branchId },
@@ -1659,11 +2242,14 @@ router.get(
           d.total_amount,
           d.uom,
           it.item_code,
-          it.item_name
-        FROM sal_quotation_details d
+          it.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_quotation_details d
         LEFT JOIN inv_items it
           ON it.id = d.item_id AND it.company_id = :companyId
-        WHERE d.quotation_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.quotation_id = :id
         ORDER BY d.id ASC
         `,
         { id, companyId },
@@ -1722,9 +2308,12 @@ router.post(
       const resolveNextQuotationNo = async () => {
         const rows = await query(
           `
-          SELECT quotation_no
-          FROM sal_quotations
-          WHERE company_id = :companyId
+          SELECT quotation_no,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_quotations
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
             AND branch_id = :branchId
             AND quotation_no REGEXP '^QN[0-9]{6}$'
           ORDER BY CAST(REPLACE(quotation_no, 'QN', '') AS UNSIGNED) DESC
@@ -1898,7 +2487,12 @@ router.put(
       }
 
       const rows = await query(
-        `SELECT id FROM sal_quotations WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_quotations
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
         { id, companyId, branchId },
       ).catch(() => []);
       if (!rows.length)
@@ -2045,8 +2639,11 @@ router.delete(
         throw httpError(401, "UNAUTHORIZED", "Invalid user");
       const denyRows = await query(
         `
-        SELECT 1
-          FROM adm_exceptional_permissions
+        SELECT 1,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_exceptional_permissions
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE user_id = :uid
            AND permission_code = 'SALES.QUOTATION.CANCEL'
            AND UPPER(effect) = 'DENY'
@@ -2059,8 +2656,11 @@ router.delete(
       }
       const allowRows = await query(
         `
-        SELECT 1
-          FROM adm_exceptional_permissions
+        SELECT 1,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_exceptional_permissions
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE user_id = :uid
            AND permission_code = 'SALES.QUOTATION.CANCEL'
            AND UPPER(effect) = 'ALLOW'
@@ -2073,8 +2673,11 @@ router.delete(
       }
       const rows = await query(
         `
-        SELECT id
-          FROM sal_quotations
+        SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_quotations
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
          LIMIT 1
         `,
@@ -2084,8 +2687,11 @@ router.delete(
         throw httpError(404, "NOT_FOUND", "Quotation not found");
       const orderRef = await query(
         `
-        SELECT id
-          FROM sal_orders
+        SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_orders
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId AND branch_id = :branchId
            AND quotation_id = :id
          LIMIT 1
@@ -2133,9 +2739,12 @@ router.get(
       const { companyId, branchId } = req.scope;
       const rows = await query(
         `
-        SELECT quotation_no
-        FROM sal_quotations
-        WHERE company_id = :companyId
+        SELECT quotation_no,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_quotations
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
           AND branch_id = :branchId
           AND quotation_no REGEXP '^QN[0-9]{6}$'
         ORDER BY CAST(REPLACE(quotation_no, 'QN', '') AS UNSIGNED) DESC
@@ -2197,9 +2806,12 @@ router.get(
           END AS status, 
           o.total_amount,
           EXISTS(
-            SELECT 1
-              FROM sal_invoices i
-             WHERE i.company_id = :companyId
+            SELECT 1,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
                AND i.branch_id = :branchId
                AND i.sales_order_id = o.id
              LIMIT 1
@@ -2273,8 +2885,11 @@ router.delete(
       }
       const rows = await query(
         `
-        SELECT id
-          FROM sal_orders
+        SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_orders
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
          LIMIT 1
         `,
@@ -2283,8 +2898,11 @@ router.delete(
       if (!rows.length) throw httpError(404, "NOT_FOUND", "Order not found");
       const invRef = await query(
         `
-        SELECT id
-          FROM sal_invoices
+        SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_invoices
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId AND branch_id = :branchId
            AND sales_order_id = :id
          LIMIT 1
@@ -2348,11 +2966,14 @@ router.get(
           o.payment_type,
           o.warehouse_id,
           o.quotation_id,
-          o.remarks
-        FROM sal_orders o
+          o.remarks,
+          o.created_at,
+          u.username AS created_by_name
+         FROM sal_orders o
         LEFT JOIN sal_customers c
           ON c.id = o.customer_id AND c.company_id = o.company_id
-        WHERE o.id = :id AND o.company_id = :companyId AND o.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = o.created_by
+         WHERE o.id = :id AND o.company_id = :companyId AND o.branch_id = :branchId
         LIMIT 1
         `,
         { id, companyId, branchId },
@@ -2371,11 +2992,14 @@ router.get(
           d.tax_amount,
           d.uom,
           it.item_code,
-          it.item_name
-        FROM sal_order_details d
+          it.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_order_details d
         LEFT JOIN inv_items it
           ON it.id = d.item_id AND it.company_id = :companyId
-        WHERE d.order_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.order_id = :id
         ORDER BY d.id ASC
         `,
         { id, companyId },
@@ -2431,13 +3055,16 @@ router.post(
         quotation_id:
           body.quotation_id == null ? null : Number(body.quotation_id),
         remarks: body.remarks || null,
+        payment_date: body.payment_date
+          ? String(body.payment_date).slice(0, 10)
+          : null,
       };
       const result = await query(
         `
         INSERT INTO sal_orders
-          (company_id, branch_id, order_no, order_date, customer_id, status, total_amount, sub_total, tax_amount, currency_id, exchange_rate, price_type, payment_type, warehouse_id, quotation_id, remarks)
+          (company_id, branch_id, order_no, order_date, customer_id, status, total_amount, sub_total, tax_amount, currency_id, exchange_rate, price_type, payment_type, warehouse_id, quotation_id, remarks, payment_date)
         VALUES
-          (:companyId, :branchId, :order_no, DATE(:order_date), :customer_id, :status, :total_amount, :sub_total, :tax_amount, :currency_id, :exchange_rate, :price_type, :payment_type, :warehouse_id, :quotation_id, :remarks)
+          (:companyId, :branchId, :order_no, DATE(:order_date), :customer_id, :status, :total_amount, :sub_total, :tax_amount, :currency_id, :exchange_rate, :price_type, :payment_type, :warehouse_id, :quotation_id, :remarks, :payment_date)
         `,
         payload,
       );
@@ -2477,10 +3104,13 @@ router.post(
         `
         SELECT 
           o.id, o.order_no, o.order_date, o.customer_id, c.customer_name,
-          o.status, o.total_amount
-        FROM sal_orders o
+          o.status, o.total_amount,
+          o.created_at,
+          u.username AS created_by_name
+         FROM sal_orders o
         LEFT JOIN sal_customers c ON c.id = o.customer_id AND c.company_id = o.company_id
-        WHERE o.id = :id
+        LEFT JOIN adm_users u ON u.id = o.created_by
+         WHERE o.id = :id
         LIMIT 1
         `,
         { id: orderId },
@@ -2520,8 +3150,12 @@ router.put(
       // Ensure order exists
       const [existing] = await query(
         `
-        SELECT id FROM sal_orders
-        WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+        SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_orders
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
         LIMIT 1
         `,
         { id, companyId, branchId },
@@ -2547,6 +3181,9 @@ router.put(
         quotation_id:
           body.quotation_id == null ? null : Number(body.quotation_id),
         remarks: body.remarks || null,
+        payment_date: body.payment_date
+          ? String(body.payment_date).slice(0, 10)
+          : null,
       };
       await query(
         `
@@ -2564,7 +3201,8 @@ router.put(
                payment_type = :payment_type,
                warehouse_id = :warehouse_id,
                quotation_id = :quotation_id,
-               remarks = :remarks
+               remarks = :remarks,
+               payment_date = :payment_date
          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
         `,
         payload,
@@ -2629,9 +3267,12 @@ router.post(
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [existing] = await query(
         `
-        SELECT id, status, total_amount 
-        FROM sal_orders
-        WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+        SELECT id, status, total_amount,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_orders
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
         LIMIT 1
         `,
         { id, companyId, branchId },
@@ -2655,16 +3296,24 @@ router.post(
       let activeWf = null;
       if (explicitWorkflowId) {
         const rows = await query(
-          `SELECT * FROM adm_workflows WHERE id = :id AND company_id = :companyId AND is_active = 1 LIMIT 1`,
+          `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND is_active = 1 LIMIT 1`,
           { id: explicitWorkflowId, companyId },
         ).catch(() => []);
         if (rows.length) activeWf = rows[0];
       }
       if (!activeWf) {
         const wfs = await query(
-          `SELECT * 
-           FROM adm_workflows 
-           WHERE company_id = :companyId 
+          `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId 
              AND is_active = 1 
              AND (document_route = '/sales/sales-orders' OR UPPER(document_type) IN ('SALES_ORDER','SALES ORDER','SALES_ORDER:LOCAL','SALES_ORDER:IMPORT')) 
            ORDER BY id ASC`,
@@ -2697,8 +3346,12 @@ router.post(
           );
         } catch {}
         const wfRows = await query(
-          `SELECT * FROM adm_workflows 
-           WHERE company_id = :companyId 
+          `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId 
              AND module_key = 'sales' 
              AND (document_type = 'SALES_ORDER' OR document_type = 'Sales Order') 
              AND workflow_name = 'Default SO Approval'
@@ -2737,7 +3390,12 @@ router.post(
       }
 
       const steps = await query(
-        `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_steps
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
         { wf: activeWf.id },
       );
       if (!steps.length) {
@@ -2757,9 +3415,12 @@ router.post(
         );
       }
       const allowedUsers = await query(
-        `SELECT approver_user_id 
-           FROM adm_workflow_step_approvers 
-           WHERE workflow_id = :wf AND step_order = :ord`,
+        `SELECT approver_user_id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_step_approvers
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf AND step_order = :ord`,
         { wf: activeWf.id, ord: first.step_order },
       );
       const allowedSet = new Set(
@@ -2858,12 +3519,15 @@ router.get(
            i.status,
            i.net_amount,
            i.balance_amount,
+           i.tax_amount,
            i.price_type,
            i.payment_type,
            i.warehouse_id,
            i.sales_order_id,
            i.remarks,
-           MAX(it.vat_on_sales_id) AS tax_code_id
+           MAX(it.vat_on_sales_id) AS tax_code_id,
+          i.created_at,
+          u.username AS created_by_name
          FROM sal_invoices i
          LEFT JOIN sal_customers c
            ON c.id = i.customer_id AND c.company_id = i.company_id
@@ -2871,6 +3535,7 @@ router.get(
            ON d.invoice_id = i.id
          LEFT JOIN inv_items it
            ON it.id = d.item_id AND it.company_id = i.company_id
+        LEFT JOIN adm_users u ON u.id = i.created_by
          WHERE i.company_id = :companyId AND i.branch_id = :branchId
            ${customerId ? "AND i.customer_id = :customerId" : ""}
          GROUP BY
@@ -2883,6 +3548,7 @@ router.get(
            i.status,
            i.net_amount,
            i.balance_amount,
+           i.tax_amount,
            i.price_type,
            i.payment_type,
            i.warehouse_id,
@@ -2928,11 +3594,16 @@ router.get(
           i.currency_id,
           i.warehouse_id,
           i.sales_order_id,
-          i.remarks
-        FROM sal_invoices i
+          i.remarks,
+          i.tax_amount,
+          i.tax_components,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
         LEFT JOIN sal_customers c
           ON c.id = i.customer_id AND c.company_id = i.company_id
-        WHERE i.id = :id AND i.company_id = :companyId AND i.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.id = :id AND i.company_id = :companyId AND i.branch_id = :branchId
         LIMIT 1
         `,
         { id, companyId, branchId },
@@ -2950,11 +3621,14 @@ router.get(
           d.net_amount,
           d.uom,
           it.item_code,
-          it.item_name
-        FROM sal_invoice_details d
+          it.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_invoice_details d
         LEFT JOIN inv_items it
           ON it.id = d.item_id AND it.company_id = :companyId
-        WHERE d.invoice_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.invoice_id = :id
         ORDER BY d.id ASC
         `,
         { id, companyId },
@@ -2981,9 +3655,12 @@ router.get(
       const branchId = req.scope.branchId;
       const rows = await query(
         `
-        SELECT invoice_no
-        FROM sal_invoices
-        WHERE company_id = :companyId
+        SELECT invoice_no,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_invoices
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
           AND branch_id = :branchId
           AND invoice_no REGEXP '^INV-?[0-9]{6}$'
         ORDER BY CAST(REPLACE(invoice_no, 'INV-', '') AS UNSIGNED) DESC
@@ -3023,8 +3700,11 @@ router.post(
         throw httpError(401, "UNAUTHORIZED", "Invalid user");
       const denyRows = await query(
         `
-        SELECT 1
-          FROM adm_exceptional_permissions
+        SELECT 1,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_exceptional_permissions
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE user_id = :uid
            AND permission_code = 'SALES.INVOICE.CANCEL'
            AND UPPER(effect) = 'DENY'
@@ -3037,8 +3717,11 @@ router.post(
       }
       const allowRows = await query(
         `
-        SELECT 1
-          FROM adm_exceptional_permissions
+        SELECT 1,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_exceptional_permissions
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE user_id = :uid
            AND permission_code = 'SALES.INVOICE.CANCEL'
            AND UPPER(effect) = 'ALLOW'
@@ -3051,8 +3734,11 @@ router.post(
       }
       const invRows = await query(
         `
-        SELECT id, invoice_no
-          FROM sal_invoices
+        SELECT id, invoice_no,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_invoices
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
          LIMIT 1
         `,
@@ -3143,7 +3829,12 @@ router.get(
       );
       const [fyRow] =
         (await query(
-          `SELECT id, start_date FROM fin_fiscal_years WHERE company_id = :companyId ORDER BY start_date DESC LIMIT 1`,
+          `SELECT id, start_date,
+          created_at,
+          u.username AS created_by_name
+         FROM fin_fiscal_years
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId ORDER BY start_date DESC LIMIT 1`,
           { companyId },
         ).catch(() => [])) || [];
       const now = new Date();
@@ -3162,17 +3853,23 @@ router.get(
         return typeof d === "string" ? d : d.toISOString().slice(0, 10);
       }
       const [ytdRow] = (await query(
-        `SELECT COALESCE(SUM(i.net_amount),0) AS v
-             FROM sal_invoices i
-            WHERE i.company_id = :companyId
+        `SELECT COALESCE(SUM(i.net_amount),0) AS v,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
               AND i.branch_id = :branchId
               AND i.invoice_date BETWEEN :from AND :to`,
         { companyId, branchId, from: toDateStr(fromFy), to: toDateStr(today) },
       ).catch(() => [])) || [{ v: 0 }];
       const [mtdRow] = (await query(
-        `SELECT COALESCE(SUM(i.net_amount),0) AS v
-             FROM sal_invoices i
-            WHERE i.company_id = :companyId
+        `SELECT COALESCE(SUM(i.net_amount),0) AS v,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
               AND i.branch_id = :branchId
               AND i.invoice_date BETWEEN :from AND :to`,
         {
@@ -3183,9 +3880,12 @@ router.get(
         },
       ).catch(() => [])) || [{ v: 0 }];
       const [wtdRow] = (await query(
-        `SELECT COALESCE(SUM(i.net_amount),0) AS v
-             FROM sal_invoices i
-            WHERE i.company_id = :companyId
+        `SELECT COALESCE(SUM(i.net_amount),0) AS v,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
               AND i.branch_id = :branchId
               AND i.invoice_date BETWEEN :from AND :to`,
         {
@@ -3196,20 +3896,26 @@ router.get(
         },
       ).catch(() => [])) || [{ v: 0 }];
       const [todayRow] = (await query(
-        `SELECT COALESCE(SUM(i.net_amount),0) AS v
-             FROM sal_invoices i
-            WHERE i.company_id = :companyId
+        `SELECT COALESCE(SUM(i.net_amount),0) AS v,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
               AND i.branch_id = :branchId
               AND DATE(i.invoice_date) = :d`,
         { companyId, branchId, d: toDateStr(today) },
       ).catch(() => [])) || [{ v: 0 }];
       async function grossBetween(from, to) {
         const rows = (await query(
-          `SELECT COALESCE(SUM(d.quantity * (d.unit_price * (1 - d.discount_percent/100)) - d.quantity * it.cost_price),0) AS gp
-               FROM sal_invoice_details d
+          `SELECT COALESCE(SUM(d.quantity * (d.unit_price * (1 - d.discount_percent/100)) - d.quantity * it.cost_price),0) AS gp,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_invoice_details d
                JOIN sal_invoices i ON i.id = d.invoice_id
                LEFT JOIN inv_items it ON it.id = d.item_id AND it.company_id = i.company_id
-              WHERE i.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE i.company_id = :companyId
                 AND i.branch_id = :branchId
                 AND i.invoice_date BETWEEN :from AND :to`,
           { companyId, branchId, from: toDateStr(from), to: toDateStr(to) },
@@ -3223,11 +3929,14 @@ router.get(
       const topProducts =
         (await query(
           `SELECT it.item_name AS label,
-                  COALESCE(SUM(d.quantity * (d.unit_price * (1 - d.discount_percent/100))),0) AS value
-             FROM sal_invoice_details d
+                  COALESCE(SUM(d.quantity * (d.unit_price * (1 - d.discount_percent/100))),0) AS value,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_invoice_details d
              JOIN sal_invoices i ON i.id = d.invoice_id
              LEFT JOIN inv_items it ON it.id = d.item_id AND it.company_id = i.company_id
-            WHERE i.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE i.company_id = :companyId
               AND i.branch_id = :branchId
               AND i.invoice_date BETWEEN :from AND :to
             GROUP BY it.item_name
@@ -3243,10 +3952,13 @@ router.get(
       const topCustomers =
         (await query(
           `SELECT COALESCE(c.customer_name,'Unknown') AS label,
-                  COALESCE(SUM(i.net_amount),0) AS value
-             FROM sal_invoices i
+                  COALESCE(SUM(i.net_amount),0) AS value,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
              LEFT JOIN sal_customers c ON c.id = i.customer_id AND c.company_id = i.company_id
-            WHERE i.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
               AND i.branch_id = :branchId
               AND i.invoice_date BETWEEN :from AND :to
             GROUP BY COALESCE(c.customer_name,'Unknown')
@@ -3260,23 +3972,24 @@ router.get(
           },
         ).catch(() => [])) || [];
       const groupColRes =
-        (await query(
-          `SELECT COUNT(*) AS c
-             FROM information_schema.columns
-            WHERE table_schema = DATABASE()
+        (await query(`SELECT COUNT(*) AS c
+         FROM information_schema.columns
+         WHERE table_schema = DATABASE()
               AND table_name = 'inv_items'
-              AND column_name = 'group_id'`,
-        ).catch(() => [])) || [];
+              AND column_name = 'group_id'`).catch(() => [])) || [];
       const hasGroupId = Number(groupColRes?.[0]?.c || 0) > 0;
       const productGroupPie =
         (await query(
           `SELECT COALESCE(g.group_name,'Unassigned') AS label,
-                  COALESCE(SUM(d.quantity * (d.unit_price * (1 - d.discount_percent/100))),0) AS value
-             FROM sal_invoice_details d
+                  COALESCE(SUM(d.quantity * (d.unit_price * (1 - d.discount_percent/100))),0) AS value,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_invoice_details d
              JOIN sal_invoices i ON i.id = d.invoice_id
              LEFT JOIN inv_items it ON it.id = d.item_id AND it.company_id = i.company_id
              LEFT JOIN inv_item_groups g ON g.id = it.${hasGroupId ? "group_id" : "item_group_id"}
-            WHERE i.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE i.company_id = :companyId
               AND i.branch_id = :branchId
               AND i.invoice_date BETWEEN :from AND :to
             GROUP BY COALESCE(g.group_name,'Unassigned')
@@ -3291,10 +4004,13 @@ router.get(
       const customerTypeDonut =
         (await query(
           `SELECT UPPER(COALESCE(c.customer_type,'OTHER')) AS label,
-                  COALESCE(SUM(i.net_amount),0) AS value
-             FROM sal_invoices i
+                  COALESCE(SUM(i.net_amount),0) AS value,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
              LEFT JOIN sal_customers c ON c.id = i.customer_id AND c.company_id = i.company_id
-            WHERE i.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
               AND i.branch_id = :branchId
               AND i.invoice_date BETWEEN :from AND :to
             GROUP BY UPPER(COALESCE(c.customer_type,'OTHER'))
@@ -3322,9 +4038,12 @@ router.get(
       ];
       const monthlyRows =
         (await query(
-          `SELECT DATE_FORMAT(i.invoice_date, '%Y-%m') AS ym, COALESCE(SUM(i.net_amount),0) AS v
-             FROM sal_invoices i
-            WHERE i.company_id = :companyId
+          `SELECT DATE_FORMAT(i.invoice_date, '%Y-%m') AS ym, COALESCE(SUM(i.net_amount),0) AS v,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
               AND i.branch_id = :branchId
               AND YEAR(i.invoice_date) = YEAR(CURDATE())
             GROUP BY ym
@@ -3338,9 +4057,12 @@ router.get(
       const halfRows =
         (await query(
           `SELECT CASE WHEN MONTH(i.invoice_date) BETWEEN 1 AND 6 THEN 'H1' ELSE 'H2' END AS label,
-                  COALESCE(SUM(i.net_amount),0) AS v
-             FROM sal_invoices i
-            WHERE i.company_id = :companyId
+                  COALESCE(SUM(i.net_amount),0) AS v,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
               AND i.branch_id = :branchId
               AND YEAR(i.invoice_date) = YEAR(CURDATE())
             GROUP BY label
@@ -3354,9 +4076,12 @@ router.get(
       const quarterRows =
         (await query(
           `SELECT CONCAT('Q', QUARTER(i.invoice_date)) AS label,
-                  COALESCE(SUM(i.net_amount),0) AS v
-             FROM sal_invoices i
-            WHERE i.company_id = :companyId
+                  COALESCE(SUM(i.net_amount),0) AS v,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
               AND i.branch_id = :branchId
               AND YEAR(i.invoice_date) = YEAR(CURDATE())
             GROUP BY QUARTER(i.invoice_date)
@@ -3369,9 +4094,12 @@ router.get(
       }));
       const trendRows =
         (await query(
-          `SELECT DATE_FORMAT(i.invoice_date, '%Y-%m') AS ym, COALESCE(SUM(i.net_amount),0) AS v
-             FROM sal_invoices i
-            WHERE i.company_id = :companyId
+          `SELECT DATE_FORMAT(i.invoice_date, '%Y-%m') AS ym, COALESCE(SUM(i.net_amount),0) AS v,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
               AND i.branch_id = :branchId
               AND i.invoice_date BETWEEN :from AND :to
             GROUP BY ym
@@ -3471,6 +4199,12 @@ router.post(
         grandTotal += net + taxAmt;
       }
 
+      const taxCreditLines = await calculateInvoiceTaxLines(conn, {
+        companyId,
+        details,
+        taxTotal,
+      });
+
       await conn.beginTransaction();
       let finalInvoiceNo = String(invoice_no || "").trim();
       if (!finalInvoiceNo) {
@@ -3491,9 +4225,9 @@ router.post(
       }
       const [ins] = await conn.execute(
         `INSERT INTO sal_invoices
-          (company_id, branch_id, invoice_no, invoice_date, customer_id, payment_status, status, total_amount, net_amount, balance_amount, price_type, payment_type, currency_id, exchange_rate, warehouse_id, sales_order_id, remarks, created_by)
+          (company_id, branch_id, invoice_no, invoice_date, customer_id, payment_status, status, total_amount, net_amount, balance_amount, tax_amount, tax_components, price_type, payment_type, currency_id, exchange_rate, warehouse_id, sales_order_id, remarks, payment_date, created_by)
          VALUES
-          (:companyId, :branchId, :invoiceNo, :invoiceDate, :customerId, 'UNPAID', 'DRAFT', :totalAmount, :netAmount, :balanceAmount, :priceType, :paymentType, :currencyId, :exchangeRate, :warehouseId, :salesOrderId, :remarks, :createdBy)`,
+          (:companyId, :branchId, :invoiceNo, :invoiceDate, :customerId, 'UNPAID', 'POSTED', :totalAmount, :netAmount, :balanceAmount, :taxAmount, :taxComponents, :priceType, :paymentType, :currencyId, :exchangeRate, :warehouseId, :salesOrderId, :remarks, :paymentDate, :createdBy)`,
         {
           companyId,
           branchId,
@@ -3503,6 +4237,8 @@ router.post(
           totalAmount: grandTotal,
           netAmount: grandTotal,
           balanceAmount: grandTotal,
+          taxAmount: taxTotal,
+          taxComponents: JSON.stringify(taxCreditLines),
           priceType: price_type || null,
           paymentType: payment_type || null,
           currencyId: currency_id || null,
@@ -3510,6 +4246,9 @@ router.post(
           warehouseId: warehouse_id || null,
           salesOrderId: sales_order_id || null,
           remarks: remarks || null,
+          paymentDate: body.payment_date
+            ? String(body.payment_date).slice(0, 10)
+            : null,
           createdBy: req.user?.sub || null,
         },
       );
@@ -3519,9 +4258,9 @@ router.post(
       for (const l of details) {
         await conn.execute(
           `INSERT INTO sal_invoice_details
-             (invoice_id, item_id, quantity, unit_price, discount_percent, total_amount, net_amount, uom, remarks)
+             (invoice_id, item_id, quantity, unit_price, discount_percent, total_amount, net_amount, tax_amount, tax_type, uom, remarks)
            VALUES
-             (:invoiceId, :itemId, :quantity, :unitPrice, :discountPercent, :totalAmount, :netAmount, :uom, :remarks)`,
+             (:invoiceId, :itemId, :quantity, :unitPrice, :discountPercent, :totalAmount, :netAmount, :taxAmount, :taxType, :uom, :remarks)`,
           {
             invoiceId,
             itemId: Number(l.item_id),
@@ -3530,15 +4269,42 @@ router.post(
             discountPercent: Number(l.discount_percent || 0),
             totalAmount: Number(l.total || l.total_amount || 0),
             netAmount: Number(l.net || l.net_amount || 0),
+            taxAmount: Number(l.taxAmt || l.tax_amount || 0),
+            taxType: Number(l.tax_type || l.taxType || l.tax_id || 0) || null,
             uom: l.uom || null,
             remarks: l.remarks || null,
           },
         );
         lineNo++;
       }
+      let discountTotal = 0;
+      for (const l of details) {
+        const qty = Number(l.qty || l.quantity || 0);
+        const price = Number(l.unit_price || 0);
+        const discPct = Number(l.discount_percent || 0);
+        discountTotal += (qty * price * discPct) / 100;
+      }
+      await createPostedSalesVoucherForInvoiceTx(conn, {
+        companyId,
+        branchId,
+        invoiceId,
+        invoiceNo: finalInvoiceNo,
+        invoiceDate: invoice_date || toYmd(new Date()),
+        customerId: Number(customer_id),
+        grandTotal,
+        baseTotal: subTotal,
+        taxTotal,
+        discountTotal,
+        currencyId: currency_id || null,
+        exchangeRate: exchange_rate || 1,
+        createdBy: req.user?.sub || null,
+        lineTaxes: taxCreditLines,
+        itemLines: details,
+        remarks: remarks || null,
+      });
 
       await conn.commit();
-      res.status(201).json({ id: invoiceId });
+      res.status(201).json({ id: invoiceId, status: "POSTED" });
     } catch (e) {
       try {
         await conn.rollback();
@@ -3584,11 +4350,13 @@ router.put(
           : [];
 
       const existing = await query(
-        "SELECT id FROM sal_invoices WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1",
+        "SELECT id, invoice_no, status FROM sal_invoices WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1",
         { id, companyId, branchId },
       );
       if (!existing.length)
         throw httpError(404, "NOT_FOUND", "Invoice not found");
+      const existingInvoiceNo = String(existing[0].invoice_no || "");
+      const existingStatus = String(existing[0].status || "DRAFT");
 
       if (!Array.isArray(details) || details.length === 0) {
         throw httpError(
@@ -3614,6 +4382,13 @@ router.put(
         grandTotal += net + taxAmt;
       }
 
+      const taxCreditLines = await calculateInvoiceTaxLines(conn, {
+        companyId,
+        details,
+        taxTotal,
+      });
+
+      const effectiveStatus = String(body.status || existingStatus || "DRAFT");
       await conn.beginTransaction();
       await conn.execute(
         `UPDATE sal_invoices
@@ -3623,13 +4398,16 @@ router.put(
                total_amount = :totalAmount,
                net_amount = :netAmount,
                balance_amount = :balanceAmount,
+               tax_amount = :taxAmount,
+               tax_components = :taxComponents,
                price_type = :priceType,
                payment_type = :paymentType,
                currency_id = :currencyId,
                exchange_rate = :exchangeRate,
                warehouse_id = :warehouseId,
                sales_order_id = :salesOrderId,
-               remarks = :remarks
+               remarks = :remarks,
+               status = :status
          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
         {
           id,
@@ -3641,6 +4419,8 @@ router.put(
           totalAmount: grandTotal,
           netAmount: grandTotal,
           balanceAmount: grandTotal,
+          taxAmount: taxTotal,
+          taxComponents: JSON.stringify(taxCreditLines),
           priceType: price_type || null,
           paymentType: payment_type || null,
           currencyId: currency_id || null,
@@ -3648,6 +4428,10 @@ router.put(
           warehouseId: warehouse_id || null,
           salesOrderId: sales_order_id || null,
           remarks: remarks || null,
+          status: effectiveStatus,
+          paymentDate: body.payment_date
+            ? String(body.payment_date).slice(0, 10)
+            : null,
         },
       );
 
@@ -3658,9 +4442,9 @@ router.put(
       for (const l of details) {
         await conn.execute(
           `INSERT INTO sal_invoice_details
-             (invoice_id, item_id, quantity, unit_price, discount_percent, total_amount, net_amount, uom, remarks)
+             (invoice_id, item_id, quantity, unit_price, discount_percent, total_amount, net_amount, tax_amount, tax_type, uom, remarks)
            VALUES
-             (:invoiceId, :itemId, :quantity, :unitPrice, :discountPercent, :totalAmount, :netAmount, :uom, :remarks)`,
+             (:invoiceId, :itemId, :quantity, :unitPrice, :discountPercent, :totalAmount, :netAmount, :taxAmount, :taxType, :uom, :remarks)`,
           {
             invoiceId: id,
             itemId: Number(l.item_id),
@@ -3669,10 +4453,39 @@ router.put(
             discountPercent: Number(l.discount_percent || 0),
             totalAmount: Number(l.total || l.total_amount || 0),
             netAmount: Number(l.net || l.net_amount || 0),
+            taxAmount: Number(l.taxAmt || l.tax_amount || 0),
+            taxType: Number(l.tax_type || l.taxType || l.tax_id || 0) || null,
             uom: l.uom || null,
             remarks: l.remarks || null,
           },
         );
+      }
+      if (effectiveStatus === "POSTED" && Number(grandTotal || 0) > 0) {
+        let discountTotal = 0;
+        for (const l of details) {
+          const qty = Number(l.qty || l.quantity || 0);
+          const price = Number(l.unit_price || 0);
+          const discPct = Number(l.discount_percent || 0);
+          discountTotal += (qty * price * discPct) / 100;
+        }
+        await createPostedSalesVoucherForInvoiceTx(conn, {
+          companyId,
+          branchId,
+          invoiceId: id,
+          invoiceNo: String(invoice_no || existingInvoiceNo || ""),
+          invoiceDate: invoice_date || toYmd(new Date()),
+          customerId: Number(customer_id),
+          grandTotal,
+          baseTotal: subTotal,
+          taxTotal,
+          discountTotal,
+          currencyId: currency_id || null,
+          exchangeRate: exchange_rate || 1,
+          createdBy: req.user?.sub || null,
+          lineTaxes: taxCreditLines,
+          itemLines: details,
+          remarks: remarks || null,
+        });
       }
       await conn.commit();
       res.json({ id });
@@ -3695,34 +4508,122 @@ router.post(
   requirePermission("SAL.INVOICE.MANAGE"),
   requireIdParam("id"),
   async (req, res, next) => {
+    const conn = await pool.getConnection();
     try {
       const { companyId, branchId } = req.scope;
       const id = Number(req.params.id);
-      const items = await query(
-        "SELECT id, net_amount, balance_amount, status FROM sal_invoices WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1",
+      const invoices = await query(
+        "SELECT id, invoice_no, invoice_date, customer_id, net_amount, balance_amount, status, currency_id, exchange_rate, remarks FROM sal_invoices WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1",
         { id, companyId, branchId },
       );
-      if (!items.length) throw httpError(404, "NOT_FOUND", "Invoice not found");
-      const lines = await query(
-        "SELECT id FROM sal_invoice_details WHERE invoice_id = :id LIMIT 1",
+      if (!invoices.length)
+        throw httpError(404, "NOT_FOUND", "Invoice not found");
+      const inv = invoices[0];
+      if (String(inv.status) === "POSTED") {
+        return res.json({
+          id,
+          status: "POSTED",
+          payment_status: inv.payment_status,
+        });
+      }
+      const details = await query(
+        "SELECT item_id, quantity, unit_price, discount_percent, total_amount, net_amount, tax_amount, tax_type FROM sal_invoice_details WHERE invoice_id = :id",
         { id },
       );
-      if (!lines.length)
+      if (!details.length)
         throw httpError(400, "VALIDATION_ERROR", "No line items");
-      const bal = Number(items[0].balance_amount || items[0].net_amount || 0);
+
+      let subTotal = 0;
+      let taxTotal = 0;
+      let grandTotal = 0;
+      for (const l of details) {
+        const qty = Number(l.quantity || 0);
+        const price = Number(l.unit_price || 0);
+        const discPct = Number(l.discount_percent || 0);
+        const gross = qty * price;
+        const discount = (gross * discPct) / 100;
+        const net = gross - discount;
+        const taxAmt = Number(l.tax_amount || 0);
+        subTotal += net;
+        taxTotal += taxAmt;
+        grandTotal += net + taxAmt;
+      }
+
+      const taxCreditLines = await calculateInvoiceTaxLines(conn, {
+        companyId,
+        details,
+        taxTotal,
+      });
+
+      let discountTotal = 0;
+      for (const l of details) {
+        const qty = Number(l.quantity || 0);
+        const price = Number(l.unit_price || 0);
+        const discPct = Number(l.discount_percent || 0);
+        discountTotal += (qty * price * discPct) / 100;
+      }
+
+      const bal = Number(inv.balance_amount || inv.net_amount || grandTotal);
       const paymentStatus =
         bal <= 0 ? "PAID" : bal > 0 ? "UNPAID" : "PARTIALLY_PAID";
-      await query(
+
+      await conn.beginTransaction();
+      await conn.execute(
         `UPDATE sal_invoices
-           SET status = 'SUBMITTED',
+           SET status = 'POSTED',
                payment_status = :paymentStatus,
-               balance_amount = :balance
+               balance_amount = :balance,
+               total_amount = :totalAmount,
+               net_amount = :netAmount,
+               tax_amount = :taxAmount,
+               tax_components = :taxComponents
          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-        { id, companyId, branchId, paymentStatus, balance: bal },
+        {
+          id,
+          companyId,
+          branchId,
+          paymentStatus,
+          balance: bal,
+          totalAmount: grandTotal,
+          netAmount: grandTotal,
+          taxAmount: taxTotal,
+          taxComponents: JSON.stringify(taxCreditLines),
+        },
       );
-      res.json({ id, status: "SUBMITTED", payment_status: paymentStatus });
+
+      await createPostedSalesVoucherForInvoiceTx(conn, {
+        companyId,
+        branchId,
+        invoiceId: id,
+        invoiceNo: String(inv.invoice_no || ""),
+        invoiceDate: inv.invoice_date || toYmd(new Date()),
+        customerId: Number(inv.customer_id || 0),
+        grandTotal,
+        baseTotal: subTotal,
+        taxTotal,
+        discountTotal,
+        currencyId: inv.currency_id || null,
+        exchangeRate: inv.exchange_rate || 1,
+        createdBy: req.user?.sub || null,
+        lineTaxes: taxCreditLines,
+        itemLines: details.map((d) => ({
+          item_id: d.item_id,
+          quantity: d.quantity,
+          unit_price: d.unit_price,
+          discount_percent: d.discount_percent,
+        })),
+        remarks: inv.remarks || null,
+      });
+
+      await conn.commit();
+      res.json({ id, status: "POSTED", payment_status: paymentStatus });
     } catch (e) {
+      try {
+        await conn.rollback();
+      } catch {}
       next(e);
+    } finally {
+      conn.release();
     }
   },
 );
@@ -3746,11 +4647,14 @@ router.get(
           d.invoice_id,
           d.customer_id,
           COALESCE(c.customer_name, '') AS customer_name,
-          d.status
-        FROM sal_deliveries d
+          d.status,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_deliveries d
         LEFT JOIN sal_customers c
           ON c.id = d.customer_id AND c.company_id = d.company_id
-        WHERE d.company_id = :companyId AND d.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.company_id = :companyId AND d.branch_id = :branchId
         ORDER BY d.delivery_date DESC, d.id DESC
         `,
         { companyId, branchId },
@@ -3773,9 +4677,12 @@ router.get(
       const { companyId, branchId } = req.scope;
       const rows = await query(
         `
-        SELECT delivery_no
-        FROM sal_deliveries
-        WHERE company_id = :companyId
+        SELECT delivery_no,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_deliveries
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
           AND branch_id = :branchId
           AND delivery_no REGEXP '^DN-?[0-9]{6}$'
         ORDER BY CAST(REPLACE(delivery_no, 'DN-', '') AS UNSIGNED) DESC
@@ -3821,11 +4728,14 @@ router.get(
           COALESCE(c.customer_name, '') AS customer_name,
           d.status,
           d.sales_order_id,
-          d.remarks
-        FROM sal_deliveries d
+          d.remarks,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_deliveries d
         LEFT JOIN sal_customers c
           ON c.id = d.customer_id AND c.company_id = d.company_id
-        WHERE d.id = :id AND d.company_id = :companyId AND d.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.id = :id AND d.company_id = :companyId AND d.branch_id = :branchId
         LIMIT 1
         `,
         { id, companyId, branchId },
@@ -3841,11 +4751,14 @@ router.get(
           dd.unit_price,
           dd.uom,
           it.item_code,
-          it.item_name
-        FROM sal_delivery_details dd
+          it.item_name,
+          dd.created_at,
+          u.username AS created_by_name
+         FROM sal_delivery_details dd
         LEFT JOIN inv_items it
           ON it.id = dd.item_id AND it.company_id = :companyId
-        WHERE dd.delivery_id = :id
+        LEFT JOIN adm_users u ON u.id = dd.created_by
+         WHERE dd.delivery_id = :id
         ORDER BY dd.id ASC
         `,
         { id, companyId },
@@ -3880,8 +4793,12 @@ router.put(
         throw httpError(400, "VALIDATION_ERROR", "Invalid status");
       const [existing] = await query(
         `
-        SELECT id FROM sal_deliveries
-        WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+        SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_deliveries
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
         LIMIT 1
         `,
         { id, companyId, branchId },
@@ -3902,25 +4819,347 @@ router.put(
   },
 );
 
-router.get(
+router.post(
   "/prices/standard",
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
+  requireAnyPermission([
+    "SAL.PRICE.CREATE",
+    "SAL.PRICE.EDIT",
+    "SAL.PRICE.VIEW",
+  ]),
   async (req, res, next) => {
     try {
-      const companyId = req.scope.companyId;
-      const items = await query(
-        `SELECT 
-           i.id AS product_id,
-           i.selling_price
-         FROM inv_items i
-         WHERE i.company_id = :companyId
-         ORDER BY i.id ASC`,
-        { companyId },
+      await ensureStandardPriceSyncTriggers();
+      const { companyId, branchId } = req.scope;
+      const product_id = Number(req.body?.product_id);
+      if (!Number.isFinite(product_id) || product_id <= 0) {
+        throw httpError(400, "VALIDATION_ERROR", "product_id is required");
+      }
+      const payload = {
+        companyId,
+        branchId,
+        product_id,
+        cost_price: Number(req.body?.cost_price || 0),
+        selling_price: Number(req.body?.selling_price || 0),
+        margin_percent:
+          req.body?.margin_percent !== undefined &&
+          req.body?.margin_percent !== null
+            ? Number(req.body.margin_percent)
+            : 0,
+        effective_date: req.body?.effective_date || null,
+        price_type_id:
+          req.body?.price_type_id !== undefined &&
+          req.body?.price_type_id !== null &&
+          req.body?.price_type_id !== ""
+            ? Number(req.body.price_type_id)
+            : null,
+        uom: req.body?.uom || null,
+        currency_id:
+          req.body?.currency_id !== undefined &&
+          req.body?.currency_id !== null &&
+          req.body?.currency_id !== ""
+            ? Number(req.body.currency_id)
+            : null,
+      };
+      const ptId =
+        payload.price_type_id !== null && payload.price_type_id !== undefined
+          ? Number(payload.price_type_id)
+          : null;
+      const [existing] = await query(
+        `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_standard_prices
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
+           AND product_id = :product_id
+           AND (branch_id <=> :branchId)
+           AND (price_type_id <=> :price_type_id)
+         LIMIT 1`,
+        {
+          companyId,
+          branchId,
+          product_id,
+          price_type_id: Number.isFinite(ptId) ? ptId : null,
+        },
       ).catch(() => []);
-      res.json({ items: Array.isArray(items) ? items : [] });
+      if (existing?.id) {
+        await query(
+          `UPDATE sal_standard_prices SET
+             cost_price = :cost_price,
+             selling_price = :selling_price,
+             margin_percent = :margin_percent,
+             effective_date = :effective_date,
+             price_type_id = :price_type_id,
+             uom = :uom,
+             currency_id = :currency_id,
+             updated_at = CURRENT_TIMESTAMP
+           WHERE id = :id AND company_id = :companyId`,
+          { ...payload, id: existing.id },
+        );
+        return res.json({
+          id: existing.id,
+          updated: true,
+          item: { ...payload },
+        });
+      }
+      const ins = await query(
+        `INSERT INTO sal_standard_prices
+          (company_id, branch_id, product_id, cost_price, selling_price, margin_percent, effective_date, price_type_id, uom, currency_id)
+         VALUES
+          (:companyId, :branchId, :product_id, :cost_price, :selling_price, :margin_percent, :effective_date, :price_type_id, :uom, :currency_id)`,
+        payload,
+      );
+      res.status(201).json({ id: ins?.insertId || null, item: { ...payload } });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/prices/customer",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "SAL.PRICE.VIEW",
+    "SAL.INVOICE.VIEW",
+    "SAL.ORDER.VIEW",
+  ]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const customer_id =
+        req.query?.customer_id !== undefined && req.query?.customer_id !== ""
+          ? Number(req.query.customer_id)
+          : null;
+      const rows = await query(
+        `SELECT cp.*,
+          cp.created_at,
+          u.username AS created_by_name
+         FROM sal_customer_prices cp
+        LEFT JOIN adm_users u ON u.id = cp.created_by
+         WHERE cp.company_id = :companyId
+           AND (cp.branch_id = :branchId OR cp.branch_id IS NULL)
+           AND (:customer_id IS NULL OR cp.customer_id = :customer_id)
+         ORDER BY cp.updated_at DESC, cp.id DESC`,
+        { companyId, branchId, customer_id },
+      ).catch(() => []);
+      res.json({ items: Array.isArray(rows) ? rows : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.post(
+  "/prices/customer",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "SAL.PRICE.CREATE",
+    "SAL.PRICE.EDIT",
+    "SAL.PRICE.VIEW",
+  ]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const customer_id = Number(req.body?.customer_id);
+      const product_id = Number(req.body?.product_id);
+      if (!Number.isFinite(customer_id) || customer_id <= 0) {
+        throw httpError(400, "VALIDATION_ERROR", "customer_id is required");
+      }
+      if (!Number.isFinite(product_id) || product_id <= 0) {
+        throw httpError(400, "VALIDATION_ERROR", "product_id is required");
+      }
+      const payload = {
+        companyId,
+        branchId,
+        customer_id,
+        product_id,
+        standard_price: Number(req.body?.standard_price || 0),
+        customer_price: Number(req.body?.customer_price || 0),
+        discount_percent:
+          req.body?.discount_percent !== undefined &&
+          req.body?.discount_percent !== null &&
+          req.body?.discount_percent !== ""
+            ? Number(req.body.discount_percent)
+            : 0,
+        min_quantity:
+          req.body?.min_quantity !== undefined &&
+          req.body?.min_quantity !== null &&
+          req.body?.min_quantity !== ""
+            ? Number(req.body.min_quantity)
+            : 1,
+        effective_from: req.body?.effective_from || null,
+        effective_to: req.body?.effective_to || null,
+        price_type_id:
+          req.body?.price_type_id !== undefined &&
+          req.body?.price_type_id !== null &&
+          req.body?.price_type_id !== ""
+            ? Number(req.body.price_type_id)
+            : null,
+        uom: req.body?.uom || null,
+        currency_id:
+          req.body?.currency_id !== undefined &&
+          req.body?.currency_id !== null &&
+          req.body?.currency_id !== ""
+            ? Number(req.body.currency_id)
+            : null,
+      };
+      const ins = await query(
+        `INSERT INTO sal_customer_prices
+          (company_id, branch_id, customer_id, product_id, standard_price, customer_price, discount_percent, min_quantity, effective_from, effective_to, price_type_id, uom, currency_id)
+         VALUES
+          (:companyId, :branchId, :customer_id, :product_id, :standard_price, :customer_price, :discount_percent, :min_quantity, :effective_from, :effective_to, :price_type_id, :uom, :currency_id)`,
+        payload,
+      );
+      res.status(201).json({ id: ins?.insertId || null, item: { ...payload } });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.post(
+  "/prices/bulk/standard",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "SAL.PRICE.CREATE",
+    "SAL.PRICE.EDIT",
+    "SAL.PRICE.VIEW",
+  ]),
+  async (req, res, next) => {
+    try {
+      const items = Array.isArray(req.body?.items) ? req.body.items : [];
+      if (!items.length) return res.json({ success: true, inserted: 0 });
+      const { companyId, branchId } = req.scope;
+      let inserted = 0;
+      for (const row of items) {
+        const productName = String(row["Item Name"] || "").trim();
+        const itemCode = String(row["Item Code"] || "").trim();
+        const [product] = await query(
+          `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_items
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
+             AND (:itemCode = '' OR item_code = :itemCode)
+             AND (:productName = '' OR item_name = :productName)
+           LIMIT 1`,
+          { companyId, itemCode, productName },
+        ).catch(() => []);
+        if (!product?.id) continue;
+        const priceTypeName = String(row["Price Type"] || "").trim();
+        let bulkPriceTypeId = null;
+        if (priceTypeName) {
+          const [pt] = await query(
+            `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_price_types
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND UPPER(TRIM(name)) = UPPER(TRIM(:name))
+             LIMIT 1`,
+            { companyId, name: priceTypeName },
+          ).catch(() => []);
+          if (pt?.id) bulkPriceTypeId = Number(pt.id);
+        }
+        await query(
+          `INSERT INTO sal_standard_prices
+            (company_id, branch_id, product_id, cost_price, selling_price, margin_percent, effective_date, uom, price_type_id)
+           VALUES
+            (:companyId, :branchId, :product_id, :cost_price, :selling_price, :margin_percent, :effective_date, :uom, :price_type_id)`,
+          {
+            companyId,
+            branchId,
+            product_id: Number(product.id),
+            cost_price: Number(row["Cost Price"] || 0),
+            selling_price: Number(row["Selling Price"] || 0),
+            margin_percent: Number(row["Margin %"] || 0),
+            effective_date: row["Effective Date (YYYY-MM-DD)"] || null,
+            uom: row["UOM"] || null,
+            price_type_id: bulkPriceTypeId,
+          },
+        );
+        inserted += 1;
+      }
+      res.json({ success: true, inserted });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.post(
+  "/prices/bulk/customer",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "SAL.PRICE.CREATE",
+    "SAL.PRICE.EDIT",
+    "SAL.PRICE.VIEW",
+  ]),
+  async (req, res, next) => {
+    try {
+      const items = Array.isArray(req.body?.items) ? req.body.items : [];
+      if (!items.length) return res.json({ success: true, inserted: 0 });
+      const { companyId, branchId } = req.scope;
+      let inserted = 0;
+      for (const row of items) {
+        const customerName = String(row["Customer Name"] || "").trim();
+        const itemCode = String(row["Item Code"] || "").trim();
+        const [customer] = await query(
+          `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_customers
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND customer_name = :customerName
+           LIMIT 1`,
+          { companyId, customerName },
+        ).catch(() => []);
+        const [product] = await query(
+          `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_items
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND item_code = :itemCode
+           LIMIT 1`,
+          { companyId, itemCode },
+        ).catch(() => []);
+        if (!customer?.id || !product?.id) continue;
+        await query(
+          `INSERT INTO sal_customer_prices
+            (company_id, branch_id, customer_id, product_id, standard_price, customer_price, discount_percent, min_quantity, effective_from, effective_to, uom)
+           VALUES
+            (:companyId, :branchId, :customer_id, :product_id, :standard_price, :customer_price, :discount_percent, :min_quantity, :effective_from, :effective_to, :uom)`,
+          {
+            companyId,
+            branchId,
+            customer_id: Number(customer.id),
+            product_id: Number(product.id),
+            standard_price: Number(row["Standard Price"] || 0),
+            customer_price: Number(row["Customer Price"] || 0),
+            discount_percent: Number(row["Discount %"] || 0),
+            min_quantity: Number(row["Min Quantity"] || 1),
+            effective_from: row["Effective From (YYYY-MM-DD)"] || null,
+            effective_to: row["Effective To (YYYY-MM-DD)"] || null,
+            uom: row["UOM"] || null,
+          },
+        );
+        inserted += 1;
+      }
+      res.json({ success: true, inserted });
     } catch (e) {
       next(e);
     }
@@ -3952,9 +5191,12 @@ router.post(
           if (name) {
             const [pt] = await query(
               `
-              SELECT id
-              FROM sal_price_types
-              WHERE company_id = :companyId AND UPPER(name) = UPPER(:name)
+              SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_price_types
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND UPPER(name) = UPPER(:name)
               LIMIT 1
               `,
               { companyId, name },
@@ -3967,9 +5209,12 @@ router.post(
       if (priceTypeId != null) {
         const [row] = await query(
           `
-          SELECT selling_price
-          FROM sal_standard_prices
-          WHERE company_id = :companyId
+          SELECT selling_price,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_standard_prices
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
             AND (branch_id = :branchId OR branch_id IS NULL)
             AND product_id = :productId
             AND price_type_id = :priceTypeId
@@ -3982,9 +5227,12 @@ router.post(
       } else {
         const [row] = await query(
           `
-          SELECT selling_price
-          FROM sal_standard_prices
-          WHERE company_id = :companyId
+          SELECT selling_price,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_standard_prices
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
             AND (branch_id = :branchId OR branch_id IS NULL)
             AND product_id = :productId
           ORDER BY (branch_id IS NULL) ASC, COALESCE(effective_date, DATE('1900-01-01')) DESC, id DESC
@@ -3999,9 +5247,12 @@ router.post(
       }
       const [fallback] = await query(
         `
-        SELECT selling_price
-        FROM inv_items
-        WHERE company_id = :companyId AND id = :productId
+        SELECT selling_price,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_items
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND id = :productId
         LIMIT 1
         `,
         { companyId, productId },
@@ -4038,9 +5289,12 @@ router.get(
           min_purchase_amount,
           max_discount_amount,
           description,
-          is_active
-        FROM sal_discount_schemes
-        WHERE company_id = :companyId
+          is_active,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_discount_schemes
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
         ORDER BY id DESC
         `,
         { companyId },
@@ -4070,7 +5324,12 @@ router.get(
           i.invoice_date,
           i.invoice_no,
           COALESCE(c.customer_name, '') AS customer_name,
-          (SELECT COUNT(*) FROM sal_invoice_details d WHERE d.invoice_id = i.id) AS items_count,
+          (SELECT COUNT(*),
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_invoice_details d
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.invoice_id = i.id) AS items_count,
           i.total_amount,
           i.status
         FROM sal_invoices i
@@ -4111,12 +5370,15 @@ router.get(
           COALESCE(c.customer_name, '') AS customer_name,
           it.item_code,
           it.item_name,
-          dd.quantity AS qty
-        FROM sal_deliveries d
+          dd.quantity AS qty,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_deliveries d
         JOIN sal_delivery_details dd ON dd.delivery_id = d.id
         LEFT JOIN sal_customers c ON c.id = d.customer_id AND c.company_id = d.company_id
         LEFT JOIN inv_items it ON it.id = dd.item_id AND it.company_id = d.company_id
-        WHERE d.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.company_id = :companyId
           AND d.branch_id = :branchId
           AND (:from IS NULL OR d.delivery_date >= :from)
           AND (:to IS NULL OR d.delivery_date <= :to)
@@ -4152,12 +5414,15 @@ router.get(
           it.item_code,
           it.item_name,
           rd.qty_returned AS qty,
-          rd.total_amount AS amount
-        FROM sal_returns r
+          rd.total_amount AS amount,
+          r.created_at,
+          u.username AS created_by_name
+         FROM sal_returns r
         JOIN sal_return_details rd ON rd.return_id = r.id
         LEFT JOIN sal_customers c ON c.id = r.customer_id AND c.company_id = r.company_id
         LEFT JOIN inv_items it ON it.id = rd.item_id AND it.company_id = r.company_id
-        WHERE r.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = r.created_by
+         WHERE r.company_id = :companyId
           AND r.branch_id = :branchId
           AND (:from IS NULL OR r.return_date >= :from)
           AND (:to IS NULL OR r.return_date <= :to)
@@ -4190,14 +5455,17 @@ router.get(
           0 AS opening,
           COALESCE(SUM(i.net_amount), 0) AS invoiced,
           COALESCE(SUM(i.net_amount - i.balance_amount), 0) AS received,
-          COALESCE(SUM(i.balance_amount), 0) AS outstanding
-        FROM sal_customers c
+          COALESCE(SUM(i.balance_amount), 0) AS outstanding,
+          c.created_at,
+          u.username AS created_by_name
+         FROM sal_customers c
         LEFT JOIN sal_invoices i
           ON i.customer_id = c.id
          AND i.company_id = c.company_id
          AND i.branch_id = :branchId
          AND (:asOf IS NULL OR i.invoice_date <= :asOf)
-        WHERE c.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.company_id = :companyId
         GROUP BY c.id, c.customer_name
         HAVING outstanding <> 0 OR invoiced <> 0 OR received <> 0
         ORDER BY c.customer_name ASC
@@ -4231,11 +5499,14 @@ router.get(
           COALESCE(c.customer_name, '') AS customer_name,
           COALESCE(i.net_amount, i.total_amount, 0) AS net_sales,
           COALESCE((
-            SELECT SUM(d.quantity * COALESCE(it.cost_price, 0))
-            FROM sal_invoice_details d
+            SELECT SUM(d.quantity * COALESCE(it.cost_price, 0)),
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_invoice_details d
             LEFT JOIN inv_items it
               ON it.id = d.item_id AND it.company_id = i.company_id
-            WHERE d.invoice_id = i.id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.invoice_id = i.id
           ), 0) AS cost
         FROM sal_invoices i
         LEFT JOIN sal_customers c
@@ -4267,9 +5538,15 @@ router.get(
       const { companyId, branchId } = req.scope;
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
+      const customerId = req.query.customerId
+        ? Number(req.query.customerId)
+        : null;
       const items = await query(
         `
-        SELECT * FROM (
+        SELECT *,
+          q.created_at,
+          u.username AS created_by_name
+         FROM (
           SELECT
             'QUOTATION' AS stage,
             q.quotation_no AS ref_no,
@@ -4280,10 +5557,12 @@ router.get(
           FROM sal_quotations q
           LEFT JOIN sal_customers c
             ON c.id = q.customer_id AND c.company_id = q.company_id
-          WHERE q.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = q.created_by
+         WHERE q.company_id = :companyId
             AND q.branch_id = :branchId
             AND (:from IS NULL OR q.quotation_date >= :from)
             AND (:to IS NULL OR q.quotation_date <= :to)
+            AND (:customerId IS NULL OR q.customer_id = :customerId)
           UNION ALL
           SELECT
             'ORDER' AS stage,
@@ -4299,6 +5578,7 @@ router.get(
             AND o.branch_id = :branchId
             AND (:from IS NULL OR o.order_date >= :from)
             AND (:to IS NULL OR o.order_date <= :to)
+            AND (:customerId IS NULL OR o.customer_id = :customerId)
           UNION ALL
           SELECT
             'DELIVERY' AS stage,
@@ -4316,6 +5596,7 @@ router.get(
             AND d.branch_id = :branchId
             AND (:from IS NULL OR d.delivery_date >= :from)
             AND (:to IS NULL OR d.delivery_date <= :to)
+            AND (:customerId IS NULL OR d.customer_id = :customerId)
           UNION ALL
           SELECT
             'INVOICE' AS stage,
@@ -4331,11 +5612,12 @@ router.get(
             AND i.branch_id = :branchId
             AND (:from IS NULL OR i.invoice_date >= :from)
             AND (:to IS NULL OR i.invoice_date <= :to)
+            AND (:customerId IS NULL OR i.customer_id = :customerId)
         ) t
         ORDER BY txn_date DESC
         LIMIT 2000
         `,
-        { companyId, branchId, from, to },
+        { companyId, branchId, from, to, customerId },
       ).catch(() => []);
       res.json({ items: Array.isArray(items) ? items : [] });
     } catch (e) {
@@ -4371,11 +5653,14 @@ router.get(
                q.valid_until,
                q.status,
                u.username AS salesperson,
-               CASE WHEN UPPER(q.status) IN ('APPROVED','CONVERTED') THEN 'YES' ELSE 'NO' END AS converted_to_order
-        FROM sal_quotations q
+               CASE WHEN UPPER(q.status) IN ('APPROVED','CONVERTED') THEN 'YES' ELSE 'NO' END AS converted_to_order,
+          q.created_at,
+          u.username AS created_by_name
+         FROM sal_quotations q
         LEFT JOIN sal_customers c ON c.id = q.customer_id AND c.company_id = q.company_id
         LEFT JOIN adm_users u ON u.id = q.created_by
-        WHERE q.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = q.created_by
+         WHERE q.company_id = :companyId
           AND q.branch_id = :branchId
           AND (:from IS NULL OR q.quotation_date >= :from)
           AND (:to IS NULL OR q.quotation_date <= :to)
@@ -4414,9 +5699,12 @@ router.get(
       const to = req.query.to ? String(req.query.to) : null;
       const totalRows = await query(
         `
-        SELECT COUNT(*) AS c
-        FROM sal_quotations
-        WHERE company_id = :companyId AND branch_id = :branchId
+        SELECT COUNT(*) AS c,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_quotations
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND branch_id = :branchId
           AND (:from IS NULL OR quotation_date >= :from)
           AND (:to IS NULL OR quotation_date <= :to)
         `,
@@ -4424,9 +5712,12 @@ router.get(
       ).catch(() => []);
       const convRows = await query(
         `
-        SELECT COUNT(*) AS c
-        FROM sal_quotations
-        WHERE company_id = :companyId AND branch_id = :branchId
+        SELECT COUNT(*) AS c,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_quotations
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND branch_id = :branchId
           AND UPPER(status) IN ('APPROVED','CONVERTED')
           AND (:from IS NULL OR quotation_date >= :from)
           AND (:to IS NULL OR quotation_date <= :to)
@@ -4475,11 +5766,14 @@ router.get(
                o.total_amount,
                o.status,
                u.username AS salesperson,
-               NULL AS linked_quotation
-        FROM sal_orders o
+               NULL AS linked_quotation,
+          o.created_at,
+          u.username AS created_by_name
+         FROM sal_orders o
         LEFT JOIN sal_customers c ON c.id = o.customer_id AND c.company_id = o.company_id
         LEFT JOIN adm_users u ON u.id = o.created_by
-        WHERE o.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = o.created_by
+         WHERE o.company_id = :companyId
           AND o.branch_id = :branchId
           AND (:from IS NULL OR o.order_date >= :from)
           AND (:to IS NULL OR o.order_date <= :to)
@@ -4534,10 +5828,13 @@ router.get(
                (COALESCE(i.net_amount,0) - COALESCE(i.balance_amount,0)) AS paid_amount,
                COALESCE(i.balance_amount,0) AS balance_amount,
                i.payment_status,
-               i.status
-        FROM sal_invoices i
+               i.status,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
         LEFT JOIN sal_customers c ON c.id = i.customer_id AND c.company_id = i.company_id
-        WHERE i.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
           AND i.branch_id = :branchId
           AND (:from IS NULL OR i.invoice_date >= :from)
           AND (:to IS NULL OR i.invoice_date <= :to)
@@ -4582,10 +5879,13 @@ router.get(
           CASE WHEN DATEDIFF(CURDATE(), i.invoice_date) BETWEEN 0 AND 30 THEN COALESCE(i.balance_amount,0) ELSE 0 END AS d0_30,
           CASE WHEN DATEDIFF(CURDATE(), i.invoice_date) BETWEEN 31 AND 60 THEN COALESCE(i.balance_amount,0) ELSE 0 END AS d31_60,
           CASE WHEN DATEDIFF(CURDATE(), i.invoice_date) BETWEEN 61 AND 90 THEN COALESCE(i.balance_amount,0) ELSE 0 END AS d61_90,
-          CASE WHEN DATEDIFF(CURDATE(), i.invoice_date) > 90 THEN COALESCE(i.balance_amount,0) ELSE 0 END AS d90_plus
-        FROM sal_invoices i
+          CASE WHEN DATEDIFF(CURDATE(), i.invoice_date) > 90 THEN COALESCE(i.balance_amount,0) ELSE 0 END AS d90_plus,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
         LEFT JOIN sal_customers c ON c.id = i.customer_id AND c.company_id = i.company_id
-        WHERE i.company_id = :companyId AND i.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId AND i.branch_id = :branchId
           AND COALESCE(i.balance_amount,0) > 0
         ORDER BY c.customer_name ASC, i.invoice_date ASC
         `,
@@ -4614,12 +5914,15 @@ router.get(
           COALESCE(o.total_orders,0) AS total_orders,
           COALESCE(i.total_invoices,0) AS total_invoices,
           COALESCE(i.total_revenue,0) AS total_revenue,
-          COALESCE(i.total_outstanding,0) AS outstanding_balance
-        FROM sal_customers c
+          COALESCE(i.total_outstanding,0) AS outstanding_balance,
+          c.created_at,
+          u.username AS created_by_name
+         FROM sal_customers c
         LEFT JOIN (
           SELECT customer_id, COUNT(*) AS total_orders
           FROM sal_orders
-          WHERE company_id = :companyId AND branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE company_id = :companyId AND branch_id = :branchId
           GROUP BY customer_id
         ) o ON o.customer_id = c.id
         LEFT JOIN (
@@ -4659,11 +5962,14 @@ router.get(
           SUM(d.quantity) AS quantity_sold,
           SUM(COALESCE(d.net_amount, d.total_amount, d.quantity * d.unit_price)) AS total_revenue,
           AVG(d.unit_price) AS avg_selling_price,
-          SUM(ROUND((d.discount_percent/100.0) * d.quantity * d.unit_price, 2)) AS discount_given
-        FROM sal_invoice_details d
+          SUM(ROUND((d.discount_percent/100.0) * d.quantity * d.unit_price, 2)) AS discount_given,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_invoice_details d
         JOIN sal_invoices i ON i.id = d.invoice_id
         LEFT JOIN inv_items it ON it.id = d.item_id AND it.company_id = i.company_id
-        WHERE i.company_id = :companyId AND i.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE i.company_id = :companyId AND i.branch_id = :branchId
         GROUP BY it.item_name
         ORDER BY total_revenue DESC
         `,
@@ -4693,12 +5999,15 @@ router.get(
           i.invoice_no,
           d.discount_percent AS discount_percent,
           ROUND((d.discount_percent/100.0) * d.quantity * d.unit_price, 2) AS discount_amount,
-          u.username AS approved_by
-        FROM sal_invoice_details d
+          u.username AS approved_by,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_invoice_details d
         JOIN sal_invoices i ON i.id = d.invoice_id
         LEFT JOIN sal_customers c ON c.id = i.customer_id AND c.company_id = i.company_id
         LEFT JOIN adm_users u ON u.id = i.created_by
-        WHERE i.company_id = :companyId AND i.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE i.company_id = :companyId AND i.branch_id = :branchId
           AND d.discount_percent > 0
         ORDER BY i.invoice_date DESC, i.id DESC, d.id ASC
         `,
@@ -4727,12 +6036,15 @@ router.get(
           COALESCE(sp.price, it.sell_price, 0) AS standard_price,
           COALESCE(cp.price, NULL) AS customer_specific_price,
           sp.effective_date,
-          u.username AS last_updated_by
-        FROM inv_items it
+          u.username AS last_updated_by,
+          it.created_at,
+          u.username AS created_by_name
+         FROM inv_items it
         LEFT JOIN sal_standard_prices sp ON sp.item_id = it.id AND sp.company_id = it.company_id
         LEFT JOIN sal_customer_prices cp ON cp.item_id = it.id AND cp.company_id = it.company_id
         LEFT JOIN adm_users u ON u.id = sp.updated_by
-        WHERE it.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = it.created_by
+         WHERE it.company_id = :companyId
         ORDER BY it.item_name ASC
         `,
         { companyId, branchId },
@@ -4759,9 +6071,12 @@ router.get(
                COUNT(*) AS total_invoices,
                SUM(COALESCE(i.net_amount, i.total_amount, 0)) AS total_revenue,
                SUM(COALESCE(i.net_amount, 0) - COALESCE(i.balance_amount,0)) AS total_paid,
-               SUM(COALESCE(i.balance_amount,0)) AS total_discounts -- placeholder for discounts if tracked separately
-        FROM sal_invoices i
-        WHERE i.company_id = :companyId AND i.branch_id = :branchId
+               SUM(COALESCE(i.balance_amount,0)) AS total_discounts -- placeholder for discounts if tracked separately,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId AND i.branch_id = :branchId
         GROUP BY DATE_FORMAT(i.invoice_date, '%Y-%m-01')
         ORDER BY month_start ASC
         `,
@@ -4788,15 +6103,20 @@ router.get(
     try {
       const { companyId, branchId } = req.scope;
       const customer = req.query.customer ? String(req.query.customer) : null;
+      const from = req.query.from ? String(req.query.from) : null;
+      const to = req.query.to ? String(req.query.to) : null;
       const items = await query(
         `
-        SELECT stage, ref_no, txn_date, amount, notes
-        FROM (
+        SELECT stage, ref_no, txn_date, amount, notes, customer_name,
+          q.created_at,
+          u.username AS created_by_name
+         FROM (
           SELECT 'QUOTATION' AS stage, q.quotation_no AS ref_no, q.quotation_date AS txn_date, q.total_amount AS amount, q.status AS notes,
                  COALESCE(NULLIF(q.customer_name,''), c.customer_name, '') AS customer_name
             FROM sal_quotations q
             LEFT JOIN sal_customers c ON c.id = q.customer_id AND c.company_id = q.company_id
-           WHERE q.company_id = :companyId AND q.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = q.created_by
+         WHERE q.company_id = :companyId AND q.branch_id = :branchId
           UNION ALL
           SELECT 'ORDER' AS stage, o.order_no AS ref_no, o.order_date AS txn_date, o.total_amount AS amount, o.status AS notes,
                  COALESCE(c.customer_name,'') AS customer_name
@@ -4817,12 +6137,16 @@ router.get(
            WHERE d.company_id = :companyId AND d.branch_id = :branchId
         ) t
         WHERE (:customer IS NULL OR t.customer_name LIKE :customerLike)
+          AND (:from IS NULL OR t.txn_date >= :from)
+          AND (:to IS NULL OR t.txn_date <= :to)
         ORDER BY t.txn_date DESC
         `,
         {
           companyId,
           branchId,
           customer,
+          from,
+          to,
           customerLike: customer ? `%${customer}%` : null,
         },
       ).catch(() => []);
@@ -4848,11 +6172,14 @@ router.get(
                COALESCE(c.customer_name,'') AS customer,
                o.order_date AS date,
                o.cancel_reason AS cancellation_reason,
-               u.username AS cancelled_by
-        FROM sal_orders o
+               u.username AS cancelled_by,
+          o.created_at,
+          u.username AS created_by_name
+         FROM sal_orders o
         LEFT JOIN sal_customers c ON c.id = o.customer_id AND c.company_id = o.company_id
         LEFT JOIN adm_users u ON u.id = o.updated_by
-        WHERE o.company_id = :companyId AND o.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = o.created_by
+         WHERE o.company_id = :companyId AND o.branch_id = :branchId
           AND UPPER(o.status) IN ('CANCELLED','REJECTED')
         ORDER BY o.order_date DESC, o.id DESC
         `,
@@ -4880,8 +6207,10 @@ router.get(
         SELECT r.id, r.return_no, r.return_date, r.total_amount, r.status,
                COALESCE(c.customer_name, '') AS customer_name,
                r.invoice_id,
-               u.username AS forwarded_to_username
-        FROM sal_returns r
+               u.username AS forwarded_to_username,
+          r.created_at,
+          u.username AS created_by_name
+         FROM sal_returns r
         LEFT JOIN sal_customers c
           ON c.id = r.customer_id AND c.company_id = r.company_id
         LEFT JOIN (
@@ -4890,7 +6219,8 @@ router.get(
           JOIN (
             SELECT document_id, MAX(id) AS max_id
             FROM adm_document_workflows
-            WHERE company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = r.created_by
+         WHERE company_id = :companyId
               AND status = 'PENDING'
               AND (document_type = 'SALES_RETURN' OR document_type = 'Sales Return')
             GROUP BY document_id
@@ -4981,12 +6311,15 @@ router.post(
           `
           SELECT it.id AS item_id,
                  it.vat_on_sales_id AS tax_id,
-                 COALESCE(tc.rate_percent, 0) AS rate_percent
-          FROM inv_items it
+                 COALESCE(tc.rate_percent, 0) AS rate_percent,
+          it.created_at,
+          u.username AS created_by_name
+         FROM inv_items it
           LEFT JOIN fin_tax_codes tc
             ON tc.company_id = it.company_id
            AND tc.id = it.vat_on_sales_id
-          WHERE it.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = it.created_by
+         WHERE it.company_id = :companyId
             AND it.id IN (${placeholders})
           `,
           params,
@@ -5088,24 +6421,23 @@ router.post(
         voucherTypeId,
       });
       const voucherDate = return_date || toYmd(new Date());
-      let voucherId = null;
-      let finalVoucherNo = null;
-      const salesAccId =
-        (await resolveFinAccountId(conn, { companyId, accountRef: "4000" })) ||
-        (await resolveDefaultSalesAccountId(conn, { companyId }));
-      const vatOutputAccId = await resolveFinAccountId(conn, {
+
+      // Resolve Customer Account (Credit side for Returns)
+      const customerAccountId = await ensureCustomerFinAccountIdTx(conn, {
         companyId,
-        accountRef: "1310",
+        customerId: customer_id,
       });
-      const receivablesAccId = await resolveFinAccountId(conn, {
+
+      // Resolve Item Sales Accounts (Debit side for Returns)
+      const itemSalesAccountMap = await fetchItemSalesAccountMap(conn, {
         companyId,
-        accountRef: "1100",
+        itemIds: normalized.map((ln) => ln.item_id),
       });
-      const canPostVoucher =
-        salesAccId &&
-        receivablesAccId &&
-        (tax_total <= 0 || (tax_total > 0 && vatOutputAccId));
-      if (canPostVoucher) {
+      const defaultSalesAccountId = await ensureDefaultSalesAccountIdTx(conn, {
+        companyId,
+      });
+
+      if (customerAccountId && fiscalYearId && voucherTypeId) {
         const [vIns] = await conn.execute(
           `INSERT INTO fin_vouchers
             (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
@@ -5118,7 +6450,7 @@ router.post(
             voucherTypeId,
             voucherNo,
             voucherDate,
-            narration: `Sales Return ${return_no} credit note`,
+            narration: `Sales Return ${return_no}`,
             totalDebit: total_amount,
             totalCredit: total_amount,
             createdBy: created_by,
@@ -5126,54 +6458,99 @@ router.post(
             postedBy: created_by,
           },
         );
-        voucherId = Number(vIns?.insertId || 0) || 0;
-        finalVoucherNo = voucherNo;
+        const voucherId = Number(vIns?.insertId || 0) || 0;
         let lineNo = 1;
-        await conn.execute(
-          `INSERT INTO fin_voucher_lines
-            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-           VALUES
-            (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
-          {
-            companyId,
-            voucherId,
-            lineNo: lineNo++,
-            accountId: salesAccId,
-            description: `Sales return ${return_no}`,
-            debit: Math.round(sub_total * 100) / 100,
-            referenceNo: return_no,
-          },
-        );
-        if (tax_total > 0 && vatOutputAccId) {
+
+        // 1. DEBIT: Sales Accounts (Reversing Revenue)
+        const salesDebitByAccount = new Map();
+        for (const ln of normalized) {
+          let accId = Number(itemSalesAccountMap.get(ln.item_id) || 0);
+          if (!accId) accId = defaultSalesAccountId;
+          const prev = salesDebitByAccount.get(accId) || 0;
+          salesDebitByAccount.set(accId, prev + ln.total_amount);
+        }
+
+        for (const [accId, debitAmt] of salesDebitByAccount) {
+          if (!(debitAmt > 0) || !accId) continue;
           await conn.execute(
             `INSERT INTO fin_voucher_lines
-              (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+              (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no)
              VALUES
-              (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
+              (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, :ref)`,
             {
               companyId,
               voucherId,
               lineNo: lineNo++,
-              accountId: vatOutputAccId,
-              description: `VAT reversal on ${return_no}`,
-              debit: Math.round(tax_total * 100) / 100,
-              referenceNo: return_no,
+              accountId: accId,
+              description: `Sales Return reversal - ${return_no}`,
+              debit: Math.round(debitAmt * 100) / 100,
+              ref: return_no,
             },
           );
         }
+
+        // 2. DEBIT: Tax Reversal (if applicable)
+        if (tax_total > 0) {
+          // Simplification: Using default tax account if per-component is too complex for now
+          // In a full implementation, we would replicate allocateTaxComponents logic here
+          const taxAccountId = await query(
+            "SELECT tax_account_id FROM pos_tax_settings WHERE company_id = :companyId LIMIT 1",
+            { companyId },
+          ).then((rows) => rows[0]?.tax_account_id);
+
+          if (taxAccountId) {
+            await conn.execute(
+              `INSERT INTO fin_voucher_lines
+                (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no)
+               VALUES
+                (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, :ref)`,
+              {
+                companyId,
+                voucherId,
+                lineNo: lineNo++,
+                accountId: taxAccountId,
+                description: `Tax Reversal on Sales Return - ${return_no}`,
+                debit: Math.round(tax_total * 100) / 100,
+                ref: return_no,
+              },
+            );
+          }
+        }
+
+        // 3. CREDIT: Reverse the original debit (Cash/Bank or Customer Receivable)
+        let creditAccountId = customerAccountId;
+        if (invoice_id) {
+          const [inv] = await conn.execute(
+            `SELECT payment_type FROM sal_invoices WHERE id = :invoice_id`,
+            { invoice_id },
+          );
+          if (
+            inv &&
+            (inv.payment_type === "CASH" || inv.payment_type === "CHEQUE")
+          ) {
+            // Look up cash/bank account by code '1000'
+            const [cashAccRows] = await conn.execute(
+              `SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = '1000' LIMIT 1`,
+              { companyId },
+            );
+            const cashAccId = Number(cashAccRows?.[0]?.id || 0);
+            if (cashAccId) creditAccountId = cashAccId;
+          }
+        }
+
         await conn.execute(
           `INSERT INTO fin_voucher_lines
-            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+            (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no)
            VALUES
-            (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :referenceNo)`,
+            (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, :ref)`,
           {
             companyId,
             voucherId,
             lineNo: lineNo++,
-            accountId: receivablesAccId,
-            description: `Credit note for ${return_no}`,
-            credit: Math.round(total_amount * 100) / 100,
-            referenceNo: return_no,
+            accountId: creditAccountId,
+            description: `Sales Return reversal - ${return_no}`,
+            credit: total_amount,
+            ref: return_no,
           },
         );
       }
@@ -5214,9 +6591,12 @@ router.post(
 
       const wfByRoute = await query(
         `
-        SELECT *
-        FROM adm_workflows
-        WHERE company_id = :companyId
+        SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
           AND document_route = :docRouteBase
         ORDER BY id ASC
         `,
@@ -5224,9 +6604,12 @@ router.post(
       );
       const wfDefs = await query(
         `
-        SELECT *
-        FROM adm_workflows
-        WHERE company_id = :companyId
+        SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
           AND (document_type = 'SALES_RETURN' OR document_type = 'Sales Return')
         ORDER BY id ASC
         `,
@@ -5235,8 +6618,12 @@ router.post(
       let activeWf = null;
       if (workflowIdOverride) {
         const wfRows = await query(
-          `SELECT * FROM adm_workflows 
-           WHERE id = :wfId AND company_id = :companyId 
+          `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :wfId AND company_id = :companyId 
              AND (document_type = 'SALES_RETURN' OR document_type = 'Sales Return')
            LIMIT 1`,
           { wfId: workflowIdOverride, companyId },
@@ -5287,7 +6674,12 @@ router.post(
       }
 
       const steps = await query(
-        `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_steps
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
         { wf: activeWf.id },
       );
       if (!steps.length) {
@@ -5297,107 +6689,107 @@ router.post(
         );
         return res.json({ status: "APPROVED" });
       }
-        const first = steps[0];
-        if (!first.approver_user_id) {
-          throw httpError(
-            400,
-            "BAD_REQUEST",
-            "Workflow step 1 has no approver_user_id configured",
-          );
-        }
-        const allowedUsers = await query(
-          `SELECT approver_user_id 
-           FROM adm_workflow_step_approvers 
-           WHERE workflow_id = :wf AND step_order = :ord`,
-          { wf: activeWf.id, ord: first.step_order },
+      const first = steps[0];
+      if (!first.approver_user_id) {
+        throw httpError(
+          400,
+          "BAD_REQUEST",
+          "Workflow step 1 has no approver_user_id configured",
         );
-        const allowedSet = new Set(
-          allowedUsers.map((r) => Number(r.approver_user_id)),
-        );
-        const targetUserIdRaw = req.body?.target_user_id;
-        let assignedToUserId = Number(first.approver_user_id);
-        if (
-          targetUserIdRaw != null &&
-          allowedSet.has(Number(targetUserIdRaw))
-        ) {
-          assignedToUserId = Number(targetUserIdRaw);
-        } else if (allowedUsers.length > 0) {
-          assignedToUserId = Number(allowedUsers[0].approver_user_id);
-        }
-        const dwRes = await query(
-          `
+      }
+      const allowedUsers = await query(
+        `SELECT approver_user_id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_step_approvers
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf AND step_order = :ord`,
+        { wf: activeWf.id, ord: first.step_order },
+      );
+      const allowedSet = new Set(
+        allowedUsers.map((r) => Number(r.approver_user_id)),
+      );
+      const targetUserIdRaw = req.body?.target_user_id;
+      let assignedToUserId = Number(first.approver_user_id);
+      if (targetUserIdRaw != null && allowedSet.has(Number(targetUserIdRaw))) {
+        assignedToUserId = Number(targetUserIdRaw);
+      } else if (allowedUsers.length > 0) {
+        assignedToUserId = Number(allowedUsers[0].approver_user_id);
+      }
+      const dwRes = await query(
+        `
           INSERT INTO adm_document_workflows
             (company_id, workflow_id, document_id, document_type, amount, current_step_order, status, assigned_to_user_id)
           VALUES
             (:companyId, :workflowId, :documentId, 'SALES_RETURN', :amount, :stepOrder, 'PENDING', :assignedTo)
           `,
-          {
-            companyId,
-            workflowId: activeWf.id,
-            documentId: id,
-            amount: amount === null ? null : Number(amount),
-            stepOrder: first.step_order,
-            assignedTo: assignedToUserId,
-          },
-        );
-        const instanceId = dwRes.insertId;
-        await query(
-          `
+        {
+          companyId,
+          workflowId: activeWf.id,
+          documentId: id,
+          amount: amount === null ? null : Number(amount),
+          stepOrder: first.step_order,
+          assignedTo: assignedToUserId,
+        },
+      );
+      const instanceId = dwRes.insertId;
+      await query(
+        `
           INSERT INTO adm_workflow_tasks
             (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
           VALUES
             (:companyId, :workflowId, :dwId, :documentId, 'SALES_RETURN', :stepOrder, :assignedTo, 'PENDING')
           `,
-          {
-            companyId,
-            workflowId: activeWf.id,
-            dwId: instanceId,
-            documentId: id,
-            stepOrder: first.step_order,
-            assignedTo: assignedToUserId,
-          },
-        );
-        await query(
-          `
+        {
+          companyId,
+          workflowId: activeWf.id,
+          dwId: instanceId,
+          documentId: id,
+          stepOrder: first.step_order,
+          assignedTo: assignedToUserId,
+        },
+      );
+      await query(
+        `
           INSERT INTO adm_workflow_logs
             (document_workflow_id, step_order, action, actor_user_id, comments)
           VALUES
             (:dwId, :stepOrder, 'SUBMIT', :actor, :comments)
           `,
-          {
-            dwId: instanceId,
-            stepOrder: first.step_order,
-            actor: req.user.sub,
-            comments: "",
-          },
-        );
-        await query(
-          `UPDATE sal_returns SET status = 'PENDING' WHERE id = :id AND company_id = :companyId`,
-          { id, companyId },
-        );
-        const emailRes = await query(
-          "SELECT email FROM adm_users WHERE id = :id",
-          { id: assignedToUserId },
-        );
-        if (emailRes.length && emailRes[0].email) {
-          const to = emailRes[0].email;
-          const subject = "Approval Required";
-          const text = `Sales Return #${id} requires your approval. View: ${req.protocol}://${req.headers.host}/administration/workflows/approvals/${instanceId}`;
-          const html = `<p>Sales Return #${id} requires your approval.</p><p><a href="/administration/workflows/approvals/${instanceId}">Open Approval</a></p>`;
-          if (isMailerConfigured()) {
-            try {
-              await sendMail({ to, subject, text, html });
-            } catch (e) {
-              console.log(`[EMAIL ERROR] ${e?.message || e}`);
-            }
-          } else {
-            console.log(
-              `[MOCK EMAIL] To: ${to} | Subject: ${subject} | Body: ${text}`,
-            );
+        {
+          dwId: instanceId,
+          stepOrder: first.step_order,
+          actor: req.user.sub,
+          comments: "",
+        },
+      );
+      await query(
+        `UPDATE sal_returns SET status = 'PENDING' WHERE id = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
+      const emailRes = await query(
+        "SELECT email FROM adm_users WHERE id = :id",
+        { id: assignedToUserId },
+      );
+      if (emailRes.length && emailRes[0].email) {
+        const to = emailRes[0].email;
+        const subject = "Approval Required";
+        const text = `Sales Return #${id} requires your approval. View: ${req.protocol}://${req.headers.host}/administration/workflows/approvals/${instanceId}`;
+        const html = `<p>Sales Return #${id} requires your approval.</p><p><a href="/administration/workflows/approvals/${instanceId}">Open Approval</a></p>`;
+        if (isMailerConfigured()) {
+          try {
+            await sendMail({ to, subject, text, html });
+          } catch (e) {
+            console.log(`[EMAIL ERROR] ${e?.message || e}`);
           }
+        } else {
+          console.log(
+            `[MOCK EMAIL] To: ${to} | Subject: ${subject} | Body: ${text}`,
+          );
         }
-        res.status(201).json({ instanceId, status: "PENDING" });
-        return;
+      }
+      res.status(201).json({ instanceId, status: "PENDING" });
+      return;
       let behavior = null;
       if (wfDefs.length) {
         const firstWf = wfDefs[0];
@@ -5471,10 +6863,13 @@ router.get(
            c.zone,
            c.country,
            c.payment_terms,
-           c.currency_id
+           c.currency_id,
+          c.created_at,
+          u.username AS created_by_name
          FROM sal_prospect_customers c
          LEFT JOIN sal_price_types pt
            ON pt.id = c.price_type_id AND pt.company_id = c.company_id
+        LEFT JOIN adm_users u ON u.id = c.created_by
          WHERE ${where.join(" AND ")}
          ORDER BY c.customer_name ASC`,
         params,
@@ -5498,7 +6893,11 @@ router.get(
       await ensureProspectiveCustomersTable();
       const companyId = req.scope.companyId;
       const rows = await query(
-        `SELECT customer_code FROM sal_prospect_customers 
+        `SELECT customer_code,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_prospect_customers
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId AND customer_code REGEXP '^PC(-?[0-9]+)?$'
          ORDER BY id DESC
          LIMIT 1`,
@@ -5536,7 +6935,11 @@ router.get(
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       }
       const items = await query(
-        `SELECT * FROM sal_prospect_customers 
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_prospect_customers
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE id = :id AND company_id = :companyId LIMIT 1`,
         { id, companyId },
       ).catch(() => []);
@@ -5757,10 +7160,18 @@ router.get(
     try {
       const { companyId } = req.scope;
       const rows = await query(
-        `SELECT sp.*, i.item_code, i.item_name
+        `SELECT sp.*, i.item_code, i.item_name,
+                pt.id AS price_type_lookup_id,
+                pt.name AS price_type_name,
+          sp.created_at,
+          u.username AS created_by_name
          FROM sal_standard_prices sp
-         JOIN inv_items i ON i.id = sp.product_id
-         WHERE sp.company_id = :companyId AND sp.is_active = 1`,
+         JOIN inv_items i ON i.id = sp.product_id AND i.company_id = sp.company_id
+         LEFT JOIN sal_price_types pt
+           ON pt.id = sp.price_type_id AND pt.company_id = sp.company_id
+        LEFT JOIN adm_users u ON u.id = sp.created_by
+         WHERE sp.company_id = :companyId
+         ORDER BY i.item_name ASC, pt.name ASC, sp.effective_date DESC, sp.id DESC`,
         { companyId },
       );
       res.json({ items: rows || [] });

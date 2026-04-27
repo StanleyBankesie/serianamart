@@ -18,15 +18,13 @@ const router = express.Router();
 async function ensureChatTables() {
   // Phase 1: Clean rebuild if legacy schema detected
   try {
-    const legacyCol = await query(
-      `
+    const legacyCol = await query(`
       SELECT COUNT(*) AS c
       FROM information_schema.columns
       WHERE table_schema = DATABASE()
         AND table_name = 'chat_messages'
         AND column_name = 'sender_user_id'
-      `,
-    ).catch(() => []);
+      `).catch(() => []);
     const isLegacy =
       Array.isArray(legacyCol) && Number(legacyCol[0]?.c || 0) > 0;
     if (isLegacy) {
@@ -91,13 +89,11 @@ async function ensureChatTables() {
   `).catch(() => null);
   // Upgrade columns/enums to support media and receiver
   try {
-    const cols = await query(
-      `
-      SELECT column_name 
+    const cols = await query(`
+      SELECT column_name
       FROM information_schema.columns
       WHERE table_schema = DATABASE() AND table_name = 'chat_messages'
-      `,
-    );
+      `);
     const names = new Set(cols.map((r) => r.column_name));
     if (!names.has("receiver_id")) {
       await query(
@@ -156,9 +152,12 @@ router.get("/users", async (req, res, next) => {
     const users =
       (await query(
         `
-        SELECT id, username, full_name
-        FROM adm_users
-        WHERE ${where}
+        SELECT id, username, full_name,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE ${where}
         ORDER BY username ASC
         `,
         params,
@@ -173,7 +172,12 @@ router.get("/users", async (req, res, next) => {
       ids.forEach((v, i) => (p[`p${i}`] = v));
       pres =
         (await query(
-          `SELECT user_id, is_online, last_seen FROM chat_presence WHERE user_id IN (${placeholders})`,
+          `SELECT user_id, is_online, last_seen,
+          created_at,
+          u.username AS created_by_name
+         FROM chat_presence
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE user_id IN (${placeholders})`,
           p,
         ).catch(() => [])) || [];
     }
@@ -206,7 +210,12 @@ router.get("/conversations", async (req, res, next) => {
       `
       SELECT c.id,
              c.title,
-             (SELECT m.content FROM chat_messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1) AS last_preview,
+             (SELECT m.content,
+          m.created_at,
+          u.username AS created_by_name
+         FROM chat_messages m
+        LEFT JOIN adm_users u ON u.id = m.created_by
+         WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1) AS last_preview,
              (SELECT m.sent_at FROM chat_messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1) AS last_time,
              (SELECT COUNT(*) FROM chat_messages m WHERE m.conversation_id = c.id AND m.id > COALESCE(p.last_read_message_id,0)) AS unread_count
       FROM chat_conversations c
@@ -235,11 +244,14 @@ router.post("/conversations/direct", async (req, res, next) => {
     // Reuse existing direct conversation if exists
     const existing = await query(
       `
-      SELECT c.id
-      FROM chat_conversations c
+      SELECT c.id,
+          c.created_at,
+          u.username AS created_by_name
+         FROM chat_conversations c
       JOIN chat_conversation_participants p1 ON p1.conversation_id = c.id AND p1.user_id = :me
       JOIN chat_conversation_participants p2 ON p2.conversation_id = c.id AND p2.user_id = :otherId
-      WHERE c.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.company_id = :companyId
       LIMIT 1
       `,
       { companyId, me, otherId },
@@ -272,16 +284,24 @@ router.get("/conversations/:id/messages", async (req, res, next) => {
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const isParticipant = await query(
-      `SELECT 1 FROM chat_conversation_participants WHERE conversation_id = :id AND user_id = :me LIMIT 1`,
+      `SELECT 1,
+          created_at,
+          u.username AS created_by_name
+         FROM chat_conversation_participants
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE conversation_id = :id AND user_id = :me LIMIT 1`,
       { id, me },
     );
     if (!isParticipant.length)
       throw httpError(403, "FORBIDDEN", "Not a participant");
     const rows = await query(
       `
-      SELECT m.*
-      FROM chat_messages m
-      WHERE m.conversation_id = :id
+      SELECT m.*,
+          m.created_at,
+          u.username AS created_by_name
+         FROM chat_messages m
+        LEFT JOIN adm_users u ON u.id = m.created_by
+         WHERE m.conversation_id = :id
       ORDER BY m.id ASC
       `,
       { id },
@@ -312,14 +332,24 @@ router.post("/messages", async (req, res, next) => {
     if (!isMedia && !String(content || "").trim())
       throw httpError(400, "VALIDATION_ERROR", "content required for text");
     const auth = await query(
-      `SELECT 1 FROM chat_conversation_participants WHERE conversation_id = :cid AND user_id = :me LIMIT 1`,
+      `SELECT 1,
+          created_at,
+          u.username AS created_by_name
+         FROM chat_conversation_participants
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE conversation_id = :cid AND user_id = :me LIMIT 1`,
       { cid, me },
     );
     if (!auth.length) throw httpError(403, "FORBIDDEN", "Not a participant");
     // Resolve receiver for direct chat
     const others =
       (await query(
-        `SELECT user_id FROM chat_conversation_participants WHERE conversation_id = :cid AND user_id <> :me LIMIT 2`,
+        `SELECT user_id,
+          created_at,
+          u.username AS created_by_name
+         FROM chat_conversation_participants
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE conversation_id = :cid AND user_id <> :me LIMIT 2`,
         { cid, me },
       ).catch(() => [])) || [];
     const receiverId = Number(others?.[0]?.user_id || 0) || null;
@@ -356,7 +386,12 @@ router.post("/messages", async (req, res, next) => {
     }
     // Resolve participants (excluding sender)
     const participants = await query(
-      `SELECT user_id FROM chat_conversation_participants WHERE conversation_id = :cid AND user_id <> :me`,
+      `SELECT user_id,
+          created_at,
+          u.username AS created_by_name
+         FROM chat_conversation_participants
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE conversation_id = :cid AND user_id <> :me`,
       { cid, me },
     );
     const otherIds = participants
@@ -376,7 +411,12 @@ router.post("/messages", async (req, res, next) => {
     if (!delivered) {
       // Trigger existing push + notification row
       const senderNameRows = await query(
-        `SELECT full_name AS name, username FROM adm_users WHERE id = :id LIMIT 1`,
+        `SELECT full_name AS name, username,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id LIMIT 1`,
         { id: me },
       ).catch(() => []);
       const title =
@@ -439,7 +479,12 @@ router.post("/conversations/:id/read", async (req, res, next) => {
     if (!Number.isFinite(id)) throw httpError(400, "VALIDATION_ERROR");
     // Find last message id in conversation
     const rows = await query(
-      `SELECT id FROM chat_messages WHERE conversation_id = :id ORDER BY id DESC LIMIT 1`,
+      `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM chat_messages
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE conversation_id = :id ORDER BY id DESC LIMIT 1`,
       { id },
     );
     const lastId = Number(rows?.[0]?.id || 0) || null;
@@ -477,15 +522,18 @@ router.get("/unread-count", async (req, res, next) => {
     const me = Number(req.user?.sub || req.user?.id);
     const rows = await query(
       `
-      SELECT SUM(unread) AS total
-      FROM (
+      SELECT SUM(unread) AS total,
+          c.created_at,
+          u.username AS created_by_name
+         FROM (
         SELECT COUNT(*) AS unread
         FROM chat_conversations c
         JOIN chat_conversation_participants p
           ON p.conversation_id = c.id AND p.user_id = :me
         JOIN chat_messages m
           ON m.conversation_id = c.id
-        WHERE m.id > COALESCE(p.last_read_message_id, 0)
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE m.id > COALESCE(p.last_read_message_id, 0)
           AND m.sender_id <> :me
       ) t
       `,
@@ -502,13 +550,16 @@ router.get("/unread-by-user", async (req, res, next) => {
     const me = Number(req.user?.sub || req.user?.id);
     const rows = await query(
       `
-      SELECT m.sender_id AS user_id, COUNT(*) AS unread
-      FROM chat_conversations c
+      SELECT m.sender_id AS user_id, COUNT(*) AS unread,
+          c.created_at,
+          u.username AS created_by_name
+         FROM chat_conversations c
       JOIN chat_conversation_participants p
         ON p.conversation_id = c.id AND p.user_id = :me
       JOIN chat_messages m
         ON m.conversation_id = c.id
-      WHERE m.id > COALESCE(p.last_read_message_id, 0)
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE m.id > COALESCE(p.last_read_message_id, 0)
         AND m.sender_id <> :me
       GROUP BY m.sender_id
       `,

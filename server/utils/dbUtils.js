@@ -2636,6 +2636,9 @@ export async function ensureSalesOrderColumns() {
   if (!(await hasColumn(orders, "remarks"))) {
     await query(`ALTER TABLE ${orders} ADD COLUMN remarks VARCHAR(500) NULL`);
   }
+  if (!(await hasColumn(orders, "payment_date"))) {
+    await query(`ALTER TABLE ${orders} ADD COLUMN payment_date DATE NULL`);
+  }
 
   const orderDetails = "sal_order_details";
   if (!(await hasColumn(orderDetails, "qty"))) {
@@ -2671,6 +2674,11 @@ export async function ensureSalesOrderColumns() {
   if (!(await hasColumn(orderDetails, "uom"))) {
     await query(
       `ALTER TABLE ${orderDetails} ADD COLUMN uom VARCHAR(50) DEFAULT 'PCS'`,
+    );
+  }
+  if (!(await hasColumn(orderDetails, "tax_code_id"))) {
+    await query(
+      `ALTER TABLE ${orderDetails} ADD COLUMN tax_code_id BIGINT UNSIGNED NULL`,
     );
   }
 }

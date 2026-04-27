@@ -13,6 +13,7 @@ import {
   consumeStockFIFOTx,
   reserveStockTx,
   moveReservedStockTx,
+  ensureStockBalancesWarehouseInfrastructure,
 } from "../services/stock.service.js";
 import { isMailerConfigured, sendMail } from "../utils/mailer.js";
 
@@ -144,52 +145,6 @@ async function ensureWarehousesTable() {
   }
 }
 
-async function ensureStockBalancesWarehouseInfrastructure() {
-  if (!(await hasColumn("inv_stock_balances", "warehouse_id"))) {
-    await query(
-      "ALTER TABLE inv_stock_balances ADD COLUMN warehouse_id BIGINT UNSIGNED NULL",
-    ).catch(() => {});
-    await query(
-      "ALTER TABLE inv_stock_balances ADD UNIQUE KEY uq_stock_scope_wh_item (company_id, branch_id, warehouse_id, item_id)",
-    ).catch(() => {});
-  }
-  if (!(await hasColumn("inv_stock_balances", "reserved_qty"))) {
-    await query(
-      "ALTER TABLE inv_stock_balances ADD COLUMN reserved_qty DECIMAL(18,3) NOT NULL DEFAULT 0",
-    ).catch(() => {});
-  }
-  if (!(await hasColumn("inv_stock_balances", "batch_no"))) {
-    await query(
-      "ALTER TABLE inv_stock_balances ADD COLUMN batch_no VARCHAR(100) NULL",
-    ).catch(() => {});
-  }
-  if (!(await hasColumn("inv_stock_balances", "serial_no"))) {
-    await query(
-      "ALTER TABLE inv_stock_balances ADD COLUMN serial_no VARCHAR(100) NULL",
-    ).catch(() => {});
-  }
-  if (!(await hasColumn("inv_stock_balances", "expiry_date"))) {
-    await query(
-      "ALTER TABLE inv_stock_balances ADD COLUMN expiry_date DATE NULL",
-    ).catch(() => {});
-  }
-  if (!(await hasColumn("inv_stock_balances", "entry_date"))) {
-    await query(
-      "ALTER TABLE inv_stock_balances ADD COLUMN entry_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
-    ).catch(() => {});
-  }
-  if (!(await hasColumn("inv_stock_balances", "source_type"))) {
-    await query(
-      "ALTER TABLE inv_stock_balances ADD COLUMN source_type VARCHAR(50) NULL",
-    ).catch(() => {});
-  }
-  if (!(await hasColumn("inv_stock_balances", "source_id"))) {
-    await query(
-      "ALTER TABLE inv_stock_balances ADD COLUMN source_id BIGINT UNSIGNED NULL",
-    ).catch(() => {});
-  }
-}
-
 async function ensureStockBalanceDetailsInfrastructure() {
   // View now reads from inv_stock_balances directly (no separate details table)
   await query(`
@@ -211,11 +166,14 @@ async function ensureStockBalanceDetailsInfrastructure() {
       i.item_code,
       i.item_name,
       i.uom,
-      w.warehouse_name
-    FROM inv_stock_balances sb
+      w.warehouse_name,
+          sb.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_balances sb
     JOIN inv_items i ON i.id = sb.item_id
     LEFT JOIN inv_warehouses w ON w.id = sb.warehouse_id
-    WHERE (sb.qty > 0 OR sb.reserved_qty > 0)
+        LEFT JOIN adm_users u ON u.id = sb.created_by
+         WHERE (sb.qty > 0 OR sb.reserved_qty > 0)
   `).catch(() => {});
 
   await query(`
@@ -278,9 +236,12 @@ async function nextGRNNo(companyId, branchId, type = "LOCAL") {
   const prefix = type === "IMPORT" ? "GI-" : "GL-";
   const rows = await query(
     `
-    SELECT grn_no
-    FROM inv_goods_receipt_notes
-    WHERE company_id = :companyId
+    SELECT grn_no,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_goods_receipt_notes
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
       AND branch_id = :branchId
       AND grn_no LIKE :pattern
     ORDER BY CAST(SUBSTRING(grn_no, 4) AS UNSIGNED) DESC
@@ -301,9 +262,12 @@ async function nextGRNNo(companyId, branchId, type = "LOCAL") {
 async function nextMaterialRequisitionNo(companyId, branchId) {
   const rows = await query(
     `
-    SELECT requisition_no
-    FROM inv_material_requisitions
-    WHERE company_id = :companyId
+    SELECT requisition_no,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_material_requisitions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
       AND branch_id = :branchId
       AND requisition_no LIKE 'MR-%'
     ORDER BY CAST(SUBSTRING(requisition_no, 4) AS UNSIGNED) DESC
@@ -405,9 +369,12 @@ async function ensureReturnToStoresStockInTrigger() {
           SET v_warehouse_id = NEW.warehouse_id;
           INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty, batch_no, serial_no, expiry_date, entry_date, source_type, source_id)
           SELECT v_company_id, v_branch_id, v_warehouse_id, d.item_id, COALESCE(d.qty_returned, 0),
-                 d.batch_serial, NULL, NULL, NOW(), 'RETURN_TO_STORES', NEW.id
-          FROM inv_return_to_stores_details d
-          WHERE d.rts_id = NEW.id
+                 d.batch_serial, NULL, NULL, NOW(), 'RETURN_TO_STORES', NEW.id,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_return_to_stores_details d
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.rts_id = NEW.id
           ON DUPLICATE KEY UPDATE
             qty = qty + VALUES(qty),
             batch_no = VALUES(batch_no),
@@ -425,9 +392,12 @@ async function ensureReturnToStoresStockInTrigger() {
 async function nextReturnNo(companyId, branchId) {
   const rows = await query(
     `
-    SELECT rts_no
-    FROM inv_return_to_stores
-    WHERE company_id = :companyId
+    SELECT rts_no,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_return_to_stores
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
       AND branch_id = :branchId
       AND rts_no LIKE 'RTS-%'
     ORDER BY CAST(SUBSTRING(rts_no, 5) AS UNSIGNED) DESC
@@ -663,19 +633,143 @@ async function ensureUomTable() {
 router.get("/uoms", requireAuth, async (req, res, next) => {
   try {
     await ensureUomTable();
-    const rows = await query(
-      `
-        SELECT id, uom_code, uom_name
-        FROM inv_uom
-        WHERE is_active = 1
+    const rows = await query(`
+        SELECT id, uom_code, uom_name,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_uom
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE is_active = 1
         ORDER BY uom_name ASC, uom_code ASC
-        `,
-    );
+        `);
     res.json({ items: rows || [] });
   } catch (e) {
     next(e);
   }
 });
+
+async function ensureItemTypesTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS inv_item_types (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      type_code VARCHAR(50) NOT NULL,
+      type_name VARCHAR(120) NOT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_type_code (company_id, type_code)
+    )
+  `).catch(() => {});
+
+  // Insert defaults if empty, though application layer can add it.
+  const check = await query("SELECT 1 FROM inv_item_types LIMIT 1").catch(
+    () => [],
+  );
+  if (!check?.length) {
+    // Insert some defaults so the frontend isn't completely empty initially
+    await query(
+      `INSERT IGNORE INTO inv_item_types (company_id, type_code, type_name) VALUES (1, 'INVENTORY', 'Inventory Item')`,
+    ).catch(() => {});
+    await query(
+      `INSERT IGNORE INTO inv_item_types (company_id, type_code, type_name) VALUES (1, 'NON_INVENTORY', 'Non-Inventory Item')`,
+    ).catch(() => {});
+    await query(
+      `INSERT IGNORE INTO inv_item_types (company_id, type_code, type_name) VALUES (1, 'SERVICE', 'Service')`,
+    ).catch(() => {});
+  }
+}
+
+router.get(
+  "/item-types",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureItemTypesTable();
+      const { companyId } = req.scope;
+      const rows = await query(
+        `
+      SELECT id, type_code, type_name, is_active,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_item_types
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND is_active = 1
+      ORDER BY type_name ASC, type_code ASC, id ASC
+      `,
+        { companyId },
+      );
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/item-setup-lookups",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureUomTable();
+      await ensureItemTypesTable();
+      // Assuming other tables are ensured elsewhere, but we at least handle the basic ones.
+      const { companyId } = req.scope;
+
+      const uoms = await query(
+        "SELECT id, uom_code, uom_name FROM inv_uom WHERE is_active = 1 ORDER BY uom_name ASC",
+      ).catch(() => []);
+      const itemTypes = await query(
+        "SELECT id, type_code, type_name FROM inv_item_types WHERE company_id = :companyId AND is_active = 1",
+        { companyId },
+      ).catch(() => []);
+      const categories = await query(
+        "SELECT id, category_code, category_name FROM inv_item_categories WHERE company_id = :companyId AND is_active = 1",
+        { companyId },
+      ).catch(() => []);
+      const itemGroups = await query(
+        "SELECT id, group_code, group_name FROM inv_item_groups WHERE company_id = :companyId AND is_active = 1",
+        { companyId },
+      ).catch(() => []);
+
+      // Fetch finance lookups
+      const taxes = await query(
+        "SELECT id, code, name, rate_percent FROM fin_tax_codes WHERE company_id = :companyId AND is_active = 1",
+        { companyId },
+      ).catch(() => []);
+      const accounts = await query(
+        `
+      SELECT a.id, a.code, a.name, g.nature,
+          a.created_at,
+          u.username AS created_by_name
+         FROM fin_accounts a 
+      JOIN fin_account_groups g ON g.id = a.group_id
+        LEFT JOIN adm_users u ON u.id = a.created_by
+         WHERE a.company_id = :companyId AND a.is_active = 1
+    `,
+        { companyId },
+      ).catch(() => []);
+      const currencies = await query(
+        "SELECT id, code, name FROM fin_currencies WHERE is_active = 1",
+      ).catch(() => []);
+
+      res.json({
+        uoms,
+        itemTypes,
+        categories,
+        itemGroups,
+        taxes,
+        accounts,
+        currencies,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 async function ensureUnitConversionsTable() {
   if (!(await hasTable("inv_unit_conversions"))) {
@@ -716,10 +810,13 @@ router.get(
                c.from_uom,
                c.to_uom,
                c.conversion_factor,
-               c.is_active
-        FROM inv_unit_conversions c
+               c.is_active,
+          c.created_at,
+          u.username AS created_by_name
+         FROM inv_unit_conversions c
         JOIN inv_items i ON i.id = c.item_id
-        WHERE c.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.company_id = :companyId
         ORDER BY i.item_name ASC, c.from_uom ASC, c.to_uom ASC, c.id ASC
         `,
         { companyId },
@@ -734,9 +831,12 @@ router.get(
 async function nextTransferNo(companyId) {
   const rows = await query(
     `
-    SELECT transfer_no
-    FROM inv_stock_transfers
-    WHERE company_id = :companyId
+    SELECT transfer_no,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_stock_transfers
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
       AND transfer_no LIKE 'TRN-%'
     ORDER BY CAST(SUBSTRING(transfer_no, 5) AS UNSIGNED) DESC
     LIMIT 1
@@ -781,9 +881,12 @@ async function ensureMaterialRequisitionApprovalTrigger() {
           SET v_warehouse_id = NEW.warehouse_id;
           INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty, batch_no, serial_no, expiry_date, entry_date, source_type, source_id)
           SELECT v_company_id, v_branch_id, v_warehouse_id, d.item_id, -COALESCE(d.qty_requested, 0),
-                 d.batch_no, d.serial_no, NULL, NOW(), 'MATERIAL_REQUISITION', NEW.id
-          FROM inv_material_requisition_details d
-          WHERE d.requisition_id = NEW.id
+                 d.batch_no, d.serial_no, NULL, NOW(), 'MATERIAL_REQUISITION', NEW.id,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_material_requisition_details d
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.requisition_id = NEW.id
           ON DUPLICATE KEY UPDATE
             qty = qty + VALUES(qty),
             batch_no = VALUES(batch_no),
@@ -811,9 +914,12 @@ async function ensureMaterialRequisitionApprovalTrigger() {
           SET v_warehouse_id = NEW.warehouse_id;
           INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty, batch_no, serial_no, expiry_date, entry_date, source_type, source_id)
           SELECT v_company_id, v_branch_id, v_warehouse_id, d.item_id, COALESCE(d.qty_requested, 0),
-                 d.batch_no, d.serial_no, NULL, NOW(), 'MATERIAL_REQUISITION', NEW.id
-          FROM inv_material_requisition_details d
-          WHERE d.requisition_id = NEW.id
+                 d.batch_no, d.serial_no, NULL, NOW(), 'MATERIAL_REQUISITION', NEW.id,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_material_requisition_details d
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.requisition_id = NEW.id
           ON DUPLICATE KEY UPDATE
             qty = qty + VALUES(qty),
             batch_no = VALUES(batch_no),
@@ -838,8 +944,11 @@ async function ensureMaterialRequisitionApprovalTrigger() {
       DECLARE v_issue_no VARCHAR(50);
       DECLARE v_issue_id BIGINT UNSIGNED;
       IF NEW.status = 'APPROVED' AND (OLD.status IS NULL OR OLD.status <> 'APPROVED') THEN
-        SELECT MAX(CAST(SUBSTRING(issue_no, 5) AS UNSIGNED)) INTO v_seq
-          FROM inv_issue_to_requirement
+        SELECT MAX(CAST(SUBSTRING(issue_no, 5) AS UNSIGNED)) INTO v_seq,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_issue_to_requirement
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = NEW.company_id
            AND branch_id = NEW.branch_id
            AND issue_no LIKE 'ISS-%';
@@ -874,16 +983,76 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId } = req.scope;
+      const warehouseId = toNumber(req.query.warehouse_id) || null;
       // Ensure table and UOM column exists with proper defaults
       await ensureItemsTable();
+      const sbWhere = warehouseId ? "WHERE warehouse_id = :warehouseId" : "";
       const rows = await query(
         `
-        SELECT id, item_code, item_name, uom, service_item, cost_price, is_active
-        FROM inv_items
-        WHERE company_id = :companyId
-        ORDER BY item_name ASC
+        SELECT
+          i.id,
+          i.item_code,
+          i.item_name,
+          i.uom,
+          i.item_type,
+          it.type_name AS item_type_name,
+          i.category_id,
+          c.category_name,
+          i.item_group_id,
+          g.group_name,
+          i.barcode,
+          i.cost_price,
+          i.selling_price,
+          i.currency_id,
+          cur.code AS currency_code,
+          cur.name AS currency_name,
+          i.vat_on_purchase_id,
+          tpur.code AS vat_on_purchase_code,
+          i.vat_on_sales_id,
+          tsal.code AS vat_on_sales_code,
+          i.purchase_account_id,
+          apur.code AS purchase_account_code,
+          apur.name AS purchase_account_name,
+          i.sales_account_id,
+          asal.code AS sales_account_code,
+          asal.name AS sales_account_name,
+          i.description,
+          i.min_stock_level,
+          i.max_stock_level,
+          i.reorder_level,
+          i.safety_stock,
+          i.service_item,
+          i.is_stockable,
+          i.is_sellable,
+          i.is_purchasable,
+          i.is_active,
+          COALESCE(sb.qty, 0) AS stock_level,
+          i.created_at,
+          u.username AS created_by_name
+         FROM inv_items i
+        LEFT JOIN inv_item_types it
+          ON it.company_id = i.company_id
+         AND it.type_code = i.item_type
+        LEFT JOIN inv_item_categories c ON c.id = i.category_id
+        LEFT JOIN inv_item_groups g ON g.id = i.item_group_id
+        LEFT JOIN fin_currencies cur ON cur.id = i.currency_id
+        LEFT JOIN fin_tax_codes tpur ON tpur.id = i.vat_on_purchase_id
+        LEFT JOIN fin_tax_codes tsal ON tsal.id = i.vat_on_sales_id
+        LEFT JOIN fin_accounts apur ON apur.id = i.purchase_account_id
+        LEFT JOIN fin_accounts asal ON asal.id = i.sales_account_id
+        LEFT JOIN (
+          SELECT company_id, item_id, SUM(qty) AS qty
+          FROM inv_stock_balances
+          ${sbWhere}
+          GROUP BY company_id, item_id
+        ) sb
+          ON sb.company_id = i.company_id
+         AND sb.item_id = i.id
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
+        ORDER BY i.item_name ASC
         `,
-        { companyId: companyId || null },
+        { companyId: companyId || null, warehouseId },
       );
       res.json({ items: rows });
     } catch (err) {
@@ -903,14 +1072,44 @@ router.get(
       const { companyId, branchId } = req.scope;
       const rows = await query(
         `
-        SELECT id, warehouse_name
-        FROM inv_warehouses
-        WHERE company_id = :companyId AND branch_id = :branchId
+        SELECT id, warehouse_code, warehouse_name,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_warehouses
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND branch_id = :branchId
         ORDER BY warehouse_name ASC
         `,
         { companyId, branchId },
       ).catch(() => []);
       res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/items/:id/batches",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const itemId = req.params.id;
+      const rows = await query(
+        `
+        SELECT id, batch_no, qty, expiry_date, cost,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_item_batches
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND item_id = :itemId AND qty > 0
+        ORDER BY expiry_date ASC, id ASC
+        `,
+        { companyId, itemId },
+      );
+      res.json({ items: rows || [] });
     } catch (err) {
       next(err);
     }
@@ -939,9 +1138,12 @@ router.get(
 
       const rows = await query(
         `
-        SELECT qty
-        FROM inv_stock_balances
-        WHERE company_id = :companyId
+        SELECT qty,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_stock_balances
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
           AND branch_id = :branchId
           AND warehouse_id = :warehouseId
           AND item_id = :itemId
@@ -1006,8 +1208,10 @@ router.get(
                w.warehouse_name,
                dep.dept_name AS department_name,
                COUNT(d.id) AS item_count,
-               MAX(u.username) AS forwarded_to_username
-        FROM inv_material_requisitions r
+               MAX(u.username) AS forwarded_to_username,
+          r.created_at,
+          u.username AS created_by_name
+         FROM inv_material_requisitions r
         LEFT JOIN inv_material_requisition_details d ON d.requisition_id = r.id
         LEFT JOIN inv_warehouses w ON w.id = r.warehouse_id
         LEFT JOIN hr_departments dep ON dep.id = r.department_id
@@ -1017,7 +1221,8 @@ router.get(
           JOIN (
             SELECT document_id, MAX(id) AS max_id
             FROM adm_document_workflows
-            WHERE company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = r.created_by
+         WHERE company_id = :companyId
               AND status = 'PENDING'
               AND (document_type = 'MATERIAL_REQUISITION' OR document_type = 'Material Requisition')
             GROUP BY document_id
@@ -1071,12 +1276,15 @@ router.get(
           i.item_name,
           COALESCE(SUM(sb.qty), 0) AS total_qty,
           COALESCE(SUM(sb.reserved_qty), 0) AS reserved_qty,
-          COALESCE(SUM(sb.qty), 0) - COALESCE(SUM(sb.reserved_qty), 0) AS available_qty
-        FROM inv_items i
+          COALESCE(SUM(sb.qty), 0) - COALESCE(SUM(sb.reserved_qty), 0) AS available_qty,
+          i.created_at,
+          u.username AS created_by_name
+         FROM inv_items i
         LEFT JOIN inv_stock_balances sb
           ON sb.item_id = i.id
          AND ${stockWhere.join(" AND ")}
-        WHERE ${whereItem}
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE ${whereItem}
         GROUP BY i.id, i.item_code, i.item_name
         ORDER BY i.item_name ASC
         `,
@@ -1115,12 +1323,15 @@ router.get(
           i.item_code,
           i.item_name,
           COALESCE(SUM(sb.qty), 0) AS available_qty,
-          COALESCE(i.reorder_level, 0) AS reorder_level
-        FROM inv_items i
+          COALESCE(i.reorder_level, 0) AS reorder_level,
+          i.created_at,
+          u.username AS created_by_name
+         FROM inv_items i
         LEFT JOIN inv_stock_balances sb
           ON sb.item_id = i.id
          AND ${stockWhere.join(" AND ")}
-        WHERE i.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
         GROUP BY i.id, i.item_code, i.item_name, i.reorder_level
         ORDER BY i.item_name ASC
         `,
@@ -1177,10 +1388,13 @@ router.get(
           v.opening_qty,
           0 AS receipts_qty,
           0 AS issues_qty,
-          v.closing_qty
-        FROM v_inv_stock_summary v
+          v.closing_qty,
+          v.created_at,
+          u.username AS created_by_name
+         FROM v_inv_stock_summary v
         LEFT JOIN inv_items i ON i.id = v.item_id
-        WHERE ${where}
+        LEFT JOIN adm_users u ON u.id = v.created_by
+         WHERE ${where}
         ORDER BY i.item_name ASC
         `,
         params,
@@ -1223,10 +1437,13 @@ router.get(
           v.opening_qty,
           0 AS receipts_qty,
           0 AS issues_qty,
-          v.closing_qty
-        FROM v_inv_stock_summary v
+          v.closing_qty,
+          v.created_at,
+          u.username AS created_by_name
+         FROM v_inv_stock_summary v
         LEFT JOIN inv_items i ON i.id = v.item_id
-        WHERE ${where}
+        LEFT JOIN adm_users u ON u.id = v.created_by
+         WHERE ${where}
         ORDER BY i.item_name ASC
         `,
         params,
@@ -1285,11 +1502,14 @@ router.get(
           v.remaining_qty,
           i.item_code,
           i.item_name,
-          d.dept_name AS department_name
-        FROM v_inv_issue_register v
+          d.dept_name AS department_name,
+          v.created_at,
+          u.username AS created_by_name
+         FROM v_inv_issue_register v
         LEFT JOIN inv_items i ON i.id = v.item_id
         LEFT JOIN hr_departments d ON d.id = v.department_id
-        WHERE ${where.join(" AND ")}
+        LEFT JOIN adm_users u ON u.id = v.created_by
+         WHERE ${where.join(" AND ")}
         ORDER BY v.issue_date DESC, v.issue_id DESC
         `,
         params,
@@ -1345,10 +1565,13 @@ router.get(
           v.qty,
           v.uom,
           i.item_code,
-          i.item_name
-        FROM v_inv_material_returns v
+          i.item_name,
+          v.created_at,
+          u.username AS created_by_name
+         FROM v_inv_material_returns v
         LEFT JOIN inv_items i ON i.id = v.item_id
-        WHERE ${where.join(" AND ")}
+        LEFT JOIN adm_users u ON u.id = v.created_by
+         WHERE ${where.join(" AND ")}
         ORDER BY v.rts_date DESC, v.rts_id DESC
         `,
         params,
@@ -1372,9 +1595,12 @@ router.get(
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const rows = await query(
         `
-        SELECT r.*
-        FROM inv_material_requisitions r
-        WHERE r.id = :id AND r.company_id = :companyId AND r.branch_id = :branchId
+        SELECT r.*,
+          r.created_at,
+          u.username AS created_by_name
+         FROM inv_material_requisitions r
+        LEFT JOIN adm_users u ON u.id = r.created_by
+         WHERE r.id = :id AND r.company_id = :companyId AND r.branch_id = :branchId
         LIMIT 1
         `,
         { id, companyId, branchId },
@@ -1389,10 +1615,13 @@ router.get(
                i.item_name,
                i.uom,
                d.qty_requested,
-               d.qty_issued
-        FROM inv_material_requisition_details d
+               d.qty_issued,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_material_requisition_details d
         JOIN inv_items i ON i.id = d.item_id
-        WHERE d.requisition_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.requisition_id = :id
         ORDER BY d.id ASC
         `,
         { id },
@@ -1463,12 +1692,15 @@ router.get(
           d.batch_no,
           d.unit_price,
           i.item_code,
-          i.item_name
-        FROM inv_stock_adjustments a
+          i.item_name,
+          a.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_adjustments a
         JOIN inv_stock_adjustment_details d ON d.adjustment_id = a.id
         LEFT JOIN inv_items i ON i.id = d.item_id
         LEFT JOIN inv_warehouses w ON w.id = a.warehouse_id
-        WHERE ${where.join(" AND ")}
+        LEFT JOIN adm_users u ON u.id = a.created_by
+         WHERE ${where.join(" AND ")}
         ORDER BY a.adjustment_date DESC, a.id DESC
         `,
         params,
@@ -1713,9 +1945,12 @@ router.post(
       const docRouteBase = "/inventory/material-requisitions";
       const wfByRoute = await query(
         `
-        SELECT *
-        FROM adm_workflows
-        WHERE company_id = :companyId
+        SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
           AND document_route = :docRouteBase
         ORDER BY id ASC
         `,
@@ -1723,9 +1958,12 @@ router.post(
       );
       const wfDefs = await query(
         `
-        SELECT *
-        FROM adm_workflows
-        WHERE company_id = :companyId
+        SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
           AND (document_type = 'MATERIAL_REQUISITION' OR document_type = 'Material Requisition')
         ORDER BY id ASC
         `,
@@ -1734,8 +1972,12 @@ router.post(
       let activeWf = null;
       if (workflowIdOverride) {
         const wfRows = await query(
-          `SELECT * FROM adm_workflows 
-           WHERE id = :wfId AND company_id = :companyId 
+          `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :wfId AND company_id = :companyId 
              AND (document_type = 'MATERIAL_REQUISITION' OR document_type = 'Material Requisition')
            LIMIT 1`,
           { wfId: workflowIdOverride || null, companyId: companyId || null },
@@ -1786,7 +2028,12 @@ router.post(
       }
 
       const steps = await query(
-        `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_steps
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
         { wf: activeWf.id },
       );
       if (!steps.length) {
@@ -1806,9 +2053,12 @@ router.post(
         );
       }
       const allowedUsers = await query(
-        `SELECT approver_user_id 
-           FROM adm_workflow_step_approvers 
-           WHERE workflow_id = :wf AND step_order = :ord`,
+        `SELECT approver_user_id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_step_approvers
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf AND step_order = :ord`,
         { wf: activeWf.id, ord: first.step_order },
       );
       const allowedSet = new Set(
@@ -1873,7 +2123,12 @@ router.post(
         { id: id || null, companyId: companyId || null },
       );
       const refRows = await query(
-        `SELECT requisition_no FROM inv_material_requisitions WHERE id = :id AND company_id = :companyId LIMIT 1`,
+        `SELECT requisition_no,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_material_requisitions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId LIMIT 1`,
         { id: id || null, companyId: companyId || null },
       );
       const docNo = refRows.length ? refRows[0].requisition_no : null;
@@ -1941,9 +2196,12 @@ router.get(
                r.return_type,
                w.warehouse_name,
                d.dept_name AS department_name,
-               (SELECT COUNT(*) 
-                FROM inv_return_to_stores_details 
-                WHERE rts_id = r.id) as item_count,
+               (SELECT COUNT(*),
+          created_at,
+          u.username AS created_by_name
+         FROM inv_return_to_stores_details
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE rts_id = r.id) as item_count,
                dw.assigned_to_user_id,
                u.username as forwarded_to_username
         FROM inv_return_to_stores r
@@ -2036,8 +2294,7 @@ async function ensureItemGroupTables() {
 }
 
 async function ensureItemBatchTables() {
-  await query(
-    `
+  await query(`
     CREATE TABLE IF NOT EXISTS inv_item_batches (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       company_id BIGINT UNSIGNED NOT NULL,
@@ -2058,10 +2315,8 @@ async function ensureItemBatchTables() {
       KEY idx_item (item_id),
       KEY idx_exp (expiry_date)
     )
-  `,
-  ).catch(() => {});
-  await query(
-    `
+  `).catch(() => {});
+  await query(`
     CREATE TABLE IF NOT EXISTS inv_batch_movements (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       company_id BIGINT UNSIGNED NOT NULL,
@@ -2079,8 +2334,7 @@ async function ensureItemBatchTables() {
       KEY idx_batch (batch_id),
       KEY idx_item (item_id)
     )
-  `,
-  ).catch(() => {});
+  `).catch(() => {});
 }
 
 // ─── Reporting Views ──────────────────────────────────────────────────────────
@@ -2094,9 +2348,12 @@ async function ensureReportingViews() {
       sb.warehouse_id,
       sb.item_id,
       COALESCE(sb.qty, 0) AS opening_qty,
-      COALESCE(sb.qty, 0) AS closing_qty
-    FROM inv_stock_balances sb
-  `).catch(() => {});
+      COALESCE(sb.qty, 0) AS closing_qty,
+          sb.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_balances sb
+        LEFT JOIN adm_users u ON u.id = sb.created_by
+        `).catch(() => {});
   await query(`DROP VIEW IF EXISTS v_inv_issue_register`).catch(() => {});
   await query(`
     CREATE VIEW v_inv_issue_register AS
@@ -2113,10 +2370,13 @@ async function ensureReportingViews() {
       d.qty_issued,
       d.uom,
       COALESCE((
-        SELECT SUM(rd.qty_returned)
-        FROM inv_return_to_stores r
+        SELECT SUM(rd.qty_returned),
+          r.created_at,
+          u.username AS created_by_name
+         FROM inv_return_to_stores r
         JOIN inv_return_to_stores_details rd ON rd.rts_id = r.id
-        WHERE r.company_id = i.company_id
+        LEFT JOIN adm_users u ON u.id = r.created_by
+         WHERE r.company_id = i.company_id
           AND r.branch_id = i.branch_id
           AND rd.item_id = d.item_id
           AND (r.department_id <=> i.department_id)
@@ -2151,10 +2411,13 @@ async function ensureReportingViews() {
       r.department_id,
       d.item_id,
       d.qty,
-      d.uom
-    FROM inv_return_to_stores r
+      d.uom,
+          r.created_at,
+          u.username AS created_by_name
+         FROM inv_return_to_stores r
     JOIN inv_return_to_stores_details d ON d.rts_id = r.id
-  `).catch(() => {});
+        LEFT JOIN adm_users u ON u.id = r.created_by
+        `).catch(() => {});
 }
 
 async function upsertStockBalanceTx(
@@ -2211,8 +2474,12 @@ async function upsertStockBalanceTx(
 async function nextAdjustmentNo(companyId) {
   const rows = await query(
     `
-    SELECT adjustment_no FROM inv_stock_adjustments
-    WHERE company_id = :companyId AND adjustment_no LIKE 'ADJ-%'
+    SELECT adjustment_no,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_stock_adjustments
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND adjustment_no LIKE 'ADJ-%'
     ORDER BY adjustment_no DESC
     LIMIT 1
     `,
@@ -2228,12 +2495,60 @@ async function nextAdjustmentNo(companyId) {
   return "ADJ-000001";
 }
 
-async function allocateFromBatchesTx(
+export async function allocateFromBatchesTx(
   conn,
-  { companyId, branchId, warehouseId, itemId, qty, refType, refId, refDate },
+  {
+    companyId,
+    branchId,
+    warehouseId,
+    itemId,
+    qty,
+    refType,
+    refId,
+    refDate,
+    preferredBatchId,
+  },
 ) {
   let remaining = Number(qty || 0);
   if (!(remaining > 0)) return [];
+
+  // If a preferred batch is specified, try to deduct from it first
+  if (preferredBatchId) {
+    const [prefBatches] = await conn.execute(
+      `SELECT id, qty, cost FROM inv_item_batches WHERE id = :id AND qty > 0`,
+      { id: preferredBatchId },
+    );
+    if (prefBatches && prefBatches.length > 0) {
+      const b = prefBatches[0];
+      const take = Math.min(Number(b.qty), remaining);
+      await conn.execute(
+        `UPDATE inv_item_batches SET qty = qty - :take WHERE id = :id`,
+        { take, id: b.id },
+      );
+      await conn.execute(
+        `
+        INSERT INTO inv_batch_movements
+          (company_id, branch_id, item_id, batch_id, movement_type, qty, ref_type, ref_id, ref_date, remarks)
+        VALUES
+          (:companyId, :branchId, :itemId, :batchId, 'OUT', :qty, :refType, :refId, :refDate, 'Manual select')
+        `,
+        {
+          companyId,
+          branchId,
+          itemId,
+          batchId: b.id,
+          qty: take,
+          refType,
+          refId,
+          refDate,
+        },
+      );
+      remaining -= take;
+    }
+  }
+
+  if (remaining <= 0) return [];
+
   const [batches] = await conn.execute(
     `
     SELECT id, qty, cost FROM inv_item_batches
@@ -2277,10 +2592,8 @@ async function allocateFromBatchesTx(
     remaining -= take;
   }
   if (remaining > 0) {
-    throw httpError(
-      400,
-      "INSUFFICIENT_STOCK",
-      "Not enough batch quantity to allocate",
+    console.warn(
+      `[BATCH_ALLOCATION] Could not fully satisfy allocation for item ${itemId}. Remaining: ${remaining}`,
     );
   }
   await upsertStockBalanceTx(conn, {
@@ -2322,9 +2635,12 @@ router.get(
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [hdr] = await query(
         `
-        SELECT a.*, w.warehouse_name
-          FROM inv_stock_adjustments a
+        SELECT a.*, w.warehouse_name,
+          a.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_adjustments a
           LEFT JOIN inv_warehouses w ON w.id = a.warehouse_id
+        LEFT JOIN adm_users u ON u.id = a.created_by
          WHERE a.id = :id AND a.company_id = :companyId AND a.branch_id = :branchId
          LIMIT 1
         `,
@@ -2333,9 +2649,12 @@ router.get(
       if (!hdr) throw httpError(404, "NOT_FOUND", "Adjustment not found");
       const details = await query(
         `
-        SELECT d.*, i.item_code, i.item_name 
-          FROM inv_stock_adjustment_details d
+        SELECT d.*, i.item_code, i.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_adjustment_details d
           LEFT JOIN inv_items i ON i.id = d.item_id
+        LEFT JOIN adm_users u ON u.id = d.created_by
          WHERE d.adjustment_id = :id
          ORDER BY d.id ASC
         `,
@@ -2362,9 +2681,12 @@ router.post(
 
       const [adj] = await query(
         `
-        SELECT id, adjustment_no, status
-        FROM inv_stock_adjustments
-        WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+        SELECT id, adjustment_no, status,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_stock_adjustments
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
         LIMIT 1
         `,
         { id, companyId, branchId },
@@ -2373,9 +2695,12 @@ router.post(
 
       const existing = await query(
         `
-        SELECT id
-        FROM adm_document_workflows
-        WHERE company_id = :companyId
+        SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_document_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
           AND document_id = :id
           AND document_type IN ('STOCK_ADJUSTMENT', 'Stock Adjustment')
           AND status = 'PENDING'
@@ -2396,7 +2721,11 @@ router.post(
       const docRouteBase = "/inventory/stock-adjustments";
 
       const wfByRoute = await query(
-        `SELECT * FROM adm_workflows
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
            AND document_route = :docRouteBase
            AND is_active = 1
@@ -2405,7 +2734,11 @@ router.post(
       ).catch(() => []);
 
       const wfByTypeName = await query(
-        `SELECT * FROM adm_workflows
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
            AND is_active = 1
            AND (document_type = 'STOCK_ADJUSTMENT' OR document_type = 'Stock Adjustment')
@@ -2416,8 +2749,12 @@ router.post(
       let activeWf = null;
       if (workflowIdOverride) {
         const wfOverrideRows = await query(
-          `SELECT * FROM adm_workflows
-           WHERE id = :wfId AND company_id = :companyId AND is_active = 1
+          `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :wfId AND company_id = :companyId AND is_active = 1
            LIMIT 1`,
           { wfId: workflowIdOverride, companyId },
         ).catch(() => []);
@@ -2451,7 +2788,12 @@ router.post(
       }
 
       const steps = await query(
-        `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_steps
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
         { wf: activeWf.id },
       );
       if (!steps.length) {
@@ -2464,8 +2806,11 @@ router.post(
       const first = steps[0];
 
       const allowedUsers = await query(
-        `SELECT approver_user_id
+        `SELECT approver_user_id,
+          created_at,
+          u.username AS created_by_name
          FROM adm_workflow_step_approvers
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE workflow_id = :wf AND step_order = :ord`,
         { wf: activeWf.id, ord: first.step_order },
       ).catch(() => []);
@@ -2668,8 +3013,10 @@ router.get(
         SELECT a.id, a.updation_no, a.updation_date, a.status,
                w.warehouse_name,
                COUNT(d.id) AS item_count,
-               u.username AS forwarded_to_username
-          FROM inv_stock_updations a
+               u.username AS forwarded_to_username,
+          a.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_updations a
           LEFT JOIN inv_stock_updation_details d ON d.updation_id = a.id
           LEFT JOIN inv_warehouses w ON w.id = a.warehouse_id
           LEFT JOIN (
@@ -2678,7 +3025,8 @@ router.get(
             JOIN (
               SELECT document_id, MAX(id) AS max_id
               FROM adm_document_workflows
-              WHERE company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = a.created_by
+         WHERE company_id = :companyId
                 AND status = 'PENDING'
                 AND (document_type = 'STOCK_UPDATION')
               GROUP BY document_id
@@ -2727,9 +3075,12 @@ router.get(
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [hdr] = await query(
         `
-        SELECT a.*, w.warehouse_name
-          FROM inv_stock_updations a
+        SELECT a.*, w.warehouse_name,
+          a.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_updations a
           LEFT JOIN inv_warehouses w ON w.id = a.warehouse_id
+        LEFT JOIN adm_users u ON u.id = a.created_by
          WHERE a.id = :id AND a.company_id = :companyId AND a.branch_id = :branchId
          LIMIT 1
         `,
@@ -2738,9 +3089,12 @@ router.get(
       if (!hdr) throw httpError(404, "NOT_FOUND", "Updation not found");
       const details = await query(
         `
-        SELECT d.*, i.item_code, i.item_name 
-          FROM inv_stock_updation_details d
+        SELECT d.*, i.item_code, i.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_updation_details d
           LEFT JOIN inv_items i ON i.id = d.item_id
+        LEFT JOIN adm_users u ON u.id = d.created_by
          WHERE d.updation_id = :id
          ORDER BY d.id ASC
         `,
@@ -2915,7 +3269,12 @@ router.post(
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
       const [upd] = await query(
-        `SELECT id, updation_no FROM inv_stock_updations WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        `SELECT id, updation_no,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_stock_updations
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
         { id, companyId, branchId },
       );
       if (!upd) throw httpError(404, "NOT_FOUND", "Updation not found");
@@ -2928,7 +3287,12 @@ router.post(
       const docRouteBase = "/inventory/stock-updation";
 
       const wfByRoute = await query(
-        `SELECT * FROM adm_workflows WHERE company_id = :companyId AND (document_route = :docRouteBase OR document_type = :docType) AND is_active = 1 ORDER BY id ASC`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND (document_route = :docRouteBase OR document_type = :docType) AND is_active = 1 ORDER BY id ASC`,
         { companyId, docRouteBase, docType },
       ).catch(() => []);
 
@@ -2943,7 +3307,12 @@ router.post(
       }
 
       const steps = await query(
-        `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_steps
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
         { wf: activeWf.id },
       );
       if (!steps.length) {
@@ -3000,8 +3369,10 @@ router.get(
         SELECT a.id, a.verification_no, a.verification_date, a.verification_type, a.status,
                w.warehouse_name,
                COUNT(d.id) AS item_count,
-               u.username AS forwarded_to_username
-          FROM inv_stock_verifications a
+               u.username AS forwarded_to_username,
+          a.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_verifications a
           LEFT JOIN inv_stock_verification_details d ON d.verification_id = a.id
           LEFT JOIN inv_warehouses w ON w.id = a.warehouse_id
           LEFT JOIN (
@@ -3010,7 +3381,8 @@ router.get(
             JOIN (
               SELECT document_id, MAX(id) AS max_id
               FROM adm_document_workflows
-              WHERE company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = a.created_by
+         WHERE company_id = :companyId
                 AND status = 'PENDING'
                 AND (document_type = 'STOCK_VERIFICATION')
               GROUP BY document_id
@@ -3059,9 +3431,12 @@ router.get(
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [hdr] = await query(
         `
-        SELECT a.*, w.warehouse_name
-          FROM inv_stock_verifications a
+        SELECT a.*, w.warehouse_name,
+          a.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_verifications a
           LEFT JOIN inv_warehouses w ON w.id = a.warehouse_id
+        LEFT JOIN adm_users u ON u.id = a.created_by
          WHERE a.id = :id AND a.company_id = :companyId AND a.branch_id = :branchId
          LIMIT 1
         `,
@@ -3070,9 +3445,12 @@ router.get(
       if (!hdr) throw httpError(404, "NOT_FOUND", "Verification not found");
       const details = await query(
         `
-        SELECT d.*, i.item_code, i.item_name 
-          FROM inv_stock_verification_details d
+        SELECT d.*, i.item_code, i.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_verification_details d
           LEFT JOIN inv_items i ON i.id = d.item_id
+        LEFT JOIN adm_users u ON u.id = d.created_by
          WHERE d.verification_id = :id
          ORDER BY d.id ASC
         `,
@@ -3296,7 +3674,12 @@ router.post(
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
       const [ver] = await query(
-        `SELECT id, verification_no FROM inv_stock_verifications WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        `SELECT id, verification_no,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_stock_verifications
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
         { id, companyId, branchId },
       );
       if (!ver) throw httpError(404, "NOT_FOUND", "Verification not found");
@@ -3305,7 +3688,12 @@ router.post(
       const docRouteBase = "/inventory/stock-verification";
 
       const wfByRoute = await query(
-        `SELECT * FROM adm_workflows WHERE company_id = :companyId AND (document_route = :docRouteBase OR document_type = :docType) AND is_active = 1 ORDER BY id ASC`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND (document_route = :docRouteBase OR document_type = :docType) AND is_active = 1 ORDER BY id ASC`,
         { companyId, docRouteBase, docType },
       ).catch(() => []);
 
@@ -3320,7 +3708,12 @@ router.post(
       }
 
       const steps = await query(
-        `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_steps
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
         { wf: activeWf.id },
       );
       if (!steps.length) {
@@ -3394,8 +3787,11 @@ router.get(
       }
       const rows = await query(
         `
-        SELECT b.*
-          FROM v_active_stock_details b
+        SELECT b.*,
+          b.created_at,
+          u.username AS created_by_name
+         FROM v_active_stock_details b
+        LEFT JOIN adm_users u ON u.id = b.created_by
          WHERE ${whereParts.join(" AND ")}
          ORDER BY COALESCE(b.expiry_date,'9999-12-31') ASC, b.id ASC
         `,
@@ -3425,8 +3821,11 @@ router.get(
         SELECT batch_no,
                COALESCE(SUM(qty), 0) AS qty,
                COALESCE(SUM(reserved_qty), 0) AS reserved_qty,
-               MIN(expiry_date) AS expiry_date
-          FROM inv_stock_balances
+               MIN(expiry_date) AS expiry_date,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_stock_balances
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
            AND item_id = :itemId
            AND warehouse_id = :warehouseId
@@ -3514,9 +3913,12 @@ router.get(
         `
         SELECT g.id, g.group_code, g.group_name, g.parent_group_id,
                CASE WHEN g.is_active = 1 THEN 1 ELSE 0 END AS is_active,
-               p.group_name AS parent_group_name
-          FROM inv_item_groups g
+               p.group_name AS parent_group_name,
+          g.created_at,
+          u.username AS created_by_name
+         FROM inv_item_groups g
           LEFT JOIN inv_item_groups p ON p.id = g.parent_group_id
+        LEFT JOIN adm_users u ON u.id = g.created_by
          WHERE g.company_id = :companyId AND g.branch_id = :branchId
          ORDER BY g.group_name ASC
         `,
@@ -3533,22 +3935,26 @@ router.get(
 let __batchExpiryMonitorStarted = false;
 async function runBatchExpiryMonitorOnce() {
   try {
-    const soon = await query(
-      `
-      SELECT b.*, i.item_name
-        FROM inv_item_batches b
+    const soon = await query(`
+      SELECT b.*, i.item_name,
+          b.created_at,
+          u.username AS created_by_name
+         FROM inv_item_batches b
         LEFT JOIN inv_items i ON i.id = b.item_id
-       WHERE b.qty > 0
+        LEFT JOIN adm_users u ON u.id = b.created_by
+         WHERE b.qty > 0
          AND b.expiry_date IS NOT NULL
          AND b.expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 90 DAY)
-      `,
-    );
+      `);
     if (!soon || !soon.length) return;
-    const users = await query(
-      `
-      SELECT id, email, username, full_name FROM adm_users WHERE is_active = 1
-      `,
-    ).catch(() => []);
+    const users = await query(`
+      SELECT id, email, username, full_name,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE is_active = 1
+      `).catch(() => []);
     for (const row of soon) {
       const message = `Batch ${row.batch_no} of ${row.item_name} expires on ${row.expiry_date} • Qty: ${row.qty}`;
       if (users && users.length) {
@@ -3620,9 +4026,12 @@ router.get(
         `
         SELECT c.id, c.category_code, c.category_name, c.parent_category_id,
                CASE WHEN c.is_active = 1 THEN 1 ELSE 0 END AS is_active,
-               p.category_name AS parent_category_name
-          FROM inv_item_categories c
+               p.category_name AS parent_category_name,
+          c.created_at,
+          u.username AS created_by_name
+         FROM inv_item_categories c
           LEFT JOIN inv_item_categories p ON p.id = c.parent_category_id
+        LEFT JOIN adm_users u ON u.id = c.created_by
          WHERE c.company_id = :companyId AND c.branch_id = :branchId
          ORDER BY c.category_name ASC
         `,
@@ -3779,9 +4188,12 @@ async function ensureStockUpdationTables() {
 async function nextUpdationNo(companyId, branchId) {
   const rows = await query(
     `
-    SELECT updation_no
-    FROM inv_stock_updations
-    WHERE company_id = :companyId
+    SELECT updation_no,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_stock_updations
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
       AND branch_id = :branchId
       AND updation_no LIKE 'UPD-%'
     ORDER BY CAST(SUBSTRING(updation_no, 5) AS UNSIGNED) DESC
@@ -3887,9 +4299,12 @@ async function ensureStockVerificationTables() {
 async function nextVerificationNo(companyId, branchId) {
   const rows = await query(
     `
-    SELECT verification_no
-    FROM inv_stock_verifications
-    WHERE company_id = :companyId
+    SELECT verification_no,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_stock_verifications
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
       AND branch_id = :branchId
       AND verification_no LIKE 'SV-%'
     ORDER BY CAST(SUBSTRING(verification_no, 4) AS UNSIGNED) DESC
@@ -3922,8 +4337,10 @@ router.get(
                MAX(a.adjustment_type) AS adjustment_type,
                MAX(w.warehouse_name) AS warehouse_name,
                COUNT(d.id) AS item_count,
-               u.username AS forwarded_to_username
-          FROM inv_stock_adjustments a
+               u.username AS forwarded_to_username,
+          a.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_adjustments a
           LEFT JOIN inv_stock_adjustment_details d ON d.adjustment_id = a.id
           LEFT JOIN inv_warehouses w ON w.id = a.warehouse_id
           LEFT JOIN (
@@ -3932,7 +4349,8 @@ router.get(
             JOIN (
               SELECT document_id, MAX(id) AS max_id
               FROM adm_document_workflows
-              WHERE company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = a.created_by
+         WHERE company_id = :companyId
                 AND status = 'PENDING'
                 AND (document_type IN ('STOCK_ADJUSTMENT','Stock Adjustment'))
               GROUP BY document_id
@@ -3971,13 +4389,16 @@ router.get(
                tb.name AS to_branch,
                fw.warehouse_name AS from_warehouse,
                tw.warehouse_name AS to_warehouse,
-               COUNT(d.id) AS item_count
-          FROM inv_stock_transfers t
+               COUNT(d.id) AS item_count,
+          t.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_transfers t
           LEFT JOIN inv_stock_transfer_details d ON d.transfer_id = t.id
           LEFT JOIN adm_branches fb ON fb.id = t.from_branch_id
           LEFT JOIN adm_branches tb ON tb.id = t.to_branch_id
           LEFT JOIN inv_warehouses fw ON fw.id = t.from_warehouse_id
           LEFT JOIN inv_warehouses tw ON tw.id = t.to_warehouse_id
+        LEFT JOIN adm_users u ON u.id = t.created_by
          WHERE t.company_id = :companyId AND t.branch_id = :branchId
          GROUP BY t.id
          ORDER BY t.transfer_date DESC, t.id DESC
@@ -4016,8 +4437,11 @@ router.get(
       const rows = await query(
         `
         SELECT COALESCE(SUM(qty), 0) AS qty,
-               COALESCE(SUM(reserved_qty), 0) AS reserved_qty
-          FROM inv_stock_balances
+               COALESCE(SUM(reserved_qty), 0) AS reserved_qty,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_stock_balances
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
            AND item_id = :itemId
            AND warehouse_id = :warehouseId
@@ -4070,8 +4494,10 @@ router.get(
         `
         SELECT g.id, g.grn_no, g.grn_date, g.grn_type, g.status,
                s.supplier_name, w.warehouse_name,
-               u.username AS forwarded_to_username
-          FROM inv_goods_receipt_notes g
+               u.username AS forwarded_to_username,
+          g.created_at,
+          u.username AS created_by_name
+         FROM inv_goods_receipt_notes g
           LEFT JOIN pur_suppliers s ON s.id = g.supplier_id
           LEFT JOIN inv_warehouses w ON w.id = g.warehouse_id
           LEFT JOIN (
@@ -4080,7 +4506,8 @@ router.get(
               JOIN (
                 SELECT document_id, MAX(id) AS max_id
                   FROM adm_document_workflows
-                 WHERE company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = g.created_by
+         WHERE company_id = :companyId
                    AND status = 'PENDING'
                    AND (document_type IN ('GRN','GOODS_RECEIPT','GOODS_RECEIPT_NOTE'))
                  GROUP BY document_id
@@ -4111,10 +4538,13 @@ router.get(
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [hdr] = await query(
         `
-        SELECT g.*, s.supplier_name, w.warehouse_name
-          FROM inv_goods_receipt_notes g
+        SELECT g.*, s.supplier_name, w.warehouse_name,
+          g.created_at,
+          u.username AS created_by_name
+         FROM inv_goods_receipt_notes g
           LEFT JOIN pur_suppliers s ON s.id = g.supplier_id
           LEFT JOIN inv_warehouses w ON w.id = g.warehouse_id
+        LEFT JOIN adm_users u ON u.id = g.created_by
          WHERE g.id = :id AND g.company_id = :companyId AND g.branch_id = :branchId
          LIMIT 1
         `,
@@ -4123,9 +4553,12 @@ router.get(
       if (!hdr) throw httpError(404, "NOT_FOUND", "GRN not found");
       const details = await query(
         `
-        SELECT d.*, i.item_code, i.item_name
-          FROM inv_goods_receipt_note_details d
+        SELECT d.*, i.item_code, i.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_goods_receipt_note_details d
           LEFT JOIN inv_items i ON i.id = d.item_id
+        LEFT JOIN adm_users u ON u.id = d.created_by
          WHERE d.grn_id = :id
          ORDER BY d.id ASC
         `,
@@ -4213,9 +4646,12 @@ async function ensureIssueToRequirementTables() {
 async function nextIssueNo(companyId, branchId) {
   const rows = await query(
     `
-    SELECT issue_no
-    FROM inv_issue_to_requirement
-    WHERE company_id = :companyId
+    SELECT issue_no,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_issue_to_requirement
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
       AND branch_id = :branchId
       AND issue_no LIKE 'ISS-%'
     ORDER BY CAST(SUBSTRING(issue_no, 5) AS UNSIGNED) DESC
@@ -4248,12 +4684,15 @@ router.get(
         SELECT i.id, i.issue_no, i.issue_date, i.warehouse_id, i.issued_to,
                i.department_id, i.status, i.remarks, i.issue_type,
                i.requisition_id, i.created_by, i.created_at, i.updated_at,
-               w.warehouse_name, d.dept_name AS department_name, u.username AS created_by_username
-        FROM inv_issue_to_requirement i
+               w.warehouse_name, d.dept_name AS department_name, u.username AS created_by_username,
+          i.created_at,
+          u.username AS created_by_name
+         FROM inv_issue_to_requirement i
         LEFT JOIN inv_warehouses w ON w.id = i.warehouse_id
         LEFT JOIN hr_departments d ON d.id = i.department_id
         LEFT JOIN adm_users u ON u.id = i.created_by
-        WHERE i.company_id = :companyId AND i.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId AND i.branch_id = :branchId
         ORDER BY i.issue_date DESC, i.id DESC
         `,
         { companyId, branchId },
@@ -4281,12 +4720,15 @@ router.get(
 
       const [hdr] = await query(
         `
-        SELECT i.*, w.warehouse_name, d.dept_name AS department_name, u.username AS created_by_username
-        FROM inv_issue_to_requirement i
+        SELECT i.*, w.warehouse_name, d.dept_name AS department_name, u.username AS created_by_username,
+          i.created_at,
+          u.username AS created_by_name
+         FROM inv_issue_to_requirement i
         LEFT JOIN inv_warehouses w ON w.id = i.warehouse_id
         LEFT JOIN hr_departments d ON d.id = i.department_id
         LEFT JOIN adm_users u ON u.id = i.created_by
-        WHERE i.id = :id AND i.company_id = :companyId AND i.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.id = :id AND i.company_id = :companyId AND i.branch_id = :branchId
         LIMIT 1
         `,
         { id, companyId, branchId },
@@ -4301,12 +4743,15 @@ router.get(
           iv.item_name, 
           iv.uom as item_uom,
           v.returned_qty,
-          v.remaining_qty
-        FROM inv_issue_to_requirement_details d
+          v.remaining_qty,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_issue_to_requirement_details d
         LEFT JOIN inv_items iv ON iv.id = d.item_id
         LEFT JOIN v_inv_issue_register v 
           ON v.issue_id = :id AND v.item_id = d.item_id
-        WHERE d.issue_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.issue_id = :id
         ORDER BY d.id ASC
         `,
         { id },
@@ -4437,8 +4882,12 @@ router.put(
       // Check if issue exists
       const [existing] = await query(
         `
-        SELECT id FROM inv_issue_to_requirement
-        WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+        SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_issue_to_requirement
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
         LIMIT 1
         `,
         { id, companyId, branchId },
@@ -4524,8 +4973,12 @@ router.delete(
       // Check if issue exists
       const [existing] = await query(
         `
-        SELECT id FROM inv_issue_to_requirement
-        WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+        SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_issue_to_requirement
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
         LIMIT 1
         `,
         { id, companyId, branchId },
@@ -4567,11 +5020,14 @@ router.get(
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [hdr] = await query(
         `
-        SELECT r.*, w.warehouse_name, d.dept_name AS department_name
-        FROM inv_return_to_stores r
+        SELECT r.*, w.warehouse_name, d.dept_name AS department_name,
+          r.created_at,
+          u.username AS created_by_name
+         FROM inv_return_to_stores r
         LEFT JOIN inv_warehouses w ON w.id = r.warehouse_id
         LEFT JOIN hr_departments d ON d.id = r.department_id
-        WHERE r.id = :id
+        LEFT JOIN adm_users u ON u.id = r.created_by
+         WHERE r.id = :id
         LIMIT 1
         `,
         { id: id || null },
@@ -4806,19 +5262,34 @@ router.post(
 
       // Initialize workflow
       const wfByRoute = await query(
-        `SELECT * FROM adm_workflows WHERE company_id = :companyId AND document_route = :docRouteBase AND is_active = 1 LIMIT 1`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND document_route = :docRouteBase AND is_active = 1 LIMIT 1`,
         { companyId, docRouteBase },
       );
 
       const wfByTypeName = await query(
-        `SELECT * FROM adm_workflows WHERE company_id = :companyId AND (document_type = 'RETURN_TO_STORES' OR document_type = 'Return to Stores') AND is_active = 1 LIMIT 1`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND (document_type = 'RETURN_TO_STORES' OR document_type = 'Return to Stores') AND is_active = 1 LIMIT 1`,
         { companyId },
       );
 
       let activeWf = null;
       if (workflowIdOverride) {
         const wfOverrideRows = await query(
-          `SELECT * FROM adm_workflows WHERE id = :wfId AND is_active = 1 LIMIT 1`,
+          `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :wfId AND is_active = 1 LIMIT 1`,
           { wfId: workflowIdOverride },
         );
         if (wfOverrideRows.length) activeWf = wfOverrideRows[0];
@@ -4846,7 +5317,12 @@ router.post(
       }
 
       const steps = await query(
-        `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_steps
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
         { wf: activeWf.id },
       );
 
@@ -4942,13 +5418,16 @@ router.get(
       const [hdr] = await query(
         `
         SELECT t.*, fb.name AS from_branch, tb.name AS to_branch,
-               fw.warehouse_name AS from_warehouse, tw.warehouse_name AS to_warehouse
-        FROM inv_stock_transfers t
+               fw.warehouse_name AS from_warehouse, tw.warehouse_name AS to_warehouse,
+          t.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_transfers t
         LEFT JOIN adm_branches fb ON fb.id = t.from_branch_id
         LEFT JOIN adm_branches tb ON tb.id = t.to_branch_id
         LEFT JOIN inv_warehouses fw ON fw.id = t.from_warehouse_id
         LEFT JOIN inv_warehouses tw ON tw.id = t.to_warehouse_id
-        WHERE t.id = :id
+        LEFT JOIN adm_users u ON u.id = t.created_by
+         WHERE t.id = :id
         LIMIT 1
         `,
         { id: id || null },
@@ -4956,10 +5435,13 @@ router.get(
       if (!hdr) throw httpError(404, "NOT_FOUND", "Transfer not found");
       const details = await query(
         `
-        SELECT d.id, d.transfer_id, d.item_id, d.qty, d.uom, d.batch_no AS batch_number, i.item_code, i.item_name
-        FROM inv_stock_transfer_details d
+        SELECT d.id, d.transfer_id, d.item_id, d.qty, d.uom, d.batch_no AS batch_number, i.item_code, i.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_transfer_details d
         LEFT JOIN inv_items i ON i.id = d.item_id
-        WHERE d.transfer_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.transfer_id = :id
         ORDER BY d.id
         `,
         { id: id || null },
@@ -5481,9 +5963,12 @@ async function ensureStockCountTables() {
 async function nextStockTakeNo(companyId, branchId) {
   const rows = await query(
     `
-    SELECT stock_take_no
-    FROM inv_daily_stock_counts
-    WHERE company_id = :companyId
+    SELECT stock_take_no,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_daily_stock_counts
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
       AND branch_id = :branchId
       AND stock_take_no LIKE 'STK-%'
     ORDER BY CAST(SUBSTRING(stock_take_no, 5) AS UNSIGNED) DESC
@@ -5513,11 +5998,14 @@ router.get(
       const rows = await query(
         `
         SELECT c.id, c.warehouse_id, c.count_date, c.status,
-               w.warehouse_name, COUNT(d.id) AS item_count
-        FROM inv_daily_stock_counts c
+               w.warehouse_name, COUNT(d.id) AS item_count,
+          c.created_at,
+          u.username AS created_by_name
+         FROM inv_daily_stock_counts c
         LEFT JOIN inv_warehouses w ON w.id = c.warehouse_id
         LEFT JOIN inv_daily_stock_count_details d ON d.count_id = c.id
-        WHERE c.company_id = :companyId AND c.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.company_id = :companyId AND c.branch_id = :branchId
         GROUP BY c.id
         ORDER BY c.count_date DESC, c.id DESC
         `,
@@ -5545,10 +6033,13 @@ router.get(
                c.stock_take_no,
                c.count_date AS stock_take_date,
                c.status,
-               w.warehouse_name
-        FROM inv_daily_stock_counts c
+               w.warehouse_name,
+          c.created_at,
+          u.username AS created_by_name
+         FROM inv_daily_stock_counts c
         LEFT JOIN inv_warehouses w ON w.id = c.warehouse_id
-        WHERE c.company_id = :companyId AND c.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.company_id = :companyId AND c.branch_id = :branchId
         ORDER BY c.count_date DESC, c.id DESC
         `,
         { companyId: companyId || null, branchId: branchId || null },
@@ -5572,10 +6063,13 @@ router.get(
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [hdr] = await query(
         `
-        SELECT c.*, w.warehouse_name
-        FROM inv_daily_stock_counts c
+        SELECT c.*, w.warehouse_name,
+          c.created_at,
+          u.username AS created_by_name
+         FROM inv_daily_stock_counts c
         LEFT JOIN inv_warehouses w ON w.id = c.warehouse_id
-        WHERE c.id = :id
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.id = :id
         LIMIT 1
         `,
         { id: id || null },
@@ -5583,10 +6077,13 @@ router.get(
       if (!hdr) throw httpError(404, "NOT_FOUND", "Stock count not found");
       const details = await query(
         `
-        SELECT d.*, i.item_code, i.item_name
-        FROM inv_daily_stock_count_details d
+        SELECT d.*, i.item_code, i.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_daily_stock_count_details d
         LEFT JOIN inv_items i ON i.id = d.item_id
-        WHERE d.count_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.count_id = :id
         ORDER BY d.id
         `,
         { id: id || null },
@@ -5610,10 +6107,13 @@ router.get(
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [hdr] = await query(
         `
-        SELECT c.*, w.warehouse_name
-        FROM inv_daily_stock_counts c
+        SELECT c.*, w.warehouse_name,
+          c.created_at,
+          u.username AS created_by_name
+         FROM inv_daily_stock_counts c
         LEFT JOIN inv_warehouses w ON w.id = c.warehouse_id
-        WHERE c.id = :id
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.id = :id
         LIMIT 1
         `,
         { id: id || null },
@@ -5621,9 +6121,12 @@ router.get(
       if (!hdr) throw httpError(404, "NOT_FOUND", "Stock take not found");
       const detailsRaw = await query(
         `
-        SELECT d.*
-        FROM inv_daily_stock_count_details d
-        WHERE d.count_id = :id
+        SELECT d.*,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_daily_stock_count_details d
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.count_id = :id
         ORDER BY d.id
         `,
         { id: id || null },
@@ -5976,12 +6479,15 @@ router.get(
       const rows = await query(
         `
         SELECT r.*, i.item_code, i.item_name, w.warehouse_name,
-               COALESCE(s.qty, 0) AS current_qty
-        FROM inv_stock_reorder_points r
+               COALESCE(s.qty, 0) AS current_qty,
+          r.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_reorder_points r
         LEFT JOIN inv_items i ON i.id = r.item_id
         LEFT JOIN inv_warehouses w ON w.id = r.warehouse_id
         LEFT JOIN inv_stock_balances s ON s.item_id = r.item_id AND s.warehouse_id = r.warehouse_id
-        WHERE r.company_id = :companyId AND r.branch_id = :branchId AND r.is_active = 1
+        LEFT JOIN adm_users u ON u.id = r.created_by
+         WHERE r.company_id = :companyId AND r.branch_id = :branchId AND r.is_active = 1
         ORDER BY i.item_name, w.warehouse_name
         `,
         { companyId: companyId || null, branchId: branchId || null },
@@ -6004,6 +6510,7 @@ async function ensureItemsTable() {
       uom VARCHAR(20) DEFAULT 'PCS',
       item_type VARCHAR(50) DEFAULT 'INVENTORY',
       category VARCHAR(100),
+      category_id BIGINT UNSIGNED NULL,
       description TEXT,
       is_active TINYINT(1) DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -6026,6 +6533,51 @@ async function ensureItemsTable() {
   await query(`
     ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS reorder_level DECIMAL(18,3) DEFAULT 0
   `).catch(() => {});
+  await query(`
+    ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS category_id BIGINT UNSIGNED NULL
+  `).catch(() => {});
+  await query(`
+    ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS barcode VARCHAR(120) NULL
+  `).catch(() => {});
+  await query(`
+    ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS cost_price DECIMAL(18,3) DEFAULT 0
+  `).catch(() => {});
+  await query(`
+    ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS selling_price DECIMAL(18,3) DEFAULT 0
+  `).catch(() => {});
+  await query(`
+    ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS currency_id BIGINT UNSIGNED NULL
+  `).catch(() => {});
+  await query(`
+    ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS item_group_id BIGINT UNSIGNED NULL
+  `).catch(() => {});
+  await query(`
+    ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS safety_stock DECIMAL(18,3) DEFAULT 0
+  `).catch(() => {});
+  await query(`
+    ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS vat_on_purchase_id BIGINT UNSIGNED NULL
+  `).catch(() => {});
+  await query(`
+    ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS vat_on_sales_id BIGINT UNSIGNED NULL
+  `).catch(() => {});
+  await query(`
+    ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS purchase_account_id BIGINT UNSIGNED NULL
+  `).catch(() => {});
+  await query(`
+    ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS sales_account_id BIGINT UNSIGNED NULL
+  `).catch(() => {});
+  await query(`
+    ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS service_item CHAR(1) NOT NULL DEFAULT 'N'
+  `).catch(() => {});
+  await query(`
+    ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS is_stockable CHAR(1) NOT NULL DEFAULT 'Y'
+  `).catch(() => {});
+  await query(`
+    ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS is_sellable CHAR(1) NOT NULL DEFAULT 'Y'
+  `).catch(() => {});
+  await query(`
+    ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS is_purchasable CHAR(1) NOT NULL DEFAULT 'Y'
+  `).catch(() => {});
   // Update any items with NULL or empty UOM to default 'PCS'
   await query(`
     UPDATE inv_items SET uom = 'PCS' WHERE uom IS NULL OR uom = ''
@@ -6038,7 +6590,12 @@ router.get("/items/:id", requireAuth, async (req, res, next) => {
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const [item] = await query(
-      `SELECT * FROM inv_items WHERE id = :id LIMIT 1`,
+      `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_items
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id LIMIT 1`,
       { id: id || null },
     );
     if (!item) throw httpError(404, "NOT_FOUND", "Item not found");
@@ -6063,9 +6620,29 @@ router.post(
       const itemType = body.item_type
         ? String(body.item_type).trim()
         : "INVENTORY";
-      const category = body.category
-        ? String(body.category).trim() || null
-        : null;
+      const categoryId = toNumber(body.category_id || body.category);
+      const itemGroupId = toNumber(body.item_group_id || body.group_id);
+      const barcode = body.barcode ? String(body.barcode).trim() || null : null;
+      const costPrice = Number(body.cost_price || 0);
+      const sellingPrice = Number(body.selling_price || 0);
+      const currencyId = toNumber(body.currency_id);
+      const vatOnPurchaseId = toNumber(body.vat_on_purchase_id);
+      const vatOnSalesId = toNumber(body.vat_on_sales_id);
+      const purchaseAccountId = toNumber(body.purchase_account_id);
+      const salesAccountId = toNumber(body.sales_account_id);
+      const isActive = body.is_active === false || body.is_active === 0 ? 0 : 1;
+      const serviceItem =
+        String(body.service_item || "N").toUpperCase() === "Y" ? "Y" : "N";
+      const isStockable =
+        String(body.is_stockable ?? "Y").toUpperCase() === "Y" ? "Y" : "N";
+      const isSellable =
+        String(body.is_sellable ?? "Y").toUpperCase() === "Y" ? "Y" : "N";
+      const isPurchasable =
+        String(body.is_purchasable ?? "Y").toUpperCase() === "Y" ? "Y" : "N";
+      const minStockLevel = Number(body.min_stock_level || 0);
+      const maxStockLevel = Number(body.max_stock_level || 0);
+      const reorderLevel = Number(body.reorder_level || 0);
+      const safetyStock = Number(body.safety_stock || 0);
       const description = body.description
         ? String(body.description).trim() || null
         : null;
@@ -6078,11 +6655,23 @@ router.post(
         );
       }
 
-      const [result] = await query(
+      const resultRaw = await query(
         `
         INSERT INTO inv_items
-        (company_id, item_code, item_name, uom, item_type, category, description)
-        VALUES (:companyId, :itemCode, :itemName, :uom, :itemType, :category, :description)
+        (
+          company_id, item_code, item_name, uom, item_type, category_id, item_group_id,
+          barcode, cost_price, selling_price, currency_id,
+          vat_on_purchase_id, vat_on_sales_id, purchase_account_id, sales_account_id,
+          description, min_stock_level, max_stock_level, reorder_level, safety_stock,
+          service_item, is_stockable, is_sellable, is_purchasable, is_active
+        )
+        VALUES (
+          :companyId, :itemCode, :itemName, :uom, :itemType, :categoryId, :itemGroupId,
+          :barcode, :costPrice, :sellingPrice, :currencyId,
+          :vatOnPurchaseId, :vatOnSalesId, :purchaseAccountId, :salesAccountId,
+          :description, :minStockLevel, :maxStockLevel, :reorderLevel, :safetyStock,
+          :serviceItem, :isStockable, :isSellable, :isPurchasable, :isActive
+        )
         `,
         {
           companyId: companyId || null,
@@ -6090,10 +6679,29 @@ router.post(
           itemName: itemName || null,
           uom: uom || "PCS",
           itemType: itemType || "INVENTORY",
-          category: category || null,
+          categoryId: categoryId || null,
+          itemGroupId: itemGroupId || null,
+          barcode: barcode || null,
+          costPrice: Number.isFinite(costPrice) ? costPrice : 0,
+          sellingPrice: Number.isFinite(sellingPrice) ? sellingPrice : 0,
+          currencyId: currencyId || null,
+          vatOnPurchaseId: vatOnPurchaseId || null,
+          vatOnSalesId: vatOnSalesId || null,
+          purchaseAccountId: purchaseAccountId || null,
+          salesAccountId: salesAccountId || null,
           description: description || null,
+          minStockLevel: Number.isFinite(minStockLevel) ? minStockLevel : 0,
+          maxStockLevel: Number.isFinite(maxStockLevel) ? maxStockLevel : 0,
+          reorderLevel: Number.isFinite(reorderLevel) ? reorderLevel : 0,
+          safetyStock: Number.isFinite(safetyStock) ? safetyStock : 0,
+          serviceItem,
+          isStockable,
+          isSellable,
+          isPurchasable,
+          isActive,
         },
       );
+      const result = Array.isArray(resultRaw) ? resultRaw[0] : resultRaw;
       const itemId = result.insertId;
       res.status(201).json({ id: itemId, item_code: itemCode });
     } catch (e) {
@@ -6119,9 +6727,29 @@ router.put(
       const itemType = body.item_type
         ? String(body.item_type).trim()
         : "INVENTORY";
-      const category = body.category
-        ? String(body.category).trim() || null
-        : null;
+      const categoryId = toNumber(body.category_id || body.category);
+      const itemGroupId = toNumber(body.item_group_id || body.group_id);
+      const barcode = body.barcode ? String(body.barcode).trim() || null : null;
+      const costPrice = Number(body.cost_price || 0);
+      const sellingPrice = Number(body.selling_price || 0);
+      const currencyId = toNumber(body.currency_id);
+      const vatOnPurchaseId = toNumber(body.vat_on_purchase_id);
+      const vatOnSalesId = toNumber(body.vat_on_sales_id);
+      const purchaseAccountId = toNumber(body.purchase_account_id);
+      const salesAccountId = toNumber(body.sales_account_id);
+      const isActive = body.is_active === false || body.is_active === 0 ? 0 : 1;
+      const serviceItem =
+        String(body.service_item || "N").toUpperCase() === "Y" ? "Y" : "N";
+      const isStockable =
+        String(body.is_stockable ?? "Y").toUpperCase() === "Y" ? "Y" : "N";
+      const isSellable =
+        String(body.is_sellable ?? "Y").toUpperCase() === "Y" ? "Y" : "N";
+      const isPurchasable =
+        String(body.is_purchasable ?? "Y").toUpperCase() === "Y" ? "Y" : "N";
+      const minStockLevel = Number(body.min_stock_level || 0);
+      const maxStockLevel = Number(body.max_stock_level || 0);
+      const reorderLevel = Number(body.reorder_level || 0);
+      const safetyStock = Number(body.safety_stock || 0);
       const description = body.description
         ? String(body.description).trim() || null
         : null;
@@ -6134,11 +6762,33 @@ router.put(
         );
       }
 
-      const [upd] = await query(
+      const updRaw = await query(
         `
         UPDATE inv_items
-        SET item_code = :itemCode, item_name = :itemName, uom = :uom, 
-            item_type = :itemType, category = :category, description = :description
+        SET item_code = :itemCode,
+            item_name = :itemName,
+            uom = :uom,
+            item_type = :itemType,
+            category_id = :categoryId,
+            item_group_id = :itemGroupId,
+            barcode = :barcode,
+            cost_price = :costPrice,
+            selling_price = :sellingPrice,
+            currency_id = :currencyId,
+            vat_on_purchase_id = :vatOnPurchaseId,
+            vat_on_sales_id = :vatOnSalesId,
+            purchase_account_id = :purchaseAccountId,
+            sales_account_id = :salesAccountId,
+            description = :description,
+            min_stock_level = :minStockLevel,
+            max_stock_level = :maxStockLevel,
+            reorder_level = :reorderLevel,
+            safety_stock = :safetyStock,
+            service_item = :serviceItem,
+            is_stockable = :isStockable,
+            is_sellable = :isSellable,
+            is_purchasable = :isPurchasable,
+            is_active = :isActive
         WHERE id = :id AND company_id = :companyId
         `,
         {
@@ -6148,10 +6798,29 @@ router.put(
           itemName: itemName || null,
           uom: uom || "PCS",
           itemType: itemType || "INVENTORY",
-          category: category || null,
+          categoryId: categoryId || null,
+          itemGroupId: itemGroupId || null,
+          barcode: barcode || null,
+          costPrice: Number.isFinite(costPrice) ? costPrice : 0,
+          sellingPrice: Number.isFinite(sellingPrice) ? sellingPrice : 0,
+          currencyId: currencyId || null,
+          vatOnPurchaseId: vatOnPurchaseId || null,
+          vatOnSalesId: vatOnSalesId || null,
+          purchaseAccountId: purchaseAccountId || null,
+          salesAccountId: salesAccountId || null,
           description: description || null,
+          minStockLevel: Number.isFinite(minStockLevel) ? minStockLevel : 0,
+          maxStockLevel: Number.isFinite(maxStockLevel) ? maxStockLevel : 0,
+          reorderLevel: Number.isFinite(reorderLevel) ? reorderLevel : 0,
+          safetyStock: Number.isFinite(safetyStock) ? safetyStock : 0,
+          serviceItem,
+          isStockable,
+          isSellable,
+          isPurchasable,
+          isActive,
         },
       );
+      const upd = Array.isArray(updRaw) ? updRaw[0] : updRaw;
       if (!upd.affectedRows)
         throw httpError(404, "NOT_FOUND", "Item not found");
       res.json({ ok: true });
@@ -6262,8 +6931,10 @@ router.get(
           i.uom,
           w.warehouse_name,
           s.supplier_name,
-          COALESCE(sb.qty, 0) AS current_stock
-        FROM inv_reorder_points rp
+          COALESCE(sb.qty, 0) AS current_stock,
+          rp.created_at,
+          u.username AS created_by_name
+         FROM inv_reorder_points rp
         JOIN inv_items i ON i.id = rp.item_id
         JOIN inv_warehouses w ON w.id = rp.warehouse_id
         LEFT JOIN pur_suppliers s ON s.id = rp.supplier_id
@@ -6272,7 +6943,8 @@ router.get(
           AND sb.warehouse_id = rp.warehouse_id 
           AND sb.item_id = rp.item_id
         ${where}
-        ORDER BY i.item_name ASC
+        LEFT JOIN adm_users u ON u.id = rp.created_by
+         ORDER BY i.item_name ASC
         `,
         params,
       ).catch(() => []);
@@ -6456,9 +7128,12 @@ router.get(
       // Fetch all items and warehouses for this company/branch
       const [items] = await query(
         `
-        SELECT id, item_code, item_name, uom
-        FROM inv_items
-        WHERE company_id = :companyId AND is_active = 1
+        SELECT id, item_code, item_name, uom,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_items
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND is_active = 1
         ORDER BY item_code ASC
         `,
         { companyId },
@@ -6467,9 +7142,12 @@ router.get(
 
       const [warehouses] = await query(
         `
-        SELECT id, warehouse_name
-        FROM inv_warehouses
-        WHERE company_id = :companyId AND branch_id = :branchId
+        SELECT id, warehouse_name,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_warehouses
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND branch_id = :branchId
         ORDER BY warehouse_name ASC
         `,
         { companyId, branchId },
@@ -6712,10 +7390,13 @@ router.get(
 
       const items = await query(
         `
-        SELECT *
-        FROM v_active_stock_details
+        SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM v_active_stock_details
         ${where}
-        ORDER BY item_name ASC, entry_date ASC
+        LEFT JOIN adm_users u ON u.id = created_by
+         ORDER BY item_name ASC, entry_date ASC
         LIMIT 1000
       `,
         params,
@@ -6767,11 +7448,14 @@ router.get(
         `
         SELECT t.*, 
                fw.warehouse_name AS from_warehouse_name,
-               tw.warehouse_name AS to_warehouse_name
-        FROM inv_stock_transfers t
+               tw.warehouse_name AS to_warehouse_name,
+          t.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_transfers t
         LEFT JOIN inv_warehouses fw ON fw.id = t.from_warehouse_id
         LEFT JOIN inv_warehouses tw ON tw.id = t.to_warehouse_id
-        WHERE t.company_id = :companyId 
+        LEFT JOIN adm_users u ON u.id = t.created_by
+         WHERE t.company_id = :companyId 
           AND (
             COALESCE(tw.branch_id, 0) = :branchId
             OR COALESCE(t.to_branch_id, 0) = :branchId
@@ -6805,11 +7489,14 @@ router.get(
         `
         SELECT t.*, 
                fw.warehouse_name AS from_warehouse_name,
-               tw.warehouse_name AS to_warehouse_name
-        FROM inv_stock_transfers t
+               tw.warehouse_name AS to_warehouse_name,
+          t.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_transfers t
         LEFT JOIN inv_warehouses fw ON fw.id = t.from_warehouse_id
         LEFT JOIN inv_warehouses tw ON tw.id = t.to_warehouse_id
-        WHERE t.id = :id
+        LEFT JOIN adm_users u ON u.id = t.created_by
+         WHERE t.id = :id
           AND t.company_id = :companyId
           AND (
             COALESCE(tw.branch_id, 0) = :branchId
@@ -6827,10 +7514,13 @@ router.get(
       const details = await query(
         `
         SELECT d.*, i.item_code, i.item_name,
-               COALESCE(d.qty - COALESCE(d.received_qty, 0), 0) AS remaining_qty
-        FROM inv_stock_transfer_details d
+               COALESCE(d.qty - COALESCE(d.received_qty, 0), 0) AS remaining_qty,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_transfer_details d
         JOIN inv_items i ON i.id = d.item_id
-        WHERE d.transfer_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.transfer_id = :id
         ORDER BY d.id ASC
         `,
         { id },
@@ -6944,8 +7634,10 @@ router.get(
           i.item_name,
           i.uom,
           COALESCE(sb.qty, 0) AS qty,
-          COALESCE(i.reorder_level, 0) AS reorder_level
-        FROM inv_items i
+          COALESCE(i.reorder_level, 0) AS reorder_level,
+          i.created_at,
+          u.username AS created_by_name
+         FROM inv_items i
         LEFT JOIN (
           SELECT company_id, branch_id, item_id, SUM(qty) AS qty
           FROM inv_stock_balances
@@ -6954,7 +7646,8 @@ router.get(
           ON sb.company_id = i.company_id
          AND sb.branch_id = :branchId
          AND sb.item_id = i.id
-        WHERE i.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
           AND COALESCE(i.reorder_level, 0) > 0
           AND COALESCE(sb.qty, 0) <= COALESCE(i.reorder_level, 0)
         ORDER BY qty ASC, i.item_name ASC
@@ -6985,8 +7678,10 @@ router.post(
           i.item_name,
           i.uom,
           COALESCE(sb.qty, 0) AS qty,
-          COALESCE(i.reorder_level, 0) AS reorder_level
-        FROM inv_items i
+          COALESCE(i.reorder_level, 0) AS reorder_level,
+          i.created_at,
+          u.username AS created_by_name
+         FROM inv_items i
         LEFT JOIN (
           SELECT company_id, branch_id, item_id, SUM(qty) AS qty
           FROM inv_stock_balances
@@ -6995,7 +7690,8 @@ router.post(
           ON sb.company_id = i.company_id
          AND sb.branch_id = :branchId
          AND sb.item_id = i.id
-        WHERE i.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
           AND COALESCE(i.reorder_level, 0) > 0
           AND COALESCE(sb.qty, 0) <= COALESCE(i.reorder_level, 0)
         ORDER BY qty ASC, i.item_name ASC
@@ -7027,13 +7723,16 @@ router.post(
 
       let recipients = await query(
         `
-        SELECT DISTINCT u.id, u.email
-        FROM adm_users u
+        SELECT DISTINCT u.id, u.email,
+          u.created_at,
+          u.username AS created_by_name
+         FROM adm_users u
         JOIN adm_notification_prefs np
           ON np.user_id = u.id
          AND np.pref_key = 'low-stock'
          AND np.email_enabled = 1
-        WHERE u.is_active = 1
+        LEFT JOIN adm_users u ON u.id = u.created_by
+         WHERE u.is_active = 1
           AND u.company_id = :companyId
           AND u.branch_id = :branchId
           AND u.email IS NOT NULL
@@ -7045,9 +7744,12 @@ router.post(
       if (!recipients.length) {
         recipients = await query(
           `
-          SELECT id, email
-          FROM adm_users
-          WHERE id = :userId
+          SELECT id, email,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :userId
             AND company_id = :companyId
             AND branch_id = :branchId
             AND is_active = 1
@@ -7134,13 +7836,16 @@ router.get(
           i.item_name,
           d.system_qty,
           d.physical_qty,
-          d.variance_qty
-        FROM inv_stock_verifications v
+          d.variance_qty,
+          v.created_at,
+          u.username AS created_by_name
+         FROM inv_stock_verifications v
         JOIN inv_stock_verification_details d ON d.verification_id = v.id
         JOIN inv_items i ON i.id = d.item_id
         LEFT JOIN inv_warehouses w ON w.id = v.warehouse_id
         ${where}
-        ORDER BY v.verification_date DESC, v.verification_no DESC
+        LEFT JOIN adm_users u ON u.id = v.created_by
+         ORDER BY v.verification_date DESC, v.verification_no DESC
         `,
         params,
       );

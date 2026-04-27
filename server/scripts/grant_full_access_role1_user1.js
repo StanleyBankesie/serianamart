@@ -54,8 +54,8 @@ async function run() {
     for (const mk of modules) {
       await query(
         `
-        INSERT INTO adm_role_permissions (role_id, module_key, can_view, can_create, can_edit, can_delete)
-        VALUES (1, :moduleKey, 1, 1, 1, 1)
+        INSERT INTO adm_role_permissions (role_id, module_key, feature_key, can_view, can_create, can_edit, can_delete)
+        VALUES (1, :moduleKey, :moduleKey, 1, 1, 1, 1)
         ON DUPLICATE KEY UPDATE can_view=1, can_create=1, can_edit=1, can_delete=1
         `,
         { moduleKey: mk },

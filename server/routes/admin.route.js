@@ -43,6 +43,7 @@ import {
   uploadCompanyLogo,
   getDepartmentById,
   createDepartment,
+  getCurrentCompany,
 } from "../controllers/companies.controller.js";
 import {
   getUserRole,
@@ -1376,7 +1377,12 @@ function requirePageAccess(path, action = "view") {
         return next(httpError(401, "UNAUTHORIZED", "Invalid user"));
       }
       const rows = await query(
-        `SELECT id, module, name, path FROM adm_pages WHERE path = :path AND is_active = 1 LIMIT 1`,
+        `SELECT id, module, name, path,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_pages
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE path = :path AND is_active = 1 LIMIT 1`,
         { path },
       );
       const page = rows[0];
@@ -1384,7 +1390,12 @@ function requirePageAccess(path, action = "view") {
         return next(httpError(404, "NOT_FOUND", "Page not registered"));
       }
       const users = await query(
-        `SELECT role_id FROM adm_users WHERE id = :id LIMIT 1`,
+        `SELECT role_id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id LIMIT 1`,
         { id: userId },
       );
       const roleId = Number(users?.[0]?.role_id || 0);
@@ -1394,8 +1405,11 @@ function requirePageAccess(path, action = "view") {
         return next(httpError(403, "FORBIDDEN", "Role not assigned"));
       }
       const roleHasPageRows = await query(
-        `SELECT 1 
-         FROM adm_role_pages 
+        `SELECT 1,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_role_pages
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE role_id = :rid AND page_id = :pid 
          LIMIT 1`,
         { rid: roleId, pid: page.id },
@@ -1408,8 +1422,11 @@ function requirePageAccess(path, action = "view") {
       let can_edit = 0;
       let can_delete = 0;
       const upRows = await query(
-        `SELECT can_view, can_create, can_edit, can_delete 
-         FROM adm_user_permissions 
+        `SELECT can_view, can_create, can_edit, can_delete,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_user_permissions
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE user_id = :uid AND page_id = :pid 
          LIMIT 1`,
         { uid: userId, pid: page.id },
@@ -1740,7 +1757,12 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
     const reqPath = String(req.query?.path || "").trim() || "/";
     const base = basePathFromRequestPath(reqPath);
     const pages = await query(
-      `SELECT id, path, feature_key FROM adm_pages WHERE path = :path AND is_active = 1 LIMIT 1`,
+      `SELECT id, path, feature_key,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_pages
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE path = :path AND is_active = 1 LIMIT 1`,
       { path: base },
     );
     if (!pages.length) {
@@ -1773,10 +1795,13 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
              MAX(rp.can_view)   AS can_view,
              MAX(rp.can_create) AS can_create,
              MAX(rp.can_edit)   AS can_edit,
-             MAX(rp.can_delete) AS can_delete
-           FROM adm_role_permissions rp
+             MAX(rp.can_delete) AS can_delete,
+          rp.created_at,
+          uc.username AS created_by_name
+         FROM adm_role_permissions rp
            JOIN adm_users u ON u.role_id = rp.role_id
-           WHERE u.id = :uid
+        LEFT JOIN adm_users uc ON uc.id = rp.created_by
+         WHERE u.id = :uid
              AND (rp.feature_key = :fk OR rp.feature_key LIKE CONCAT(:fk, ':%'))
            LIMIT 1`,
           { uid: userId, fk },
@@ -1797,8 +1822,11 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
     let row = null;
     try {
       const eff = await query(
-        `SELECT can_view, can_create, can_edit, can_delete
+        `SELECT can_view, can_create, can_edit, can_delete,
+          created_at,
+          u.username AS created_by_name
          FROM adm_page_permission_effective
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE user_id = :uid AND page_id = :pid
          LIMIT 1`,
         { uid: userId, pid: page.id },
@@ -1810,9 +1838,12 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
     if (!row) {
       try {
         const ups = await query(
-          `SELECT can_view, can_create, can_edit, can_delete
-           FROM adm_user_permissions
-           WHERE user_id = :uid AND page_id = :pid
+          `SELECT can_view, can_create, can_edit, can_delete,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_user_permissions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE user_id = :uid AND page_id = :pid
            LIMIT 1`,
           { uid: userId, pid: page.id },
         );
@@ -1904,9 +1935,12 @@ router.get("/system-status", requireAuth, async (req, res, next) => {
     );
     const recentLogins = await query(
       `
-      SELECT l.id, l.username, l.user_id, l.ip_address, l.user_agent, l.login_time
-      FROM adm_login_logs l
-      ORDER BY l.login_time DESC
+      SELECT l.id, l.username, l.user_id, l.ip_address, l.user_agent, l.login_time,
+          l.created_at,
+          u.username AS created_by_name
+         FROM adm_login_logs l
+        LEFT JOIN adm_users u ON u.id = l.created_by
+         ORDER BY l.login_time DESC
       LIMIT 20
       `,
       {},
@@ -2038,11 +2072,14 @@ router.get("/reports/system-log-book", requireAuth, async (req, res, next) => {
           s.module_name,
           s.action,
           s.ref_no,
-          s.message
-        FROM adm_system_logs s
+          s.message,
+          s.created_at,
+          u.username AS created_by_name
+         FROM adm_system_logs s
         LEFT JOIN adm_users u ON s.user_id = u.id
         ${whereSys}
-        ORDER BY s.event_time DESC
+        LEFT JOIN adm_users u ON u.id = s.created_by
+         ORDER BY s.event_time DESC
         LIMIT 200
         `,
       pSys,
@@ -2056,10 +2093,13 @@ router.get("/reports/system-log-book", requireAuth, async (req, res, next) => {
           'Authentication' AS module_name,
           'LOGIN' AS action,
           l.ip_address AS ref_no,
-          l.user_agent AS message
-        FROM adm_login_logs l
+          l.user_agent AS message,
+          l.created_at,
+          u.username AS created_by_name
+         FROM adm_login_logs l
         ${whereLogin}
-        ORDER BY l.login_time DESC
+        LEFT JOIN adm_users u ON u.id = l.created_by
+         ORDER BY l.login_time DESC
         LIMIT 200
         `,
       pLogin,
@@ -2121,8 +2161,10 @@ router.get(
           c.name AS company_name,
           b.name AS branch_name,
           COALESCE(r.roles, '') AS roles,
-          COALESCE(r.role_codes, '') AS role_codes
-        FROM adm_login_logs l
+          COALESCE(r.role_codes, '') AS role_codes,
+          l.created_at,
+          u.username AS created_by_name
+         FROM adm_login_logs l
         LEFT JOIN adm_users u ON u.id = l.user_id
         LEFT JOIN adm_companies c ON c.id = l.company_id
         LEFT JOIN adm_branches b ON b.id = l.branch_id
@@ -2132,7 +2174,8 @@ router.get(
                  GROUP_CONCAT(r.code ORDER BY r.code SEPARATOR ',') AS role_codes
           FROM adm_user_roles ur
           JOIN adm_roles r ON r.id = ur.role_id
-          WHERE r.is_active = 1
+        LEFT JOIN adm_users u ON u.id = l.created_by
+         WHERE r.is_active = 1
           GROUP BY ur.user_id
         ) r ON r.user_id = l.user_id
         ${where}
@@ -2245,31 +2288,48 @@ router.get("/user-permissions", requireAuth, async (req, res, next) => {
 
     // Get user's role
     const roleResult = await query(
-      `SELECT role_id FROM adm_users WHERE id = :userId`,
+      `SELECT role_id
+         FROM adm_users
+        WHERE id = :userId`,
       { userId },
     );
 
-    if (roleResult.length === 0 || !roleResult[0].role_id) {
-      return res.json({ modules: [], permissions: [] });
+    let roleId = Number(roleResult?.[0]?.role_id || 0) || 0;
+    if (!roleId) {
+      const mappedRoles = await query(
+        `SELECT ur.role_id
+           FROM adm_user_roles ur
+           JOIN adm_roles r ON r.id = ur.role_id
+          WHERE ur.user_id = :userId
+            AND COALESCE(r.is_active, 1) = 1
+          ORDER BY ur.created_at DESC, ur.role_id DESC
+          LIMIT 1`,
+        { userId },
+      ).catch(() => []);
+      roleId = Number(mappedRoles?.[0]?.role_id || 0) || 0;
     }
-
-    const roleId = roleResult[0].role_id;
+    if (!roleId) return res.json({ modules: [], permissions: [] });
 
     // Get user's modules
     const modules = await query(
-      `SELECT module_key FROM adm_role_modules WHERE role_id = :roleId`,
+      `SELECT module_key
+         FROM adm_role_modules
+        WHERE role_id = :roleId`,
       { roleId },
     );
 
     // Get user's permissions
     const permissions = await query(
-      `SELECT module_key, feature_key, can_view, can_create, can_edit, can_delete 
-       FROM adm_role_permissions WHERE role_id = :roleId`,
+      `SELECT module_key, feature_key, can_view, can_create, can_edit, can_delete
+         FROM adm_role_permissions
+        WHERE role_id = :roleId`,
       { roleId },
     );
 
     const roleFeatures = await query(
-      `SELECT feature_key FROM adm_role_features WHERE role_id = :roleId`,
+      `SELECT feature_key
+         FROM adm_role_features
+        WHERE role_id = :roleId`,
       { roleId },
     );
 
@@ -2310,9 +2370,12 @@ router.get(
       const { companyId, branchId } = req.scope;
       const rows = await query(
         `
-        SELECT setting_key, setting_value
-        FROM adm_system_settings
-        WHERE (company_id = :companyId OR company_id IS NULL)
+        SELECT setting_key, setting_value,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_system_settings
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE (company_id = :companyId OR company_id IS NULL)
           AND (branch_id = :branchId OR branch_id IS NULL)
           AND setting_key IN ('CLOUDINARY_CLOUD_NAME','CLOUDINARY_API_KEY','CLOUDINARY_API_SECRET','CLOUDINARY_UPLOAD_FOLDER')
         ORDER BY company_id DESC, branch_id DESC
@@ -2407,5 +2470,13 @@ router.post("/email/test", requireAuth, async (req, res, next) => {
     next(err);
   }
 });
+
+router.get(
+  "/companies/current",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  getCurrentCompany,
+);
 
 export default router;

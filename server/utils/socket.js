@@ -1,5 +1,6 @@
 import { Server } from "socket.io";
 import { query } from "../db/pool.js";
+import { verifyAccessToken } from "../services/token.service.js";
 
 let ioInstance = null;
 const onlineUsers = new Set();
@@ -25,15 +26,12 @@ export const initializeSocket = (server) => {
 
   ioInstance.use(async (socket, next) => {
     try {
-      // Get token from handshake auth
-      const token = socket.handshake.auth.token;
-      // For development resilience, do not hard-fail if token is absent;
-      // downstream events still rely on userId in query for scoping.
-      // In production, you can enable strict verification here.
-
-      // Decode token (assuming JWT)
-      // For now, just pass it through
-      // In production, verify the JWT here
+      const token = socket.handshake.auth?.token;
+      if (!token) {
+        return next(new Error("Authentication required"));
+      }
+      const payload = verifyAccessToken(token);
+      socket.user = payload;
       next();
     } catch (error) {
       console.error("Socket.io auth error:", error);
@@ -42,7 +40,7 @@ export const initializeSocket = (server) => {
   });
 
   ioInstance.on("connection", (socket) => {
-    const userId = socket.handshake.query.userId;
+    const userId = socket.user?.sub || socket.user?.id || socket.handshake.query.userId;
     const warehouseId = socket.handshake.query.warehouseId;
 
     console.log(`✅ User ${userId} connected to socket`);

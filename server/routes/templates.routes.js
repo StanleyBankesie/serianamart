@@ -198,10 +198,12 @@ router.get(
       }
 
       let items = await query(
-        `SELECT id, name, document_type, is_default, created_at, updated_at
-           FROM document_templates
+        `SELECT id, name, document_type, is_default, created_at, updated_at,
+          u.username AS created_by_name
+         FROM document_templates
           ${whereClause}
-          ORDER BY is_default DESC, updated_at DESC`,
+        LEFT JOIN adm_users u ON u.id = created_by
+         ORDER BY is_default DESC, updated_at DESC`,
         params,
       ).catch(() => []);
 
@@ -225,8 +227,10 @@ router.get(
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [item] = await query(
         `SELECT id, name, document_type, html_content, is_default, created_at, updated_at,
-                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
-         FROM document_templates 
+                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
          LIMIT 1`,
         { id, companyId, branchId },
@@ -339,9 +343,12 @@ router.put(
       const n = String(name || "").trim();
       const rawHtml = typeof html_content === "string" ? html_content : null;
       const [existing] = await query(
-        `SELECT id, name, html_content, document_type, is_default
-           FROM document_templates 
-          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+        `SELECT id, name, html_content, document_type, is_default,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
           LIMIT 1`,
         { id, companyId, branchId },
       );
@@ -442,7 +449,12 @@ router.delete(
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [existing] = await query(
-        `SELECT id, is_default FROM document_templates WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        `SELECT id, is_default,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
         { id, companyId, branchId },
       ).catch(() => []);
       if (!existing) throw httpError(404, "NOT_FOUND", "Template not found");

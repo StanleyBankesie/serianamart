@@ -12,7 +12,10 @@ import {
 import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { updateItemAverageCostTx } from "../services/costing.service.js";
-import { recordMovementTx } from "../services/stock.service.js";
+import {
+  recordMovementTx,
+  ensureStockBalancesWarehouseInfrastructure,
+} from "../services/stock.service.js";
 import {
   listServiceConfirmations,
   getServiceConfirmationById,
@@ -40,6 +43,12 @@ import {
   updatePortClearance,
 } from "../controllers/purchase.controller.js";
 
+import {
+  getNextNumericCode,
+  ensureCustomerFinAccountIdTx,
+  ensureSupplierFinAccountIdTx,
+} from "../controllers/finance.controller.js";
+
 const router = express.Router();
 
 function toNumber(v, fallback = null) {
@@ -57,9 +66,12 @@ function nextDocNo(prefix) {
 async function nextServiceExecutionNo(companyId, branchId) {
   const rows = await query(
     `
-    SELECT execution_no
-    FROM pur_service_executions
-    WHERE company_id = :companyId AND branch_id = :branchId
+    SELECT execution_no,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_service_executions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND branch_id = :branchId
       AND execution_no REGEXP '^SVEX-[0-9]{6}$'
     ORDER BY CAST(SUBSTRING(execution_no, 6) AS UNSIGNED) DESC
     LIMIT 1
@@ -179,9 +191,12 @@ async function ensurePurchaseOrderPaymentTypeColumn() {
 async function userHasExceptionalAllow(userId, permissionCode = null) {
   const rows = await query(
     `
-    SELECT 1
-      FROM adm_exceptional_permissions
-     WHERE user_id = :uid
+    SELECT 1,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_exceptional_permissions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE user_id = :uid
        AND effect = 'ALLOW'
        AND is_active = 1
        ${permissionCode ? "AND permission_code = :code" : ""}
@@ -335,13 +350,11 @@ async function ensureServiceBillTables() {
       "ALTER TABLE pur_service_bills ADD COLUMN payment VARCHAR(30) NOT NULL DEFAULT 'UNPAID' AFTER status",
     );
   }
-  const rows = await query(
-    `SELECT column_type, column_default
-     FROM information_schema.columns
-     WHERE table_schema = DATABASE()
+  const rows = await query(`SELECT column_type, column_default
+         FROM information_schema.columns
+         WHERE table_schema = DATABASE()
        AND table_name = 'pur_service_bills'
-       AND column_name = 'status'`,
-  );
+       AND column_name = 'status'`);
   const colType = String(rows?.[0]?.column_type || "").toUpperCase();
   const hasPending = colType.includes("'PENDING'");
   const hasPaid = colType.includes("'PAID'");
@@ -365,12 +378,24 @@ async function ensureServiceBillTables() {
       category VARCHAR(50) NULL,
       qty DECIMAL(18,3) NOT NULL,
       rate DECIMAL(18,2) NOT NULL,
+      discount_percent DECIMAL(5,2) DEFAULT 0,
+      tax_code_id BIGINT UNSIGNED NULL,
       amount DECIMAL(18,2) NOT NULL,
       PRIMARY KEY (id),
       KEY idx_sbd_bill (bill_id),
       CONSTRAINT fk_sbd_bill FOREIGN KEY (bill_id) REFERENCES pur_service_bills(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  if (!(await hasColumn("pur_service_bill_details", "tax_code_id"))) {
+    await pool.query(
+      "ALTER TABLE pur_service_bill_details ADD COLUMN tax_code_id BIGINT UNSIGNED NULL",
+    );
+  }
+  if (!(await hasColumn("pur_service_bill_details", "discount_percent"))) {
+    await pool.query(
+      "ALTER TABLE pur_service_bill_details ADD COLUMN discount_percent DECIMAL(5,2) DEFAULT 0",
+    );
+  }
 }
 
 async function ensureServiceSetupTables() {
@@ -680,50 +705,6 @@ async function resolveFinAccountId(conn, { companyId, accountRef }) {
     { companyId, code: raw },
   );
   return Number(rows?.[0]?.id || 0) || 0;
-}
-async function ensureSupplierFinAccountIdTx(conn, { companyId, supplierId }) {
-  const [supRows] = await conn.execute(
-    "SELECT id, supplier_code, supplier_name, currency_id FROM pur_suppliers WHERE company_id = :companyId AND id = :id LIMIT 1",
-    { companyId, id: supplierId },
-  );
-  const sup = supRows?.[0] || null;
-  if (!sup) return 0;
-  let code =
-    sup.supplier_code && String(sup.supplier_code).trim()
-      ? String(sup.supplier_code).trim()
-      : `SU-${String(Number(sup.id || 0)).padStart(6, "0")}`;
-  const [accRows] = await conn.execute(
-    "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
-    { companyId, code },
-  );
-  const accIdExisting = Number(accRows?.[0]?.id || 0) || 0;
-  if (accIdExisting) return accIdExisting;
-  const [grpRows] = await conn.execute(
-    "SELECT id FROM fin_account_groups WHERE company_id = :companyId AND code = 'CREDITORS' LIMIT 1",
-    { companyId },
-  );
-  const creditorsGroupId = Number(grpRows?.[0]?.id || 0) || 0;
-  if (!creditorsGroupId) return 0;
-  let currencyId = sup.currency_id || null;
-  if (!currencyId) {
-    const [curRows] = await conn.execute(
-      "SELECT id FROM fin_currencies WHERE company_id = :companyId AND is_base = 1 LIMIT 1",
-      { companyId },
-    );
-    currencyId = Number(curRows?.[0]?.id || 0) || null;
-  }
-  const [ins] = await conn.execute(
-    `INSERT INTO fin_accounts (company_id, group_id, code, name, currency_id, is_control_account, is_postable, is_active)
-     VALUES (:companyId, :groupId, :code, :name, :currencyId, 0, 1, 1)`,
-    {
-      companyId,
-      groupId: creditorsGroupId,
-      code,
-      name: sup.supplier_name,
-      currencyId,
-    },
-  );
-  return Number(ins?.insertId || 0) || 0;
 }
 async function resolveGrnClearingAccountIdAuto(conn, { companyId, grnNo }) {
   const [codeRows] = await conn.execute(
@@ -1054,15 +1035,16 @@ async function postGrnAccrualTx(
 }
 
 async function nextSequentialNo(table, column, prefix) {
-  const rows = await query(
-    `
-    SELECT ${column} AS no
-    FROM ${table}
-    WHERE ${column} REGEXP '^${prefix}-[0-9]{6}$'
+  const rows = await query(`
+    SELECT ${column} AS no,
+          created_at,
+          u.username AS created_by_name
+         FROM ${table}
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE ${column} REGEXP '^${prefix}-[0-9]{6}$'
     ORDER BY CAST(SUBSTRING(${column}, ${prefix.length + 2}) AS UNSIGNED) DESC
     LIMIT 1
-    `,
-  );
+    `);
   let nextNum = 1;
   if (rows.length > 0) {
     const prev = String(rows[0].no || "");
@@ -1887,11 +1869,14 @@ router.get(
             h.grn_id,
             g.grn_no,
             h.bill_id,
-            b.bill_no
-          FROM pur_direct_purchase_hdr h
+            b.bill_no,
+          h.created_at,
+          u.username AS created_by_name
+         FROM pur_direct_purchase_hdr h
           LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
           LEFT JOIN inv_goods_receipt_notes g ON g.id = h.grn_id
           LEFT JOIN pur_bills b ON b.id = h.bill_id
+        LEFT JOIN adm_users u ON u.id = h.created_by
          WHERE h.company_id = :companyId
            AND h.branch_id = :branchId
          ORDER BY h.dp_date DESC, h.id DESC
@@ -1933,9 +1918,12 @@ router.get(
       const items = await query(
         `
         SELECT 
-          u.id, u.username, u.full_name, u.email
-        FROM adm_users u
-        WHERE u.company_id = :companyId
+          u.id, u.username, u.full_name, u.email,
+          u.created_at,
+          u.username AS created_by_name
+         FROM adm_users u
+        LEFT JOIN adm_users u ON u.id = u.created_by
+         WHERE u.company_id = :companyId
           AND u.is_active = 1
         ORDER BY u.username ASC
         `,
@@ -2182,8 +2170,11 @@ router.get(
            id, order_no, order_date, order_type,
            customer_name, service_category AS service_type,
            status, work_location, total_amount,
-           assigned_supervisor_user_id, assigned_supervisor_username
-         FROM pur_service_orders 
+           assigned_supervisor_user_id, assigned_supervisor_username,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_service_orders
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId AND branch_id = :branchId
            ${type ? "AND order_type = :type" : ""}
          ORDER BY order_date DESC, id DESC
@@ -2486,28 +2477,6 @@ router.put(
     }
   },
 );
-async function ensureStockBalancesWarehouseInfrastructure() {
-  if (!(await hasColumn("inv_stock_balances", "warehouse_id"))) {
-    await pool.query(
-      "ALTER TABLE inv_stock_balances ADD COLUMN warehouse_id BIGINT UNSIGNED NULL",
-    );
-    try {
-      await pool.query(
-        "ALTER TABLE inv_stock_balances DROP INDEX uq_stock_scope_item",
-      );
-    } catch {}
-    try {
-      await pool.query(
-        "ALTER TABLE inv_stock_balances ADD CONSTRAINT fk_stock_warehouse FOREIGN KEY (warehouse_id) REFERENCES inv_warehouses(id)",
-      );
-    } catch {}
-    try {
-      await pool.query(
-        "ALTER TABLE inv_stock_balances ADD UNIQUE KEY uq_stock_scope_wh_item (company_id, branch_id, warehouse_id, item_id)",
-      );
-    } catch {}
-  }
-}
 
 async function ensurePurchaseReturnTables() {
   await query(`
@@ -2553,9 +2522,12 @@ async function ensurePurchaseReturnTables() {
 }
 async function nextPurchaseReturnNo(companyId, branchId) {
   const rows = await query(
-    `SELECT return_no
-     FROM pur_returns
-     WHERE company_id = :companyId AND branch_id = :branchId
+    `SELECT return_no,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_returns
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND branch_id = :branchId
        AND return_no REGEXP '^PR-[0-9]{6}$'
      ORDER BY CAST(SUBSTRING(return_no, 4) AS UNSIGNED) DESC
      LIMIT 1`,
@@ -2611,13 +2583,11 @@ async function resolveDefaultInventoryAccountId(conn, { companyId }) {
 }
 
 async function ensureShippingAdviceStatusEnum() {
-  const rows = await query(
-    `SELECT column_type, column_default
-     FROM information_schema.columns
-     WHERE table_schema = DATABASE()
+  const rows = await query(`SELECT column_type, column_default
+         FROM information_schema.columns
+         WHERE table_schema = DATABASE()
        AND table_name = 'pur_shipping_advices'
-       AND column_name = 'status'`,
-  );
+       AND column_name = 'status'`);
   const colType = String(rows?.[0]?.column_type || "").toUpperCase();
   const hasDesired =
     colType.includes("'DRAFT'") &&
@@ -2651,13 +2621,11 @@ async function ensureShippingAdviceETDColumn() {
 }
 
 async function ensurePortClearanceStatusEnum() {
-  const rows = await query(
-    `SELECT column_type, column_default
-     FROM information_schema.columns
-     WHERE table_schema = DATABASE()
+  const rows = await query(`SELECT column_type, column_default
+         FROM information_schema.columns
+         WHERE table_schema = DATABASE()
        AND table_name = 'pur_port_clearances'
-       AND column_name = 'status'`,
-  );
+       AND column_name = 'status'`);
   const colType = String(rows?.[0]?.column_type || "").toUpperCase();
   const hasPending = colType.includes("'PENDING'");
   const hasInProgress = colType.includes("'IN_PROGRESS'");
@@ -2712,8 +2680,10 @@ router.get(
           p.po_date AS order_date,
           x.eta_date,
           COALESCE(x.status, p.status) AS status,
-          p.total_amount AS total_value
-        FROM pur_orders p
+          p.total_amount AS total_value,
+          p.created_at,
+          u.username AS created_by_name
+         FROM pur_orders p
         JOIN pur_suppliers s ON s.id = p.supplier_id
         LEFT JOIN (
           SELECT sa.po_id,
@@ -2721,7 +2691,8 @@ router.get(
                  MAX(sa.eta_date) AS eta_date,
                  MAX(sa.status) AS status
           FROM pur_shipping_advices sa
-          WHERE sa.company_id = :companyId AND sa.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = p.created_by
+         WHERE sa.company_id = :companyId AND sa.branch_id = :branchId
           GROUP BY sa.po_id
         ) x ON x.po_id = p.id
         WHERE p.company_id = :companyId
@@ -2760,10 +2731,13 @@ router.get(
           p.po_date AS order_date,
           NULL AS expected_delivery,
           p.status,
-          p.total_amount AS total_value
-        FROM pur_orders p
+          p.total_amount AS total_value,
+          p.created_at,
+          u.username AS created_by_name
+         FROM pur_orders p
         JOIN pur_suppliers s ON s.id = p.supplier_id
-        WHERE p.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = p.created_by
+         WHERE p.company_id = :companyId
           AND p.branch_id = :branchId
           AND UPPER(p.po_type) = 'LOCAL'
           AND p.po_date BETWEEN :from AND :to
@@ -2797,8 +2771,10 @@ router.get(
         toDateOnly(new Date(new Date(to).setDate(new Date(to).getDate() - 30)));
       const rows = await query(
         `
-        SELECT stage, ref_no, supplier_name, txn_date, status, total_value
-        FROM (
+        SELECT stage, ref_no, supplier_name, txn_date, status, total_value,
+          p.created_at,
+          u.username AS created_by_name
+         FROM (
           SELECT 'PO' AS stage,
                  p.po_no AS ref_no,
                  s.supplier_name,
@@ -2807,7 +2783,8 @@ router.get(
                  p.total_amount AS total_value
             FROM pur_orders p
             JOIN pur_suppliers s ON s.id = p.supplier_id
-           WHERE p.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = p.created_by
+         WHERE p.company_id = :companyId
              AND p.branch_id = :branchId
              AND p.po_date BETWEEN :from AND :to
           UNION ALL
@@ -2868,11 +2845,14 @@ router.get(
           q.quotation_date,
           s.supplier_name,
           COALESCE(SUM(d.line_total), 0) AS total_amount,
-          COUNT(DISTINCT d.item_id) AS items_count
-        FROM pur_supplier_quotations q
+          COUNT(DISTINCT d.item_id) AS items_count,
+          q.created_at,
+          u.username AS created_by_name
+         FROM pur_supplier_quotations q
         JOIN pur_suppliers s ON s.id = q.supplier_id
         LEFT JOIN pur_supplier_quotation_details d ON d.quotation_id = q.id
-        WHERE q.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = q.created_by
+         WHERE q.company_id = :companyId
           AND q.branch_id = :branchId
           AND q.quotation_date BETWEEN :from AND :to
         GROUP BY q.id
@@ -2901,12 +2881,15 @@ router.get(
         SELECT g.grn_no,
                g.grn_date,
                s.supplier_name,
-               COALESCE(SUM(d.qty_accepted * d.unit_price), 0) AS grn_value
-        FROM inv_goods_receipt_notes g
+               COALESCE(SUM(d.qty_accepted * d.unit_price), 0) AS grn_value,
+          g.created_at,
+          u.username AS created_by_name
+         FROM inv_goods_receipt_notes g
         JOIN inv_goods_receipt_note_details d ON d.grn_id = g.id
         JOIN pur_suppliers s ON s.id = g.supplier_id
         LEFT JOIN pur_bills b ON b.grn_id = g.id
-        WHERE g.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = g.created_by
+         WHERE g.company_id = :companyId
           AND g.branch_id = :branchId
           AND g.grn_type = 'LOCAL'
           AND b.id IS NULL
@@ -2936,12 +2919,15 @@ router.get(
         SELECT g.grn_no,
                g.grn_date,
                s.supplier_name,
-               COALESCE(SUM(d.qty_accepted * d.unit_price), 0) AS grn_value
-        FROM inv_goods_receipt_notes g
+               COALESCE(SUM(d.qty_accepted * d.unit_price), 0) AS grn_value,
+          g.created_at,
+          u.username AS created_by_name
+         FROM inv_goods_receipt_notes g
         JOIN inv_goods_receipt_note_details d ON d.grn_id = g.id
         JOIN pur_suppliers s ON s.id = g.supplier_id
         LEFT JOIN pur_bills b ON b.grn_id = g.id
-        WHERE g.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = g.created_by
+         WHERE g.company_id = :companyId
           AND g.branch_id = :branchId
           AND g.grn_type = 'IMPORT'
           AND b.id IS NULL
@@ -2976,9 +2962,12 @@ router.get(
                p.po_date,
                s.supplier_name,
                p.status,
-               p.total_amount
-          FROM pur_orders p
+               p.total_amount,
+          p.created_at,
+          u.username AS created_by_name
+         FROM pur_orders p
           JOIN pur_suppliers s ON s.id = p.supplier_id
+        LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.company_id = :companyId
            AND p.branch_id = :branchId
            AND UPPER(p.po_type) = 'IMPORT'
@@ -3013,10 +3002,13 @@ router.get(
                sa.advice_date,
                sa.etd_date,
                sa.eta_date,
-               sa.status
-          FROM pur_shipping_advices sa
+               sa.status,
+          sa.created_at,
+          u.username AS created_by_name
+         FROM pur_shipping_advices sa
           JOIN pur_orders p ON p.id = sa.po_id
           JOIN pur_suppliers s ON s.id = sa.supplier_id
+        LEFT JOIN adm_users u ON u.id = sa.created_by
          WHERE sa.company_id = :companyId
            AND sa.branch_id = :branchId
            AND sa.status IN ('IN_TRANSIT','ARRIVED')
@@ -3051,9 +3043,12 @@ router.get(
                s.supplier_name,
                b.bill_type,
                b.net_amount,
-               b.status
-          FROM pur_bills b
+               b.status,
+          b.created_at,
+          u.username AS created_by_name
+         FROM pur_bills b
           JOIN pur_suppliers s ON s.id = b.supplier_id
+        LEFT JOIN adm_users u ON u.id = b.created_by
          WHERE b.company_id = :companyId
            AND b.branch_id = :branchId
            AND b.status IN ('POSTED','DRAFT','APPROVED')
@@ -3085,7 +3080,12 @@ router.get(
         SELECT 
           COALESCE(NULLIF(u.department,''), 'N/A') AS department,
           COALESCE(SUM(p.total_amount), 0) AS total_purchases,
-          (SELECT COUNT(*) FROM pur_bills b WHERE b.company_id = :companyId AND b.branch_id = :branchId) AS total_bills,
+          (SELECT COUNT(*),
+          b.created_at,
+          u.username AS created_by_name
+         FROM pur_bills b
+        LEFT JOIN adm_users u ON u.id = b.created_by
+         WHERE b.company_id = :companyId AND b.branch_id = :branchId) AS total_bills,
           (SELECT COUNT(*) FROM pur_orders x WHERE x.company_id = :companyId AND x.branch_id = :branchId AND x.status IN ('DRAFT','PENDING_APPROVAL','APPROVED')) AS pending_orders,
           SUM(CASE WHEN UPPER(p.po_type) = 'IMPORT' THEN p.total_amount ELSE 0 END) AS import_total,
           SUM(CASE WHEN UPPER(p.po_type) = 'LOCAL' THEN p.total_amount ELSE 0 END) AS local_total
@@ -3127,11 +3127,14 @@ router.get(
           0 AS port_charges,
           0 AS clearance_fees,
           COALESCE(b.tax_amount, 0) AS duties,
-          (COALESCE(b.net_amount, 0) + COALESCE(b.freight_charges,0) + COALESCE(b.other_charges,0) + COALESCE(b.tax_amount,0)) AS total_landed_cost
-        FROM pur_bills b
+          (COALESCE(b.net_amount, 0) + COALESCE(b.freight_charges,0) + COALESCE(b.other_charges,0) + COALESCE(b.tax_amount,0)) AS total_landed_cost,
+          b.created_at,
+          u.username AS created_by_name
+         FROM pur_bills b
         LEFT JOIN pur_orders p ON p.id = b.po_id
         LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
-        WHERE b.company_id = :companyId AND b.branch_id = :branchId AND b.bill_type = 'IMPORT'
+        LEFT JOIN adm_users u ON u.id = b.created_by
+         WHERE b.company_id = :companyId AND b.branch_id = :branchId AND b.bill_type = 'IMPORT'
         ORDER BY b.bill_date DESC, b.id DESC
         `,
         { companyId, branchId },
@@ -3160,13 +3163,16 @@ router.get(
           COALESCE(q.quotation_date, NULL) AS rfq_or_quote_date,
           COALESCE(sa.advice_date, NULL) AS shipment_date,
           COALESCE(pc.clearance_date, NULL) AS clearance_date,
-          COALESCE(g.grn_date, NULL) AS grn_date
-        FROM pur_orders p
+          COALESCE(g.grn_date, NULL) AS grn_date,
+          p.created_at,
+          u.username AS created_by_name
+         FROM pur_orders p
         LEFT JOIN pur_supplier_quotations q ON q.id = p.quotation_id AND q.company_id = p.company_id
         LEFT JOIN pur_shipping_advices sa ON sa.po_id = p.id AND sa.company_id = p.company_id
         LEFT JOIN pur_port_clearances pc ON pc.po_id = p.id AND pc.company_id = p.company_id
         LEFT JOIN inv_goods_receipt_notes g ON g.po_id = p.id AND g.company_id = p.company_id
-        WHERE p.company_id = :companyId AND p.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = p.created_by
+         WHERE p.company_id = :companyId AND p.branch_id = :branchId
         ORDER BY p.po_date DESC, p.id DESC
         `,
         { companyId, branchId },
@@ -3211,11 +3217,14 @@ router.get(
                s.supplier_name AS supplier,
                p.remarks AS cancel_reason,
                u.username AS cancelled_by,
-               p.updated_at AS date
-        FROM pur_orders p
+               p.updated_at AS date,
+          p.created_at,
+          u.username AS created_by_name
+         FROM pur_orders p
         LEFT JOIN pur_suppliers s ON s.id = p.supplier_id
         LEFT JOIN adm_users u ON u.id = p.updated_by
-        WHERE p.company_id = :companyId AND p.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = p.created_by
+         WHERE p.company_id = :companyId AND p.branch_id = :branchId
           AND UPPER(p.status) IN ('CANCELLED','REJECTED')
         ORDER BY p.updated_at DESC, p.id DESC
         `,
@@ -3247,12 +3256,15 @@ router.get(
           it.item_name AS item,
           d.qty_returned AS return_qty,
           (d.qty_returned * d.unit_price) AS return_value,
-          d.reason_code AS reason
-        FROM pur_returns r
+          d.reason_code AS reason,
+          r.created_at,
+          u.username AS created_by_name
+         FROM pur_returns r
         JOIN pur_return_details d ON d.return_id = r.id
         LEFT JOIN pur_suppliers s ON s.id = r.supplier_id
         LEFT JOIN inv_items it ON it.id = d.item_id
-        WHERE r.company_id = :companyId AND r.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = r.created_by
+         WHERE r.company_id = :companyId AND r.branch_id = :branchId
         ORDER BY r.return_date DESC, r.id DESC, d.id ASC
         `,
         { companyId, branchId },
@@ -3282,12 +3294,15 @@ router.get(
           p.po_date AS purchase_date,
           d.qty AS quantity,
           d.unit_price,
-          d.line_total AS total_cost
-        FROM pur_orders p
+          d.line_total AS total_cost,
+          p.created_at,
+          u.username AS created_by_name
+         FROM pur_orders p
         JOIN pur_order_details d ON d.po_id = p.id
         LEFT JOIN inv_items it ON it.id = d.item_id
         LEFT JOIN pur_suppliers s ON s.id = p.supplier_id
-        WHERE p.company_id = :companyId AND p.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = p.created_by
+         WHERE p.company_id = :companyId AND p.branch_id = :branchId
         ORDER BY p.po_date DESC, p.id DESC, d.id ASC
         `,
         { companyId, branchId },
@@ -3314,8 +3329,10 @@ router.get(
                CASE 
                  WHEN t.last_price IS NULL OR t.last_price = 0 THEN NULL
                  ELSE ROUND(((t.current_price - t.last_price) * 100) / t.last_price, 2)
-               END AS variance_percent
-        FROM (
+               END AS variance_percent,
+          d.created_at,
+          u.username AS created_by_name
+         FROM (
           SELECT 
             it.item_name,
             s.supplier_name,
@@ -3326,7 +3343,8 @@ router.get(
                    ROW_NUMBER() OVER (PARTITION BY d.item_id ORDER BY i.bill_date DESC, i.id DESC) AS rn
             FROM pur_bill_details d
             JOIN pur_bills i ON i.id = d.bill_id
-            WHERE i.company_id = :companyId AND i.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE i.company_id = :companyId AND i.branch_id = :branchId
           ) d
           LEFT JOIN inv_items it ON it.id = d.item_id
           LEFT JOIN pur_bills bi ON bi.id = d.bill_id
@@ -3361,12 +3379,15 @@ router.get(
           COALESCE(o.total_value, 0) AS total_purchase_value,
           COALESCE(otd.on_time_pct, 0) AS on_time_delivery_percent,
           COALESCE(otd.avg_delay_days, 0) AS avg_delivery_delay_days,
-          COALESCE(ret.return_rate, 0) AS return_rate_percent
-        FROM pur_suppliers s
+          COALESCE(ret.return_rate, 0) AS return_rate_percent,
+          s.created_at,
+          u.username AS created_by_name
+         FROM pur_suppliers s
         LEFT JOIN (
           SELECT supplier_id, COUNT(*) AS total_pos, SUM(total_amount) AS total_value
           FROM pur_orders
-          WHERE company_id = :companyId AND branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = s.created_by
+         WHERE company_id = :companyId AND branch_id = :branchId
           GROUP BY supplier_id
         ) o ON o.supplier_id = s.id
         LEFT JOIN (
@@ -3426,10 +3447,13 @@ router.get(
             WHEN DATEDIFF(CURDATE(), b.due_date) <= 60 THEN '31-60'
             WHEN DATEDIFF(CURDATE(), b.due_date) <= 90 THEN '61-90'
             ELSE '90+'
-          END AS aging
-        FROM pur_bills b
+          END AS aging,
+          b.created_at,
+          u.username AS created_by_name
+         FROM pur_bills b
         LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
-        WHERE b.company_id = :companyId AND b.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = b.created_by
+         WHERE b.company_id = :companyId AND b.branch_id = :branchId
           AND b.status = 'POSTED'
         ORDER BY s.supplier_name ASC, b.bill_date ASC
         `,
@@ -3462,10 +3486,13 @@ router.get(
           CASE WHEN DATEDIFF(CURDATE(), b.due_date) BETWEEN 0 AND 30 THEN b.net_amount ELSE 0 END AS d0_30,
           CASE WHEN DATEDIFF(CURDATE(), b.due_date) BETWEEN 31 AND 60 THEN b.net_amount ELSE 0 END AS d31_60,
           CASE WHEN DATEDIFF(CURDATE(), b.due_date) BETWEEN 61 AND 90 THEN b.net_amount ELSE 0 END AS d61_90,
-          CASE WHEN DATEDIFF(CURDATE(), b.due_date) > 90 THEN b.net_amount ELSE 0 END AS d90_plus
-        FROM pur_bills b
+          CASE WHEN DATEDIFF(CURDATE(), b.due_date) > 90 THEN b.net_amount ELSE 0 END AS d90_plus,
+          b.created_at,
+          u.username AS created_by_name
+         FROM pur_bills b
         LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
-        WHERE b.company_id = :companyId AND b.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = b.created_by
+         WHERE b.company_id = :companyId AND b.branch_id = :branchId
           AND b.status = 'POSTED'
         ORDER BY s.supplier_name ASC, b.bill_date ASC
         `,
@@ -3493,11 +3520,14 @@ router.get(
       const items = await query(
         `
         SELECT r.id, r.return_no, r.return_date, r.status, r.total_amount,
-               s.supplier_name, r.supplier_id
-        FROM pur_returns r
+               s.supplier_name, r.supplier_id,
+          r.created_at,
+          u.username AS created_by_name
+         FROM pur_returns r
         LEFT JOIN pur_suppliers s
           ON s.id = r.supplier_id
-        WHERE r.company_id = :companyId AND r.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = r.created_by
+         WHERE r.company_id = :companyId AND r.branch_id = :branchId
         ORDER BY r.return_date DESC, r.id DESC
         `,
         { companyId, branchId },
@@ -3572,12 +3602,15 @@ router.post(
           `
           SELECT it.id AS item_id,
                  it.vat_on_purchase_id AS tax_id,
-                 COALESCE(tc.rate_percent, 0) AS rate_percent
-          FROM inv_items it
+                 COALESCE(tc.rate_percent, 0) AS rate_percent,
+          it.created_at,
+          u.username AS created_by_name
+         FROM inv_items it
           LEFT JOIN fin_tax_codes tc
             ON tc.company_id = it.company_id
            AND tc.id = it.vat_on_purchase_id
-          WHERE it.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = it.created_by
+         WHERE it.company_id = :companyId
             AND it.id IN (${placeholders})
           `,
           params,
@@ -3793,15 +3826,21 @@ router.get(
       const { companyId } = req.scope;
       // Find the max number from existing SU-xxxxxx codes across suppliers and fin_accounts
       const [supRows] = await query(
-        `SELECT MAX(CAST(SUBSTRING(supplier_code, 4) AS UNSIGNED)) AS maxnum
+        `SELECT MAX(CAST(SUBSTRING(supplier_code, 4) AS UNSIGNED)) AS maxnum,
+          created_at,
+          u.username AS created_by_name
          FROM pur_suppliers
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
            AND supplier_code REGEXP '^SU-[0-9]{6}$'`,
         { companyId },
       );
       const [accRows] = await query(
-        `SELECT MAX(CAST(SUBSTRING(code, 4) AS UNSIGNED)) AS maxnum
+        `SELECT MAX(CAST(SUBSTRING(code, 4) AS UNSIGNED)) AS maxnum,
+          created_at,
+          u.username AS created_by_name
          FROM fin_accounts
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
            AND code REGEXP '^SU-[0-9]{6}$'`,
         { companyId },
@@ -3839,10 +3878,13 @@ router.get(
         SELECT 
           e.id, e.execution_no, e.execution_date, e.scheduled_time, e.status,
           e.assigned_supervisor_user_id, e.assigned_supervisor_username,
-          o.order_no, o.order_type, o.customer_name, o.service_category AS service_type
-        FROM pur_service_executions e
+          o.order_no, o.order_type, o.customer_name, o.service_category AS service_type,
+          e.created_at,
+          u.username AS created_by_name
+         FROM pur_service_executions e
         JOIN pur_service_orders o ON o.id = e.order_id
-        WHERE e.company_id = :companyId AND e.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = e.created_by
+         WHERE e.company_id = :companyId AND e.branch_id = :branchId
           ${type ? "AND o.order_type = :type" : ""}
         ORDER BY e.id DESC
         LIMIT 200
@@ -3950,10 +3992,13 @@ router.get(
           e.id, e.execution_no, e.execution_date, e.scheduled_time, e.status,
           e.assigned_supervisor_user_id, e.assigned_supervisor_username,
           e.requisition_notes,
-          o.order_no, o.order_type
-        FROM pur_service_executions e
+          o.order_no, o.order_type,
+          e.created_at,
+          u.username AS created_by_name
+         FROM pur_service_executions e
         JOIN pur_service_orders o ON o.id = e.order_id
-        WHERE e.company_id = :companyId AND e.branch_id = :branchId AND e.id = :id
+        LEFT JOIN adm_users u ON u.id = e.created_by
+         WHERE e.company_id = :companyId AND e.branch_id = :branchId AND e.id = :id
         LIMIT 1
         `,
         { companyId, branchId, id },
@@ -3968,9 +4013,12 @@ router.get(
           name,
           unit,
           qty,
-          note
-        FROM pur_service_execution_materials
-        WHERE execution_id = :id
+          note,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_service_execution_materials
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE execution_id = :id
         ORDER BY id ASC
         `,
         { id },
@@ -4199,30 +4247,37 @@ router.post(
         }
       }
       if (!supplierCode) {
-        const [mxRows] = await conn.execute(
-          `
-          SELECT MAX(CAST(SUBSTRING(supplier_code, 4) AS UNSIGNED)) AS maxnum
-          FROM pur_suppliers
-          WHERE company_id = :companyId
-            AND supplier_code REGEXP '^SU-[0-9]{6}$'
-          `,
-          { companyId },
-        );
-        const [mxAccRows] = await conn.execute(
-          `
-          SELECT MAX(CAST(SUBSTRING(code, 4) AS UNSIGNED)) AS maxnum
-          FROM fin_accounts
-          WHERE company_id = :companyId
-            AND code REGEXP '^SU-[0-9]{6}$'
-          `,
-          { companyId },
-        );
-        const currentMax = Math.max(
-          Number(mxRows?.[0]?.maxnum || 0),
-          Number(mxAccRows?.[0]?.maxnum || 0),
-        );
-        const nextNum = currentMax + 1;
-        supplierCode = `SU-${String(nextNum).padStart(6, "0")}`;
+        supplierCode = await getNextNumericCode(conn, {
+          companyId,
+          table: "fin_accounts",
+          nature: "LIABILITY",
+        });
+        if (!supplierCode) {
+          const [mxRows] = await conn.execute(
+            `
+            SELECT MAX(CAST(SUBSTRING(supplier_code, 4) AS UNSIGNED)) AS maxnum
+            FROM pur_suppliers
+            WHERE company_id = :companyId
+              AND supplier_code REGEXP '^SU-[0-9]{6}$'
+            `,
+            { companyId },
+          );
+          const [mxAccRows] = await conn.execute(
+            `
+            SELECT MAX(CAST(SUBSTRING(code, 4) AS UNSIGNED)) AS maxnum
+            FROM fin_accounts
+            WHERE company_id = :companyId
+              AND code REGEXP '^SU-[0-9]{6}$'
+            `,
+            { companyId },
+          );
+          const currentMax = Math.max(
+            Number(mxRows?.[0]?.maxnum || 0),
+            Number(mxAccRows?.[0]?.maxnum || 0),
+          );
+          const nextNum = currentMax + 1;
+          supplierCode = `SU-${String(nextNum).padStart(6, "0")}`;
+        }
       }
 
       const [resHeader] = await conn.execute(
@@ -4408,13 +4463,16 @@ router.get(
     try {
       const { companyId, branchId } = req.scope;
       const rows = await query(
-        `SELECT r.*, COALESCE(s.cnt, 0) AS supplier_count
+        `SELECT r.*, COALESCE(s.cnt, 0) AS supplier_count,
+          r.created_at,
+          u.username AS created_by_name
          FROM pur_rfqs r
          LEFT JOIN (
            SELECT rfq_id, COUNT(*) AS cnt
            FROM pur_rfq_suppliers
            GROUP BY rfq_id
          ) s ON s.rfq_id = r.id
+        LEFT JOIN adm_users u ON u.id = r.created_by
          WHERE r.company_id = :companyId AND r.branch_id = :branchId
          ORDER BY r.rfq_date DESC, r.id DESC`,
         { companyId, branchId },
@@ -4605,8 +4663,11 @@ router.put(
       );
 
       const prev = await query(
-        `SELECT item_id, SUM(qty_accepted) AS qty
+        `SELECT item_id, SUM(qty_accepted) AS qty,
+          created_at,
+          u.username AS created_by_name
          FROM inv_goods_receipt_note_details
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE grn_id = :id
          GROUP BY item_id`,
         { id },
@@ -4687,18 +4748,31 @@ router.get(
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const rows = await query(
-        `SELECT * FROM pur_rfqs WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_rfqs
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
         { id, companyId, branchId },
       );
       if (!rows.length) throw httpError(404, "NOT_FOUND", "RFQ not found");
       const details = await query(
-        `SELECT d.*, i.item_name, i.item_code FROM pur_rfq_details d JOIN inv_items i ON i.id = d.item_id WHERE d.rfq_id = :id`,
+        `SELECT d.*, i.item_name, i.item_code,
+          d.created_at,
+          u.username AS created_by_name
+         FROM pur_rfq_details d JOIN inv_items i ON i.id = d.item_id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.rfq_id = :id`,
         { id },
       );
       const supplierRows = await query(
-        `SELECT rs.supplier_id, s.supplier_name, s.email, s.phone
+        `SELECT rs.supplier_id, s.supplier_name, s.email, s.phone,
+          rs.created_at,
+          u.username AS created_by_name
          FROM pur_rfq_suppliers rs
          JOIN pur_suppliers s ON s.id = rs.supplier_id
+        LEFT JOIN adm_users u ON u.id = rs.created_by
          WHERE rs.rfq_id = :id`,
         { id },
       );
@@ -4887,9 +4961,12 @@ router.get(
       const { companyId, branchId } = req.scope;
       await ensureSupplierTypeColumn();
       const rows = await query(
-        `SELECT q.*, s.supplier_name, s.supplier_type 
+        `SELECT q.*, s.supplier_name, s.supplier_type,
+          q.created_at,
+          u.username AS created_by_name
          FROM pur_supplier_quotations q 
-         JOIN pur_suppliers s ON s.id = q.supplier_id 
+         JOIN pur_suppliers s ON s.id = q.supplier_id
+        LEFT JOIN adm_users u ON u.id = q.created_by
          WHERE q.company_id = :companyId AND q.branch_id = :branchId 
          ORDER BY q.quotation_date DESC, q.id DESC`,
         { companyId, branchId },
@@ -4911,9 +4988,12 @@ router.get(
     try {
       const { companyId, branchId } = req.scope;
       const rows = await query(
-        `SELECT q.*, s.supplier_name 
+        `SELECT q.*, s.supplier_name,
+          q.created_at,
+          u.username AS created_by_name
          FROM pur_supplier_quotations q 
-         JOIN pur_suppliers s ON s.id = q.supplier_id 
+         JOIN pur_suppliers s ON s.id = q.supplier_id
+        LEFT JOIN adm_users u ON u.id = q.created_by
          WHERE q.company_id = :companyId AND q.branch_id = :branchId 
          ORDER BY q.quotation_date DESC, q.id DESC`,
         { companyId, branchId },
@@ -4939,9 +5019,12 @@ router.get(
       await ensureSupplierTypeColumn();
 
       const rows = await query(
-        `SELECT q.*, s.supplier_name 
+        `SELECT q.*, s.supplier_name,
+          q.created_at,
+          u.username AS created_by_name
          FROM pur_supplier_quotations q 
-         JOIN pur_suppliers s ON s.id = q.supplier_id 
+         JOIN pur_suppliers s ON s.id = q.supplier_id
+        LEFT JOIN adm_users u ON u.id = q.created_by
          WHERE q.id = :id AND q.company_id = :companyId AND q.branch_id = :branchId`,
         { id, companyId, branchId },
       );
@@ -4949,9 +5032,12 @@ router.get(
         throw httpError(404, "NOT_FOUND", "Quotation not found");
 
       const details = await query(
-        `SELECT d.*, i.item_name, i.item_code 
+        `SELECT d.*, i.item_name, i.item_code,
+          d.created_at,
+          u.username AS created_by_name
          FROM pur_supplier_quotation_details d 
-         JOIN inv_items i ON i.id = d.item_id 
+         JOIN inv_items i ON i.id = d.item_id
+        LEFT JOIN adm_users u ON u.id = d.created_by
          WHERE d.quotation_id = :id`,
         { id },
       );
@@ -4975,9 +5061,12 @@ router.get(
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
       const rows = await query(
-        `SELECT q.*, s.supplier_name 
+        `SELECT q.*, s.supplier_name,
+          q.created_at,
+          u.username AS created_by_name
          FROM pur_supplier_quotations q 
-         JOIN pur_suppliers s ON s.id = q.supplier_id 
+         JOIN pur_suppliers s ON s.id = q.supplier_id
+        LEFT JOIN adm_users u ON u.id = q.created_by
          WHERE q.id = :id AND q.company_id = :companyId AND q.branch_id = :branchId`,
         { id, companyId, branchId },
       );
@@ -4985,9 +5074,12 @@ router.get(
         throw httpError(404, "NOT_FOUND", "Quotation not found");
 
       const details = await query(
-        `SELECT d.*, i.item_name, i.item_code 
+        `SELECT d.*, i.item_name, i.item_code,
+          d.created_at,
+          u.username AS created_by_name
          FROM pur_supplier_quotation_details d 
-         JOIN inv_items i ON i.id = d.item_id 
+         JOIN inv_items i ON i.id = d.item_id
+        LEFT JOIN adm_users u ON u.id = d.created_by
          WHERE d.quotation_id = :id`,
         { id },
       );
@@ -5439,13 +5531,23 @@ router.delete(
         throw httpError(403, "FORBIDDEN", "Exceptional permission required");
       }
       const rows = await query(
-        `SELECT id FROM pur_shipping_advices WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_shipping_advices
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
         { id, companyId, branchId },
       ).catch(() => []);
       if (!rows.length)
         throw httpError(404, "NOT_FOUND", "Shipping Advice not found");
       const refs = await query(
-        `SELECT id FROM pur_port_clearances WHERE company_id = :companyId AND branch_id = :branchId AND advice_id = :id LIMIT 1`,
+        `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_port_clearances
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND branch_id = :branchId AND advice_id = :id LIMIT 1`,
         { companyId, branchId, id },
       ).catch(() => []);
       if (refs.length) {
@@ -5552,13 +5654,23 @@ router.delete(
         throw httpError(403, "FORBIDDEN", "Exceptional permission required");
       }
       const rows = await query(
-        `SELECT id FROM pur_port_clearances WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_port_clearances
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
         { id, companyId, branchId },
       ).catch(() => []);
       if (!rows.length)
         throw httpError(404, "NOT_FOUND", "Port Clearance not found");
       const refs = await query(
-        `SELECT id FROM inv_goods_receipt_notes WHERE company_id = :companyId AND branch_id = :branchId AND port_clearance_id = :id LIMIT 1`,
+        `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_goods_receipt_notes
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND branch_id = :branchId AND port_clearance_id = :id LIMIT 1`,
         { companyId, branchId, id },
       ).catch(() => []);
       if (refs.length) {
@@ -5695,8 +5807,11 @@ router.delete(
       }
       const rows = await query(
         `
-        SELECT id, po_type
-          FROM pur_orders
+        SELECT id, po_type,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_orders
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
          LIMIT 1
         `,
@@ -5707,9 +5822,12 @@ router.delete(
       if (poType === "LOCAL") {
         const refs = await query(
           `
-          SELECT id
-            FROM inv_goods_receipt_notes
-           WHERE company_id = :companyId AND branch_id = :branchId
+          SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_goods_receipt_notes
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND branch_id = :branchId
              AND po_id = :id
            LIMIT 1
           `,
@@ -5725,9 +5843,12 @@ router.delete(
       } else if (poType === "IMPORT") {
         const refs = await query(
           `
-          SELECT id
-            FROM pur_shipping_advices
-           WHERE company_id = :companyId
+          SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_shipping_advices
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
              AND po_id = :id
            LIMIT 1
           `,
@@ -6381,17 +6502,23 @@ router.get(
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const rows = await query(
-        `SELECT p.*, s.supplier_name 
+        `SELECT p.*, s.supplier_name,
+          p.created_at,
+          u.username AS created_by_name
          FROM pur_orders p 
-         JOIN pur_suppliers s ON s.id = p.supplier_id 
+         JOIN pur_suppliers s ON s.id = p.supplier_id
+        LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.id = :id AND p.company_id = :companyId AND p.branch_id = :branchId`,
         { id, companyId, branchId },
       );
       if (!rows.length) throw httpError(404, "NOT_FOUND", "PO not found");
       const details = await query(
-        `SELECT d.*, i.item_name, i.item_code 
+        `SELECT d.*, i.item_name, i.item_code,
+          d.created_at,
+          u.username AS created_by_name
          FROM pur_order_details d 
-         JOIN inv_items i ON i.id = d.item_id 
+         JOIN inv_items i ON i.id = d.item_id
+        LEFT JOIN adm_users u ON u.id = d.created_by
          WHERE d.po_id = :id`,
         { id },
       );
@@ -6495,18 +6622,32 @@ router.post(
       const workflowIdOverride = toNumber(req.body?.workflow_id);
       const docRouteBase = "/purchase/purchase-orders-import";
       const wfByRoute = await query(
-        `SELECT * FROM adm_workflows WHERE company_id = :companyId AND document_route = :docRouteBase ORDER BY id ASC`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND document_route = :docRouteBase ORDER BY id ASC`,
         { companyId, docRouteBase },
       );
       const wfDefs = await query(
-        `SELECT * FROM adm_workflows WHERE company_id = :companyId AND (document_type = 'PURCHASE_ORDER' OR document_type = 'Purchase Order') ORDER BY id ASC`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND (document_type = 'PURCHASE_ORDER' OR document_type = 'Purchase Order') ORDER BY id ASC`,
         { companyId },
       );
       let activeWf = null;
       if (workflowIdOverride) {
         const wfRows = await query(
-          `SELECT * FROM adm_workflows 
-           WHERE id = :wfId AND company_id = :companyId 
+          `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :wfId AND company_id = :companyId 
              AND (document_type = 'PURCHASE_ORDER' OR document_type = 'Purchase Order')
            LIMIT 1`,
           { wfId: workflowIdOverride, companyId },
@@ -6557,7 +6698,12 @@ router.post(
       }
 
       const steps = await query(
-        `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_steps
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
         { wf: activeWf.id },
       );
       if (!steps.length) {
@@ -6766,11 +6912,14 @@ router.get(
 
       const rows = await query(
         `
-        SELECT g.*, s.supplier_name, pc.clearance_no
-        FROM inv_goods_receipt_notes g
+        SELECT g.*, s.supplier_name, pc.clearance_no,
+          g.created_at,
+          u.username AS created_by_name
+         FROM inv_goods_receipt_notes g
         JOIN pur_suppliers s ON s.id = g.supplier_id
         LEFT JOIN pur_port_clearances pc ON pc.id = g.port_clearance_id
-        WHERE g.id = :id AND g.company_id = :companyId AND g.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = g.created_by
+         WHERE g.id = :id AND g.company_id = :companyId AND g.branch_id = :branchId
         `,
         { id, companyId, branchId },
       );
@@ -6778,10 +6927,13 @@ router.get(
 
       const details = await query(
         `
-        SELECT d.*, i.item_name, i.item_code
-        FROM inv_goods_receipt_note_details d
+        SELECT d.*, i.item_name, i.item_code,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_goods_receipt_note_details d
         JOIN inv_items i ON i.id = d.item_id
-        WHERE d.grn_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.grn_id = :id
         `,
         { id },
       );
@@ -6834,12 +6986,15 @@ router.get(
                b.payment_terms,
                b.discount_amount,
                b.freight_charges,
-               b.other_charges
-        FROM pur_bills b
+               b.other_charges,
+          b.created_at,
+          u.username AS created_by_name
+         FROM pur_bills b
         JOIN pur_suppliers s ON s.id = b.supplier_id
         LEFT JOIN pur_orders p ON p.id = b.po_id
         LEFT JOIN inv_goods_receipt_notes g ON g.id = b.grn_id
-        WHERE b.company_id = :companyId AND b.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = b.created_by
+         WHERE b.company_id = :companyId AND b.branch_id = :branchId
           AND (:billType IS NULL OR b.bill_type = :billType)
         ORDER BY b.bill_date DESC, b.id DESC
         `,
@@ -6870,8 +7025,11 @@ router.post(
       const denyRows = await pool
         .query(
           `
-        SELECT 1
-          FROM adm_exceptional_permissions
+        SELECT 1,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_exceptional_permissions
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE user_id = :uid
            AND permission_code = 'PURCHASE.BILL.CANCEL'
            AND UPPER(effect) = 'DENY'
@@ -6887,8 +7045,11 @@ router.post(
       const allowRows = await pool
         .query(
           `
-        SELECT 1
-          FROM adm_exceptional_permissions
+        SELECT 1,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_exceptional_permissions
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE user_id = :uid
            AND permission_code = 'PURCHASE.BILL.CANCEL'
            AND UPPER(effect) = 'ALLOW'
@@ -6904,8 +7065,11 @@ router.post(
       const [rows] = await pool
         .query(
           `
-        SELECT id, bill_no
-          FROM pur_bills
+        SELECT id, bill_no,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_bills
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
          LIMIT 1
         `,
@@ -7060,9 +7224,12 @@ async function ensureGeneralRequisitionTables() {
 
 async function nextGeneralRequisitionNo(companyId, branchId) {
   const rows = await query(
-    `SELECT requisition_no
-     FROM pur_general_requisitions
-     WHERE company_id = :companyId AND branch_id = :branchId
+    `SELECT requisition_no,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_general_requisitions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND branch_id = :branchId
        AND requisition_no REGEXP '^GR-[0-9]{6}$'
      ORDER BY CAST(SUBSTRING(requisition_no, 4) AS UNSIGNED) DESC
      LIMIT 1`,
@@ -7130,8 +7297,10 @@ router.get(
              r.*, 
              COALESCE(SUM(i.estimated_total), 0) AS total_estimated_cost, 
              COUNT(i.id) AS item_count,
-             MAX(u.username) AS forwarded_to_username
-           FROM pur_general_requisitions r
+             MAX(u.username) AS forwarded_to_username,
+          r.created_at,
+          u.username AS created_by_name
+         FROM pur_general_requisitions r
            LEFT JOIN pur_general_requisition_items i ON i.requisition_id = r.id
            LEFT JOIN (
              SELECT t.document_id, t.assigned_to_user_id
@@ -7139,7 +7308,8 @@ router.get(
              JOIN (
                SELECT document_id, MAX(id) AS max_id
                FROM adm_document_workflows
-               WHERE company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = r.created_by
+         WHERE company_id = :companyId
                  AND status = 'PENDING'
                  AND (document_type = 'GENERAL_REQUISITION' OR document_type = 'General Requisition')
                GROUP BY document_id
@@ -7174,7 +7344,12 @@ router.post(
       const refType = String(ref_type || "").toUpperCase();
       const refId = toNumber(ref_id) || null;
       const rows = await query(
-        `SELECT id, linked_flag FROM pur_general_requisitions WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        `SELECT id, linked_flag,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_general_requisitions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
         { id, companyId, branchId },
       );
       if (!rows.length)
@@ -7205,15 +7380,23 @@ router.get(
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
       const rows = await query(
-        `SELECT * FROM pur_general_requisitions WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_general_requisitions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
         { id, companyId, branchId },
       );
       if (!rows.length)
         throw httpError(404, "NOT_FOUND", "Requisition not found");
       const items = await query(
-        `SELECT gi.*, inv.item_code, inv.item_name
+        `SELECT gi.*, inv.item_code, inv.item_name,
+          gi.created_at,
+          u.username AS created_by_name
          FROM pur_general_requisition_items gi
          LEFT JOIN inv_items inv ON inv.id = gi.item_id
+        LEFT JOIN adm_users u ON u.id = gi.created_by
          WHERE gi.requisition_id = :id ORDER BY gi.id`,
         { id },
       );
@@ -7327,7 +7510,12 @@ router.put(
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
       const existing = await query(
-        `SELECT * FROM pur_general_requisitions WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_general_requisitions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
         { id, companyId, branchId },
       );
       if (!existing.length)
@@ -7438,7 +7626,12 @@ router.put(
       if (!status || !allowed.includes(status))
         throw httpError(400, "VALIDATION_ERROR", "Invalid status");
       const existing = await query(
-        `SELECT id FROM pur_general_requisitions WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_general_requisitions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
         { id, companyId, branchId },
       );
       if (!existing.length)
@@ -7478,18 +7671,32 @@ router.post(
       const workflowIdOverride = toNumber(req.body?.workflow_id);
       const docRouteBase = "/purchase/general-requisitions";
       const wfByRoute = await query(
-        `SELECT * FROM adm_workflows WHERE company_id = :companyId AND document_route = :docRouteBase ORDER BY id ASC`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND document_route = :docRouteBase ORDER BY id ASC`,
         { companyId, docRouteBase },
       );
       const wfDefs = await query(
-        `SELECT * FROM adm_workflows WHERE company_id = :companyId AND (document_type = 'GENERAL_REQUISITION' OR document_type = 'General Requisition') ORDER BY id ASC`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND (document_type = 'GENERAL_REQUISITION' OR document_type = 'General Requisition') ORDER BY id ASC`,
         { companyId },
       );
       let activeWf = null;
       if (workflowIdOverride) {
         const wfRows = await query(
-          `SELECT * FROM adm_workflows 
-           WHERE id = :wfId AND company_id = :companyId 
+          `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflows
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :wfId AND company_id = :companyId 
              AND (document_type = 'GENERAL_REQUISITION' OR document_type = 'General Requisition')
            LIMIT 1`,
           { wfId: workflowIdOverride, companyId },
@@ -7540,7 +7747,12 @@ router.post(
       }
 
       const steps = await query(
-        `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_steps
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
         { wf: activeWf.id },
       );
       if (!steps.length) {
@@ -7550,98 +7762,103 @@ router.post(
         );
         return res.json({ status: "APPROVED" });
       }
-        const first = steps[0];
-        if (!first.approver_user_id) {
-          throw httpError(
-            400,
-            "BAD_REQUEST",
-            "Workflow step 1 has no approver_user_id configured",
-          );
-        }
-        const allowedUsers = await query(
-          `SELECT approver_user_id 
-           FROM adm_workflow_step_approvers 
-           WHERE workflow_id = :wf AND step_order = :ord`,
-          { wf: activeWf.id, ord: first.step_order },
+      const first = steps[0];
+      if (!first.approver_user_id) {
+        throw httpError(
+          400,
+          "BAD_REQUEST",
+          "Workflow step 1 has no approver_user_id configured",
         );
-        const allowedSet = new Set(
-          allowedUsers.map((r) => Number(r.approver_user_id)),
-        );
-        const targetUserIdRaw = req.body?.target_user_id;
-        let assignedToUserId = Number(first.approver_user_id);
-        if (
-          targetUserIdRaw != null &&
-          allowedSet.has(Number(targetUserIdRaw))
-        ) {
-          assignedToUserId = Number(targetUserIdRaw);
-        } else if (allowedUsers.length > 0) {
-          assignedToUserId = Number(allowedUsers[0].approver_user_id);
-        }
-        const dwRes = await query(
-          `INSERT INTO adm_document_workflows
+      }
+      const allowedUsers = await query(
+        `SELECT approver_user_id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_step_approvers
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf AND step_order = :ord`,
+        { wf: activeWf.id, ord: first.step_order },
+      );
+      const allowedSet = new Set(
+        allowedUsers.map((r) => Number(r.approver_user_id)),
+      );
+      const targetUserIdRaw = req.body?.target_user_id;
+      let assignedToUserId = Number(first.approver_user_id);
+      if (targetUserIdRaw != null && allowedSet.has(Number(targetUserIdRaw))) {
+        assignedToUserId = Number(targetUserIdRaw);
+      } else if (allowedUsers.length > 0) {
+        assignedToUserId = Number(allowedUsers[0].approver_user_id);
+      }
+      const dwRes = await query(
+        `INSERT INTO adm_document_workflows
             (company_id, workflow_id, document_id, document_type, amount, current_step_order, status, assigned_to_user_id)
           VALUES
             (:companyId, :workflowId, :documentId, 'GENERAL_REQUISITION', :amount, :stepOrder, 'PENDING', :assignedTo)`,
-          {
-            companyId,
-            workflowId: activeWf.id,
-            documentId: id,
-            amount: amount === null ? null : Number(amount),
-            stepOrder: first.step_order,
-            assignedTo: assignedToUserId,
-          },
-        );
-        const instanceId = dwRes.insertId;
-        await query(
-          `INSERT INTO adm_workflow_tasks
+        {
+          companyId,
+          workflowId: activeWf.id,
+          documentId: id,
+          amount: amount === null ? null : Number(amount),
+          stepOrder: first.step_order,
+          assignedTo: assignedToUserId,
+        },
+      );
+      const instanceId = dwRes.insertId;
+      await query(
+        `INSERT INTO adm_workflow_tasks
             (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
           VALUES
             (:companyId, :workflowId, :dwId, :documentId, 'GENERAL_REQUISITION', :stepOrder, :assignedTo, 'PENDING')`,
-          {
-            companyId,
-            workflowId: activeWf.id,
-            dwId: instanceId,
-            documentId: id,
-            stepOrder: first.step_order,
-            assignedTo: assignedToUserId,
-          },
-        );
-        await query(
-          `INSERT INTO adm_workflow_logs
+        {
+          companyId,
+          workflowId: activeWf.id,
+          dwId: instanceId,
+          documentId: id,
+          stepOrder: first.step_order,
+          assignedTo: assignedToUserId,
+        },
+      );
+      await query(
+        `INSERT INTO adm_workflow_logs
             (document_workflow_id, step_order, action, actor_user_id, comments)
           VALUES
             (:dwId, :stepOrder, 'SUBMIT', :actor, :comments)`,
-          {
-            dwId: instanceId,
-            stepOrder: first.step_order,
-            actor: req.user.sub,
-            comments: "",
-          },
-        );
-        await query(
-          `UPDATE pur_general_requisitions SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-          { id, companyId, branchId },
-        );
-        const refRows = await query(
-          `SELECT requisition_no FROM pur_general_requisitions WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-          { id, companyId, branchId },
-        );
-        const grRef = refRows.length ? refRows[0].requisition_no : null;
-        await query(
-          `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
+        {
+          dwId: instanceId,
+          stepOrder: first.step_order,
+          actor: req.user.sub,
+          comments: "",
+        },
+      );
+      await query(
+        `UPDATE pur_general_requisitions SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
+      );
+      const refRows = await query(
+        `SELECT requisition_no,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_general_requisitions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
+      );
+      const grRef = refRows.length ? refRows[0].requisition_no : null;
+      await query(
+        `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
            VALUES (:companyId, :userId, :title, :message, :link, 0)`,
-          {
-            companyId,
-            userId: assignedToUserId,
-            title: "Approval Required",
-            message: grRef
-              ? `General Requisition ${grRef} requires your approval`
-              : `General Requisition #${id} requires your approval`,
-            link: `/administration/workflows/approvals/${instanceId}`,
-          },
-        );
-        res.status(201).json({ instanceId, status: "PENDING_APPROVAL" });
-        return;
+        {
+          companyId,
+          userId: assignedToUserId,
+          title: "Approval Required",
+          message: grRef
+            ? `General Requisition ${grRef} requires your approval`
+            : `General Requisition #${id} requires your approval`,
+          link: `/administration/workflows/approvals/${instanceId}`,
+        },
+      );
+      res.status(201).json({ instanceId, status: "PENDING_APPROVAL" });
+      return;
       let behavior = null;
       if (wfDefs.length) {
         const firstWf = wfDefs[0];
@@ -7683,9 +7900,12 @@ router.get(
 
       const rows = await query(
         `
-        SELECT b.*
-        FROM pur_bills b
-        WHERE b.id = :id AND b.company_id = :companyId AND b.branch_id = :branchId
+        SELECT b.*,
+          b.created_at,
+          u.username AS created_by_name
+         FROM pur_bills b
+        LEFT JOIN adm_users u ON u.id = b.created_by
+         WHERE b.id = :id AND b.company_id = :companyId AND b.branch_id = :branchId
         LIMIT 1
         `,
         { id, companyId, branchId },
@@ -7704,10 +7924,13 @@ router.get(
                d.tax_amount,
                d.line_total,
                d.uom_id,
-               d.discount_percent
-        FROM pur_bill_details d
+               d.discount_percent,
+          d.created_at,
+          u.username AS created_by_name
+         FROM pur_bill_details d
         JOIN inv_items i ON i.id = d.item_id
-        WHERE d.bill_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.bill_id = :id
         ORDER BY d.id ASC
         `,
         { id },
@@ -8093,9 +8316,12 @@ router.get(
       const purchaseRows = await query(
         `
         SELECT COUNT(*) AS count,
-               COALESCE(SUM(total_amount), 0) AS total
-        FROM pur_orders
-        WHERE company_id = :companyId
+               COALESCE(SUM(total_amount), 0) AS total,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_orders
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
           AND branch_id = :branchId
           AND po_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
         `,
@@ -8106,9 +8332,12 @@ router.get(
 
       const activePoRows = await query(
         `
-        SELECT COUNT(*) AS count
-        FROM pur_orders
-        WHERE company_id = :companyId
+        SELECT COUNT(*) AS count,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_orders
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
           AND branch_id = :branchId
           AND status NOT IN ('RECEIVED', 'CANCELLED', 'CLOSED', 'REJECTED')
         `,
@@ -8118,9 +8347,12 @@ router.get(
 
       const supplierRows = await query(
         `
-        SELECT COUNT(*) AS count
-        FROM pur_suppliers
-        WHERE company_id = :companyId
+        SELECT COUNT(*) AS count,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_suppliers
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
           AND is_active = 1
         `,
         { companyId },
@@ -8129,9 +8361,12 @@ router.get(
 
       const pendingRows = await query(
         `
-        SELECT COUNT(*) AS count
-        FROM adm_document_workflows dw
-        WHERE dw.company_id = :companyId
+        SELECT COUNT(*) AS count,
+          dw.created_at,
+          u.username AS created_by_name
+         FROM adm_document_workflows dw
+        LEFT JOIN adm_users u ON u.id = dw.created_by
+         WHERE dw.company_id = :companyId
           AND dw.status = 'PENDING'
           AND dw.assigned_to_user_id = :userId
           AND (
@@ -8149,9 +8384,12 @@ router.get(
         SELECT COALESCE(
                  SUM(GREATEST(COALESCE(net_amount, 0) - COALESCE(amount_paid, 0), 0)),
                  0
-               ) AS total
-        FROM pur_bills
-        WHERE company_id = :companyId
+               ) AS total,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_bills
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
           AND branch_id = :branchId
           AND status = 'POSTED'
           AND COALESCE(amount_paid, 0) < COALESCE(net_amount, 0)
@@ -8191,9 +8429,12 @@ router.get(
       // Default from: fiscal year start if available; fallback to Jan 1
       const fyRows =
         (await query(
-          `SELECT start_date
-             FROM fin_fiscal_years
-            WHERE company_id = :companyId
+          `SELECT start_date,
+          created_at,
+          u.username AS created_by_name
+         FROM fin_fiscal_years
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
             ORDER BY start_date DESC
             LIMIT 1`,
           { companyId },
@@ -8211,9 +8452,12 @@ router.get(
       // Cards: Orders (POs) and Purchases (Bills)
       async function sumOrdersBetween(a, b) {
         const rows = await query(
-          `SELECT COALESCE(SUM(p.total_amount),0) AS amt
-             FROM pur_orders p
-            WHERE p.company_id = :companyId
+          `SELECT COALESCE(SUM(p.total_amount),0) AS amt,
+          p.created_at,
+          u.username AS created_by_name
+         FROM pur_orders p
+        LEFT JOIN adm_users u ON u.id = p.created_by
+         WHERE p.company_id = :companyId
               AND p.branch_id = :branchId
               AND p.po_date BETWEEN :from AND :to`,
           { companyId, branchId, from: asDateStr(a), to: asDateStr(b) },
@@ -8222,9 +8466,12 @@ router.get(
       }
       async function sumPurchasesBetween(a, b) {
         const rows = await query(
-          `SELECT COALESCE(SUM(b.net_amount),0) AS amt
-             FROM pur_bills b
-            WHERE b.company_id = :companyId
+          `SELECT COALESCE(SUM(b.net_amount),0) AS amt,
+          b.created_at,
+          u.username AS created_by_name
+         FROM pur_bills b
+        LEFT JOIN adm_users u ON u.id = b.created_by
+         WHERE b.company_id = :companyId
               AND b.branch_id = :branchId
               AND b.bill_date BETWEEN :from AND :to`,
           { companyId, branchId, from: asDateStr(a), to: asDateStr(b) },
@@ -8245,11 +8492,14 @@ router.get(
         `
         SELECT ym, 
                COALESCE(SUM(order_total),0) AS order_total,
-               COALESCE(SUM(purchase_total),0) AS purchase_total
-        FROM (
+               COALESCE(SUM(purchase_total),0) AS purchase_total,
+          p.created_at,
+          u.username AS created_by_name
+         FROM (
           SELECT DATE_FORMAT(p.po_date, '%Y-%m-01') AS ym, SUM(p.total_amount) AS order_total, 0 AS purchase_total
             FROM pur_orders p
-           WHERE p.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = p.created_by
+         WHERE p.company_id = :companyId
              AND p.branch_id = :branchId
              AND p.po_date BETWEEN :from AND :to
            GROUP BY DATE_FORMAT(p.po_date, '%Y-%m-01')
@@ -8278,9 +8528,12 @@ router.get(
         : 10;
       const topSupplierRows = await query(
         `
-        SELECT s.supplier_name AS label, COALESCE(SUM(b.net_amount),0) AS value
-          FROM pur_bills b
+        SELECT s.supplier_name AS label, COALESCE(SUM(b.net_amount),0) AS value,
+          b.created_at,
+          u.username AS created_by_name
+         FROM pur_bills b
           JOIN pur_suppliers s ON s.id = b.supplier_id
+        LEFT JOIN adm_users u ON u.id = b.created_by
          WHERE b.company_id = :companyId
            AND b.branch_id = :branchId
            AND b.bill_date BETWEEN :from AND :to
@@ -8479,11 +8732,14 @@ router.get(
         SELECT ym,
                COALESCE(SUM(orders),0) AS orders,
                COALESCE(SUM(executions),0) AS executions,
-               COALESCE(SUM(confirmations),0) AS confirmations
-        FROM (
+               COALESCE(SUM(confirmations),0) AS confirmations,
+          created_at,
+          u.username AS created_by_name
+         FROM (
           SELECT DATE_FORMAT(order_date, '%Y-%m-01') AS ym, COUNT(*) AS orders, 0 AS executions, 0 AS confirmations
             FROM pur_service_orders
-           WHERE company_id = :companyId AND branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND branch_id = :branchId
              AND order_date BETWEEN :from AND :to
            GROUP BY DATE_FORMAT(order_date, '%Y-%m-01')
           UNION ALL
@@ -8514,8 +8770,11 @@ router.get(
       // Top service categories (from orders)
       const topCategories = await query(
         `
-        SELECT COALESCE(service_category,'UNSPECIFIED') AS label, COUNT(*) AS value
-          FROM pur_service_orders
+        SELECT COALESCE(service_category,'UNSPECIFIED') AS label, COUNT(*) AS value,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_service_orders
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId AND branch_id = :branchId
            AND order_date BETWEEN :from AND :to
          GROUP BY COALESCE(service_category,'UNSPECIFIED')

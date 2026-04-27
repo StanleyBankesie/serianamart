@@ -121,10 +121,9 @@ router.get(
       const key = String(req.query?.key || "low-stock").trim();
       const userId = toNumber(req.query?.user_id || 0) || null;
       if (userId) {
-        const rows = await query(
-          `SELECT user_id, pref_key, push_enabled, email_enabled
-           FROM adm_notification_prefs
-           WHERE user_id = :userId AND pref_key = :key
+        const rows = await query(`SELECT user_id, pref_key, push_enabled, email_enabled, created_at
+         FROM adm_notification_prefs
+         WHERE user_id = :userId AND pref_key = :key
            LIMIT 1`,
           { userId, key },
         );
@@ -139,10 +138,9 @@ router.get(
           });
         return res.json({ item: rows[0] });
       } else {
-        const rows = await query(
-          `SELECT user_id, pref_key, push_enabled, email_enabled
-           FROM adm_notification_prefs
-           WHERE pref_key = :key`,
+        const rows = await query(`SELECT user_id, pref_key, push_enabled, email_enabled, created_at
+         FROM adm_notification_prefs
+         WHERE pref_key = :key`,
           { key },
         );
         return res.json({ items: rows });
@@ -165,8 +163,7 @@ router.put(
       const { user_id, push_enabled, email_enabled } = req.body || {};
       const userId = toNumber(user_id);
       if (!userId) return res.status(400).json({ message: "Invalid user_id" });
-      await query(
-        `INSERT INTO adm_notification_prefs (user_id, pref_key, push_enabled, email_enabled)
+      await query(`INSERT INTO adm_notification_prefs (user_id, pref_key, push_enabled, email_enabled)
          VALUES (:userId, :key, :push, :email)
          ON DUPLICATE KEY UPDATE push_enabled = VALUES(push_enabled), email_enabled = VALUES(email_enabled)`,
         {
@@ -196,8 +193,7 @@ router.get(
       if (!Number.isFinite(userId) || userId <= 0) {
         return res.json({ items: [] });
       }
-      const rows = await query(
-        `SELECT user_id, module_key, dashboard_key, card_key, ticker_key, can_view
+      const rows = await query(`SELECT user_id, module_key, dashboard_key, card_key, ticker_key, can_view, created_at
          FROM adm_dashboard_permissions
          WHERE user_id = :userId
          ORDER BY module_key ASC, dashboard_key ASC, card_key ASC, ticker_key ASC`,
@@ -233,8 +229,7 @@ router.put(
           can_view: Number(Boolean(p.can_view)),
         };
         if (!payload.module_key) continue;
-        await query(
-          `INSERT INTO adm_dashboard_permissions (user_id, module_key, dashboard_key, card_key, ticker_key, can_view)
+        await query(`INSERT INTO adm_dashboard_permissions (user_id, module_key, dashboard_key, card_key, ticker_key, can_view)
            VALUES (:user_id, :module_key, :dashboard_key, :card_key, :ticker_key, :can_view)
            ON DUPLICATE KEY UPDATE can_view = VALUES(can_view)`,
           payload,
@@ -644,8 +639,7 @@ router.put(
           can_edit: Number(Boolean(p.can_edit)),
           can_delete: Number(Boolean(p.can_delete)),
         };
-        await query(
-          `INSERT INTO adm_role_permissions (role_id, module_key, can_view, can_create, can_edit, can_delete)
+        await query(`INSERT INTO adm_role_permissions (role_id, module_key, can_view, can_create, can_edit, can_delete)
          VALUES (:id, :mk, :can_view, :can_create, :can_edit, :can_delete)
          ON DUPLICATE KEY UPDATE can_view=VALUES(can_view), can_create=VALUES(can_create), can_edit=VALUES(can_edit), can_delete=VALUES(can_delete)`,
           { id, mk, ...payload },

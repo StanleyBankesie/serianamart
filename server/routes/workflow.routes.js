@@ -92,12 +92,14 @@ router.get(
       }
       const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
       const lim = Math.min(50, Math.max(1, parseInt(limit || "20", 10)));
-      const items = await query(
-        `
-        SELECT u.id, u.username, u.full_name, u.email, u.is_active
-        FROM adm_users u
+      const items = await query(`
+        SELECT u.id, u.username, u.full_name, u.email, u.is_active,
+          u.created_at,
+          uc.username AS created_by_name
+         FROM adm_users u
+        LEFT JOIN adm_users uc ON uc.id = u.created_by
         ${where}
-        ORDER BY u.username ASC
+         ORDER BY u.username ASC
         LIMIT ${lim}
         `,
         params,

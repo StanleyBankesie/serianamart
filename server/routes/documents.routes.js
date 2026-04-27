@@ -13,6 +13,66 @@ import { join } from "path";
 import { existsSync } from "fs";
 import crypto from "crypto";
 
+async function resolveTaxSummary(items, companyId) {
+  const summary = {}; // name -> { amount, rate }
+  const taxCodeIds = [...new Set(items.map((i) => i.tax_code_id).filter(Boolean))];
+  if (taxCodeIds.length === 0) return [];
+
+  // Fetch all active tax components for these codes
+  const compRows = await query(`SELECT c.tax_code_id, td.component_name as name, c.rate_percent as rate, c.compound_level,
+          c.created_at,
+          u.username AS created_by_name
+         FROM fin_tax_components c
+     JOIN fin_tax_details td ON td.id = c.tax_detail_id
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.company_id = :companyId AND c.is_active = 1
+     ORDER BY c.compound_level ASC, c.sort_order ASC`,
+    { companyId },
+  );
+
+  const compsByCode = {};
+  compRows.forEach((c) => {
+    if (!taxCodeIds.includes(c.tax_code_id)) return;
+    if (!compsByCode[c.tax_code_id]) compsByCode[c.tax_code_id] = [];
+    compsByCode[c.tax_code_id].push(c);
+  });
+
+  items.forEach((item) => {
+    const netAmount = Number(item.amount || item.total_net_amount || 0);
+    const comps = compsByCode[item.tax_code_id] || [];
+    if (comps.length === 0) return;
+
+    const levels = {};
+    comps.forEach((c) => {
+      const lvl = c.compound_level || 0;
+      if (!levels[lvl]) levels[lvl] = [];
+      levels[lvl].push(c);
+    });
+
+    const sortedLevels = Object.keys(levels)
+      .map(Number)
+      .sort((a, b) => a - b);
+    let currentBase = netAmount;
+
+    sortedLevels.forEach((lvl) => {
+      let levelTax = 0;
+      levels[lvl].forEach((c) => {
+        const tax = currentBase * (Number(c.rate) / 100);
+        levelTax += tax;
+        if (!summary[c.name]) summary[c.name] = { amount: 0, rate: c.rate };
+        summary[c.name].amount += tax;
+      });
+      currentBase += levelTax;
+    });
+  });
+
+  return Object.entries(summary).map(([name, data]) => ({
+    name,
+    rate: data.rate,
+    amount: data.amount.toFixed(2),
+  }));
+}
+
 const router = express.Router();
 
 // Register Handlebars helpers
@@ -122,6 +182,18 @@ function canonicalDocumentType(type) {
   ) {
     return "purchase-order";
   }
+  if (t === "maintenance-bill" || t === "mbl" || t === "maint-bill") {
+    return "maintenance-bill";
+  }
+  if (t === "service-bill" || t === "svc-bill" || t === "service_bill") {
+    return "service-bill";
+  }
+  if (t === "supplier-quotation" || t === "msq" || t === "maint-quotation") {
+    return "supplier-quotation";
+  }
+  if (t === "direct-purchase" || t === "dp" || t === "direct_purchase") {
+    return "direct-purchase";
+  }
   if (
     t === "direct-purchase" ||
     t === "direct purchase" ||
@@ -130,6 +202,15 @@ function canonicalDocumentType(type) {
     t === "DIRECT_PURCHASE"
   ) {
     return "direct-purchase";
+  }
+  if (t === "maintenance-bill" || t === "maintenance bill" || t === "maintenance_bill") {
+    return "maintenance-bill";
+  }
+  if (t === "service-bill" || t === "service bill" || t === "service_bill") {
+    return "service-bill";
+  }
+  if (t === "supplier-quotation" || t === "supplier quotation" || t === "supplier_quotation") {
+    return "supplier-quotation";
   }
   return t || "general-template";
 }
@@ -254,6 +335,15 @@ function expandDocumentTypeAliases(type) {
       "DIRECT_PURCHASE",
       "Direct Purchase",
     ];
+  }
+  if (c === "maintenance-bill") {
+    return ["maintenance-bill", "maintenance bill", "Maintenance Bill", "MAINTENANCE_BILL"];
+  }
+  if (c === "service-bill") {
+    return ["service-bill", "service bill", "Service Bill", "SERVICE_BILL"];
+  }
+  if (c === "supplier-quotation") {
+    return ["supplier-quotation", "supplier quotation", "Supplier Quotation", "SUPPLIER_QUOTATION"];
   }
   return [c];
 }
@@ -440,11 +530,13 @@ async function getCompanyLogoDataUri(companyId) {
 }
 
 async function loadPreviewData(type, companyId, branchId) {
-  const [company] = await query(
-    `
-    SELECT id, name, address, city, state, postal_code, country, telephone, email, website
-    FROM adm_companies
-    WHERE id = :companyId
+  const [company] = await query(`
+    SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId
     LIMIT 1
     `,
     { companyId },
@@ -815,8 +907,7 @@ async function loadPreviewData(type, companyId, branchId) {
 
 async function loadData(type, id, companyId, branchId) {
   if (type === "sales-order") {
-    const [order] = await query(
-      `
+    const [order] = await query(`
       SELECT
         o.id,
         o.order_no,
@@ -847,11 +938,14 @@ async function loadData(type, id, companyId, branchId) {
         o.tax_amount,
         o.currency_id,
         o.exchange_rate,
-        o.remarks
-      FROM sal_orders o
+        o.remarks,
+          o.created_at,
+          u.username AS created_by_name
+         FROM sal_orders o
       LEFT JOIN sal_customers c
         ON c.id = o.customer_id AND c.company_id = o.company_id
-      WHERE o.id = :id AND o.company_id = :companyId AND o.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = o.created_by
+         WHERE o.id = :id AND o.company_id = :companyId AND o.branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -859,11 +953,13 @@ async function loadData(type, id, companyId, branchId) {
     if (!order) throw httpError(404, "NOT_FOUND", "Document not found");
     let employee = null;
     if (order.created_by) {
-      const [u] = await query(
-        `
-        SELECT id, username, email, full_name
-        FROM adm_users
-        WHERE id = :uid
+      const [u] = await query(`
+        SELECT id, username, email, full_name,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :uid
         LIMIT 1
         `,
         { uid: order.created_by },
@@ -877,8 +973,7 @@ async function loadData(type, id, companyId, branchId) {
         };
       }
     }
-    const details = await query(
-      `
+    const details = await query(`
       SELECT
         d.id,
         d.item_id,
@@ -889,36 +984,46 @@ async function loadData(type, id, companyId, branchId) {
         d.net_amount,
         d.tax_amount,
         d.uom,
+        d.tax_code_id,
         it.item_code,
-        it.item_name
-      FROM sal_order_details d
+        it.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_order_details d
       LEFT JOIN inv_items it
         ON it.id = d.item_id AND it.company_id = :companyId
-      WHERE d.order_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.order_id = :id
       ORDER BY d.id ASC
       `,
       { id, companyId },
     ).catch(() => []);
-    const [company] = await query(
-      `
-      SELECT id, name, address, city, state, postal_code, country, telephone, email, website
-      FROM adm_companies
-      WHERE id = :companyId
+
+    const tax_summary = await resolveTaxSummary(details, companyId);
+    const [company] = await query(`
+      SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId
       LIMIT 1
       `,
       { companyId },
     ).catch(() => []);
-    const extra = await query(
-      `
+    const extra = await query(`
       SELECT 
         w.warehouse_name,
-        cur.code AS currency_code
-      FROM adm_companies ac
+        cur.code AS currency_code,
+          ac.created_at,
+          u.username AS created_by_name
+         FROM adm_companies ac
       LEFT JOIN inv_warehouses w
         ON w.id = :wid AND w.company_id = ac.id
       LEFT JOIN fin_currencies cur
         ON cur.id = :cid
-      WHERE ac.id = :companyId
+        LEFT JOIN adm_users u ON u.id = ac.created_by
+         WHERE ac.id = :companyId
       LIMIT 1
       `,
       {
@@ -968,6 +1073,7 @@ async function loadData(type, id, companyId, branchId) {
         shipping_charges: order.shipping_charges || 0,
         internal_notes: order.internal_notes || null,
         customer_notes: order.customer_notes || null,
+        tax_summary,
         items: items.map((d) => ({
           name: d.item_name,
           description: d.item_name,
@@ -988,14 +1094,15 @@ async function loadData(type, id, companyId, branchId) {
       );
       soObj.sales_order.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
     } catch {}
+    // Keep tax_summary at root for templates that iterate {{#each tax_summary}}.
+    soObj.tax_summary = tax_summary;
     soObj.document = soObj.sales_order;
     soObj.order = soObj.sales_order;
     soObj.items = soObj.sales_order.items;
     return soObj;
   }
   if (type === "invoice") {
-    const [inv] = await query(
-      `
+    const [inv] = await query(`
       SELECT
         i.id,
         i.invoice_no,
@@ -1018,11 +1125,14 @@ async function loadData(type, id, companyId, branchId) {
         i.payment_status,
         i.total_amount,
         i.net_amount,
-        i.remarks
-      FROM sal_invoices i
+        i.remarks,
+          i.created_at,
+          u.username AS created_by_name
+         FROM sal_invoices i
       LEFT JOIN sal_customers c
         ON c.id = i.customer_id AND c.company_id = i.company_id
-      WHERE i.id = :id AND i.company_id = :companyId AND i.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.id = :id AND i.company_id = :companyId AND i.branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1030,11 +1140,13 @@ async function loadData(type, id, companyId, branchId) {
     if (!inv) throw httpError(404, "NOT_FOUND", "Document not found");
     let employee = null;
     if (inv.created_by) {
-      const [u] = await query(
-        `
-        SELECT id, username, email, full_name
-        FROM adm_users
-        WHERE id = :uid
+      const [u] = await query(`
+        SELECT id, username, email, full_name,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :uid
         LIMIT 1
         `,
         { uid: inv.created_by },
@@ -1048,8 +1160,7 @@ async function loadData(type, id, companyId, branchId) {
         };
       }
     }
-    const details = await query(
-      `
+    const details = await query(`
       SELECT
         d.id,
         d.item_id,
@@ -1060,36 +1171,46 @@ async function loadData(type, id, companyId, branchId) {
         d.net_amount,
         d.tax_amount,
         d.uom,
+        d.tax_type AS tax_code_id,
         it.item_code,
-        it.item_name
-      FROM sal_invoice_details d
+        it.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_invoice_details d
       LEFT JOIN inv_items it
         ON it.id = d.item_id AND it.company_id = :companyId
-      WHERE d.invoice_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.invoice_id = :id
       ORDER BY d.id ASC
       `,
       { id, companyId },
     ).catch(() => []);
-    const [company] = await query(
-      `
-      SELECT id, name, address, city, state, postal_code, country, telephone, email, website
-      FROM adm_companies
-      WHERE id = :companyId
+    
+    const tax_summary = await resolveTaxSummary(details, companyId);
+    const [company] = await query(`
+      SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId
       LIMIT 1
       `,
       { companyId },
     ).catch(() => []);
-    const extra = await query(
-      `
+    const extra = await query(`
       SELECT 
         w.warehouse_name,
-        cur.code AS currency_code
-      FROM adm_companies ac
+        cur.code AS currency_code,
+          ac.created_at,
+          u.username AS created_by_name
+         FROM adm_companies ac
       LEFT JOIN inv_warehouses w
         ON w.id = :wid AND w.company_id = ac.id
       LEFT JOIN fin_currencies cur
         ON cur.id = :cid
-      WHERE ac.id = :companyId
+        LEFT JOIN adm_users u ON u.id = ac.created_by
+         WHERE ac.id = :companyId
       LIMIT 1
       `,
       {
@@ -1131,6 +1252,7 @@ async function loadData(type, id, companyId, branchId) {
         net_total: inv.net_amount,
         total: inv.total_amount,
         remarks: inv.remarks,
+        tax_summary,
         items: items.map((d) => ({
           name: d.item_name,
           description: d.item_name,
@@ -1151,40 +1273,48 @@ async function loadData(type, id, companyId, branchId) {
       );
       invObj.invoice.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
     } catch {}
+    // Keep tax_summary at root for templates that iterate {{#each tax_summary}}.
+    invObj.tax_summary = tax_summary;
     invObj.document = invObj.invoice;
     invObj.items = invObj.invoice.items;
     return invObj;
   }
   if (type === "purchase-order") {
-    const [po] = await query(
-      `
+    const [po] = await query(`
       SELECT 
         p.id, p.po_no, p.po_date, p.status, p.po_type,
         p.supplier_id, s.supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email,
-        p.currency, p.exchange_rate, p.warehouse_id, p.remarks, p.total_amount
-      FROM pur_orders p
+        p.currency, p.exchange_rate, p.warehouse_id, p.remarks, p.total_amount,
+          p.created_at,
+          u.username AS created_by_name
+         FROM pur_orders p
       LEFT JOIN pur_suppliers s ON s.id = p.supplier_id
-      WHERE p.id = :id AND p.company_id = :companyId AND p.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = p.created_by
+         WHERE p.id = :id AND p.company_id = :companyId AND p.branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
     ).catch(() => []);
     if (!po) throw httpError(404, "NOT_FOUND", "Document not found");
-    const details = await query(
-      `
-      SELECT d.id, d.item_id, d.qty, d.uom, d.unit_price, d.discount_percent, d.tax_percent, d.line_total, i.item_code, i.item_name
-      FROM pur_order_details d
+    const details = await query(`
+      SELECT d.id, d.item_id, d.qty, d.uom, d.unit_price, d.discount_percent, d.tax_percent, d.line_total, i.item_code, i.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM pur_order_details d
       LEFT JOIN inv_items i ON i.id = d.item_id
-      WHERE d.po_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.po_id = :id
       ORDER BY d.id ASC
       `,
       { id },
     ).catch(() => []);
-    const [company] = await query(
-      `
-      SELECT id, name, address, city, state, postal_code, country, telephone, email, website
-      FROM adm_companies
-      WHERE id = :companyId
+    const [company] = await query(`
+      SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId
       LIMIT 1
       `,
       { companyId },
@@ -1229,32 +1359,40 @@ async function loadData(type, id, companyId, branchId) {
     return poObj;
   }
   if (type === "direct-purchase") {
-    const [hdr] = await query(
-      `
-      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email
-      FROM pur_direct_purchase_hdr h
+    const [hdr] = await query(`
+      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email,
+          h.created_at,
+          u.username AS created_by_name
+         FROM pur_direct_purchase_hdr h
       LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
-      WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = h.created_by
+         WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
     ).catch(() => []);
     if (!hdr) throw httpError(404, "NOT_FOUND", "Document not found");
-    const details = await query(
-      `
-      SELECT d.id, d.item_id, d.qty, d.uom, d.unit_price, d.discount_percent, d.tax_percent, d.line_total, i.item_code, i.item_name
-      FROM pur_direct_purchase_dtl d
+    const details = await query(`
+      SELECT d.id, d.item_id, d.qty, d.uom, d.unit_price, d.discount_percent, d.tax_percent, d.line_total, d.tax_code_id, i.item_code, i.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM pur_direct_purchase_dtl d
       LEFT JOIN inv_items i ON i.id = d.item_id
-      WHERE d.hdr_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.hdr_id = :id
       ORDER BY d.id ASC
       `,
       { id },
     ).catch(() => []);
-    const [company] = await query(
-      `
-      SELECT id, name, address, city, state, postal_code, country, telephone, email, website
-      FROM adm_companies
-      WHERE id = :companyId
+    
+    const tax_summary = await resolveTaxSummary(details || [], companyId);
+    const [company] = await query(`
+      SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId
       LIMIT 1
       `,
       { companyId },
@@ -1296,32 +1434,40 @@ async function loadData(type, id, companyId, branchId) {
     return dpObj;
   }
   if (type === "purchase-bill") {
-    const [hdr] = await query(
-      `
-      SELECT b.*, s.supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email
-      FROM pur_bills b
+    const [hdr] = await query(`
+      SELECT b.*, s.supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email,
+          b.created_at,
+          u.username AS created_by_name
+         FROM pur_bills b
       LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
-      WHERE b.id = :id AND b.company_id = :companyId AND b.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = b.created_by
+         WHERE b.id = :id AND b.company_id = :companyId AND b.branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
     ).catch(() => []);
     if (!hdr) throw httpError(404, "NOT_FOUND", "Document not found");
-    const details = await query(
-      `
-      SELECT d.id, d.item_id, d.qty, d.uom, d.unit_price, d.tax_percent, d.discount_percent, d.line_total, i.item_code, i.item_name
-      FROM pur_bill_items d
+    const details = await query(`
+      SELECT d.id, d.item_id, d.qty, d.uom, d.unit_price, d.tax_percent, d.discount_percent, d.line_total, d.tax_code_id, i.item_code, i.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM pur_bill_items d
       LEFT JOIN inv_items i ON i.id = d.item_id
-      WHERE d.bill_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.bill_id = :id
       ORDER BY d.id ASC
       `,
       { id },
     ).catch(() => []);
-    const [company] = await query(
-      `
-      SELECT id, name, address, city, state, postal_code, country, telephone, email, website
-      FROM adm_companies
-      WHERE id = :companyId
+    
+    const tax_summary = await resolveTaxSummary(details || [], companyId);
+    const [company] = await query(`
+      SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId
       LIMIT 1
       `,
       { companyId },
@@ -1342,6 +1488,7 @@ async function loadData(type, id, companyId, branchId) {
         status: hdr.status,
         remarks: hdr.remarks || "",
         total: hdr.net_amount || hdr.total_amount || 0,
+        tax_summary,
         items: items.map((d) => ({
           name: d.item_name,
           description: d.item_name,
@@ -1366,32 +1513,38 @@ async function loadData(type, id, companyId, branchId) {
     return billObj;
   }
   if (type === "grn") {
-    const [hdr] = await query(
-      `
-      SELECT g.*, s.supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email
-      FROM inv_goods_receipt_notes g
+    const [hdr] = await query(`
+      SELECT g.*, s.supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email,
+          g.created_at,
+          u.username AS created_by_name
+         FROM inv_goods_receipt_notes g
       LEFT JOIN pur_suppliers s ON s.id = g.supplier_id
-      WHERE g.id = :id AND g.company_id = :companyId AND g.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = g.created_by
+         WHERE g.id = :id AND g.company_id = :companyId AND g.branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
     ).catch(() => []);
     if (!hdr) throw httpError(404, "NOT_FOUND", "Document not found");
-    const details = await query(
-      `
-      SELECT d.id, d.item_id, d.qty_ordered, d.qty_received, d.qty_accepted, d.uom, d.unit_price, d.line_amount, i.item_code, i.item_name
-      FROM inv_goods_receipt_note_details d
+    const details = await query(`
+      SELECT d.id, d.item_id, d.qty_ordered, d.qty_received, d.qty_accepted, d.uom, d.unit_price, d.line_amount, i.item_code, i.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_goods_receipt_note_details d
       LEFT JOIN inv_items i ON i.id = d.item_id
-      WHERE d.grn_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.grn_id = :id
       ORDER BY d.id ASC
       `,
       { id },
     ).catch(() => []);
-    const [company] = await query(
-      `
-      SELECT id, name, address, city, state, postal_code, country, telephone, email, website
-      FROM adm_companies
-      WHERE id = :companyId
+    const [company] = await query(`
+      SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId
       LIMIT 1
       `,
       { companyId },
@@ -1433,8 +1586,7 @@ async function loadData(type, id, companyId, branchId) {
     return grnObj;
   }
   if (type === "delivery-note") {
-    const [dn] = await query(
-      `
+    const [dn] = await query(`
       SELECT
         d.id,
         d.delivery_no,
@@ -1452,11 +1604,18 @@ async function loadData(type, id, companyId, branchId) {
         COALESCE(c.email, '') AS customer_email,
         d.status,
         d.sales_order_id,
-        d.remarks
-      FROM sal_deliveries d
+        d.remarks,
+        d.delivery_instructions,
+        d.terms_and_conditions,
+        d.total_tax,
+        d.invoice_amount,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_deliveries d
       LEFT JOIN sal_customers c
         ON c.id = d.customer_id AND c.company_id = d.company_id
-      WHERE d.id = :id AND d.company_id = :companyId AND d.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.id = :id AND d.company_id = :companyId AND d.branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1464,11 +1623,13 @@ async function loadData(type, id, companyId, branchId) {
     if (!dn) throw httpError(404, "NOT_FOUND", "Document not found");
     let employee = null;
     if (dn.created_by) {
-      const [u] = await query(
-        `
-        SELECT id, username, email, full_name
-        FROM adm_users
-        WHERE id = :uid
+      const [u] = await query(`
+        SELECT id, username, email, full_name,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :uid
         LIMIT 1
         `,
         { uid: dn.created_by },
@@ -1482,8 +1643,7 @@ async function loadData(type, id, companyId, branchId) {
         };
       }
     }
-    const details = await query(
-      `
+    const details = await query(`
       SELECT
         dd.id,
         dd.item_id,
@@ -1491,52 +1651,61 @@ async function loadData(type, id, companyId, branchId) {
         dd.unit_price,
         dd.uom,
         it.item_code,
-        it.item_name
-      FROM sal_delivery_details dd
+        it.item_name,
+          dd.created_at,
+          u.username AS created_by_name
+         FROM sal_delivery_details dd
       LEFT JOIN inv_items it
         ON it.id = dd.item_id AND it.company_id = :companyId
-      WHERE dd.delivery_id = :id
+        LEFT JOIN adm_users u ON u.id = dd.created_by
+         WHERE dd.delivery_id = :id
       ORDER BY dd.id ASC
       `,
       { id, companyId },
     ).catch(() => []);
-    const [company] = await query(
-      `
-      SELECT id, name, address, city, state, postal_code, country, telephone, email, website
-      FROM adm_companies
-      WHERE id = :companyId
+    const [company] = await query(`
+      SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId
       LIMIT 1
       `,
       { companyId },
     ).catch(() => []);
-    const dnExtra = await query(
-      `
+    const dnExtra = await query(`
       SELECT 
         COALESCE(i.currency_id, o.currency_id) AS currency_id,
         COALESCE(i.exchange_rate, o.exchange_rate) AS exchange_rate,
         COALESCE(i.price_type, o.price_type) AS price_type,
         COALESCE(i.payment_type, o.payment_type) AS payment_type,
-        COALESCE(i.warehouse_id, o.warehouse_id) AS warehouse_id
-      FROM sal_deliveries d
+        COALESCE(i.warehouse_id, o.warehouse_id) AS warehouse_id,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_deliveries d
       LEFT JOIN sal_invoices i ON i.id = d.invoice_id AND i.company_id = d.company_id
       LEFT JOIN sal_orders o ON o.id = d.sales_order_id AND o.company_id = d.company_id
-      WHERE d.id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.id = :id
       LIMIT 1
       `,
       { id },
     ).catch(() => []);
     const ex = dnExtra?.[0] || {};
-    const extra = await query(
-      `
+    const extra = await query(`
       SELECT 
         w.warehouse_name,
-        cur.code AS currency_code
-      FROM adm_companies ac
+        cur.code AS currency_code,
+          ac.created_at,
+          u.username AS created_by_name
+         FROM adm_companies ac
       LEFT JOIN inv_warehouses w
         ON w.id = :wid AND w.company_id = ac.id
       LEFT JOIN fin_currencies cur
         ON cur.id = :cid
-      WHERE ac.id = :companyId
+        LEFT JOIN adm_users u ON u.id = ac.created_by
+         WHERE ac.id = :companyId
       LIMIT 1
       `,
       {
@@ -1549,11 +1718,13 @@ async function loadData(type, id, companyId, branchId) {
     const items = Array.isArray(details) ? details : [];
     let orderMeta = {};
     if (dn.sales_order_id) {
-      const [ord] = await query(
-        `
-        SELECT order_no, vehicle_number, driver_name, delivery_instructions
-        FROM sal_orders
-        WHERE id = :oid AND company_id = :companyId
+      const [ord] = await query(`
+        SELECT order_no, vehicle_number, driver_name, delivery_instructions,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_orders
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :oid AND company_id = :companyId
         LIMIT 1
         `,
         { oid: dn.sales_order_id, companyId },
@@ -1562,11 +1733,13 @@ async function loadData(type, id, companyId, branchId) {
     }
     let invoiceMeta = {};
     if (dn.invoice_id) {
-      const [invh] = await query(
-        `
-        SELECT invoice_no
-        FROM sal_invoices
-        WHERE id = :iid AND company_id = :companyId
+      const [invh] = await query(`
+        SELECT invoice_no,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_invoices
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :iid AND company_id = :companyId
         LIMIT 1
         `,
         { iid: dn.invoice_id, companyId },
@@ -1575,11 +1748,13 @@ async function loadData(type, id, companyId, branchId) {
     }
     let orderedQtyMap = new Map();
     if (dn.sales_order_id) {
-      const ordRows = await query(
-        `
-        SELECT item_id, qty
-        FROM sal_order_details
-        WHERE order_id = :oid
+      const ordRows = await query(`
+        SELECT item_id, qty,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_order_details
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE order_id = :oid
         `,
         { oid: dn.sales_order_id },
       ).catch(() => []);
@@ -1617,13 +1792,15 @@ async function loadData(type, id, companyId, branchId) {
         date: dn.delivery_date,
         status: dn.status,
         remarks: dn.remarks,
-        qr_code: "",
+        qr_code: `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(`DELIVERY|${dn.id}|${dn.delivery_no || ""}|${dn.delivery_date || ""}|${dn.customer_name || ""}`)}`,
         order_number: orderMeta?.order_no || null,
         vehicle_number: orderMeta?.vehicle_number || null,
         driver_name: orderMeta?.driver_name || null,
         invoice_ref: invoiceMeta?.invoice_no || null,
-        instructions: orderMeta?.delivery_instructions || null,
-        terms_and_conditions: null,
+        instructions: dn.delivery_instructions || orderMeta?.delivery_instructions || null,
+        terms_and_conditions: dn.terms_and_conditions || null,
+        total_tax: dn.total_tax || 0,
+        invoice_amount: dn.invoice_amount || 0,
         total_items: items.length,
         total_qty_ordered: totalQtyOrdered,
         total_qty_delivered: totalQtyDelivered,
@@ -1662,29 +1839,40 @@ async function loadData(type, id, companyId, branchId) {
     return dnObj;
   }
   if (type === "purchase-order") {
-    const [po] = await query(
-      `
-      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.email AS supplier_email, s.telephone AS supplier_phone
-      FROM pur_orders h
+    const [po] = await query(`
+      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.email AS supplier_email, s.telephone AS supplier_phone,
+          h.created_at,
+          u.username AS created_by_name
+         FROM pur_orders h
       LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
-      WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = h.created_by
+         WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
     ).catch(() => []);
     if (!po) throw httpError(404, "NOT_FOUND", "Purchase Order not found");
-    const details = await query(
-      `
-      SELECT d.*, it.item_code, it.item_name
-      FROM pur_order_details d
+    const details = await query(`
+      SELECT d.*, it.item_code, it.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM pur_order_details d
       LEFT JOIN inv_items it ON it.id = d.item_id
-      WHERE d.order_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.order_id = :id
       ORDER BY d.id ASC
       `,
       { id },
     ).catch(() => []);
-    const [company] = await query(
-      `SELECT * FROM adm_companies WHERE id = :companyId LIMIT 1`,
+    
+    const tax_summary = await resolveTaxSummary(details || [], companyId);
+
+    const [company] = await query(`SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId LIMIT 1`,
       { companyId },
     ).catch(() => []);
     const poObj = {
@@ -1706,6 +1894,7 @@ async function loadData(type, id, companyId, branchId) {
         tax_amount: po.tax_amount,
         total: po.total_amount,
         remarks: po.remarks,
+        tax_summary,
         items: (details || []).map((d) => ({
           code: d.item_code,
           name: d.item_name,
@@ -1723,29 +1912,37 @@ async function loadData(type, id, companyId, branchId) {
     return poObj;
   }
   if (type === "grn") {
-    const [grn] = await query(
-      `
-      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.email AS supplier_email, s.telephone AS supplier_phone
-      FROM inv_grn h
+    const [grn] = await query(`
+      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.email AS supplier_email, s.telephone AS supplier_phone,
+          h.created_at,
+          u.username AS created_by_name
+         FROM inv_grn h
       LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
-      WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = h.created_by
+         WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
     ).catch(() => []);
     if (!grn) throw httpError(404, "NOT_FOUND", "GRN not found");
-    const details = await query(
-      `
-      SELECT d.*, it.item_code, it.item_name
-      FROM inv_grn_details d
+    const details = await query(`
+      SELECT d.*, it.item_code, it.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_grn_details d
       LEFT JOIN inv_items it ON it.id = d.item_id
-      WHERE d.grn_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.grn_id = :id
       ORDER BY d.id ASC
       `,
       { id },
     ).catch(() => []);
-    const [company] = await query(
-      `SELECT * FROM adm_companies WHERE id = :companyId LIMIT 1`,
+    const [company] = await query(`SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId LIMIT 1`,
       { companyId },
     ).catch(() => []);
     const grnObj = {
@@ -1779,29 +1976,37 @@ async function loadData(type, id, companyId, branchId) {
     return grnObj;
   }
   if (type === "purchase-bill") {
-    const [bill] = await query(
-      `
-      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.email AS supplier_email, s.telephone AS supplier_phone
-      FROM pur_bills h
+    const [bill] = await query(`
+      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.email AS supplier_email, s.telephone AS supplier_phone,
+          h.created_at,
+          u.username AS created_by_name
+         FROM pur_bills h
       LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
-      WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = h.created_by
+         WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
     ).catch(() => []);
     if (!bill) throw httpError(404, "NOT_FOUND", "Purchase Bill not found");
-    const details = await query(
-      `
-      SELECT d.*, it.item_code, it.item_name
-      FROM pur_bill_details d
+    const details = await query(`
+      SELECT d.*, it.item_code, it.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM pur_bill_details d
       LEFT JOIN inv_items it ON it.id = d.item_id
-      WHERE d.bill_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.bill_id = :id
       ORDER BY d.id ASC
       `,
       { id },
     ).catch(() => []);
-    const [company] = await query(
-      `SELECT * FROM adm_companies WHERE id = :companyId LIMIT 1`,
+    const [company] = await query(`SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId LIMIT 1`,
       { companyId },
     ).catch(() => []);
     const billObj = {
@@ -1838,29 +2043,37 @@ async function loadData(type, id, companyId, branchId) {
     return billObj;
   }
   if (type === "direct-purchase") {
-    const [dp] = await query(
-      `
-      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.email AS supplier_email, s.telephone AS supplier_phone
-      FROM pur_direct_purchase_hdr h
+    const [dp] = await query(`
+      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.email AS supplier_email, s.telephone AS supplier_phone,
+          h.created_at,
+          u.username AS created_by_name
+         FROM pur_direct_purchase_hdr h
       LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
-      WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = h.created_by
+         WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
     ).catch(() => []);
     if (!dp) throw httpError(404, "NOT_FOUND", "Direct Purchase not found");
-    const details = await query(
-      `
-      SELECT d.*, it.item_code, it.item_name
-      FROM pur_direct_purchase_dtl d
+    const details = await query(`
+      SELECT d.*, it.item_code, it.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM pur_direct_purchase_dtl d
       LEFT JOIN inv_items it ON it.id = d.item_id
-      WHERE d.hdr_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.hdr_id = :id
       ORDER BY d.id ASC
       `,
       { id },
     ).catch(() => []);
-    const [company] = await query(
-      `SELECT * FROM adm_companies WHERE id = :companyId LIMIT 1`,
+    const [company] = await query(`SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId LIMIT 1`,
       { companyId },
     ).catch(() => []);
     const dpObj = {
@@ -1897,8 +2110,7 @@ async function loadData(type, id, companyId, branchId) {
     return dpObj;
   }
   if (type === "quotation") {
-    const [q] = await query(
-      `
+    const [q] = await query(`
       SELECT
         q.id,
         q.quotation_no,
@@ -1920,11 +2132,14 @@ async function loadData(type, id, companyId, branchId) {
         COALESCE(c.state, '') AS customer_state,
         COALESCE(c.country, '') AS customer_country,
         COALESCE(c.phone, '') AS customer_phone,
-        COALESCE(c.email, '') AS customer_email
-      FROM sal_quotations q
+        COALESCE(c.email, '') AS customer_email,
+          q.created_at,
+          u.username AS created_by_name
+         FROM sal_quotations q
       LEFT JOIN sal_customers c
         ON c.id = q.customer_id AND c.company_id = q.company_id
-      WHERE q.id = :id AND q.company_id = :companyId AND q.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = q.created_by
+         WHERE q.id = :id AND q.company_id = :companyId AND q.branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1932,11 +2147,13 @@ async function loadData(type, id, companyId, branchId) {
     if (!q) throw httpError(404, "NOT_FOUND", "Document not found");
     let employee = null;
     if (q.created_by) {
-      const [u] = await query(
-        `
-        SELECT id, username, email, full_name
-        FROM adm_users
-        WHERE id = :uid
+      const [u] = await query(`
+        SELECT id, username, email, full_name,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :uid
         LIMIT 1
         `,
         { uid: q.created_by },
@@ -1950,8 +2167,7 @@ async function loadData(type, id, companyId, branchId) {
         };
       }
     }
-    const details = await query(
-      `
+    const details = await query(`
       SELECT
         d.id,
         d.item_id,
@@ -1962,36 +2178,46 @@ async function loadData(type, id, companyId, branchId) {
         d.net_amount,
         d.tax_amount,
         d.uom,
+        d.tax_type AS tax_code_id,
         it.item_code,
-        it.item_name
-      FROM sal_quotation_details d
+        it.item_name,
+          d.created_at,
+          u.username AS created_by_name
+         FROM sal_quotation_details d
       LEFT JOIN inv_items it
         ON it.id = d.item_id AND it.company_id = :companyId
-      WHERE d.quotation_id = :id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.quotation_id = :id
       ORDER BY d.id ASC
       `,
       { id, companyId },
     ).catch(() => []);
-    const [company] = await query(
-      `
-      SELECT id, name, address, city, state, postal_code, country, telephone, email, website
-      FROM adm_companies
-      WHERE id = :companyId
+
+    const tax_summary = await resolveTaxSummary(details, companyId);
+    const [company] = await query(`
+      SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId
       LIMIT 1
       `,
       { companyId },
     ).catch(() => []);
-    const extra = await query(
-      `
+    const extra = await query(`
       SELECT 
         w.warehouse_name,
-        cur.code AS currency_code
-      FROM adm_companies ac
+        cur.code AS currency_code,
+          ac.created_at,
+          u.username AS created_by_name
+         FROM adm_companies ac
       LEFT JOIN inv_warehouses w
         ON w.id = :wid AND w.company_id = ac.id
       LEFT JOIN fin_currencies cur
         ON cur.id = :cid
-      WHERE ac.id = :companyId
+        LEFT JOIN adm_users u ON u.id = ac.created_by
+         WHERE ac.id = :companyId
       LIMIT 1
       `,
       {
@@ -2034,6 +2260,7 @@ async function loadData(type, id, companyId, branchId) {
         ),
         total: q.total_amount,
         remarks: q.remarks,
+        tax_summary,
         items: items.map((d) => ({
           name: d.item_name,
           description: d.item_name,
@@ -2054,14 +2281,15 @@ async function loadData(type, id, companyId, branchId) {
       );
       qObj.quotation.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
     } catch {}
+    // Keep tax_summary at root for templates that iterate {{#each tax_summary}}.
+    qObj.tax_summary = tax_summary;
     qObj.document = qObj.quotation;
     qObj.quote = qObj.quotation;
     qObj.items = qObj.quotation.items;
     return qObj;
   }
   if (type === "payment-voucher") {
-    const [voucher] = await query(
-      `
+    const [voucher] = await query(`
       SELECT 
         v.id,
         v.voucher_no,
@@ -2071,10 +2299,13 @@ async function loadData(type, id, companyId, branchId) {
         v.total_credit,
         v.created_by,
         vt.code AS voucher_type_code,
-        vt.name AS voucher_type_name
-      FROM fin_vouchers v
+        vt.name AS voucher_type_name,
+          v.created_at,
+          u.username AS created_by_name
+         FROM fin_vouchers v
       JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id
-      WHERE v.id = :id AND v.company_id = :companyId AND v.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = v.created_by
+         WHERE v.id = :id AND v.company_id = :companyId AND v.branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2082,11 +2313,13 @@ async function loadData(type, id, companyId, branchId) {
     if (!voucher) throw httpError(404, "NOT_FOUND", "Document not found");
     let employee = null;
     if (voucher.created_by) {
-      const [u] = await query(
-        `
-        SELECT id, username, email, full_name
-        FROM adm_users
-        WHERE id = :uid
+      const [u] = await query(`
+        SELECT id, username, email, full_name,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :uid
         LIMIT 1
         `,
         { uid: voucher.created_by },
@@ -2100,8 +2333,7 @@ async function loadData(type, id, companyId, branchId) {
         };
       }
     }
-    const lines = await query(
-      `
+    const lines = await query(`
       SELECT 
         l.id,
         l.line_no,
@@ -2110,16 +2342,23 @@ async function loadData(type, id, companyId, branchId) {
         l.description,
         l.debit,
         l.credit,
-        l.reference_no
-      FROM fin_voucher_lines l
+        l.reference_no,
+          l.created_at,
+          u.username AS created_by_name
+         FROM fin_voucher_lines l
       LEFT JOIN fin_accounts a ON a.id = l.account_id
-      WHERE l.voucher_id = :id
+        LEFT JOIN adm_users u ON u.id = l.created_by
+         WHERE l.voucher_id = :id
       ORDER BY l.line_no ASC
       `,
       { id },
     ).catch(() => []);
-    const [company] = await query(
-      `SELECT id, name, address, city, state, postal_code, country, telephone, email, website FROM adm_companies WHERE id = :companyId LIMIT 1`,
+    const [company] = await query(`SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId LIMIT 1`,
       { companyId },
     ).catch(() => []);
     const voucherObj = {
@@ -2159,8 +2398,7 @@ async function loadData(type, id, companyId, branchId) {
     return voucherObj;
   }
   if (type === "salary-slip") {
-    const [payslip] = await query(
-      `
+    const [payslip] = await query(`
       SELECT
         p.id, p.period_id, p.status, p.paid_at, p.remarks,
         p.basic_salary, p.allowances, p.deductions, p.net_salary,
@@ -2168,25 +2406,31 @@ async function loadData(type, id, companyId, branchId) {
         p.working_days, p.days_present, p.leave_taken,
         e.emp_code, e.first_name, e.last_name, e.email, e.joining_date,
         e.ssnit_no, e.tin, e.bank_name, e.bank_account_no,
-        d.name AS dept_name,
+        d.dept_name AS dept_name,
         b.name AS branch_name,
-        pos.name AS position_name,
-        per.name AS period_name
-      FROM hr_payslips p
+        pos.pos_name AS position_name,
+        per.period_name AS period_name,
+          p.created_at,
+          u.username AS created_by_name
+         FROM hr_payslips p
       JOIN hr_employees e ON e.id = p.employee_id AND e.company_id = :companyId
-      LEFT JOIN hr_departments d ON d.id = e.department_id
+      LEFT JOIN hr_departments d ON d.id = e.dept_id
       LEFT JOIN adm_branches b ON b.id = e.branch_id
-      LEFT JOIN hr_positions pos ON pos.id = e.position_id
-      LEFT JOIN hr_pay_periods per ON per.id = p.period_id
-      WHERE p.id = :id AND e.company_id = :companyId
+      LEFT JOIN hr_positions pos ON pos.id = e.pos_id
+      LEFT JOIN hr_payroll_periods per ON per.id = p.period_id
+        LEFT JOIN adm_users u ON u.id = p.created_by
+         WHERE p.id = :id AND e.company_id = :companyId
       LIMIT 1
       `,
       { id, companyId },
     ).catch(() => []);
     if (!payslip) throw httpError(404, "NOT_FOUND", "Payslip not found");
-    const [company] = await query(
-      `SELECT id, name, address, address2, city, state, postal_code, country, telephone, email, website, logo
-       FROM adm_companies WHERE id = :companyId LIMIT 1`,
+    const [company] = await query(`SELECT id, name, address, address2, city, state, postal_code, country, telephone, email, website, logo,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId LIMIT 1`,
       { companyId },
     ).catch(() => []);
 
@@ -2314,6 +2558,189 @@ async function loadData(type, id, companyId, branchId) {
       },
     };
   }
+  if (type === "maintenance-bill") {
+    const [hdr] = await query(`
+      SELECT b.*, s.supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email,
+          b.created_at,
+          u.username AS created_by_name
+         FROM maint_bills b
+      LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
+        LEFT JOIN adm_users u ON u.id = b.created_by
+         WHERE b.id = :id AND b.company_id = :companyId AND b.branch_id = :branchId
+      LIMIT 1
+      `,
+      { id, companyId, branchId },
+    ).catch(() => []);
+    if (!hdr) throw httpError(404, "NOT_FOUND", "Document not found");
+    const details = await query(`SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM maint_bill_lines
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE bill_id = :id ORDER BY id ASC`,
+      { id },
+    ).catch(() => []);
+    const [company] = await query(`SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId LIMIT 1`,
+      { companyId },
+    ).catch(() => []);
+    const tax_summary = await resolveTaxSummary(details || [], companyId);
+    return {
+      company: company || {},
+      supplier: {
+        name: hdr.supplier_name,
+        address: hdr.supplier_address || "",
+        phone: hdr.supplier_phone || "",
+        email: hdr.supplier_email || "",
+      },
+      maintenance_bill: {
+        id: hdr.id,
+        number: hdr.bill_no,
+        date: hdr.bill_date ? String(hdr.bill_date).slice(0, 10) : null,
+        status: hdr.status,
+        remarks: hdr.notes || "",
+        sub_total: hdr.subtotal || 0,
+        tax_amount: hdr.tax_amount || 0,
+        total: hdr.total_amount || 0,
+        tax_summary,
+        items: (details || []).map((d) => ({
+          name: d.description,
+          description: d.description,
+          code: d.category || "SERVICE",
+          quantity: d.qty,
+          price: d.rate,
+          discount: d.discount_percent || 0,
+          amount: d.amount,
+        })),
+      },
+    };
+  }
+  if (type === "service-bill") {
+    const [hdr] = await query(`
+      SELECT b.*,
+          b.created_at,
+          u.username AS created_by_name
+         FROM pur_service_bills b
+        LEFT JOIN adm_users u ON u.id = b.created_by
+         WHERE b.id = :id AND b.company_id = :companyId AND b.branch_id = :branchId
+      LIMIT 1
+      `,
+      { id, companyId, branchId },
+    ).catch(() => []);
+    if (!hdr) throw httpError(404, "NOT_FOUND", "Document not found");
+    const details = await query(`SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_service_bill_details
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE bill_id = :id ORDER BY id ASC`,
+      { id },
+    ).catch(() => []);
+    const [company] = await query(`SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId LIMIT 1`,
+      { companyId },
+    ).catch(() => []);
+    const tax_summary = await resolveTaxSummary(details || [], companyId);
+    return {
+      company: company || {},
+      client: {
+        name: hdr.client_name,
+        company: hdr.client_company,
+        address: hdr.client_address,
+        phone: hdr.client_phone,
+        email: hdr.client_email,
+      },
+      service_bill: {
+        id: hdr.id,
+        number: hdr.bill_no,
+        date: hdr.bill_date ? String(hdr.bill_date).slice(0, 10) : null,
+        status: hdr.status,
+        remarks: hdr.notes || "",
+        sub_total: hdr.subtotal || 0,
+        tax_amount: hdr.tax_amount || 0,
+        total: hdr.total_amount || 0,
+        tax_summary,
+        items: (details || []).map((d) => ({
+          name: d.description,
+          description: d.description,
+          code: d.category || "SERVICE",
+          quantity: d.qty,
+          price: d.rate,
+          discount: d.discount_percent || 0,
+          amount: d.amount,
+        })),
+      },
+    };
+  }
+  if (type === "supplier-quotation") {
+    const [hdr] = await query(`
+      SELECT q.*, s.supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email,
+          q.created_at,
+          u.username AS created_by_name
+         FROM maint_supplier_quotations q
+      LEFT JOIN pur_suppliers s ON s.id = q.supplier_id
+        LEFT JOIN adm_users u ON u.id = q.created_by
+         WHERE q.id = :id AND q.company_id = :companyId AND q.branch_id = :branchId
+      LIMIT 1
+      `,
+      { id, companyId, branchId },
+    ).catch(() => []);
+    if (!hdr) throw httpError(404, "NOT_FOUND", "Document not found");
+    const details = await query(`SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM maint_quotation_lines
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE quotation_id = :id ORDER BY id ASC`,
+      { id },
+    ).catch(() => []);
+    const [company] = await query(`SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId LIMIT 1`,
+      { companyId },
+    ).catch(() => []);
+    const tax_summary = await resolveTaxSummary(details || [], companyId);
+    return {
+      company: company || {},
+      supplier: {
+        name: hdr.supplier_name,
+        address: hdr.supplier_address || "",
+        phone: hdr.supplier_phone || "",
+        email: hdr.supplier_email || "",
+      },
+      supplier_quotation: {
+        id: hdr.id,
+        number: hdr.quotation_no,
+        date: hdr.quotation_date ? String(hdr.quotation_date).slice(0, 10) : null,
+        status: hdr.status,
+        remarks: hdr.notes || "",
+        sub_total: hdr.subtotal || 0,
+        tax_amount: hdr.tax_amount || 0,
+        total: hdr.total_amount || 0,
+        tax_summary,
+        items: (details || []).map((d) => ({
+          name: d.description,
+          description: d.description,
+          code: "SERVICE",
+          quantity: d.qty,
+          price: d.rate,
+          discount: d.discount_percent || 0,
+          amount: d.amount,
+        })),
+      },
+    };
+  }
   throw httpError(400, "VALIDATION_ERROR", "Unsupported document type");
 }
 
@@ -2342,12 +2769,14 @@ router.get(
 
       // Explicit template override
       if (templateId && Number.isFinite(templateId)) {
-        const [row] = await query(
-          `SELECT id, html_content,
+        const [row] = await query(`SELECT id, html_content,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type
-           FROM document_templates
-           WHERE id = :id AND company_id = :companyId
+                  document_type,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId
            LIMIT 1`,
           { id: templateId, companyId },
         ).catch(() => []);
@@ -2371,12 +2800,14 @@ router.get(
             canonical === "payment-voucher"
               ? "Default payment-voucher"
               : "Sales Order";
-          const [namedRow] = await query(
-            `SELECT id, html_content,
+          const [namedRow] = await query(`SELECT id, html_content,
                     header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                    document_type
-             FROM document_templates
-             WHERE name = :priorityName AND company_id = :companyId
+                    document_type,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE name = :priorityName AND company_id = :companyId
              LIMIT 1`,
             { priorityName, companyId },
           ).catch(() => []);
@@ -2403,12 +2834,14 @@ router.get(
 
       // Always try to get the strict-named template, even if we already found another template
       if (strictName) {
-        const [rowByName] = await query(
-          `SELECT id, html_content,
+        const [rowByName] = await query(`SELECT id, html_content,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type, name
-           FROM document_templates
-           WHERE company_id = :companyId AND LOWER(TRIM(name)) = LOWER(TRIM(:strictName))
+                  document_type, name,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND LOWER(TRIM(name)) = LOWER(TRIM(:strictName))
            ORDER BY updated_at DESC, id DESC
            LIMIT 1`,
           { companyId, strictName },
@@ -2461,11 +2894,13 @@ router.get(
         const placeholders = aliasesLower.map((_, i) => `:dt${i}`).join(", ");
         const params = { companyId };
         aliasesLower.forEach((val, i) => (params[`dt${i}`] = val));
-        const items = await query(
-          `SELECT id, html_content,
-                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
-           FROM document_templates
-           WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders}) AND is_default = 1
+        const items = await query(`SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders}) AND is_default = 1
            ORDER BY updated_at DESC
            LIMIT 1`,
           params,
@@ -2478,12 +2913,14 @@ router.get(
         const placeholders = aliasesLower.map((_, i) => `:dtx${i}`).join(", ");
         const paramsAny = { companyId };
         aliasesLower.forEach((val, i) => (paramsAny[`dtx${i}`] = val));
-        const anyItems = await query(
-          `SELECT id, html_content,
+        const anyItems = await query(`SELECT id, html_content,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type, is_default, updated_at
-           FROM document_templates
-           WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders})
+                  document_type, is_default, updated_at,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders})
            ORDER BY is_default DESC, updated_at DESC, id DESC
            LIMIT 1`,
           paramsAny,
@@ -2547,20 +2984,21 @@ router.get(
         const placeholdersG = aliasesLowerG.map((_, i) => `:gt${i}`).join(", ");
         const paramsG = { companyId };
         aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
-        const rows = await query(
-          `SELECT id,
+        const rows = await query(`SELECT id,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type
-           FROM document_templates
-           WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
+                  document_type,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
            LIMIT 1`,
           paramsG,
         ).catch(() => []);
         if (rows && rows.length) {
           generalTpl = rows[0];
         } else {
-          const ins = await query(
-            `INSERT INTO document_templates
+          const ins = await query(`INSERT INTO document_templates
                (company_id, name, document_type, html_content, is_default, created_by,
                 header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
              VALUES
@@ -2574,17 +3012,18 @@ router.get(
             },
           ).catch(() => null);
           if (ins && ins.insertId) {
-            await query(
-              `UPDATE document_templates SET is_default = 0
+            await query(`UPDATE document_templates SET is_default = 0
                WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id`,
               { ...paramsG, id: ins.insertId },
             ).catch(() => null);
-            const [row] = await query(
-              `SELECT id,
+            const [row] = await query(`SELECT id,
                       header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                      document_type
-               FROM document_templates
-               WHERE id = :id AND company_id = :companyId
+                      document_type,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId
                LIMIT 1`,
               { id: ins.insertId, companyId },
             ).catch(() => []);
@@ -2854,12 +3293,14 @@ router.post(
 
       // Explicit template override
       if (templateId && Number.isFinite(templateId)) {
-        const [row] = await query(
-          `SELECT id, html_content,
+        const [row] = await query(`SELECT id, html_content,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type
-           FROM document_templates
-           WHERE id = :id AND company_id = :companyId
+                  document_type,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId
            LIMIT 1`,
           { id: templateId, companyId },
         ).catch(() => []);
@@ -2882,12 +3323,14 @@ router.post(
             canonical === "payment-voucher"
               ? "Default payment-voucher"
               : "Sales Order";
-          const [namedRow] = await query(
-            `SELECT id, html_content,
+          const [namedRow] = await query(`SELECT id, html_content,
                     header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                    document_type
-             FROM document_templates
-             WHERE name = :priorityName AND company_id = :companyId
+                    document_type,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE name = :priorityName AND company_id = :companyId
              LIMIT 1`,
             { priorityName, companyId },
           ).catch(() => []);
@@ -2905,12 +3348,14 @@ router.post(
       };
       const strictName = nameMap[canonical] || null;
       if (strictName) {
-        const [rowByName] = await query(
-          `SELECT id, html_content,
+        const [rowByName] = await query(`SELECT id, html_content,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type, name
-           FROM document_templates
-           WHERE company_id = :companyId AND LOWER(TRIM(name)) = LOWER(TRIM(:strictName))
+                  document_type, name,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND LOWER(TRIM(name)) = LOWER(TRIM(:strictName))
            ORDER BY updated_at DESC, id DESC
            LIMIT 1`,
           { companyId, strictName },
@@ -2925,11 +3370,13 @@ router.post(
         const placeholders = aliasesLower.map((_, i) => `:dt${i}`).join(", ");
         const params = { companyId };
         aliasesLower.forEach((val, i) => (params[`dt${i}`] = val));
-        const items = await query(
-          `SELECT id, html_content,
-                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
-           FROM document_templates
-           WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders}) AND is_default = 1
+        const items = await query(`SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders}) AND is_default = 1
            ORDER BY updated_at DESC
            LIMIT 1`,
           params,
@@ -2941,12 +3388,14 @@ router.post(
         const placeholders = aliasesLower.map((_, i) => `:dtx${i}`).join(", ");
         const paramsAny = { companyId };
         aliasesLower.forEach((val, i) => (paramsAny[`dtx${i}`] = val));
-        const anyItems = await query(
-          `SELECT id, html_content,
+        const anyItems = await query(`SELECT id, html_content,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type, is_default, updated_at
-           FROM document_templates
-           WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders})
+                  document_type, is_default, updated_at,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders})
            ORDER BY is_default DESC, updated_at DESC, id DESC
            LIMIT 1`,
           paramsAny,
@@ -3007,20 +3456,21 @@ router.post(
         const placeholdersG = aliasesLowerG.map((_, i) => `:gt${i}`).join(", ");
         const paramsG = { companyId };
         aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
-        const rows = await query(
-          `SELECT id,
+        const rows = await query(`SELECT id,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type
-           FROM document_templates
-           WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
+                  document_type,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
            LIMIT 1`,
           paramsG,
         ).catch(() => []);
         if (rows && rows.length) {
           generalTpl = rows[0];
         } else {
-          const ins = await query(
-            `INSERT INTO document_templates
+          const ins = await query(`INSERT INTO document_templates
                (company_id, name, document_type, html_content, is_default, created_by,
                 header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
              VALUES
@@ -3034,17 +3484,18 @@ router.post(
             },
           ).catch(() => null);
           if (ins && ins.insertId) {
-            await query(
-              `UPDATE document_templates SET is_default = 0
+            await query(`UPDATE document_templates SET is_default = 0
                WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id`,
               { ...paramsG, id: ins.insertId },
             ).catch(() => null);
-            const [row] = await query(
-              `SELECT id,
+            const [row] = await query(`SELECT id,
                       header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                      document_type
-               FROM document_templates
-               WHERE id = :id AND company_id = :companyId
+                      document_type,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId
                LIMIT 1`,
               { id: ins.insertId, companyId },
             ).catch(() => []);
@@ -3186,11 +3637,13 @@ router.post(
           canonical === "payment-voucher"
             ? "Default payment-voucher"
             : "Sales Order";
-        const [namedRow] = await query(
-          `SELECT id, html_content,
-                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
-           FROM document_templates
-           WHERE name = :priorityName AND company_id = :companyId
+        const [namedRow] = await query(`SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE name = :priorityName AND company_id = :companyId
            LIMIT 1`,
           { priorityName, companyId },
         ).catch(() => []);
@@ -3211,12 +3664,14 @@ router.post(
 
       // Always try to get the strict-named template, even if we already found another template
       if (strictName) {
-        const [rowByName] = await query(
-          `SELECT id, html_content,
+        const [rowByName] = await query(`SELECT id, html_content,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type, name
-           FROM document_templates
-           WHERE company_id = :companyId AND LOWER(TRIM(name)) = LOWER(TRIM(:strictName))
+                  document_type, name,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND LOWER(TRIM(name)) = LOWER(TRIM(:strictName))
            ORDER BY updated_at DESC, id DESC
            LIMIT 1`,
           { companyId, strictName },
@@ -3228,11 +3683,13 @@ router.post(
         const placeholders = aliasesLower.map((_, i) => `:dt${i}`).join(", ");
         const params = { companyId };
         aliasesLower.forEach((val, i) => (params[`dt${i}`] = val));
-        const items = await query(
-          `SELECT id, html_content,
-                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
-           FROM document_templates
-           WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders}) AND is_default = 1
+        const items = await query(`SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders}) AND is_default = 1
            LIMIT 1`,
           params,
         ).catch(() => []);
@@ -3243,11 +3700,13 @@ router.post(
         const placeholders = aliasesLower.map((_, i) => `:dt${i}`).join(", ");
         const params = { companyId };
         aliasesLower.forEach((val, i) => (params[`dt${i}`] = val));
-        const items = await query(
-          `SELECT id, html_content,
-                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website
-           FROM document_templates
-           WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders})
+        const items = await query(`SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders})
            ORDER BY is_default DESC, updated_at DESC
            LIMIT 1`,
           params,
@@ -3302,20 +3761,21 @@ router.post(
         const placeholdersG = aliasesLowerG.map((_, i) => `:gt${i}`).join(", ");
         const paramsG = { companyId };
         aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
-        const rows = await query(
-          `SELECT id,
+        const rows = await query(`SELECT id,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type
-           FROM document_templates
-           WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
+                  document_type,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
            LIMIT 1`,
           paramsG,
         ).catch(() => []);
         if (rows && rows.length) {
           generalTpl = rows[0];
         } else {
-          const ins = await query(
-            `INSERT INTO document_templates
+          const ins = await query(`INSERT INTO document_templates
                (company_id, name, document_type, html_content, is_default, created_by,
                 header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
              VALUES
@@ -3329,17 +3789,18 @@ router.post(
             },
           ).catch(() => null);
           if (ins && ins.insertId) {
-            await query(
-              `UPDATE document_templates SET is_default = 0
+            await query(`UPDATE document_templates SET is_default = 0
                WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id`,
               { ...paramsG, id: ins.insertId },
             ).catch(() => null);
-            const [row] = await query(
-              `SELECT id,
+            const [row] = await query(`SELECT id,
                       header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                      document_type
-               FROM document_templates
-               WHERE id = :id AND company_id = :companyId
+                      document_type,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId
                LIMIT 1`,
               { id: ins.insertId, companyId },
             ).catch(() => []);
@@ -3506,33 +3967,27 @@ async function ensureDocumentAttachmentsTable() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   if (!(await hasColumn("adm_document_attachments", "title"))) {
-    await query(
-      `ALTER TABLE adm_document_attachments ADD COLUMN title VARCHAR(255) NULL AFTER file_name`,
+    await query(`ALTER TABLE adm_document_attachments ADD COLUMN title VARCHAR(255) NULL AFTER file_name`,
     );
   }
   if (!(await hasColumn("adm_document_attachments", "description"))) {
-    await query(
-      `ALTER TABLE adm_document_attachments ADD COLUMN description TEXT NULL AFTER title`,
+    await query(`ALTER TABLE adm_document_attachments ADD COLUMN description TEXT NULL AFTER title`,
     );
   }
   if (!(await hasColumn("adm_document_attachments", "category"))) {
-    await query(
-      `ALTER TABLE adm_document_attachments ADD COLUMN category VARCHAR(100) NULL AFTER description`,
+    await query(`ALTER TABLE adm_document_attachments ADD COLUMN category VARCHAR(100) NULL AFTER description`,
     );
   }
   if (!(await hasColumn("adm_document_attachments", "tags"))) {
-    await query(
-      `ALTER TABLE adm_document_attachments ADD COLUMN tags TEXT NULL AFTER category`,
+    await query(`ALTER TABLE adm_document_attachments ADD COLUMN tags TEXT NULL AFTER category`,
     );
   }
   if (!(await hasColumn("adm_document_attachments", "mime_type"))) {
-    await query(
-      `ALTER TABLE adm_document_attachments ADD COLUMN mime_type VARCHAR(100) NULL AFTER tags`,
+    await query(`ALTER TABLE adm_document_attachments ADD COLUMN mime_type VARCHAR(100) NULL AFTER tags`,
     );
   }
   if (!(await hasColumn("adm_document_attachments", "file_size"))) {
-    await query(
-      `ALTER TABLE adm_document_attachments ADD COLUMN file_size BIGINT NULL AFTER mime_type`,
+    await query(`ALTER TABLE adm_document_attachments ADD COLUMN file_size BIGINT NULL AFTER mime_type`,
     );
   }
 }
@@ -3550,12 +4005,14 @@ router.get(
       const id = toNumber(req.params.id);
       if (!type || !id)
         throw httpError(400, "VALIDATION_ERROR", "Invalid request");
-      const rawItems = await query(
-        `
+      const rawItems = await query(`
         SELECT id, file_url, file_name, uploaded_by, created_at,
-               title, description, category, tags, mime_type, file_size
-        FROM adm_document_attachments
-        WHERE company_id = :companyId
+               title, description, category, tags, mime_type, file_size,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_document_attachments
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
           AND branch_id = :branchId
           AND document_type = :type
           AND document_id = :id
@@ -3614,8 +4071,7 @@ router.post(
       const fileSize = body.file_size != null ? Number(body.file_size) : null;
       const uploadedBy = req.user?.sub ? Number(req.user.sub) : null;
       if (!fileUrl) throw httpError(400, "VALIDATION_ERROR", "url required");
-      const result = await query(
-        `
+      const result = await query(`
         INSERT INTO adm_document_attachments
           (company_id, branch_id, document_type, document_id, file_url, file_name, uploaded_by, title, description, category, tags, mime_type, file_size)
         VALUES
@@ -3668,10 +4124,13 @@ router.delete(
       const attId = toNumber(req.params.attId);
       if (!type || !id || !attId)
         throw httpError(400, "VALIDATION_ERROR", "Invalid request");
-      const rows = await query(
-        `
-        SELECT file_url FROM adm_document_attachments
-        WHERE id = :attId
+      const rows = await query(`
+        SELECT file_url,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_document_attachments
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :attId
           AND company_id = :companyId
           AND branch_id = :branchId
           AND document_type = :type
@@ -3681,8 +4140,7 @@ router.delete(
         { attId, companyId, branchId, type, id },
       );
       const fileUrl = rows?.[0]?.file_url || null;
-      await query(
-        `
+      await query(`
         DELETE FROM adm_document_attachments
         WHERE id = :attId
           AND company_id = :companyId
@@ -3700,10 +4158,13 @@ router.delete(
           /^https?:\/\/res\.cloudinary\.com\//i.test(String(fileUrl))
         ) {
           async function getSetting(key) {
-            const r = await query(
-              `
-              SELECT setting_value FROM adm_system_settings
-              WHERE setting_key = :key
+            const r = await query(`
+              SELECT setting_value,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_system_settings
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE setting_key = :key
                 AND (company_id = :companyId OR company_id IS NULL)
                 AND (branch_id = :branchId OR branch_id IS NULL)
               ORDER BY company_id DESC, branch_id DESC

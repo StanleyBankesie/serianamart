@@ -9,7 +9,7 @@ let _tablesReady = false;
  * Uses the global `query()` helper (non-transactional) for DDL to avoid
  * implicit-commit issues that break in-progress transactions.
  */
-async function ensureTables(connOrPool) {
+export async function ensureStockBalancesWarehouseInfrastructure(connOrPool) {
   if (_tablesReady) return;
   const q = connOrPool
     ? (sql, params) => connOrPool.execute(sql, params).then((r) => r[0])
@@ -153,7 +153,7 @@ async function ensureTables(connOrPool) {
  * Negative qtyChange → OUTFLOW (delegates to FIFO consumer).
  */
 export async function recordMovementTx(conn, params) {
-  await ensureTables();
+  await ensureStockBalancesWarehouseInfrastructure();
 
   const {
     companyId,
@@ -286,7 +286,7 @@ export async function recordMovementTx(conn, params) {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 export async function consumeStockFIFOTx(conn, params) {
-  await ensureTables();
+  await ensureStockBalancesWarehouseInfrastructure();
 
   const {
     companyId,
@@ -362,7 +362,7 @@ export async function consumeStockFIFOTx(conn, params) {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 export async function reserveStockTx(conn, params) {
-  await ensureTables();
+  await ensureStockBalancesWarehouseInfrastructure();
 
   const {
     companyId,
@@ -433,7 +433,7 @@ export async function reserveStockTx(conn, params) {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 export async function moveReservedStockTx(conn, params) {
-  await ensureTables();
+  await ensureStockBalancesWarehouseInfrastructure();
 
   const {
     companyId,

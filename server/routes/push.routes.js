@@ -30,10 +30,12 @@ export function getPublicKey() {
 }
 
 export async function sendPushToUser(userId, payload) {
-  const subs = await query(
-    `SELECT endpoint, p256dh, auth 
-     FROM adm_push_subscriptions 
-     WHERE user_id = :userId AND is_active = 1 
+  const subs = await query(`SELECT endpoint, p256dh, auth,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_push_subscriptions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE user_id = :userId AND is_active = 1 
      ORDER BY last_active_at DESC, created_at DESC 
      LIMIT 20`,
     { userId },
@@ -46,15 +48,13 @@ export async function sendPushToUser(userId, payload) {
     };
     try {
       await webpush.sendNotification(subscription, body, { TTL: 60 });
-      await query(
-        `UPDATE adm_push_subscriptions SET last_active_at = NOW() WHERE endpoint = :endpoint`,
+      await query(`UPDATE adm_push_subscriptions SET last_active_at = NOW() WHERE endpoint = :endpoint`,
         { endpoint: s.endpoint },
       );
     } catch (e) {
       const msg = String(e?.message || "");
       if (msg.includes("410") || msg.includes("404")) {
-        await query(
-          `UPDATE adm_push_subscriptions SET is_active = 0 WHERE endpoint = :endpoint`,
+        await query(`UPDATE adm_push_subscriptions SET is_active = 0 WHERE endpoint = :endpoint`,
           { endpoint: s.endpoint },
         );
       }
@@ -90,8 +90,7 @@ router.post(
         Number(req.user?.sub) ||
         Number(req.user?.id) ||
         Number(req.headers["x-user-id"]);
-      await query(
-        `INSERT INTO adm_push_subscriptions (company_id, branch_id, user_id, endpoint, p256dh, auth, is_active)
+      await query(`INSERT INTO adm_push_subscriptions (company_id, branch_id, user_id, endpoint, p256dh, auth, is_active)
          VALUES (:companyId, :branchId, :userId, :endpoint, :p256dh, :auth, 1)
          ON DUPLICATE KEY UPDATE 
            company_id = VALUES(company_id),
@@ -116,8 +115,7 @@ router.delete("/unsubscribe", requireAuth, async (req, res, next) => {
     const sub = req.body?.subscription || req.body || {};
     const endpoint = String(sub?.endpoint || "");
     if (!endpoint) throw httpError(400, "VALIDATION_ERROR", "Invalid endpoint");
-    await query(
-      `UPDATE adm_push_subscriptions SET is_active = 0 WHERE endpoint = :endpoint`,
+    await query(`UPDATE adm_push_subscriptions SET is_active = 0 WHERE endpoint = :endpoint`,
       { endpoint },
     );
     res.json({ ok: true });

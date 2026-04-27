@@ -54,8 +54,7 @@ router.get(
         clauses.push("(r.requester_full_name LIKE :cust OR r.requester_company LIKE :cust)");
         params.cust = `%${customerLike}%`;
       }
-      const items = await query(
-        `
+      const items = await query(`
         SELECT 
           r.request_no,
           r.request_date,
@@ -64,9 +63,12 @@ router.get(
           r.priority,
           NULL AS assigned_to,
           r.status,
-          NULL AS sla_due_date
-        FROM pur_service_requests r
-        WHERE ${clauses.join(" AND ")}
+          NULL AS sla_due_date,
+          r.created_at,
+          u.username AS created_by_name
+         FROM pur_service_requests r
+        LEFT JOIN adm_users u ON u.id = r.created_by
+         WHERE ${clauses.join(" AND ")}
         ORDER BY r.request_date DESC, r.id DESC
         `,
         params,
@@ -112,8 +114,7 @@ router.get(
         clauses.push("o.service_category LIKE :svcType");
         params.svcType = `%${svcType}%`;
       }
-      const items = await query(
-        `
+      const items = await query(`
         SELECT 
           o.order_no,
           NULL AS request_no,
@@ -123,9 +124,12 @@ router.get(
           o.end_date AS completion_date,
           o.status,
           o.estimated_cost,
-          o.total_amount AS actual_cost
-        FROM pur_service_orders o
-        WHERE ${clauses.join(" AND ")}
+          o.total_amount AS actual_cost,
+          o.created_at,
+          u.username AS created_by_name
+         FROM pur_service_orders o
+        LEFT JOIN adm_users u ON u.id = o.created_by
+         WHERE ${clauses.join(" AND ")}
         ORDER BY o.order_date DESC, o.id DESC
         `,
         params,
@@ -157,15 +161,17 @@ router.get(
         params.from = from;
         params.to = to;
       }
-      const base = await query(
-        `
+      const base = await query(`
         SELECT 
           COALESCE(o.assigned_supervisor_username, 'Unassigned') AS technician,
           COUNT(*) AS total_execs,
           SUM(CASE WHEN o.status IN ('COMPLETED','CLOSED') THEN 1 ELSE 0 END) AS completed_jobs,
-          SUM(CASE WHEN o.status NOT IN ('COMPLETED','CLOSED','CANCELLED') THEN 1 ELSE 0 END) AS pending_jobs
-        FROM pur_service_orders o
-        WHERE o.company_id = :companyId AND o.branch_id = :branchId
+          SUM(CASE WHEN o.status NOT IN ('COMPLETED','CLOSED','CANCELLED') THEN 1 ELSE 0 END) AS pending_jobs,
+          o.created_at,
+          u.username AS created_by_name
+         FROM pur_service_orders o
+        LEFT JOIN adm_users u ON u.id = o.created_by
+         WHERE o.company_id = :companyId AND o.branch_id = :branchId
         ${dateClause}
         GROUP BY COALESCE(o.assigned_supervisor_username, 'Unassigned')
         `,
@@ -213,16 +219,18 @@ router.get(
         params.from = from;
         params.to = to;
       }
-      const rows = await query(
-        `
+      const rows = await query(`
         SELECT 
           o.order_no,
           o.customer_name AS customer,
           NULL AS sla_due_date,
           o.end_date AS completion_date,
-          NULL AS delay_hours
-        FROM pur_service_orders o
-        WHERE o.company_id = :companyId AND o.branch_id = :branchId
+          NULL AS delay_hours,
+          o.created_at,
+          u.username AS created_by_name
+         FROM pur_service_orders o
+        LEFT JOIN adm_users u ON u.id = o.created_by
+         WHERE o.company_id = :companyId AND o.branch_id = :branchId
         ${dateClause}
         ORDER BY o.order_date DESC, o.id DESC
         `,
@@ -274,8 +282,7 @@ router.get(
         clauses.push("o.customer_name LIKE :cust");
         params.cust = `%${customerLike}%`;
       }
-      const items = await query(
-        `
+      const items = await query(`
         SELECT 
           b.bill_no,
           b.bill_date,
@@ -284,10 +291,13 @@ router.get(
           b.total_amount,
           COALESCE(b.amount_paid, 0) AS amount_paid,
           GREATEST(COALESCE(b.total_amount,0) - COALESCE(b.amount_paid,0), 0) AS outstanding,
-          0 AS vat_collected
-        FROM pur_service_bills b
+          0 AS vat_collected,
+          b.created_at,
+          u.username AS created_by_name
+         FROM pur_service_bills b
         LEFT JOIN pur_service_orders o ON o.id = b.order_id
-        WHERE ${clauses.join(" AND ")}
+        LEFT JOIN adm_users u ON u.id = b.created_by
+         WHERE ${clauses.join(" AND ")}
         ORDER BY b.bill_date DESC, b.id DESC
         `,
         params,
@@ -319,8 +329,7 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
-      const items = await query(
-        `
+      const items = await query(`
         SELECT 
           b.bill_no,
           o.order_no AS service_order_no,
@@ -336,10 +345,13 @@ router.get(
             WHEN DATEDIFF(CURDATE(), b.due_date) <= 60 THEN '31-60'
             WHEN DATEDIFF(CURDATE(), b.due_date) <= 90 THEN '61-90'
             ELSE '>90'
-          END AS aging
-        FROM pur_service_bills b
+          END AS aging,
+          b.created_at,
+          u.username AS created_by_name
+         FROM pur_service_bills b
         LEFT JOIN pur_service_orders o ON o.id = b.order_id
-        WHERE b.company_id = :companyId AND b.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = b.created_by
+         WHERE b.company_id = :companyId AND b.branch_id = :branchId
           AND COALESCE(b.amount_paid,0) < COALESCE(b.total_amount,0)
         ORDER BY b.due_date ASC NULLS FIRST, b.bill_date DESC
         `,
@@ -362,18 +374,20 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
-      const items = await query(
-        `
+      const items = await query(`
         SELECT 
           o.order_no,
           c.confirmation_date,
           c.customer_name,
           c.status AS confirmation_status,
           c.remarks,
-          NULL AS rating
-        FROM inv_service_confirmations c
+          NULL AS rating,
+          c.created_at,
+          u.username AS created_by_name
+         FROM inv_service_confirmations c
         LEFT JOIN pur_service_orders o ON o.id = c.order_id
-        WHERE c.company_id = :companyId AND c.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.company_id = :companyId AND c.branch_id = :branchId
         ORDER BY c.confirmation_date DESC, c.id DESC
         `,
         { companyId, branchId },
@@ -404,8 +418,7 @@ router.get(
         params.from = from;
         params.to = to;
       }
-      const items = await query(
-        `
+      const items = await query(`
         SELECT 
           COALESCE(o.assigned_supervisor_username, 'Unassigned') AS technician,
           COUNT(*) AS total_jobs,
@@ -415,9 +428,12 @@ router.get(
           CASE 
             WHEN COUNT(*) = 0 THEN '0%'
             ELSE CONCAT(ROUND(SUM(CASE WHEN o.status IN ('COMPLETED','CLOSED') THEN 1 ELSE 0 END) * 100 / COUNT(*), 0), '%')
-          END AS utilization
-        FROM pur_service_orders o
-        WHERE o.company_id = :companyId AND o.branch_id = :branchId
+          END AS utilization,
+          o.created_at,
+          u.username AS created_by_name
+         FROM pur_service_orders o
+        LEFT JOIN adm_users u ON u.id = o.created_by
+         WHERE o.company_id = :companyId AND o.branch_id = :branchId
         ${dateClause}
         GROUP BY COALESCE(o.assigned_supervisor_username, 'Unassigned')
         ORDER BY technician ASC
@@ -441,17 +457,19 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
-      const items = await query(
-        `
+      const items = await query(`
         SELECT 
           o.order_no,
           o.estimated_cost,
           0 AS actual_labor_cost,
           COALESCE((
-            SELECT SUM(COALESCE(m.qty,0) * 0) 
-            FROM pur_service_execution_materials m 
-            JOIN pur_service_executions e ON e.id = m.execution_id 
-            WHERE e.order_id = o.id
+            SELECT SUM(COALESCE(m.qty,0) * 0),
+          m.created_at,
+          u.username AS created_by_name
+         FROM pur_service_execution_materials m 
+            JOIN pur_service_executions e ON e.id = m.execution_id
+        LEFT JOIN adm_users u ON u.id = m.created_by
+         WHERE e.order_id = o.id
           ), 0) AS material_cost,
           COALESCE(o.estimated_cost,0) AS total_cost,
           COALESCE(b.total_amount, 0) AS billed_amount,
@@ -480,16 +498,18 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
-      const items = await query(
-        `
+      const items = await query(`
         SELECT 
           COALESCE(o.customer_name, 'UNSPECIFIED') AS customer,
           COALESCE(o.service_category, 'UNSPECIFIED') AS asset_equipment,
           COUNT(*) AS num_requests,
           MAX(o.end_date) AS last_service_date,
-          COALESCE(o.service_category, 'UNSPECIFIED') AS issue_type
-        FROM pur_service_orders o
-        WHERE o.company_id = :companyId AND o.branch_id = :branchId
+          COALESCE(o.service_category, 'UNSPECIFIED') AS issue_type,
+          o.created_at,
+          u.username AS created_by_name
+         FROM pur_service_orders o
+        LEFT JOIN adm_users u ON u.id = o.created_by
+         WHERE o.company_id = :companyId AND o.branch_id = :branchId
         GROUP BY COALESCE(o.customer_name, 'UNSPECIFIED'), COALESCE(o.service_category, 'UNSPECIFIED')
         ORDER BY num_requests DESC, last_service_date DESC
         `,
@@ -512,17 +532,19 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
-      const items = await query(
-        `
+      const items = await query(`
         SELECT 
           COALESCE(o.service_category, 'UNSPECIFIED') AS service_type,
           COUNT(*) AS total_orders,
           COALESCE(SUM(b.total_amount),0) AS total_revenue,
           NULL AS avg_completion_time,
-          COALESCE(AVG(o.estimated_cost),0) AS avg_cost
-        FROM pur_service_orders o
+          COALESCE(AVG(o.estimated_cost),0) AS avg_cost,
+          o.created_at,
+          u.username AS created_by_name
+         FROM pur_service_orders o
         LEFT JOIN pur_service_bills b ON b.order_id = o.id
-        WHERE o.company_id = :companyId AND o.branch_id = :branchId
+        LEFT JOIN adm_users u ON u.id = o.created_by
+         WHERE o.company_id = :companyId AND o.branch_id = :branchId
         GROUP BY COALESCE(o.service_category, 'UNSPECIFIED')
         ORDER BY total_revenue DESC
         `,

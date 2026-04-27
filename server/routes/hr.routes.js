@@ -527,6 +527,13 @@ router.get(
   requireCompanyScope,
   hrController.listSalaryComponents,
 );
+router.post(
+  "/salary-components/map-account",
+  requireAuth,
+  requireCompanyScope,
+  hrController.mapSalaryComponentAccount,
+);
+
 
 // Payslips
 router.get(
