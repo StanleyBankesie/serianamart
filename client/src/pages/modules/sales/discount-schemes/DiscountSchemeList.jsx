@@ -289,6 +289,8 @@ export default function DiscountSchemeList() {
                 <th>Valid To</th>
                 <th>Status</th>
                 <th>Actions</th>
+                            <th>Created By</th>
+              <th>Created Date</th>
               </tr>
             </thead>
             <tbody>
@@ -351,6 +353,8 @@ export default function DiscountSchemeList() {
                         </button>
                       </div>
                     </td>
+                    <td>{scheme.created_by_name || "-"}</td>
+                    <td>{scheme.created_at ? new Date(scheme.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))
               )}

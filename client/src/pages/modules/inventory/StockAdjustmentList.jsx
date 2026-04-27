@@ -452,6 +452,8 @@ export default function StockAdjustmentList() {
                   <th>Warehouse</th>
                   <th>Status</th>
                   <th>Actions</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -552,6 +554,8 @@ export default function StockAdjustmentList() {
                         ) : null}
                       </div>
                     </td>
+                    <td>{u.created_by_name || "-"}</td>
+                    <td>{u.created_at ? new Date(u.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

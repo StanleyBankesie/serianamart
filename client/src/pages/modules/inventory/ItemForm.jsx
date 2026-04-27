@@ -2,15 +2,8 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "api/client";
-import { useUoms } from "@/hooks/useUoms";
-import { useItemCategories } from "@/hooks/useItemCategories";
-import { useItemTypes } from "@/hooks/useItemTypes";
 
 export default function ItemForm() {
-  const { uoms, loading: uomsLoading } = useUoms();
-  const { categories, loading: categoriesLoading } = useItemCategories();
-  const { itemTypes, loading: itemTypesLoading } = useItemTypes();
-  console.log("ItemForm mounting");
   const { id } = useParams();
   const navigate = useNavigate();
   const isNew = id === "new";
@@ -23,6 +16,10 @@ export default function ItemForm() {
   const [accounts, setAccounts] = useState([]);
   const [taxes, setTaxes] = useState([]);
   const [currencies, setCurrencies] = useState([]);
+  const [uoms, setUoms] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [itemTypes, setItemTypes] = useState([]);
+  const [lookupLoading, setLookupLoading] = useState(false);
 
   const [formData, setFormData] = useState({
     item_code: "",
@@ -53,29 +50,135 @@ export default function ItemForm() {
   });
 
   useEffect(() => {
-    Promise.all([
-      api.get("/inventory/item-groups"),
-      api.get("/finance/accounts").catch(() => ({ data: { items: [] } })),
-      api.get("/finance/tax-codes").catch(() => ({ data: { items: [] } })),
-      api.get("/finance/currencies").catch(() => ({ data: { items: [] } })),
-    ])
-      .then(([groupsRes, accountsRes, taxesRes, currenciesRes]) => {
+    let cancelled = false;
+    async function loadLookups() {
+      setLookupLoading(true);
+      try {
+        const res = await api.get("/inventory/item-setup-lookups");
+        console.log("Consolidated lookup response:", res.data);
+        if (cancelled) return;
+        const d = res.data || {};
+        const loadedItemGroups = Array.isArray(d.itemGroups)
+          ? d.itemGroups
+          : [];
+        const loadedCategories = Array.isArray(d.categories)
+          ? d.categories
+          : [];
+        const loadedUoms = Array.isArray(d.uoms)
+          ? d.uoms
+          : Array.isArray(d.uom)
+            ? d.uom
+            : [];
+        const loadedItemTypes = Array.isArray(d.itemTypes)
+          ? d.itemTypes
+          : Array.isArray(d.item_types)
+            ? d.item_types
+            : [];
+        setItemGroups(loadedItemGroups);
+        setAccounts(Array.isArray(d.accounts) ? d.accounts : []);
+        setTaxes(Array.isArray(d.taxes) ? d.taxes : []);
+        setCurrencies(Array.isArray(d.currencies) ? d.currencies : []);
+        setUoms(loadedUoms);
+        setCategories(loadedCategories);
+        setItemTypes(loadedItemTypes);
+
+        // Hard fallback for environments where consolidated lookups return empty
+        if (
+          loadedItemGroups.length === 0 ||
+          loadedCategories.length === 0 ||
+          loadedUoms.length === 0 ||
+          loadedItemTypes.length === 0
+        ) {
+          const [groupsRes, categoriesRes, uomsRes, itemTypesRes] =
+            await Promise.all([
+              api
+                .get("/inventory/item-groups")
+                .catch(() => ({ data: { items: [] } })),
+              api
+                .get("/inventory/item-categories")
+                .catch(() => ({ data: { items: [] } })),
+              api.get("/inventory/uoms").catch(() => ({ data: { items: [] } })),
+              api
+                .get("/inventory/item-types")
+                .catch(() => ({ data: { items: [] } })),
+            ]);
+          console.log("Fallback item groups response:", groupsRes.data);
+          console.log("Fallback categories response:", categoriesRes.data);
+          if (cancelled) return;
+          const fallbackGroups = Array.isArray(groupsRes.data?.items)
+            ? groupsRes.data.items
+            : [];
+          const fallbackCategories = Array.isArray(categoriesRes.data?.items)
+            ? categoriesRes.data.items
+            : [];
+          const fallbackUoms = Array.isArray(uomsRes.data?.items)
+            ? uomsRes.data.items
+            : [];
+          const fallbackItemTypes = Array.isArray(itemTypesRes.data?.items)
+            ? itemTypesRes.data.items
+            : [];
+          if (fallbackGroups.length > 0) setItemGroups(fallbackGroups);
+          if (fallbackCategories.length > 0) setCategories(fallbackCategories);
+          if (fallbackUoms.length > 0) setUoms(fallbackUoms);
+          if (fallbackItemTypes.length > 0) setItemTypes(fallbackItemTypes);
+        }
+      } catch {
+        // Full fallback path when consolidated endpoint fails
+        const [
+          groupsRes,
+          categoriesRes,
+          accountsRes,
+          taxesRes,
+          currenciesRes,
+          uomsRes,
+          itemTypesRes,
+        ] = await Promise.all([
+          api
+            .get("/inventory/item-groups")
+            .catch(() => ({ data: { items: [] } })),
+          api
+            .get("/inventory/item-categories")
+            .catch(() => ({ data: { items: [] } })),
+          api.get("/finance/accounts").catch(() => ({ data: { items: [] } })),
+          api.get("/finance/tax-codes").catch(() => ({ data: { items: [] } })),
+          api.get("/finance/currencies").catch(() => ({ data: { items: [] } })),
+          api.get("/inventory/uoms").catch(() => ({ data: { items: [] } })),
+          api
+            .get("/inventory/item-types")
+            .catch(() => ({ data: { items: [] } })),
+        ]);
+        if (cancelled) return;
         setItemGroups(
-          Array.isArray(groupsRes.data?.items) ? groupsRes.data.items : []
+          Array.isArray(groupsRes.data?.items) ? groupsRes.data.items : [],
+        );
+        setCategories(
+          Array.isArray(categoriesRes.data?.items)
+            ? categoriesRes.data.items
+            : [],
         );
         setAccounts(
-          Array.isArray(accountsRes.data?.items) ? accountsRes.data.items : []
+          Array.isArray(accountsRes.data?.items) ? accountsRes.data.items : [],
         );
         setTaxes(
-          Array.isArray(taxesRes.data?.items) ? taxesRes.data.items : []
+          Array.isArray(taxesRes.data?.items) ? taxesRes.data.items : [],
         );
         setCurrencies(
           Array.isArray(currenciesRes.data?.items)
             ? currenciesRes.data.items
-            : []
+            : [],
         );
-      })
-      .catch(() => {});
+        setUoms(Array.isArray(uomsRes.data?.items) ? uomsRes.data.items : []);
+        setItemTypes(
+          Array.isArray(itemTypesRes.data?.items)
+            ? itemTypesRes.data.items
+            : [],
+        );
+      } finally {
+        if (!cancelled) setLookupLoading(false);
+      }
+    }
+
+    loadLookups();
 
     if (isNew) {
       // Fetch next item code
@@ -123,8 +226,7 @@ export default function ItemForm() {
           purchase_account_id: it.purchase_account_id || "",
           sales_account_id: it.sales_account_id || "",
           service_item: String(it.service_item || "").toUpperCase() === "Y",
-          is_stockable:
-            String(it.is_stockable ?? "Y").toUpperCase() === "Y",
+          is_stockable: String(it.is_stockable ?? "Y").toUpperCase() === "Y",
           is_sellable: String(it.is_sellable ?? "Y").toUpperCase() === "Y",
           is_purchasable:
             String(it.is_purchasable ?? "Y").toUpperCase() === "Y",
@@ -140,6 +242,7 @@ export default function ItemForm() {
       });
 
     return () => {
+      cancelled = true;
       mounted = false;
     };
   }, [id, isNew]);
@@ -344,30 +447,40 @@ export default function ItemForm() {
                   required
                 >
                   <option value="">-- Select Type --</option>
-                  {itemTypesLoading ? (
+                  {lookupLoading ? (
                     <option>Loading...</option>
                   ) : (
                     (Array.isArray(itemTypes) ? itemTypes : []).map((t) =>
                       t ? (
-                        <option key={t.id} value={t.type_code}>
-                          {t.type_name}
+                        <option
+                          key={t.id || t.type_code || t.type_name}
+                          value={
+                            t.type_name ||
+                            t.type_code ||
+                            t.code ||
+                            t.item_type ||
+                            ""
+                          }
+                        >
+                          {t.type_name || t.name || t.type_code || "-"}
                         </option>
-                      ) : null
+                      ) : null,
                     )
                   )}
                 </select>
               </div>
               <div>
-                <label className="label">Category</label>
+                <label className="label">Category *</label>
                 <select
                   className="input"
                   value={formData.category_id}
                   onChange={(e) =>
                     setFormData({ ...formData, category_id: e.target.value })
                   }
+                  required
                 >
                   <option value="">-- Select Category --</option>
-                  {categoriesLoading ? (
+                  {lookupLoading ? (
                     <option>Loading...</option>
                   ) : (
                     categories.map((c) =>
@@ -375,7 +488,7 @@ export default function ItemForm() {
                         <option key={c.id} value={c.id}>
                           {c.category_name}
                         </option>
-                      ) : null
+                      ) : null,
                     )
                   )}
                 </select>
@@ -390,12 +503,15 @@ export default function ItemForm() {
                   }
                 >
                   <option value="">-- Select UOM --</option>
-                  {uomsLoading ? (
+                  {lookupLoading ? (
                     <option>Loading...</option>
                   ) : (
                     uoms.map((u) => (
-                      <option key={u.id} value={u.uom_code}>
-                        {u.uom_code}
+                      <option
+                        key={u.id || u.uom_code || u.uom_name}
+                        value={u.uom_code || u.code || u.uom || ""}
+                      >
+                        {u.uom_code || u.code || u.uom || "-"}
                       </option>
                     ))
                   )}
@@ -405,13 +521,14 @@ export default function ItemForm() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="label">Item Group</label>
+                <label className="label">Item Group *</label>
                 <select
                   className="input"
                   value={formData.item_group_id}
                   onChange={(e) =>
                     setFormData({ ...formData, item_group_id: e.target.value })
                   }
+                  required
                 >
                   <option value="">-- Select Group --</option>
                   {itemGroups.map((g) =>
@@ -419,7 +536,7 @@ export default function ItemForm() {
                       <option key={g.id} value={g.id}>
                         {g.group_name}
                       </option>
-                    ) : null
+                    ) : null,
                   )}
                 </select>
               </div>
@@ -480,7 +597,7 @@ export default function ItemForm() {
                   <option value="">-- Select Currency --</option>
                   {currencies.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.code} - {c.name}
+                      {`${c.name || ""}(${c.code || ""})`}
                     </option>
                   ))}
                 </select>
@@ -493,7 +610,7 @@ export default function ItemForm() {
               </h3>
 
               <div>
-                <label className="label">TAX on Purchase</label>
+                <label className="label">TAX on Purchase *</label>
                 <select
                   className="input"
                   value={formData.vat_on_purchase_id}
@@ -503,18 +620,19 @@ export default function ItemForm() {
                       vat_on_purchase_id: e.target.value,
                     })
                   }
+                  required
                 >
                   <option value="">-- Select Tax Code --</option>
                   {taxes.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.code} ({Number(t.rate_percent)}%)
+                      {t.name}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="label">TAX on Sales</label>
+                <label className="label">TAX on Sales *</label>
                 <select
                   className="input"
                   value={formData.vat_on_sales_id}
@@ -524,18 +642,19 @@ export default function ItemForm() {
                       vat_on_sales_id: e.target.value,
                     })
                   }
+                  required
                 >
                   <option value="">-- Select Tax Code --</option>
                   {taxes.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.code} ({Number(t.rate_percent)}%)
+                      {t.name}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="label">Purchase Account</label>
+                <label className="label">Purchase Account *</label>
                 <select
                   className="input"
                   value={formData.purchase_account_id}
@@ -545,31 +664,32 @@ export default function ItemForm() {
                       purchase_account_id: e.target.value,
                     })
                   }
+                  required
                 >
                   <option value="">-- Select Account --</option>
                   {accounts
                     .filter(
                       (a) =>
                         !a.nature ||
-                        ["EXPENSE", "COST_OF_SALES"].includes(a.nature)
+                        ["EXPENSE", "ASSET"].includes(a.nature.toUpperCase()),
                     )
                     .map((a) => (
                       <option key={a.id} value={a.id}>
-                        {a.code} - {a.name}
+                        {a.name}
                       </option>
                     ))}
                   {/* Fallback to show all if not found in filter or just append others */}
                   <option disabled>──────────</option>
                   {accounts.map((a) => (
                     <option key={`all-${a.id}`} value={a.id}>
-                      {a.code} - {a.name}
+                      {a.name}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="label">Sales Account</label>
+                <label className="label">Sales Account *</label>
                 <select
                   className="input"
                   value={formData.sales_account_id}
@@ -579,25 +699,22 @@ export default function ItemForm() {
                       sales_account_id: e.target.value,
                     })
                   }
+                  required
                 >
                   <option value="">-- Select Account --</option>
                   {accounts
                     .filter(
-                      (a) =>
-                        !a.group_name ||
-                        a.group_name.toUpperCase().includes("INCOME") ||
-                        a.group_name.toUpperCase().includes("REVENUE") ||
-                        a.group_name.toUpperCase().includes("SALES")
+                      (a) => !a.nature || a.nature.toUpperCase() === "INCOME",
                     )
                     .map((a) => (
                       <option key={a.id} value={a.id}>
-                        {a.code} - {a.name}
+                        {a.name}
                       </option>
                     ))}
                   <option disabled>──────────</option>
                   {accounts.map((a) => (
                     <option key={`all-${a.id}`} value={a.id}>
-                      {a.code} - {a.name}
+                      {a.name}
                     </option>
                   ))}
                 </select>

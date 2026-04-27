@@ -99,6 +99,7 @@ function TerminalsTab() {
     name: "",
     code: "AUTO",
     warehouse: "",
+    warehouse_id: "",
     ip_address: "",
     active: true,
   });
@@ -154,6 +155,7 @@ function TerminalsTab() {
       name: "",
       code: getNextTerminalCode(),
       warehouse: "",
+      warehouse_id: "",
       ip_address: "",
       active: true,
     });
@@ -163,10 +165,22 @@ function TerminalsTab() {
   function openEdit(idx) {
     const t = items[idx];
     setEditingIndex(idx);
+    let wId = t?.warehouse_id || "";
+    if (!wId && t?.warehouse && warehouses.length) {
+      const match = warehouses.find(
+        (w) =>
+          `${w.warehouse_code ? `${w.warehouse_code} - ` : ""}${
+            w.warehouse_name || ""
+          }` === t.warehouse || w.warehouse_name === t.warehouse,
+      );
+      if (match) wId = String(match.id);
+    }
+
     setDraft({
       name: t?.name || "",
       code: t?.code || "AUTO",
       warehouse: t?.warehouse || "",
+      warehouse_id: wId,
       ip_address: t?.ip_address || "",
       active: !!t?.active,
     });
@@ -178,6 +192,10 @@ function TerminalsTab() {
     let code = String(draft.code || "").trim();
     if (!name) {
       toast.warn("Provide terminal name");
+      return;
+    }
+    if (!draft.warehouse_id) {
+      toast.warn("Please select a warehouse for this terminal");
       return;
     }
     if (!code || code === "AUTO") {
@@ -194,6 +212,7 @@ function TerminalsTab() {
           code,
           name,
           warehouse: draft.warehouse || null,
+          warehouse_id: draft.warehouse_id || null,
           counter_no: current.counter_no || null,
           ip_address: draft.ip_address || null,
           active: !!draft.active,
@@ -203,6 +222,7 @@ function TerminalsTab() {
           code,
           name,
           warehouse: draft.warehouse || null,
+          warehouse_id: draft.warehouse_id || null,
           counter_no: null,
           ip_address: draft.ip_address || null,
           active: !!draft.active,
@@ -421,15 +441,13 @@ function TerminalsTab() {
                       </td>
                       <td>
                         <div className="flex gap-2">
-                          {canPerformAction("pos:setup", "edit") && (
-                            <button
-                              type="button"
-                              className="btn btn-secondary"
-                              onClick={() => openEdit(items.indexOf(t))}
-                            >
-                              Edit
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={() => openEdit(items.indexOf(t))}
+                          >
+                            Edit
+                          </button>
                           <button
                             type="button"
                             className="btn btn-secondary"
@@ -487,15 +505,25 @@ function TerminalsTab() {
                 <div>
                   <label className="label">Warehouse</label>
                   <FilterableSelect
-                    value={draft.warehouse}
-                    onChange={(val) =>
-                      setDraft((p) => ({ ...p, warehouse: val }))
-                    }
+                    value={draft.warehouse_id}
+                    onChange={(val) => {
+                      const w = warehouses.find((x) => String(x.id) === String(val));
+                      const label = w
+                        ? `${w.warehouse_code ? `${w.warehouse_code} - ` : ""}${
+                            w.warehouse_name || ""
+                          }`
+                        : "";
+                      setDraft((p) => ({
+                        ...p,
+                        warehouse_id: val,
+                        warehouse: label,
+                      }));
+                    }}
                     options={warehouses.map((w) => {
                       const label = `${
                         w.warehouse_code ? `${w.warehouse_code} - ` : ""
                       }${w.warehouse_name || ""}`;
-                      return { value: label, label };
+                      return { value: String(w.id), label };
                     })}
                     placeholder="Select warehouse"
                     filterPlaceholder="Filter warehouses..."
@@ -1257,7 +1285,8 @@ function PaymentMethodsTab() {
           </div>
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+{/* Hiding Cash and Card sections as per request */}
+      <div className="hidden grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="card">
           <div className="card-body space-y-4">
             <div className="text-lg font-semibold text-slate-900">
@@ -1604,6 +1633,9 @@ function TaxSettingsTab() {
   const [accounts, setAccounts] = useState([]);
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [accountsLoading, setAccountsLoading] = useState(true);
+  const [taxComponents, setTaxComponents] = useState([]);
+  const [componentMappings, setComponentMappings] = useState({});
+  const [componentsLoading, setComponentsLoading] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -1638,6 +1670,17 @@ function TaxSettingsTab() {
           setSelectedAccountId(String(item.tax_account_id));
         if (item.tax_type) setTaxType(String(item.tax_type));
         if (item.is_active !== undefined) setTaxActive(Boolean(item.is_active));
+        if (item.component_mappings) {
+          try {
+            const parsed =
+              typeof item.component_mappings === "string"
+                ? JSON.parse(item.component_mappings)
+                : item.component_mappings;
+            setComponentMappings(parsed || {});
+          } catch (e) {
+            setComponentMappings({});
+          }
+        }
       })
       .catch(() => {});
     return () => {
@@ -1645,12 +1688,40 @@ function TaxSettingsTab() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!selectedTaxId) {
+      setTaxComponents([]);
+      return;
+    }
+    let mounted = true;
+    setComponentsLoading(true);
+    api
+      .get(`/finance/tax-codes/${selectedTaxId}/components`)
+      .then((res) => {
+        if (mounted) {
+          setTaxComponents(
+            Array.isArray(res.data?.items) ? res.data.items : [],
+          );
+        }
+      })
+      .catch(() => {
+        if (mounted) setTaxComponents([]);
+      })
+      .finally(() => {
+        if (mounted) setComponentsLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [selectedTaxId]);
+
   async function saveTaxSettings() {
     const payload = {
       taxCodeId: selectedTaxId || "",
       taxAccountId: selectedAccountId || "",
       taxType: taxType || "",
       isActive: !!taxActive,
+      componentMappings,
     };
     try {
       await api.put("/pos/tax-settings", payload);
@@ -1736,7 +1807,56 @@ function TaxSettingsTab() {
               </select>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+
+          {selectedTaxId && (
+            <div className="mt-4">
+              <label className="label mb-2">
+                Tax Component Account Mappings
+              </label>
+              {componentsLoading ? (
+                <div className="text-sm text-slate-500">
+                  Loading components...
+                </div>
+              ) : taxComponents.length === 0 ? (
+                <div className="text-sm text-slate-500">
+                  No components found for this tax code.
+                </div>
+              ) : (
+                <div className="space-y-3 p-4 bg-slate-50 rounded border">
+                  {taxComponents.map((comp) => (
+                    <div key={comp.id} className="flex items-center gap-4">
+                      <div className="w-1/3 text-sm font-medium">
+                        {comp.component_name ||
+                          comp.detail_name ||
+                          `Component ${comp.id}`}
+                      </div>
+                      <div className="flex-1">
+                        <select
+                          className="input"
+                          value={componentMappings[comp.id] || ""}
+                          onChange={(e) => {
+                            setComponentMappings((prev) => ({
+                              ...prev,
+                              [comp.id]: e.target.value,
+                            }));
+                          }}
+                        >
+                          <option value="">Select account for component</option>
+                          {accounts.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.code} — {a.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 mt-4">
             <input
               type="checkbox"
               checked={taxActive}

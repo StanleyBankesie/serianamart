@@ -13,39 +13,79 @@ import {
   setScopeHeaders,
   setUserHeader,
 } from "../api/client.js";
+import {
+  clearLastActivity,
+  clearStoredAuth,
+  getAuthChangedEventName,
+  getLastActivity,
+  INACTIVITY_TIMEOUT_MS,
+  readStoredAuth,
+  touchLastActivity,
+  writeStoredAuth,
+} from "./authStorage.js";
 
 const AuthContext = createContext(null);
 
-const STORAGE_KEY = "omnisuite.auth";
-
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(null);
-  const [user, setUser] = useState({
-    sub: 0,
-    id: 0,
-    username: "dev",
-    email: "dev@local",
-    permissions: ["*"],
-    companyIds: [1],
-    branchIds: [1],
-  });
+  const [user, setUser] = useState(null);
   const [scope, setScope] = useState({ companyId: 1, branchId: 1 });
   const [initialized, setInitialized] = useState(false);
   const [access, setAccess] = useState({ patterns: [], modules: [] });
 
   useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
+    let mounted = true;
+
+    const restoreSession = async () => {
+      const parsed = readStoredAuth();
+      // Only attempt refresh if we have or had a session hint
+      if (!parsed || (!parsed.token && !parsed.user)) {
+        if (mounted) setInitialized(true);
+        return;
+      }
+
       try {
-        const parsed = JSON.parse(raw);
-        if (parsed?.token) {
-          setToken(parsed.token);
-          setUser(parsed.user || null);
-          setScope(parsed.scope || { companyId: 1, branchId: 1 });
+        const res = await api.post("/auth/refresh");
+        if (!mounted) return;
+        const nextToken = res.data?.token || res.data?.accessToken || null;
+        if (!nextToken) throw new Error("Missing access token");
+        const nextUser = res.data?.user || parsed?.user || null;
+        const fallbackScope = {
+          companyId:
+            Number(nextUser?.companyIds?.[0]) ||
+            Number(parsed?.scope?.companyId) ||
+            1,
+          branchId:
+            Number(nextUser?.branchIds?.[0]) ||
+            Number(parsed?.scope?.branchId) ||
+            1,
+        };
+        const nextScope = res.data?.scope || fallbackScope;
+
+        setToken(nextToken);
+        setUser(nextUser);
+        setScope(nextScope);
+        touchLastActivity();
+      } catch (err) {
+        if (!mounted) return;
+        // Only clear if it was an actual 401/error, not a network failure
+        if (err?.response?.status === 401) {
+          clearStoredAuth();
+          clearLastActivity();
+          setToken(null);
+          setUser(null);
+          setScope({ companyId: 1, branchId: 1 });
         }
-      } catch {}
-    }
-    setInitialized(true);
+      } finally {
+        if (mounted) setInitialized(true);
+      }
+    };
+
+    restoreSession();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useLayoutEffect(() => {
@@ -61,23 +101,47 @@ export function AuthProvider({ children }) {
   }, [user]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ token, user, scope }));
-  }, [token, user, scope]);
+    if (!initialized) return;
+    if (!token || !user) {
+      if (readStoredAuth()) {
+        clearStoredAuth();
+      }
+      return;
+    }
+    writeStoredAuth({ token, user, scope });
+  }, [initialized, token, user, scope]);
 
-  async function login({ username, password }) {
-    const res = await api.post("/login", { username, password });
-    setToken(res.data.token);
-    setUser(res.data.user);
+  async function login({ username, password, rememberMe = false }) {
+    const res = await api.post("/login", { username, password, rememberMe });
+    const nextToken = res.data.token || res.data.accessToken || null;
+    const nextUser = res.data.user || null;
+    const nextScope = {
+      companyId:
+        Number(nextUser?.companyIds?.[0]) || Number(scope?.companyId) || 1,
+      branchId:
+        Number(nextUser?.branchIds?.[0]) || Number(scope?.branchId) || 1,
+    };
+
+    setToken(nextToken);
+    setUser(nextUser);
     setAccess({ patterns: [], modules: [] });
+    if (nextToken && nextUser) {
+      setAuthToken(nextToken);
+      setUserHeader(nextUser);
+      writeStoredAuth({ token: nextToken, user: nextUser, scope: nextScope });
+    }
+    touchLastActivity();
     return res.data;
   }
+
   useEffect(() => {
     // Skip permission loading - RBAC disabled
     setAccess({ patterns: [], modules: [] });
   }, [token, user]);
 
-  async function logout() {
+  async function logout({ redirect = true } = {}) {
     try {
+      await api.post("/auth/logout").catch(() => {});
       if (typeof window !== "undefined" && "serviceWorker" in navigator) {
         const reg = await navigator.serviceWorker.ready;
         const existing = await reg.pushManager.getSubscription();
@@ -98,136 +162,74 @@ export function AuthProvider({ children }) {
     setUser(null);
     setScope({ companyId: 1, branchId: 1 });
     setAuthToken(null);
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // ignore
+    clearStoredAuth();
+    clearLastActivity();
+    if (typeof window !== "undefined" && window.sessionStorage) {
+      try {
+        window.sessionStorage.removeItem("last_path");
+      } catch {}
     }
     setAccess({ patterns: [], modules: [] });
+    if (redirect && typeof window !== "undefined") {
+      window.location.replace("/login");
+    }
   }
 
-  function pathToRegex(pattern) {
-    const re = "^" + String(pattern || "").replace(/:[^/]+/g, "[^/]+") + "$";
-    return new RegExp(re);
-  }
+  useEffect(() => {
+    const events = ["click", "keydown", "mousemove", "scroll", "touchstart"];
+    const touch = () => {
+      if (token) touchLastActivity();
+    };
 
-  function buildAccess(allPages = [], rolePages = [], permissions = []) {
-    const byId = {};
-    for (const p of allPages) {
-      byId[p.id] = p;
-    }
-    const permByPageId = {};
-    for (const r of permissions) {
-      if (!r || typeof r.page_id === "undefined") continue;
-      permByPageId[r.page_id] = r;
-    }
-    const byPath = {};
-    for (const p of rolePages) {
-      if (!p || !p.id || !p.path) continue;
-      const perm = permByPageId[p.id];
-      const hasOverride = typeof perm !== "undefined";
-      let can_view = 1;
-      let can_create = 0;
-      let can_edit = 0;
-      let can_delete = 0;
-      if (hasOverride) {
-        can_view = Number(perm.can_view) ? 1 : 0;
-        can_create = Number(perm.can_create) ? 1 : 0;
-        can_edit = Number(perm.can_edit) ? 1 : 0;
-        can_delete = Number(perm.can_delete) ? 1 : 0;
+    const interval = window.setInterval(() => {
+      if (!token) return;
+      const lastActivity = getLastActivity();
+      if (lastActivity && Date.now() - lastActivity > INACTIVITY_TIMEOUT_MS) {
+        logout({ redirect: true }).catch(() => {});
       }
-      byPath[p.path] = {
-        path: p.path,
-        module: p.module || "",
-        can_view,
-        can_create,
-        can_edit,
-        can_delete,
-      };
-    }
-    const patterns = Object.values(byPath).map((v) => ({
-      pattern: v.path,
-      module: v.module,
-      can_view: v.can_view,
-      can_create: v.can_create,
-      can_edit: v.can_edit,
-      can_delete: v.can_delete,
-      regex: pathToRegex(v.path),
-    }));
-    const modules = [];
-    const seen = new Set();
-    for (const v of patterns) {
-      if (v.can_view && v.module && !seen.has(v.module)) {
-        seen.add(v.module);
-        modules.push(v.module);
-      }
-    }
-    setAccess({ patterns, modules });
-  }
+    }, 60 * 1000);
 
-  async function loadPermissions(userPayload) {
-    // Stub - no backend calls needed with RBAC disabled
-    setAccess({ patterns: [], modules: [] });
-  }
-
-  function hasAccess(path, action = "view") {
-    if (!Array.isArray(access.patterns) || access.patterns.length === 0) {
-      return false;
-    }
-    const pth = String(path || "");
-    const found =
-      access.patterns.find((p) => p.pattern === pth) ||
-      access.patterns.find((p) => p.regex.test(pth));
-    if (!found) return false;
-    if (action === "create") return Boolean(found.can_create);
-    if (action === "edit") return Boolean(found.can_edit);
-    if (action === "delete") return Boolean(found.can_delete);
-    return Boolean(found.can_view);
-  }
-
-  function hasModuleAccess(label) {
-    if (!Array.isArray(access.modules) || access.modules.length === 0) {
-      return false;
-    }
-    const raw = String(label || "");
-    const t = raw.toLowerCase().trim();
-    let norm = raw;
-    if (t.includes("administration")) norm = "Administration";
-    else if (t.includes("inventory")) norm = "Inventory";
-    else if (t.includes("sales")) norm = "Sales";
-    else if (t.includes("purchase")) norm = "Purchase";
-    else if (t.includes("finance")) norm = "Finance";
-    else if (t.includes("human resources")) norm = "Human Resources";
-    else if (t.includes("project management")) norm = "Project Management";
-    else if (t.includes("service management")) norm = "Service Management";
-    else if (t.includes("maintenance")) norm = "Maintenance";
-    else if (t.includes("production")) norm = "Production";
-    else if (t.includes("business intelligence"))
-      norm = "Business Intelligence";
-    else if (t.includes("pos")) norm = "POS";
-    if (access.modules.includes(norm) || access.modules.includes(raw))
-      return true;
-    const pats = Array.isArray(access.patterns) ? access.patterns : [];
-    const hasPrefix = (prefix) =>
-      pats.some(
-        (p) =>
-          p.can_view && String(p.pattern || p.path || "").startsWith(prefix),
+    events.forEach((eventName) =>
+      window.addEventListener(eventName, touch, true),
+    );
+    return () => {
+      window.clearInterval(interval);
+      events.forEach((eventName) =>
+        window.removeEventListener(eventName, touch, true),
       );
-    if (norm === "Administration") return hasPrefix("/administration/");
-    if (norm === "Inventory") return hasPrefix("/inventory/");
-    if (norm === "Sales") return hasPrefix("/sales/");
-    if (norm === "Purchase") return hasPrefix("/purchase/");
-    if (norm === "Finance") return hasPrefix("/finance/");
-    if (norm === "Human Resources") return hasPrefix("/human-resources/");
-    if (norm === "Project Management") return hasPrefix("/project-management/");
-    if (norm === "Service Management") return hasPrefix("/service-management/");
-    if (norm === "Maintenance") return hasPrefix("/maintenance/");
-    if (norm === "Production") return hasPrefix("/production/");
-    if (norm === "Business Intelligence")
-      return hasPrefix("/business-intelligence/");
-    if (norm === "POS") return hasPrefix("/pos/");
-    return false;
-  }
+    };
+  }, [token]);
+
+  useEffect(() => {
+    const eventName = getAuthChangedEventName();
+    const handler = (event) => {
+      const nextAuth = event?.detail || readStoredAuth();
+      if (!nextAuth?.token) {
+        setToken((prev) => (prev === null ? prev : null));
+        setUser((prev) => (prev === null ? prev : null));
+        setScope((prev) =>
+          prev?.companyId === 1 && prev?.branchId === 1
+            ? prev
+            : { companyId: 1, branchId: 1 },
+        );
+        return;
+      }
+      setToken((prev) => (prev === nextAuth.token ? prev : nextAuth.token));
+      setUser((prev) =>
+        prev === (nextAuth.user || null) ? prev : nextAuth.user || null,
+      );
+      setScope((prev) => {
+        const nextScope = nextAuth.scope || { companyId: 1, branchId: 1 };
+        return prev?.companyId === nextScope.companyId &&
+          prev?.branchId === nextScope.branchId
+          ? prev
+          : nextScope;
+      });
+    };
+
+    window.addEventListener(eventName, handler);
+    return () => window.removeEventListener(eventName, handler);
+  }, []);
 
   const value = useMemo(
     () => ({
@@ -238,8 +240,8 @@ export function AuthProvider({ children }) {
       setScope,
       login,
       logout,
-      hasAccess,
-      hasModuleAccess,
+      hasAccess: () => true, // RBAC disabled
+      hasModuleAccess: () => true, // RBAC disabled
     }),
     [token, user, scope, initialized, access],
   );

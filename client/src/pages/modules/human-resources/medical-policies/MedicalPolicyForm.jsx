@@ -9,6 +9,8 @@ export default function MedicalPolicyForm() {
   const isEdit = Boolean(id);
 
   const [loading, setLoading] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [policyFile, setPolicyFile] = useState(null);
   const [form, setForm] = useState({
     policy_code: '',
     policy_name: '',
@@ -17,23 +19,43 @@ export default function MedicalPolicyForm() {
     coverage_details: '',
     premium_amount: 0,
     renewal_date: '',
+    attachment_url: '',
+    attachment_name: '',
     is_active: true
   });
 
+  function getNextMedicalPolicyCode(items = []) {
+    const maxCode = items.reduce((max, item) => {
+      const code = String(item?.policy_code || "");
+      if (!/^MP\d{6}$/.test(code)) return max;
+      const value = Number(code.slice(2));
+      return Number.isFinite(value) && value > max ? value : max;
+    }, 0);
+    return `MP${String(maxCode + 1).padStart(6, "0")}`;
+  }
+
   useEffect(() => {
-    if (!isEdit) return;
     const load = async () => {
       setLoading(true);
       try {
-        const res = await api.get(`/hr/medical-policies/${id}`);
-        const item = res.data.item;
-        setForm({
-          ...item,
-          renewal_date: item.renewal_date ? item.renewal_date.slice(0, 10) : '',
-          is_active: !!item.is_active
-        });
+        if (!isEdit) {
+          const res = await api.get("/hr/medical-policies");
+          const items = res.data.items || [];
+          setForm((prev) => ({
+            ...prev,
+            policy_code: getNextMedicalPolicyCode(items),
+          }));
+        } else {
+          const res = await api.get(`/hr/medical-policies/${id}`);
+          const item = res.data.item;
+          setForm({
+            ...item,
+            renewal_date: item.renewal_date ? item.renewal_date.slice(0, 10) : '',
+            is_active: !!item.is_active
+          });
+        }
       } catch {
-        toast.error("Failed to load policy");
+        toast.error(isEdit ? "Failed to load policy" : "Failed to prepare policy code");
       } finally {
         setLoading(false);
       }
@@ -45,11 +67,39 @@ export default function MedicalPolicyForm() {
     setForm((p) => ({ ...p, [name]: value }));
   }
 
+  async function uploadMedicalFileIfNeeded() {
+    if (!policyFile) return null;
+    const formData = new FormData();
+    formData.append("file", policyFile);
+    formData.append("folder", "hr_medical_policies");
+    setUploadingFile(true);
+    try {
+      const res = await api.post("/upload", formData);
+      return {
+        url: res?.data?.url || "",
+        name: res?.data?.filename || policyFile.name || "",
+      };
+    } finally {
+      setUploadingFile(false);
+    }
+  }
+
   async function submit(e) {
     e.preventDefault();
     setLoading(true);
     try {
-      await api.post('/hr/medical-policies', form);
+      const payload = { ...form };
+      const uploaded = await uploadMedicalFileIfNeeded();
+      if (uploaded?.url) {
+        payload.attachment_url = uploaded.url;
+        payload.attachment_name = uploaded.name;
+      }
+      if (!payload.attachment_url) {
+        toast.error("Medical policy document upload is required");
+        setLoading(false);
+        return;
+      }
+      await api.post('/hr/medical-policies', payload);
       toast.success(isEdit ? "Policy updated" : "Policy created");
       navigate('/human-resources/medical-policies');
     } catch (err) {
@@ -68,16 +118,7 @@ export default function MedicalPolicyForm() {
 
       <form onSubmit={submit} className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="label">Policy Code *</label>
-            <input 
-              className="input" 
-              value={form.policy_code} 
-              onChange={(e) => update('policy_code', e.target.value)} 
-              required 
-              placeholder="e.g. MP-001"
-            />
-          </div>
+          <input type="hidden" name="policy_code" value={form.policy_code} readOnly />
           <div>
             <label className="label">Policy Name *</label>
             <input 
@@ -147,10 +188,36 @@ export default function MedicalPolicyForm() {
           />
         </div>
 
+        <div>
+          <label className="label">Policy Document Upload *</label>
+          <input
+            type="file"
+            className="input"
+            onChange={(e) => setPolicyFile(e.target.files?.[0] || null)}
+            accept=".pdf,.doc,.docx,.txt,.xls,.xlsx,image/*"
+            required={!form.attachment_url}
+          />
+          {form.attachment_url && (
+            <a
+              href={form.attachment_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-brand hover:underline inline-block mt-2"
+            >
+              View current uploaded file
+            </a>
+          )}
+          {policyFile && (
+            <p className="text-xs text-slate-500 mt-1">
+              Selected: {policyFile.name}
+            </p>
+          )}
+        </div>
+
         <div className="flex justify-end gap-3 pt-4">
           <Link to="/human-resources/medical-policies" className="btn-secondary">Cancel</Link>
-          <button className="btn-primary" disabled={loading}>
-            {loading ? 'Saving...' : 'Save Policy'}
+          <button className="btn-primary" disabled={loading || uploadingFile}>
+            {loading || uploadingFile ? 'Saving...' : 'Save Policy'}
           </button>
         </div>
       </form>

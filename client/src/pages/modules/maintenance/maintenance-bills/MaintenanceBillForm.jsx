@@ -7,27 +7,6 @@ const STATUSES = ["DRAFT","PENDING","APPROVED","PAID","CANCELLED"];
 const PAYMENT_STATUSES = ["UNPAID","PAID","OVERDUE"];
 const PAYMENT_METHODS = [{ key:"cash",label:"Cash" },{ key:"bank",label:"Bank Transfer" },{ key:"card",label:"Card" },{ key:"mobile",label:"Mobile Money" }];
 
-function LineRow({ idx, row, taxCodes, onChange, onRemove }) {
-  const qty = Number(row.qty || 0), rate = Number(row.rate || 0);
-  const disc = Number(row.discount_percent || 0);
-  const taxRate = Number((taxCodes.find(t => String(t.id) === String(row.tax_code_id)) || {}).rate_percent || 0);
-  const base = qty * rate, discAmt = base * (disc / 100);
-  const amount = base - discAmt + (base - discAmt) * (taxRate / 100);
-  const set = (k, v) => onChange(idx, { ...row, [k]: v });
-  return (
-    <tr>
-      <td className="p-2">{idx + 1}</td>
-      <td className="p-2"><input className="input" value={row.description || ""} onChange={e => set("description", e.target.value)} placeholder="Service description" /></td>
-      <td className="p-2"><input className="input" value={row.category || ""} onChange={e => set("category", e.target.value)} placeholder="Category" /></td>
-      <td className="p-2"><input className="input text-right" type="number" value={row.qty ?? ""} onChange={e => set("qty", e.target.value)} /></td>
-      <td className="p-2"><input className="input text-right" type="number" value={row.rate ?? ""} onChange={e => set("rate", e.target.value)} /></td>
-      <td className="p-2"><input className="input text-right" type="number" step="0.01" value={row.discount_percent ?? ""} onChange={e => set("discount_percent", e.target.value)} /></td>
-      <td className="p-2"><select className="input" value={row.tax_code_id || ""} onChange={e => set("tax_code_id", e.target.value)}><option value="">None</option>{taxCodes.map(t => <option key={t.id} value={String(t.id)}>{t.name}</option>)}</select></td>
-      <td className="p-2 text-right">{amount.toFixed(2)}</td>
-      <td className="p-2"><button type="button" className="btn-danger btn-sm" onClick={() => onRemove(idx)}>Remove</button></td>
-    </tr>
-  );
-}
 
 export default function MaintenanceBillForm() {
   const navigate = useNavigate();
@@ -44,9 +23,15 @@ export default function MaintenanceBillForm() {
     payment_status: "UNPAID", status: "DRAFT", notes: ""
   });
   const [lines, setLines] = useState([]);
-  const [suppliers, setSuppliers] = useState([]);
-  const [executions, setExecutions] = useState([]);
-  const [taxCodes, setTaxCodes] = useState([]);
+  const [newItem, setNewItem] = useState({
+    description: "",
+    category: "",
+    qty: 1,
+    rate: 0,
+    discount_percent: 0,
+    tax_code_id: "",
+  });
+  const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
   const [saving, setSaving] = useState(false);
   const update = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
@@ -54,7 +39,7 @@ export default function MaintenanceBillForm() {
     let mounted = true;
     api.get("/purchase/suppliers").then(r => { if (mounted) setSuppliers(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
     api.get("/maintenance/job-executions").then(r => { if (mounted) setExecutions(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
-    api.get("/finance/tax-codes").then(r => { if (mounted) setTaxCodes(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
+    api.get("/finance/tax-codes?form=MAINTENANCE_BILL").then(r => { if (mounted) setTaxCodes(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
     if (!isEdit) {
       api.get("/maintenance/bills/next-no").then(r => { if (mounted && r.data?.nextNo) update("bill_no", r.data.nextNo); }).catch(() => {});
     }
@@ -70,19 +55,143 @@ export default function MaintenanceBillForm() {
     return () => { mounted = false; };
   }, [id]);
 
+  const fetchTaxComponentsForCode = async (taxCodeId) => {
+    const key = String(taxCodeId || "");
+    if (!key) return;
+    try {
+      const resp = await api.get(`/finance/tax-codes/${taxCodeId}/components`);
+      const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
+      setTaxComponentsByCode((prev) => ({ ...prev, [key]: items }));
+    } catch {}
+  };
+
+  useEffect(() => {
+    const uniqueTaxIds = Array.from(
+      new Set([
+        ...lines.map((l) => String(l.tax_code_id)).filter(Boolean),
+        newItem.tax_code_id ? String(newItem.tax_code_id) : null,
+      ].filter(Boolean)),
+    );
+    const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
+    if (missing.length) {
+      Promise.all(missing.map((id) => fetchTaxComponentsForCode(id)));
+    }
+  }, [lines, newItem.tax_code_id]);
+
+  const calcNewItemTaxBreakdown = () => {
+    const qty = Number(newItem.qty || 0);
+    const rate = Number(newItem.rate || 0);
+    const discP = Number(newItem.discount_percent || 0);
+    const gross = qty * rate;
+    const disc = gross * (discP / 100);
+    const taxableTotal = Math.max(0, gross - disc);
+
+    const components = [];
+    let taxTotal = 0;
+    const comps = taxComponentsByCode[String(newItem.tax_code_id)] || [];
+
+    if (comps.length > 0) {
+      comps.forEach((c) => {
+        const r = Number(c.rate_percent) || 0;
+        const amt = (taxableTotal * r) / 100;
+        components.push({ name: c.component_name, rate: r, amount: amt });
+        taxTotal += amt;
+      });
+    } else if (newItem.tax_code_id) {
+      const tc = taxCodes.find((t) => String(t.id) === String(newItem.tax_code_id));
+      const r = tc ? Number(tc.rate_percent) || 0 : 0;
+      const amt = (taxableTotal * r) / 100;
+      if (r > 0) {
+        components.push({ name: "Tax", rate: r, amount: amt });
+        taxTotal = amt;
+      }
+    }
+    return { components, taxTotal, taxableTotal };
+  };
+
+  const addItemToLines = () => {
+    if (!newItem.description || !newItem.qty) return;
+    const { taxTotal, taxableTotal } = calcNewItemTaxBreakdown();
+    setLines((p) => [
+      ...p,
+      {
+        ...newItem,
+        id: Date.now(),
+        tax_amount: taxTotal,
+        amount: taxableTotal + taxTotal,
+      },
+    ]);
+    setNewItem({
+      description: "",
+      category: "",
+      qty: 1,
+      rate: 0,
+      discount_percent: 0,
+      tax_code_id: "",
+    });
+  };
+
   const totals = useMemo(() => {
-    let sub = 0, disc = 0, tax = 0;
+    let sub = 0, disc = 0;
+    const compTotals = {};
     for (const r of lines) {
       const base = Number(r.qty || 0) * Number(r.rate || 0);
       sub += base;
       const d = base * (Number(r.discount_percent || 0) / 100);
       disc += d;
-      const txRate = Number((taxCodes.find(t => String(t.id) === String(r.tax_code_id)) || {}).rate_percent || 0);
-      tax += (base - d) * (txRate / 100);
+      const taxable = base - d;
+
+      const taxCodeId = r.tax_code_id;
+      const comps = taxComponentsByCode[String(taxCodeId)] || [];
+      if (comps.length > 0) {
+        comps.forEach((c) => {
+          const rate = Number(c.rate_percent) || 0;
+          const amt = (taxable * rate) / 100;
+          const name = c.component_name;
+          if (!compTotals[name]) {
+            compTotals[name] = {
+              amount: 0,
+              rate,
+              sort_order: c.sort_order || 0,
+            };
+          }
+          compTotals[name].amount += amt;
+        });
+      } else {
+        const txRate = Number(
+          (taxCodes.find((t) => String(t.id) === String(taxCodeId)) || {})
+            .rate_percent || 0,
+        );
+        const taxVal = taxable * (txRate / 100);
+        if (txRate > 0) {
+          const name = "Tax";
+          if (!compTotals[name]) {
+            compTotals[name] = { amount: 0, rate: txRate, sort_order: 99 };
+          }
+          compTotals[name].amount += taxVal;
+        }
+      }
     }
+    const components = Object.keys(compTotals)
+      .map((name) => ({
+        name,
+        amount: compTotals[name].amount,
+        rate: compTotals[name].rate,
+        sort_order: compTotals[name].sort_order,
+      }))
+      .sort((a, b) => a.sort_order - b.sort_order);
+
+    const taxTotal = components.reduce((s, c) => s + c.amount, 0);
     const other = Number(form.other_charges || 0);
-    return { subtotal: sub, discountAmount: disc, taxAmount: tax, otherCharges: other, total: sub - disc + tax + other };
-  }, [lines, taxCodes, form.other_charges]);
+    return {
+      subtotal: sub,
+      discountAmount: disc,
+      taxAmount: taxTotal,
+      otherCharges: other,
+      total: sub - disc + taxTotal + other,
+      components,
+    };
+  }, [lines, taxCodes, form.other_charges, taxComponentsByCode]);
 
   const addLine = () => setLines(p => [...p, { description: "", category: "", qty: 1, rate: 0, discount_percent: 0, tax_code_id: "" }]);
   const removeLine = i => setLines(p => p.filter((_, idx) => idx !== i));
@@ -146,12 +255,142 @@ export default function MaintenanceBillForm() {
         <div className="card">
           <div className="card-header bg-brand text-white rounded-t-lg font-semibold">Bill Lines</div>
           <div className="card-body">
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg mb-6">
+              <h4 className="text-sm font-semibold mb-3 text-brand">Add Service Line</h4>
+              <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-3">
+                <div className="md:col-span-2">
+                  <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Description *</label>
+                  <input
+                    className="input text-sm"
+                    value={newItem.description}
+                    onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
+                    placeholder="Enter service details"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Category</label>
+                  <input
+                    className="input text-sm"
+                    value={newItem.category}
+                    onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Qty</label>
+                  <input
+                    type="number"
+                    className="input text-sm"
+                    value={newItem.qty}
+                    onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Rate</label>
+                  <input
+                    type="number"
+                    className="input text-sm"
+                    value={newItem.rate}
+                    onChange={(e) => setNewItem({ ...newItem, rate: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Disc %</label>
+                  <input
+                    type="number"
+                    className="input text-sm"
+                    value={newItem.discount_percent}
+                    onChange={(e) => setNewItem({ ...newItem, discount_percent: e.target.value })}
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Tax Code</label>
+                  <select
+                    className="input text-sm"
+                    value={newItem.tax_code_id}
+                    onChange={(e) => setNewItem({ ...newItem, tax_code_id: e.target.value })}
+                  >
+                    <option value="">No Tax</option>
+                    {taxCodes.map((t) => (
+                      <option key={t.id} value={String(t.id)}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                   {newItem.tax_code_id && calcNewItemTaxBreakdown().components.length > 0 && (
+                     <div className="border border-brand/20 bg-brand/5 rounded-md p-2 text-[11px] mt-1">
+                       <span className="font-bold block border-b border-brand/10 mb-1">Tax Calculation:</span>
+                       {calcNewItemTaxBreakdown().components.map(c => (
+                         <div key={c.name} className="flex justify-between">
+                           <span>{c.name} ({c.rate}%):</span>
+                           <span className="font-semibold">{c.amount.toFixed(2)}</span>
+                         </div>
+                       ))}
+                       <div className="flex justify-between border-t border-brand/10 mt-1 pt-1 font-bold italic">
+                         <span>Total Tax:</span>
+                         <span>{calcNewItemTaxBreakdown().taxTotal.toFixed(2)}</span>
+                       </div>
+                     </div>
+                   )}
+                </div>
+                <div className="md:col-span-2 flex items-end justify-end">
+                  <button
+                    type="button"
+                    className="btn btn-primary px-4 py-1.5 text-xs flex items-center gap-2"
+                    onClick={addItemToLines}
+                    disabled={!newItem.description || !newItem.qty}
+                  >
+                    <span>+</span> Add Line
+                  </button>
+                </div>
+              </div>
+            </div>
             <div className="overflow-x-auto">
               <table className="table">
-                <thead><tr><th>#</th><th>Description</th><th>Category</th><th className="text-right">Qty</th><th className="text-right">Rate</th><th className="text-right">Disc%</th><th>Tax</th><th className="text-right">Amount</th><th></th></tr></thead>
+                <thead className="bg-[#f8f9fa]">
+                  <tr>
+                    <th>#</th>
+                    <th>Description</th>
+                    <th>Category</th>
+                    <th className="text-right">Qty</th>
+                    <th className="text-right">Rate</th>
+                    <th className="text-right">Disc%</th>
+                    <th className="text-right">Tax</th>
+                    <th className="text-right">Total</th>
+                    <th></th>
+                  </tr>
+                </thead>
                 <tbody>
-                  {lines.map((row, i) => <LineRow key={i} idx={i} row={row} taxCodes={taxCodes} onChange={updateLine} onRemove={removeLine} />)}
-                  <tr><td colSpan="9"><button type="button" className="btn-success btn-sm" onClick={addLine}>+ Add Line</button></td></tr>
+                  {lines.length === 0 ? (
+                    <tr>
+                      <td colSpan="9" className="text-center py-10 text-slate-400 bg-slate-50 italic">
+                        No service lines added yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    lines.map((row, i) => {
+                       const gross = (Number(row.qty) || 0) * (Number(row.rate) || 0);
+                       const disc = gross * (Number(row.discount_percent || 0) / 100);
+                       const net = gross - disc;
+                       const tax = (Number(row.amount) || 0) - net;
+                       return (
+                         <tr key={row.id || i} className="hover:bg-slate-50">
+                           <td>{i + 1}</td>
+                           <td className="font-medium text-[#0E3646] truncate max-w-[200px]">{row.description}</td>
+                           <td className="text-xs text-slate-500">{row.category}</td>
+                           <td className="text-right font-semibold">{row.qty}</td>
+                           <td className="text-right font-mono">{Number(row.rate).toFixed(2)}</td>
+                           <td className="text-right text-red-500">{row.discount_percent}%</td>
+                           <td className="text-right text-slate-500">{tax.toFixed(2)}</td>
+                           <td className="text-right font-bold text-[#0E3646]">{Number(row.amount).toFixed(2)}</td>
+                           <td className="text-center">
+                             <button type="button" className="text-red-500 hover:text-red-800 transition-colors" onClick={() => removeLine(i)}>Discard</button>
+                           </td>
+                         </tr>
+                       );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -160,6 +399,17 @@ export default function MaintenanceBillForm() {
                 <div className="flex justify-between"><span>Subtotal</span><span>{totals.subtotal.toFixed(2)}</span></div>
                 <div className="flex justify-between"><span>Discount</span><span>-{totals.discountAmount.toFixed(2)}</span></div>
                 <div className="flex justify-between"><span>Tax</span><span>{totals.taxAmount.toFixed(2)}</span></div>
+                {(totals.components || []).map((c) => (
+                  <div
+                    key={c.name}
+                    className="flex justify-between text-xs text-slate-500 pl-4"
+                  >
+                    <span>
+                      {c.name} ({c.rate}%):
+                    </span>
+                    <span>{Number(c.amount || 0).toFixed(2)}</span>
+                  </div>
+                ))}
                 <div className="flex justify-between items-center"><span>Other Charges</span><input className="input w-28 text-right" type="number" value={form.other_charges} onChange={e => update("other_charges", e.target.value)} /></div>
                 <div className="flex justify-between font-bold border-t pt-1 text-base"><span>Total</span><span>{totals.total.toFixed(2)}</span></div>
               </div>

@@ -1126,10 +1126,9 @@ export default function AppShell() {
                   <div className="pt-3 border-t border-slate-200 dark:border-slate-700 flex justify-end">
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         setProfileOpen(false);
-                        logout();
-                        navigate("/login", { replace: true });
+                        await logout({ redirect: true });
                       }}
                       className="btn-secondary"
                     >

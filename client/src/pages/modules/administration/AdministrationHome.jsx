@@ -102,13 +102,7 @@ function AdministrationLanding() {
           path: "/administration/companies",
           icon: "🏢",
           hidden: false,
-          actions: [
-            {
-              label: "Manage",
-              path: "/administration/companies",
-              type: "primary",
-            },
-          ],
+          actions: [],
         },
         {
           title: "Branch Setup",
@@ -121,11 +115,6 @@ function AdministrationLanding() {
               path: "/administration/branches",
               type: "outline",
             },
-            {
-              label: "Add Branch",
-              path: "/administration/branches/new",
-              type: "primary",
-            },
           ],
         },
         {
@@ -133,13 +122,7 @@ function AdministrationLanding() {
           description: "Push notifications and document templates",
           path: "/administration/settings",
           icon: "⚙️",
-          actions: [
-            {
-              label: "Open",
-              path: "/administration/settings",
-              type: "primary",
-            },
-          ],
+          actions: [],
         },
       ],
     },
@@ -155,15 +138,7 @@ function AdministrationLanding() {
           feature_key: "roles",
           path: "/administration/access/roles",
           icon: "�️",
-          actions: [
-            {
-              label: "Open",
-              module_key: "administration",
-              feature_key: "roles",
-              path: "/administration/access/roles",
-              type: "primary",
-            },
-          ],
+          actions: [],
         },
         {
           title: "User Permissions",
@@ -172,15 +147,7 @@ function AdministrationLanding() {
           feature_key: "user-permissions",
           path: "/administration/access/user-permissions",
           icon: "✅",
-          actions: [
-            {
-              label: "Open",
-              module_key: "administration",
-              feature_key: "user-permissions",
-              path: "/administration/access/user-permissions",
-              type: "primary",
-            },
-          ],
+          actions: [],
         },
         {
           title: "Dashboard Permissions",
@@ -189,15 +156,7 @@ function AdministrationLanding() {
           feature_key: "user-permissions",
           path: "/administration/access/dashboard-permissions",
           icon: "📊",
-          actions: [
-            {
-              label: "Open",
-              module_key: "administration",
-              feature_key: "user-permissions",
-              path: "/administration/access/dashboard-permissions",
-              type: "primary",
-            },
-          ],
+          actions: [],
         },
         {
           title: "Exceptional Permissions",
@@ -206,15 +165,7 @@ function AdministrationLanding() {
           feature_key: "user-overrides",
           path: "/administration/access/user-overrides",
           icon: "✨",
-          actions: [
-            {
-              label: "Open",
-              module_key: "administration",
-              feature_key: "user-overrides",
-              path: "/administration/access/user-overrides",
-              type: "primary",
-            },
-          ],
+          actions: [],
         },
         {
           title: "User Management",
@@ -228,11 +179,6 @@ function AdministrationLanding() {
               path: "/administration/users",
               type: "outline",
             },
-            {
-              label: "Add User",
-              path: "/administration/users/new",
-              type: "primary",
-            },
           ],
         },
       ],
@@ -245,13 +191,7 @@ function AdministrationLanding() {
           description: "Define and configure approval workflows for documents",
           path: "/administration/workflows",
           icon: "🔄",
-          actions: [
-            {
-              label: "Configure",
-              path: "/administration/workflows",
-              type: "primary",
-            },
-          ],
+          actions: [],
         },
         {
           title: "Workflow Approvals",

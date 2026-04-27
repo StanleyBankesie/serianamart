@@ -158,6 +158,8 @@ export default function PotentialCustomerList() {
                   <th>Credit Limit</th>
                   <th>Status</th>
                   <th>Actions</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -219,6 +221,8 @@ export default function PotentialCustomerList() {
                         )}
                       </div>
                     </td>
+                    <td>{r.created_by_name || "-"}</td>
+                    <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

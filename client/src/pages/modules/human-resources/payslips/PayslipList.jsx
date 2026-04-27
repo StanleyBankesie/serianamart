@@ -380,6 +380,8 @@ export default function PayslipList() {
                     Net Pay
                   </th>
                   <th className="text-center">Actions</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -464,6 +466,8 @@ export default function PayslipList() {
                           </button>
                         </div>
                       </td>
+                      <td>{p.created_by_name || "-"}</td>
+                      <td>{p.created_at ? new Date(p.created_at).toLocaleDateString() : "-"}</td>
                     </tr>
                     {expandedLoans[r.id] && r.loan_items && (
                       <tr className="bg-slate-50/70 dark:bg-slate-700/40 animate-in fade-in slide-in-from-top-1">

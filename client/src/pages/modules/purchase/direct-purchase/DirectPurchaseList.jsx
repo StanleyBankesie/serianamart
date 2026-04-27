@@ -105,6 +105,8 @@ export default function DirectPurchaseList() {
                     <th className="text-right">Amount</th>
                     <th>Attachments</th>
                     <th>Actions</th>
+                                    <th>Created By</th>
+                  <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -193,6 +195,8 @@ export default function DirectPurchaseList() {
                           </button>
                         </div>
                       </td>
+                      <td>{it.created_by_name || "-"}</td>
+                      <td>{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
                     </tr>
                   ))}
                   {items.length === 0 && (

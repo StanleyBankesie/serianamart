@@ -205,6 +205,8 @@ export default function ItemGroupsList() {
                   <th>Name</th>
                   <th>Parent</th>
                   <th>Active</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -238,6 +240,8 @@ export default function ItemGroupsList() {
                     <td>{c.category_name}</td>
                     <td>{c.parent_category_name || "-"}</td>
                     <td>{c.is_active ? "Yes" : "No"}</td>
+                    <td>{c.created_by_name || "-"}</td>
+                    <td>{c.created_at ? new Date(c.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

@@ -457,6 +457,7 @@ app.use(
   ),
 );
 app.use("/api/admin", adminRoutes);
+app.use("/api/administration", adminRoutes);
 app.use("/api/workflows", workflowRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/sales", salesRoutes);
@@ -677,12 +678,12 @@ if (process.env.NODE_ENV !== "test") {
           );
           for (const u of recipients) {
             const recent = await query(
-              `SELECT id FROM adm_notifications 
+              `SELECT id FROM adm_system_logs 
                WHERE user_id = :userId 
-                 AND title = 'Low Stock Alert' 
-                 AND created_at > DATE_SUB(NOW(), INTERVAL :h HOUR)
+                 AND action = 'low-stock-alert' 
+                 AND event_time > DATE_SUB(NOW(), INTERVAL :throttle HOUR) 
                LIMIT 1`,
-              { userId: u.id, h: throttleHours },
+              { userId: u.id, throttle: throttleHours },
             );
             if (recent.length) continue;
             const count = items.length;
@@ -735,7 +736,7 @@ if (process.env.NODE_ENV !== "test") {
               }
             } else {
               console.log(
-                `[MOCK EMAIL] To: ${u.email || "(none)"} | Subject: ${subject}`,
+                `[MOCK ERROR] To: ${u.email || "(none)"} | Subject: ${subject}`,
               );
             }
             if (Number(u?.push_enabled) === 1) {

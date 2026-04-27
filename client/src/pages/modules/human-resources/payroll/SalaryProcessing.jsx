@@ -287,17 +287,7 @@ export default function SalaryProcessing() {
           <>
             {/* source badge */}
             <div className="flex items-center gap-2">
-              {previewData.source === "actual" ? (
-                <span className="inline-flex items-center gap-1.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs font-semibold px-3 py-1 rounded-full border border-green-200 dark:border-green-700">
-                  ✅ Actual computed payroll — source:{" "}
-                  <code className="font-mono">hr_payroll_items</code>
-                  {selectedPeriodObj && (
-                    <span className="font-normal">
-                      · {selectedPeriodObj.period_name}
-                    </span>
-                  )}
-                </span>
-              ) : (
+              {previewData.source !== "actual" && (
                 <span className="inline-flex items-center gap-1.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-xs font-semibold px-3 py-1 rounded-full border border-amber-200 dark:border-amber-700">
                   ⚠ Estimated preview — source:{" "}
                   <code className="font-mono">hr_employees.base_salary</code> ·

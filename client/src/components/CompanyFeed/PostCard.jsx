@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import "./PostCard.css";
 import api from "../../api/client";
+import { getStoredToken } from "../../auth/authStorage.js";
 
 const avatarCache = new Map();
 
@@ -20,7 +21,7 @@ export default function PostCard({
   const [authorAvatar, setAuthorAvatar] = useState(null);
   const [commenterAvatars, setCommenterAvatars] = useState({});
   const [showComments, setShowComments] = useState(!!defaultShowComments);
-  const token = localStorage.getItem("token");
+  const token = getStoredToken();
   const { user } = useAuth();
   const navigate = useNavigate();
   const commentFileRef = useRef(null);

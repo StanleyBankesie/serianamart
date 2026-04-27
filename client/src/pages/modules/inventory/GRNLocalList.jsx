@@ -936,6 +936,8 @@ export default function GRNLocalList() {
                       <th>Amount</th>
                       <th>Batch/Serial</th>
                       <th>Remarks</th>
+                                        <th>Created By</th>
+                    <th>Created Date</th>
                     </tr>
                   </thead>
                   <tbody>

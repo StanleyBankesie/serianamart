@@ -331,49 +331,7 @@ export default function DashboardPermissions() {
                       </div>
                     </div>
 
-                    <div>
-                      <h4 className="font-medium mb-2">Tickers</h4>
-                      <CardTickerEditor
-                        entries={perms.filter(
-                          (p) =>
-                            p.module_key === m.key &&
-                            !p.dashboard_key &&
-                            !p.card_key &&
-                            p.ticker_key,
-                        )}
-                        onChange={(list) => {
-                          setPerms((prev) => {
-                            const next = prev.filter(
-                              (p) =>
-                                !(
-                                  p.module_key === m.key &&
-                                  !p.dashboard_key &&
-                                  !p.card_key &&
-                                  p.ticker_key
-                                ),
-                            );
-                            const additions = list.map((k) => ({
-                              user_id: Number(selectedUserId),
-                              module_key: m.key,
-                              dashboard_key: null,
-                              card_key: null,
-                              ticker_key: k,
-                              can_view: 1,
-                            }));
-                            // Persist each immediately
-                            additions.forEach((a) =>
-                              persistPermission(
-                                m.key,
-                                "ticker",
-                                a.ticker_key,
-                                true,
-                              ),
-                            );
-                            return next.concat(additions);
-                          });
-                        }}
-                      />
-                    </div>
+
                   </div>
                 </div>
               ))}

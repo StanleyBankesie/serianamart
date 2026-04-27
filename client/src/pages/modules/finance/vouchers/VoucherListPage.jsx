@@ -1335,32 +1335,34 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                                 >
                                   Approved
                                 </button>
-                                <ReverseApprovalButton
-                                  docType={
-                                    isPV
-                                      ? "PAYMENT_VOUCHER"
-                                      : isRV
-                                        ? "RECEIPT_VOUCHER"
-                                        : isCV
-                                          ? "CONTRA_VOUCHER"
-                                          : "JOURNAL_VOUCHER"
-                                  }
-                                  docId={v.id}
-                                  className="ml-2 text-indigo-700 hover:text-indigo-800 text-xs font-medium"
-                                  onDone={() =>
-                                    setItems((prev) =>
-                                      prev.map((x) =>
-                                        x.id === v.id
-                                          ? {
-                                              ...x,
-                                              status: "REVERSED",
-                                              forwarded_to_username: null,
-                                            }
-                                          : x,
-                                      ),
-                                    )
-                                  }
-                                />
+                                {!isSV && (
+                                  <ReverseApprovalButton
+                                    docType={
+                                      isPV
+                                        ? "PAYMENT_VOUCHER"
+                                        : isRV
+                                          ? "RECEIPT_VOUCHER"
+                                          : isCV
+                                            ? "CONTRA_VOUCHER"
+                                            : "JOURNAL_VOUCHER"
+                                    }
+                                    docId={v.id}
+                                    className="ml-2 text-indigo-700 hover:text-indigo-800 text-xs font-medium"
+                                    onDone={() =>
+                                      setItems((prev) =>
+                                        prev.map((x) =>
+                                          x.id === v.id
+                                            ? {
+                                                ...x,
+                                                status: "REVERSED",
+                                                forwarded_to_username: null,
+                                              }
+                                            : x,
+                                        ),
+                                      )
+                                    }
+                                  />
+                                )}
                               </>
                             ) : v.forwarded_to_username ? (
                               <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white whitespace-nowrap inline-flex items-center">
@@ -1385,7 +1387,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                                     : "Forward for Approval"}
                               </button>
                             ))}
-                          {!isPV && !isRV && !isCV && !isJV && (
+                          {!isPV && !isRV && !isCV && !isJV && !isSV && (
                             <button
                               type="button"
                               className="text-red-600 hover:text-red-700 font-medium text-sm"

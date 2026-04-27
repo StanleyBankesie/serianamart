@@ -1,18 +1,23 @@
-import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
-
 import { httpError } from "../utils/httpError.js";
+import { verifyAccessToken } from "../services/token.service.js";
+import "../utils/loadServerEnv.js";
 
-dotenv.config();
+function allowDevBypass() {
+  return (
+    process.env.NODE_ENV !== "production" &&
+    String(process.env.AUTH_ALLOW_DEV_BYPASS || "").trim() === "1"
+  );
+}
 
-function ensureDevUser(req) {
-  if (req.user) return;
+function attachDevUser(req) {
   req.user = {
     sub: 1,
+    id: 1,
+    username: "dev",
     email: "dev@local",
     permissions: ["*"],
-    companyIds: [],
-    branchIds: [],
+    companyIds: [1],
+    branchIds: [1],
   };
 }
 
@@ -21,44 +26,46 @@ export function requireAuth(req, res, next) {
     const authHeader =
       req.headers.authorization || req.headers.Authorization || "";
     const m = String(authHeader).match(/^Bearer\s+(.+)$/i);
-    if (m) {
-      const token = m[1];
-      const secret =
-        process.env.JWT_SECRET ||
-        (process.env.NODE_ENV !== "production" ? "omnisuite-dev-secret" : null);
-      if (secret) {
-        try {
-          const payload = jwt.verify(token, secret);
-          if (payload && typeof payload === "object") {
-            req.user = {
-              ...(req.user || {}),
-              ...payload,
-            };
-          }
-        } catch {
-          // ignore token errors, fall back to dev user or header id
-        }
-      }
+    if (m?.[1]) {
+      const payload = verifyAccessToken(m[1]);
+      req.user = {
+        ...(req.user || {}),
+        ...payload,
+      };
+      req.scope = req.scope || {};
+      req.scope.userId = Number(payload.sub || payload.id) || null;
+      return next();
     }
-  } catch {}
-  ensureDevUser(req);
-  const headerUserId =
-    req.headers["x-user-id"] !== undefined
-      ? Number(req.headers["x-user-id"])
-      : req.query.userId !== undefined
-      ? Number(req.query.userId)
-      : null;
-  if (headerUserId && Number.isFinite(headerUserId)) {
-    req.user.sub = headerUserId;
+
+    if (allowDevBypass()) {
+      attachDevUser(req);
+      req.scope = req.scope || {};
+      req.scope.userId = 1;
+      return next();
+    }
+
+    return next(httpError(401, "UNAUTHORIZED", "Authentication required"));
+  } catch (err) {
+    if (allowDevBypass()) {
+      attachDevUser(req);
+      req.scope = req.scope || {};
+      req.scope.userId = 1;
+      return next();
+    }
+    return next(httpError(401, "INVALID_TOKEN", "Invalid or expired token"));
   }
-  return next();
 }
 
 export function requireCompanyScope(req, res, next) {
-  ensureDevUser(req);
+  if (!req.user) {
+    return next(httpError(401, "UNAUTHORIZED", "Authentication required"));
+  }
 
   const companyId = Number(
-    req.headers["x-company-id"] || req.query.companyId || 1
+    req.headers["x-company-id"] ||
+      req.query.companyId ||
+      req.user?.companyIds?.[0] ||
+      1
   );
   req.scope = req.scope || {};
   req.scope.companyId = companyId;
@@ -75,10 +82,15 @@ export function requireCompanyScope(req, res, next) {
 }
 
 export function requireBranchScope(req, res, next) {
-  ensureDevUser(req);
+  if (!req.user) {
+    return next(httpError(401, "UNAUTHORIZED", "Authentication required"));
+  }
 
   const branchId = Number(
-    req.headers["x-branch-id"] || req.query.branchId || 1
+    req.headers["x-branch-id"] ||
+      req.query.branchId ||
+      req.user?.branchIds?.[0] ||
+      1
   );
   req.scope = req.scope || {};
   req.scope.branchId = branchId;

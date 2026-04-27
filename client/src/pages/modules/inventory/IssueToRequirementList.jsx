@@ -108,6 +108,8 @@ export default function IssueToRequirementList() {
                   <th>Department</th>
                   <th>Status</th>
                   <th>Actions</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -141,6 +143,8 @@ export default function IssueToRequirementList() {
                         Edit
                       </Link>
                     </td>
+                    <td>{d.created_by_name || "-"}</td>
+                    <td>{d.created_at ? new Date(d.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

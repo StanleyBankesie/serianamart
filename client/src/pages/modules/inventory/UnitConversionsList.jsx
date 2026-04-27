@@ -97,6 +97,8 @@ export default function UnitConversionsList() {
                   <th>Factor</th>
                   <th>Active</th>
                   <th>Actions</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -151,6 +153,8 @@ export default function UnitConversionsList() {
                         Edit
                       </Link>
                     </td>
+                    <td>{c.created_by_name || "-"}</td>
+                    <td>{c.created_at ? new Date(c.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

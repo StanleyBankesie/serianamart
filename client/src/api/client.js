@@ -5,8 +5,15 @@ import {
   getQueueSnapshot,
 } from "../offline/syncEngine.js";
 import { putCache, getCache } from "../offline/cache.js";
+import {
+  clearStoredAuth,
+  readStoredAuth,
+  touchLastActivity,
+  writeStoredAuth,
+} from "../auth/authStorage.js";
 
 export const api = axios.create({
+  withCredentials: true,
   headers: {
     "Content-Type": "application/json",
   },
@@ -49,6 +56,71 @@ if (!normalizedBase) {
 api.defaults.baseURL = normalizedBase || "/api";
 
 startSyncEngine();
+
+let refreshPromise = null;
+
+function normalizeUrl(url) {
+  return String(url || "").trim();
+}
+
+function isUnauthenticatedEndpoint(url) {
+  const value = normalizeUrl(url);
+  return [
+    "/register",
+    "/login",
+    "/auth/refresh",
+    "/auth/logout",
+    "/forgot-password/request-otp",
+    "/forgot-password/reset",
+  ].includes(value);
+}
+
+function redirectToLogin() {
+  if (typeof window === "undefined") return;
+  if (window.location.pathname === "/login") return;
+  window.location.href = "/login";
+}
+
+async function requestTokenRefresh() {
+  if (!refreshPromise) {
+    refreshPromise = axios({
+      baseURL: api.defaults.baseURL,
+      url: "/auth/refresh",
+      method: "post",
+      withCredentials: true,
+      headers: {
+        "Content-Type": "application/json",
+      },
+    })
+      .then((response) => {
+        const nextToken =
+          response.data?.token || response.data?.accessToken || null;
+        if (!nextToken) {
+          throw new Error("Refresh endpoint did not return an access token");
+        }
+
+        const current = readStoredAuth() || {};
+        writeStoredAuth({
+          ...current,
+          token: nextToken,
+          user: response.data?.user || current.user || null,
+        });
+        setAuthToken(nextToken);
+        touchLastActivity();
+        return nextToken;
+      })
+      .catch((error) => {
+        clearStoredAuth();
+        setAuthToken(null);
+        throw error;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+
+  return refreshPromise;
+}
 
 api.interceptors.request.use(
   async (config) => {
@@ -100,6 +172,7 @@ api.interceptors.request.use(
         });
       }
     }
+    touchLastActivity();
     return config;
   },
   (error) => Promise.reject(error),
@@ -107,10 +180,8 @@ api.interceptors.request.use(
 
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("token");
-    // Do not attach Authorization for unauthenticated endpoints
-    const skipAuthFor = new Set(["/register", "/login"]);
-    if (token && !skipAuthFor.has(String(config.url || ""))) {
+    const token = readStoredAuth()?.token || null;
+    if (token && !isUnauthenticatedEndpoint(config.url)) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -172,13 +243,41 @@ api.interceptors.response.use(
         config: error.config,
       });
     }
+    const originalRequest = error?.config || {};
+    const requestUrl = normalizeUrl(originalRequest.url);
+    const shouldTryRefresh =
+      error?.response?.status === 401 &&
+      !!originalRequest?.headers?.Authorization &&
+      !originalRequest.__isRetryRequest &&
+      !isUnauthenticatedEndpoint(requestUrl);
+
+    if (shouldTryRefresh) {
+      return requestTokenRefresh()
+        .then((token) => {
+          originalRequest.__isRetryRequest = true;
+          originalRequest.headers = originalRequest.headers || {};
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          return api(originalRequest);
+        })
+        .catch(() => {
+          redirectToLogin();
+          return Promise.reject({
+            message: error.message,
+            response: error.response,
+            config: error.config,
+            isAxiosError: true,
+          });
+        });
+    }
+
     if (
       error.response?.status === 401 &&
-      error.config?.headers?.Authorization
+      isUnauthenticatedEndpoint(requestUrl)
     ) {
-      localStorage.clear();
-      window.location.href = "/login";
+      clearStoredAuth();
+      setAuthToken(null);
     }
+
     return Promise.reject({
       message: error.message,
       response: error.response,

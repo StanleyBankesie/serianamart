@@ -96,6 +96,8 @@ export default function ServiceConfirmationsList() {
                   <th>Total</th>
                   <th>Status</th>
                   <th>Actions</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -154,6 +156,8 @@ export default function ServiceConfirmationsList() {
                         )}
                       </div>
                     </td>
+                    <td>{c.created_by_name || "-"}</td>
+                    <td>{c.created_at ? new Date(c.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

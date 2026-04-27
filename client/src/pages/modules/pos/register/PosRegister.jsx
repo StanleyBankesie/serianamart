@@ -119,10 +119,10 @@ export default function PosRegister() {
           const time = dt.includes("T") ? dt.split("T")[1].slice(0, 8) : "";
           return {
             id: it.id,
-            receiptNo: String(it.sale_no || ""),
+            receiptNo: String(it.receipt_no || it.sale_no || ""),
             date,
             time,
-            customer: String(it.customer_id || ""),
+            customer: String(it.customer_name || ""),
             phone: "",
             payment: String(it.payment_method || "").toLowerCase(),
             status: String(it.payment_status || "").toLowerCase(),
@@ -470,15 +470,17 @@ export default function PosRegister() {
                           >
                             Print
                           </button>
-                          <button
-                            className="btn btn-danger"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteTransaction(t.id);
-                            }}
-                          >
-                            Delete
-                          </button>
+                          {canPerformAction("pos:register", "delete") && (
+                            <button
+                              className="btn btn-danger"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteTransaction(t.id);
+                              }}
+                            >
+                              Delete
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

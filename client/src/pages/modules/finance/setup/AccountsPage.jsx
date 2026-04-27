@@ -80,7 +80,7 @@ export default function AccountsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm, filterGroupId, natureFilter, activeFilter]);
 
-  async function create(e) {
+  async function createAccount(e) {
     e.preventDefault();
     try {
       const payload = {
@@ -279,7 +279,7 @@ export default function AccountsPage() {
       <div className="card">
         <div className="card-body">
           <form
-            onSubmit={create}
+            onSubmit={createAccount}
             className="grid grid-cols-1 md:grid-cols-6 gap-3"
           >
             <div className="md:col-span-2">
@@ -293,7 +293,7 @@ export default function AccountsPage() {
                 <option value="">Select group</option>
                 {groups.map((g) => (
                   <option key={g.id} value={g.id}>
-                    {g.code} - {g.name}
+                    {g.name}
                   </option>
                 ))}
               </select>
@@ -438,20 +438,24 @@ export default function AccountsPage() {
                               >
                                 Edit
                               </button>
-                              <button
-                                className="btn-success"
-                                disabled={loading}
-                                onClick={() => handleToggleActive(a.id, 1)}
-                              >
-                                Activate
-                              </button>
-                              <button
-                                className="btn btn-secondary"
-                                disabled={loading}
-                                onClick={() => handleToggleActive(a.id, 0)}
-                              >
-                                Deactivate
-                              </button>
+                              {!a.is_active ? (
+                                <button
+                                  className="btn-success"
+                                  disabled={loading}
+                                  onClick={() => handleToggleActive(a.id, 1)}
+                                >
+                                  Activate
+                                </button>
+                              ) : null}
+                              {a.is_active ? (
+                                <button
+                                  className="btn btn-secondary"
+                                  disabled={loading}
+                                  onClick={() => handleToggleActive(a.id, 0)}
+                                >
+                                  Deactivate
+                                </button>
+                              ) : null}
                             </div>
                           </td>
                         </>

@@ -379,6 +379,16 @@ export default function PriceSetup() {
           return;
       }
 
+      if (
+        modalType === "standard" &&
+        (payload.price_type_id == null || payload.price_type_id === "")
+      ) {
+        alert(
+          "Select a price type (e.g. Retail or Wholesale) so this price is saved for that price list.",
+        );
+        return;
+      }
+
       await api.post(endpoint, payload);
       handleCloseModal();
       loadTabData();
@@ -411,6 +421,8 @@ export default function PriceSetup() {
             const priceType = priceTypes.find(
               (pt) => pt.id === item.price_type_id,
             );
+            const priceTypeLabel =
+              item.price_type_name || (priceType ? priceType.name : null);
             const currency = currencies.find((c) => c.id === item.currency_id);
             return (
               <tr key={index}>
@@ -423,7 +435,7 @@ export default function PriceSetup() {
                 <td>{Number(item.selling_price).toFixed(2)}</td>
                 <td>{Number(item.margin_percent).toFixed(2)}%</td>
                 <td>{new Date(item.effective_date).toLocaleDateString()}</td>
-                <td>{priceType ? priceType.name : "-"}</td>
+                <td>{priceTypeLabel || "-"}</td>
                 <td>{item.uom || "-"}</td>
                 <td>
                   {currency
@@ -529,14 +541,14 @@ export default function PriceSetup() {
             </select>
           </div>
           <div className="form-group">
-            <label>Price Type</label>
+            <label className="required">Price type</label>
             <select
               value={formData.price_type_id || ""}
               onChange={(e) =>
                 setFormData({ ...formData, price_type_id: e.target.value })
               }
             >
-              <option value="">Select Price Type</option>
+              <option value="">Select price type</option>
               {priceTypes.map((pt) => (
                 <option key={pt.id} value={pt.id}>
                   {pt.name}

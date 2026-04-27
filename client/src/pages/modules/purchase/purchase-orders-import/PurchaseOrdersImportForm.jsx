@@ -413,7 +413,7 @@ export default function PurchaseOrdersImportForm() {
     let mounted = true;
     async function loadTaxCodes() {
       try {
-        const response = await api.get("/finance/tax-codes");
+        const response = await api.get("/finance/tax-codes?form=PURCHASE_BILL_IMPORT");
         if (!mounted) return;
         const fetchedTaxes = Array.isArray(response.data?.items)
           ? response.data.items

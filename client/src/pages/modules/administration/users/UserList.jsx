@@ -169,6 +169,8 @@ export default function UserList() {
                 <th>Status</th>
                 <th>Created</th>
                 <th>Actions</th>
+                            <th>Created By</th>
+              <th>Created Date</th>
               </tr>
             </thead>
             <tbody>

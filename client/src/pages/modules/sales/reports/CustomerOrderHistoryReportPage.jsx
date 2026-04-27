@@ -4,6 +4,8 @@ import { api } from "api/client";
 
 export default function CustomerOrderHistoryReportPage() {
   const [customer, setCustomer] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -13,7 +15,11 @@ export default function CustomerOrderHistoryReportPage() {
       setLoading(true);
       setError("");
       const res = await api.get("/sales/reports/customer-order-history", {
-        params: { customer: customer || null },
+        params: { 
+          customer: customer || null,
+          from: fromDate || null,
+          to: toDate || null
+        },
       });
       setItems(Array.isArray(res?.data?.items) ? res.data.items : []);
     } catch (e) {
@@ -45,14 +51,32 @@ export default function CustomerOrderHistoryReportPage() {
         </div>
         <div className="card-body">
           {error ? <div className="text-red-600 text-sm mb-3">{error}</div> : null}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <div className="md:col-span-2">
-              <label className="label">Customer</label>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div>
+              <label className="label">Customer Name</label>
               <input
                 className="input"
                 value={customer}
                 onChange={(e) => setCustomer(e.target.value)}
-                placeholder="Customer contains..."
+                placeholder="Contains..."
+              />
+            </div>
+            <div>
+              <label className="label">From Date</label>
+              <input
+                type="date"
+                className="input"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label">To Date</label>
+              <input
+                type="date"
+                className="input"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
               />
             </div>
             <div className="flex items-end">
@@ -68,6 +92,7 @@ export default function CustomerOrderHistoryReportPage() {
                   <th>Stage</th>
                   <th>Reference</th>
                   <th>Date</th>
+                  <th>Customer</th>
                   <th className="text-right">Amount</th>
                   <th>Notes</th>
                 </tr>
@@ -78,6 +103,7 @@ export default function CustomerOrderHistoryReportPage() {
                     <td className="font-medium">{r.stage}</td>
                     <td>{r.ref_no}</td>
                     <td>{r.txn_date ? new Date(r.txn_date).toLocaleDateString() : "-"}</td>
+                    <td>{r.customer_name || "-"}</td>
                     <td className="text-right">
                       {Number(r.amount || 0).toLocaleString(undefined, {
                         minimumFractionDigits: 2,
@@ -89,7 +115,7 @@ export default function CustomerOrderHistoryReportPage() {
                 ))}
                 {!items.length && !loading ? (
                   <tr>
-                    <td colSpan="5" className="text-center py-8 text-slate-500">
+                    <td colSpan="6" className="text-center py-8 text-slate-500">
                       No records
                     </td>
                   </tr>

@@ -502,6 +502,8 @@ export default function BranchList() {
                     <th>Company</th>
                     <th>Status</th>
                     <th>Actions</th>
+                                    <th>Created By</th>
+                  <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -539,6 +541,8 @@ export default function BranchList() {
                             Edit
                           </button>
                         </td>
+                        <td>{b.created_by_name || "-"}</td>
+                        <td>{b.created_at ? new Date(b.created_at).toLocaleDateString() : "-"}</td>
                       </tr>
                     ))
                   )}

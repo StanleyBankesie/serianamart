@@ -30,7 +30,7 @@ export const usePermission = () => {
 };
 
 export const PermissionProvider = ({ children }) => {
-  const { user } = useAuth();
+  const { user, token, initialized } = useAuth();
   const [modules, setModules] = useState(new Set());
   const [permissions, setPermissions] = useState([]);
   const [roleFeatures, setRoleFeatures] = useState(new Set());
@@ -94,6 +94,14 @@ export const PermissionProvider = ({ children }) => {
     try {
       setLoading(true);
       setError(null);
+
+      if (!initialized || !token) {
+        setModules(new Set());
+        setPermissions([]);
+        setRoleFeatures(new Set());
+        setExceptionalPerms(new Set());
+        return;
+      }
 
       const userId = Number(user?.id || user?.sub || 0);
       if (!Number.isFinite(userId) || !userId) {
@@ -228,6 +236,17 @@ export const PermissionProvider = ({ children }) => {
   const [dashboardViewLoaded, setDashboardViewLoaded] = useState(false);
   const loadDashboardPermissions = async () => {
     try {
+      if (!initialized || !token) {
+        setDashboardViewMap(new Map());
+        setDashboardViewLoaded(true);
+        return;
+      }
+      const userId = Number(user?.id || user?.sub || 0);
+      if (!Number.isFinite(userId) || !userId) {
+        setDashboardViewMap(new Map());
+        setDashboardViewLoaded(true);
+        return;
+      }
       const res = await api.get("/access/dashboard-permissions");
       const items = Array.isArray(res.data?.items) ? res.data.items : [];
       const m = new Map();
@@ -370,12 +389,17 @@ export const PermissionProvider = ({ children }) => {
   }, [permissions]);
 
   const isSuper = useMemo(() => {
-    return modules.has("*") || permByFeatureKey.has("*");
-  }, [modules, permByFeatureKey]);
+    return (
+      modules.has("*") ||
+      permByFeatureKey.has("*") ||
+      (user?.permissions || []).includes("*")
+    );
+  }, [modules, permByFeatureKey, user]);
 
   const isModuleEnabled = (moduleKey) => {
     const mk = String(moduleKey || "");
     if (!mk) return false;
+    if (isSuper) return true;
     return modules.has(mk);
   };
 
@@ -611,16 +635,28 @@ export const PermissionProvider = ({ children }) => {
    * Refresh permissions (useful after role changes)
    */
   const refreshPermissions = async () => {
+    if (!initialized || !token) {
+      setModules(new Set());
+      setPermissions([]);
+      setRoleFeatures(new Set());
+      setExceptionalPerms(new Set());
+      setDashboardViewMap(new Map());
+      setDashboardViewLoaded(true);
+      setLoading(false);
+      return;
+    }
     await loadPermissions();
     await loadDashboardPermissions();
   };
 
   useEffect(() => {
+    if (!initialized) return;
     loadPermissions();
-  }, [user?.id]);
+  }, [initialized, token, user?.id]);
   useEffect(() => {
+    if (!initialized) return;
     loadDashboardPermissions();
-  }, [user?.id]);
+  }, [initialized, token, user?.id]);
   useEffect(() => {
     try {
       if (typeof document !== "undefined" && document.body) {
@@ -725,6 +761,7 @@ export const PermissionProvider = ({ children }) => {
     canPerformPageAction,
     basePathFrom,
     canViewDashboardElement: (moduleKey, type, key) => {
+      if (isSuper) return true;
       const mk = String(moduleKey || "");
       const t = String(type || "");
       const rawKey = String(key || "");
@@ -734,16 +771,11 @@ export const PermissionProvider = ({ children }) => {
         .replace(/\s+/g, "-")
         .replace(/[^a-z0-9-]/g, "");
       if (!dashboardViewLoaded) return true;
-      // If no explicit entries for this module+type, default allow
-      let moduleHasType = false;
-      for (const k of dashboardViewMap.keys()) {
-        if (k.startsWith(`${mk}|${t}|`)) {
-          moduleHasType = true;
-          break;
-        }
-      }
-      if (!moduleHasType) return true;
-      // If there are explicit entries, only allow those set to can_view
+      // Backward compatibility: if a user has never been configured,
+      // keep existing behavior (allow all dashboard elements).
+      if (dashboardViewMap.size === 0) return true;
+      // Once any dashboard permission entries exist for a user, treat the
+      // checklist as authoritative: checked = show, unchecked/missing = hide.
       const comp = `${mk}|${t}|${normKey}`;
       return dashboardViewMap.get(comp) === true;
     },

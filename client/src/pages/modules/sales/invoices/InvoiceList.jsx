@@ -485,6 +485,8 @@ export default function InvoiceList() {
                     <th>Warehouse</th>
                     <th className="text-right">Balance</th>
                     <th>Remarks</th>
+                                    <th>Created By</th>
+                  <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -568,6 +570,8 @@ export default function InvoiceList() {
                         )}
                       </td>
                       <td>{inv.remarks || ""}</td>
+                      <td>{inv.created_by_name || "-"}</td>
+                      <td>{inv.created_at ? new Date(inv.created_at).toLocaleDateString() : "-"}</td>
                     </tr>
                   ))}
                 </tbody>

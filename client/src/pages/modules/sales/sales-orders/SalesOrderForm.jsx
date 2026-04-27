@@ -194,6 +194,32 @@ export default function SalesOrderForm() {
     return { sub, discAmt, net, taxAmt, total: net + taxAmt };
   };
 
+  const calcNewItemTaxBreakdown = () => {
+    const qty = parseFloat(newItem.qty) || 0;
+    const price = parseFloat(newItem.unit_price) || 0;
+    const disc = parseFloat(newItem.discount_percent) || 0;
+    const sub = qty * price;
+    const discAmt = (sub * disc) / 100;
+    const net = sub - discAmt;
+    const comps = taxComponentsByCode[String(newItem.tax_type)] || [];
+    const components = comps
+      .map((c) => {
+        const rate = Number(c.rate_percent) || 0;
+        return {
+          name: c.component_name,
+          rate,
+          sort_order: Number(c.sort_order || 0),
+          amount: (net * rate) / 100,
+        };
+      })
+      .sort((a, b) => a.sort_order - b.sort_order);
+    return {
+      net,
+      components,
+      taxTotal: components.reduce((s, c) => s + c.amount, 0),
+    };
+  };
+
   // Helper: Calculate Grand Totals (match Quotation: net subtotal + tax)
   const calcGrandTotal = () => {
     const sub = items.reduce((s, i) => s + (i.net || 0), 0);
@@ -275,6 +301,16 @@ export default function SalesOrderForm() {
       };
     }
   }, [id]);
+
+  useEffect(() => {
+    ensureTaxComponentsLoaded();
+  }, [items]);
+
+  useEffect(() => {
+    const key = String(newItem.tax_type || "");
+    if (!key || key in taxComponentsByCode) return;
+    fetchTaxComponentsForCode(key);
+  }, [newItem.tax_type, taxComponentsByCode]);
 
   useEffect(() => {
     if (user?.username) {
@@ -390,7 +426,7 @@ export default function SalesOrderForm() {
 
   const fetchTaxCodes = async () => {
     try {
-      const response = await api.get("/finance/tax-codes");
+      const response = await api.get("/finance/tax-codes?form=SALES_ORDER");
       const fetchedTaxes = Array.isArray(response.data?.items)
         ? response.data.items
         : [];
@@ -404,7 +440,9 @@ export default function SalesOrderForm() {
 
       // Update newItem default tax if taxes are loaded and newItem has no tax set
       if (mappedTaxes.length > 0 && !newItem.tax_type) {
-        setNewItem((prev) => ({ ...prev, tax_type: mappedTaxes[0].value }));
+        const defaultTaxId = mappedTaxes[0].value;
+        setNewItem((prev) => ({ ...prev, tax_type: defaultTaxId }));
+        fetchTaxComponentsForCode(defaultTaxId);
       }
     } catch (error) {
       console.error("Error fetching tax codes:", error);
@@ -675,6 +713,42 @@ export default function SalesOrderForm() {
     }
   };
 
+  const repriceOrderLinesByPriceType = async (priceType) => {
+    const dateStr = formData.order_date;
+    const custId = formData.customer_id;
+    const out = await Promise.all(
+      items.map(async (line) => {
+        if (!line.item_id) {
+          return { ...line, ...calcItemTotals(line) };
+        }
+        try {
+          const res = await api.post("/sales/prices/best-price", {
+            product_id: line.item_id,
+            quantity: Number(line.qty || 1),
+            date: dateStr,
+            price_type:
+              typeof priceType === "string"
+                ? priceType
+                : String(priceType || ""),
+            only_standard: true,
+            ...(custId ? { customer_id: custId } : {}),
+          });
+          if (res.data?.price !== undefined) {
+            const nextLine = {
+              ...line,
+              unit_price: Number(res.data.price),
+            };
+            return { ...nextLine, ...calcItemTotals(nextLine) };
+          }
+        } catch {
+          // fall through
+        }
+        return { ...line, ...calcItemTotals(line) };
+      }),
+    );
+    setItems(out);
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     if (name === "customer_id") {
@@ -689,6 +763,11 @@ export default function SalesOrderForm() {
         country: cust?.country || "",
         phone: cust?.phone || cust?.customer_phone || "",
       }));
+      return;
+    }
+    if (name === "price_type") {
+      setFormData((prev) => ({ ...prev, [name]: value }));
+      void repriceOrderLinesByPriceType(value);
       return;
     }
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -707,29 +786,29 @@ export default function SalesOrderForm() {
         uom: String(prod?.uom || "") || defaultUomCode,
       }));
       if (value) {
-        if (formData.customer_id) {
-          api
-            .post("/sales/prices/best-price", {
-              product_id: value,
-              customer_id: formData.customer_id,
-              quantity: 1,
-              date: formData.order_date,
-              price_type:
-                typeof formData.price_type === "string"
-                  ? formData.price_type
-                  : String(formData.price_type || ""),
-              only_standard: true,
-            })
-            .then((res) => {
-              if (res.data && res.data.price !== undefined) {
-                setNewItem((prev) => ({
-                  ...prev,
-                  unit_price: res.data.price,
-                }));
-              }
-            })
-            .catch((err) => console.error("Error fetching price:", err));
-        }
+        api
+          .post("/sales/prices/best-price", {
+            product_id: value,
+            quantity: 1,
+            date: formData.order_date,
+            price_type:
+              typeof formData.price_type === "string"
+                ? formData.price_type
+                : String(formData.price_type || ""),
+            only_standard: true,
+            ...(formData.customer_id
+              ? { customer_id: formData.customer_id }
+              : {}),
+          })
+          .then((res) => {
+            if (res.data && res.data.price !== undefined) {
+              setNewItem((prev) => ({
+                ...prev,
+                unit_price: res.data.price,
+              }));
+            }
+          })
+          .catch((err) => console.error("Error fetching price:", err));
 
         api
           .get(`/finance/item-tax/${value}`)
@@ -752,6 +831,9 @@ export default function SalesOrderForm() {
                     ? resolvedTaxRate
                     : tax.tax_rate,
               }));
+              if (resolvedTaxType) {
+                fetchTaxComponentsForCode(resolvedTaxType);
+              }
             } else {
               setNewItem((prev) => ({
                 ...prev,
@@ -776,6 +858,9 @@ export default function SalesOrderForm() {
         }
       }
     } else {
+      if (name === "tax_type" && value) {
+        fetchTaxComponentsForCode(value);
+      }
       setNewItem((prev) => ({ ...prev, [name]: value }));
     }
   };
@@ -1286,7 +1371,7 @@ export default function SalesOrderForm() {
                       Payment Type
                     </label>
                     <div className="flex items-center gap-6">
-                      <label className="inline-flex items-center gap-2">
+                      <label className="inline-flex items-center gap-2 cursor-pointer">
                         <input
                           type="radio"
                           name="payment_type"
@@ -1296,7 +1381,7 @@ export default function SalesOrderForm() {
                         />
                         <span>Cash</span>
                       </label>
-                      <label className="inline-flex items-center gap-2">
+                      <label className="inline-flex items-center gap-2 cursor-pointer">
                         <input
                           type="radio"
                           name="payment_type"
@@ -1308,6 +1393,21 @@ export default function SalesOrderForm() {
                       </label>
                     </div>
                   </div>
+                  {formData.payment_type === "CREDIT" && (
+                    <div className="animate-in fade-in slide-in-from-left-2 duration-300">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Payment Date *
+                      </label>
+                      <input
+                        type="date"
+                        name="payment_date"
+                        value={formData.payment_date || ""}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                        required={formData.payment_type === "CREDIT"}
+                      />
+                    </div>
+                  )}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Currency
@@ -1525,11 +1625,6 @@ export default function SalesOrderForm() {
                             </option>
                           ))}
                         </select>
-                        {newItem.tax_rate !== undefined && (
-                          <div className="text-xs text-gray-500 mt-1">
-                            Tax rate: {Number(newItem.tax_rate).toFixed(2)}%
-                          </div>
-                        )}
                       </div>
                     </div>
                     <div className="flex justify-end">
@@ -1685,28 +1780,37 @@ export default function SalesOrderForm() {
                           ))
                         )}
                       </tbody>
-                      <tfoot className="bg-gray-50">
-                        <tr>
-                          <td
-                            colSpan="5"
-                            className="px-4 py-3 text-right font-semibold text-gray-700"
-                          >
-                            Totals:
-                          </td>
-                          <td className="px-4 py-3 font-bold text-gray-900">
-                            {calcGrandTotal().sub.toFixed(2)}
-                          </td>
-                          <td className="px-4 py-3 font-bold text-gray-900">
-                            {calcGrandTotal().tax.toFixed(2)}
-                          </td>
-                          <td className="px-4 py-3 font-bold text-gray-900">
-                            {calcGrandTotal().total.toFixed(2)}
-                          </td>
-                          <td className="print:hidden"></td>
-                        </tr>
-                      </tfoot>
                     </table>
                   </div>
+                  {items.length > 0 && (
+                    <div className="mt-4 ml-auto w-full max-w-md rounded-md bg-gray-100 px-4 py-3 space-y-2">
+                      <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                        <span>Subtotal:</span>
+                        <span>{calcAggregates().netSub.toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                        <span>Total Discount:</span>
+                        <span>{calcAggregates().discountTotal.toFixed(2)}</span>
+                      </div>
+                      {calcAggregates().components.map((c) => (
+                        <div
+                          key={c.name}
+                          className="flex items-center justify-between text-sm italic text-slate-600"
+                        >
+                          <span>{c.name}</span>
+                          <span>{c.amount.toFixed(2)}</span>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between text-base font-bold text-slate-800 pt-1">
+                        <span>Total Tax:</span>
+                        <span>{calcAggregates().taxTotal.toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xl font-bold text-slate-900 pt-1">
+                        <span>Grand Total:</span>
+                        <span>{calcAggregates().grand.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </fieldset>
@@ -1839,34 +1943,32 @@ export default function SalesOrderForm() {
           <div className="grid grid-cols-2 gap-6">
             <div></div>
             <div>
-              <div>
-                <div className="grid grid-cols-2">
-                  <div className="px-2 py-1 font-medium">Subtotal</div>
-                  <div className="px-2 py-1 text-right">
-                    {calcAggregates().grossSub.toFixed(2)}
-                  </div>
-                  <div className="px-2 py-1 font-medium">Discount</div>
-                  <div className="px-2 py-1 text-right">
-                    {calcAggregates().discountTotal.toFixed(2)}
-                  </div>
-                  <div className="px-2 py-1 font-medium">Net Sub Total</div>
-                  <div className="px-2 py-1 text-right font-semibold">
-                    {calcAggregates().netSub.toFixed(2)}
-                  </div>
-                  {calcAggregates().components.map((c) => (
-                    <div key={c.name} className="contents">
-                      <div className="px-2 py-1">
-                        {c.name} [{c.rate}%]
-                      </div>
-                      <div className="px-2 py-1 text-right">
-                        {c.amount.toFixed(2)}
-                      </div>
+              <div className="rounded-md bg-gray-100 px-4 py-3 space-y-2">
+                <div className="flex items-center justify-between text-[30px] font-semibold text-slate-700">
+                  <span>Subtotal:</span>
+                  <span>{calcAggregates().netSub.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-[30px] font-semibold text-slate-700">
+                  <span>Total Discount:</span>
+                  <span>{calcAggregates().discountTotal.toFixed(2)}</span>
+                </div>
+                {calcAggregates().components.length > 0 &&
+                  calcAggregates().components.map((c) => (
+                    <div
+                      key={c.name}
+                      className="flex items-center justify-between text-[24px] text-slate-600"
+                    >
+                      <span>{c.name}</span>
+                      <span>{c.amount.toFixed(2)}</span>
                     </div>
                   ))}
-                  <div className="px-2 py-1 font-semibold">Total</div>
-                  <div className="px-2 py-1 text-right font-semibold">
-                    {calcAggregates().grand.toFixed(2)}
-                  </div>
+                <div className="flex items-center justify-between text-[34px] font-bold text-slate-800 pt-1">
+                  <span>Total Tax:</span>
+                  <span>{calcAggregates().taxTotal.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-[38px] font-bold text-slate-900 pt-1">
+                  <span>Grand Total:</span>
+                  <span>{calcAggregates().grand.toFixed(2)}</span>
                 </div>
               </div>
             </div>
@@ -1983,34 +2085,32 @@ export default function SalesOrderForm() {
           <div className="grid grid-cols-2 gap-6">
             <div></div>
             <div>
-              <div>
-                <div className="grid grid-cols-2">
-                  <div className="px-2 py-1 font-medium">Gross Subtotal</div>
-                  <div className="px-2 py-1 text-right">
-                    {calcAggregates().grossSub.toFixed(2)}
-                  </div>
-                  <div className="px-2 py-1 font-medium">Discount</div>
-                  <div className="px-2 py-1 text-right">
-                    {calcAggregates().discountTotal.toFixed(2)}
-                  </div>
-                  <div className="px-2 py-1 font-medium">Net Sub Total</div>
-                  <div className="px-2 py-1 text-right font-semibold">
-                    {calcAggregates().netSub.toFixed(2)}
-                  </div>
-                  {calcAggregates().components.map((c) => (
-                    <div key={c.name} className="contents">
-                      <div className="px-2 py-1">
-                        {c.name} [{c.rate}%]
-                      </div>
-                      <div className="px-2 py-1 text-right">
-                        {c.amount.toFixed(2)}
-                      </div>
+              <div className="rounded-md bg-gray-100 px-4 py-3 space-y-2">
+                <div className="flex items-center justify-between text-[30px] font-semibold text-slate-700">
+                  <span>Subtotal:</span>
+                  <span>{calcAggregates().netSub.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-[30px] font-semibold text-slate-700">
+                  <span>Total Discount:</span>
+                  <span>{calcAggregates().discountTotal.toFixed(2)}</span>
+                </div>
+                {calcAggregates().components.length > 0 &&
+                  calcAggregates().components.map((c) => (
+                    <div
+                      key={c.name}
+                      className="flex items-center justify-between text-[24px] text-slate-600"
+                    >
+                      <span>{c.name}</span>
+                      <span>{c.amount.toFixed(2)}</span>
                     </div>
                   ))}
-                  <div className="px-2 py-1 font-semibold">Total</div>
-                  <div className="px-2 py-1 text-right font-semibold">
-                    {calcAggregates().grand.toFixed(2)}
-                  </div>
+                <div className="flex items-center justify-between text-[34px] font-bold text-slate-800 pt-1">
+                  <span>Total Tax:</span>
+                  <span>{calcAggregates().taxTotal.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-[38px] font-bold text-slate-900 pt-1">
+                  <span>Grand Total:</span>
+                  <span>{calcAggregates().grand.toFixed(2)}</span>
                 </div>
               </div>
             </div>

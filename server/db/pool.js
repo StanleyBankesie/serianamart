@@ -1,40 +1,5 @@
 import mysql from "mysql2/promise";
-import dotenv from "dotenv";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-dotenv.config({ path: path.join(__dirname, "../.env") });
-const localPath = path.join(__dirname, "../.env.local");
-const prodPath = path.join(__dirname, "../.env.production");
-const isProd =
-  String(process.env.NODE_ENV || "").toLowerCase() === "production";
-const forceLocal = String(process.env.DEV_FORCE_LOCAL_ENV || "").trim() === "1";
-if (forceLocal && fs.existsSync(localPath)) {
-  dotenv.config({ path: localPath, override: true });
-} else if (isProd && fs.existsSync(prodPath)) {
-  dotenv.config({ path: prodPath, override: true });
-} else if (fs.existsSync(localPath)) {
-  dotenv.config({ path: localPath, override: true });
-}
-try {
-  if (fs.existsSync(prodPath)) {
-    const parsed = dotenv.config({ path: prodPath }).parsed || {};
-    [
-      "SMTP_HOST",
-      "SMTP_PORT",
-      "SMTP_USER",
-      "SMTP_PASS",
-      "SMTP_FROM",
-      "SMTP_SECURE",
-    ].forEach((k) => {
-      if (parsed[k]) process.env[k] = parsed[k];
-    });
-  }
-} catch {}
+import "../utils/loadServerEnv.js";
 
 function requiredEnv(name) {
   const v = process.env[name];
@@ -93,6 +58,44 @@ export const pool = mysql.createPool({
   namedPlaceholders: true,
 });
 
+function sanitizeCreatedByAuditJoin(sql) {
+  if (!sql) return sql;
+  let next = String(sql);
+
+  // Remove injected audit projection fragments.
+  next = next.replace(
+    /,\s*(?:[a-z_][a-z0-9_]*\.)?created_at\s*,\s*[a-z_][a-z0-9_]*\.username\s+AS\s+created_by_name/gi,
+    "",
+  );
+  next = next.replace(
+    /\b(?:[a-z_][a-z0-9_]*\.)?created_at\s*,\s*[a-z_][a-z0-9_]*\.username\s+AS\s+created_by_name\s*,\s*/gi,
+    "",
+  );
+  next = next.replace(
+    /,\s*[a-z_][a-z0-9_]*\.username\s+AS\s+created_by_name/gi,
+    "",
+  );
+  next = next.replace(
+    /[a-z_][a-z0-9_]*\.username\s+AS\s+created_by_name\s*,\s*/gi,
+    "",
+  );
+
+  // Remove created_by audit joins that are unsafe across many tables/views.
+  next = next.replace(
+    /\s+(?:LEFT\s+JOIN|JOIN)\s+adm_users\s+[a-z_][a-z0-9_]*\s+ON\s+[a-z_][a-z0-9_]*\.id\s*=\s*(?:[a-z_][a-z0-9_]*\.)?created_by\b/gi,
+    "",
+  );
+  next = next.replace(
+    /\s+(?:LEFT\s+JOIN|JOIN)\s+adm_users\s+[a-z_][a-z0-9_]*\s+ON\s+[a-z_][a-z0-9_]*\.id\s*=\s*created_by\b/gi,
+    "",
+  );
+
+  // Clean up common trailing comma artifacts in SELECT lists.
+  next = next.replace(/,\s*(FROM)\b/gi, " $1");
+
+  return next;
+}
+
 export async function query(sql, params = {}) {
   const isMetadata = /^\s*(SHOW|ALTER|CREATE|DROP|DESCRIBE)\s/i.test(sql);
   try {
@@ -105,10 +108,31 @@ export async function query(sql, params = {}) {
   } catch (err) {
     if (
       err.code === "ER_UNSUPPORTED_PS" ||
-      (err.message && (err.message.includes("prepared statement") || err.message.includes("syntax to use near '?'")))
+      (err.message &&
+        (err.message.includes("prepared statement") ||
+          err.message.includes("syntax to use near '?'")))
     ) {
       const [rows] = await pool.query(sql, params);
       return rows;
+    }
+    const msg = String(err?.message || "").toLowerCase();
+    const sqlText = String(sql || "").toLowerCase();
+    const canRetryAuditJoin =
+      (err?.code === "ER_BAD_FIELD_ERROR" ||
+        err?.code === "ER_NON_UNIQ_ERROR" ||
+        err?.code === "ER_NONUNIQ_TABLE" ||
+        err?.code === "ER_PARSE_ERROR" ||
+        err?.code === "ER_OPERAND_COLUMNS") &&
+      (msg.includes("created_by") ||
+        msg.includes("created_by_name") ||
+        sqlText.includes("created_by") ||
+        sqlText.includes("created_by_name"));
+    if (canRetryAuditJoin) {
+      const patchedSql = sanitizeCreatedByAuditJoin(sql);
+      if (patchedSql !== sql) {
+        const [rows] = await pool.query(patchedSql, params);
+        return rows;
+      }
     }
     throw err;
   }

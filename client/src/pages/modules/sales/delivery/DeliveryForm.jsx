@@ -24,6 +24,10 @@ export default function DeliveryForm() {
     invoice_id: "",
     status: "DRAFT",
     remarks: "",
+    delivery_instructions: "",
+    terms_and_conditions: "",
+    total_tax: 0,
+    invoice_amount: 0,
     items: [],
   });
 
@@ -154,6 +158,10 @@ export default function DeliveryForm() {
         invoice_id: header.invoice_id || "",
         status: header.status || prev.status,
         remarks: header.remarks || "",
+        delivery_instructions: header.delivery_instructions || "",
+        terms_and_conditions: header.terms_and_conditions || "",
+        total_tax: Number(header.total_tax || 0),
+        invoice_amount: Number(header.invoice_amount || 0),
         items: details.map((d) => ({
           item_id: d.item_id,
           item_name: d.item_name || "",
@@ -169,6 +177,28 @@ export default function DeliveryForm() {
       setError("Failed to load delivery");
       setLoading(false);
     }
+  }
+
+  async function fetchItemBatches(itemId, index) {
+    try {
+      const res = await api.get(`/inventory/items/${itemId}/batches`);
+      const batches = res.data?.items || [];
+      setFormData((prev) => {
+        const newItems = [...prev.items];
+        newItems[index].available_batches = batches;
+        return { ...prev, items: newItems };
+      });
+    } catch (err) {
+      console.error("Error fetching batches:", err);
+    }
+  }
+
+  function handleItemChange(index, field, value) {
+    setFormData((prev) => {
+      const newItems = [...prev.items];
+      newItems[index][field] = value;
+      return { ...prev, items: newItems };
+    });
   }
 
   async function handleInvoiceSelect(invoiceId) {
@@ -203,6 +233,9 @@ export default function DeliveryForm() {
         customer_id: invItem.customer_id || prev.customer_id,
         sales_order_id: invItem.sales_order_id || "",
         invoice_id: invItem.id || invoiceId,
+        total_tax: Number(invItem.tax_amount || 0),
+        invoice_amount: Number(invItem.total_amount || 0),
+        delivery_instructions: invItem.remarks || "",
         items: itemsToLoad.map((d) => ({
           item_id: d.item_id,
           item_name:
@@ -212,7 +245,8 @@ export default function DeliveryForm() {
             "",
           quantity: Number(d.quantity || 0),
           ordered_qty: Number(d.quantity || 0),
-          tax_type: taxes.length > 0 ? taxes[0].value : "",
+          tax_type: d.tax_id || (taxes.length > 0 ? taxes[0].value : ""),
+          batch_id: "",
           uom: d.uom || "PCS",
           unit_price: Number(d.unit_price || 0),
         })),
@@ -237,7 +271,6 @@ export default function DeliveryForm() {
 
     try {
       setSaving(true);
-      console.log("Scope companyId before payload:", scope?.companyId);
       const payload = {
         ...formData,
         company_id: scope?.companyId || 1,
@@ -249,6 +282,7 @@ export default function DeliveryForm() {
           const itemPayload = {
             item_id: item.item_id,
             quantity: Number(item.quantity),
+            batch_id: item.batch_id || null,
           };
           if (item.tax_type) {
             itemPayload.tax_id = item.tax_type;
@@ -258,7 +292,6 @@ export default function DeliveryForm() {
           return itemPayload;
         }),
       };
-      console.log("Delivery payload:", payload);
       if (isEdit) {
         await api.put(`/sales/deliveries/${id}`, payload);
       } else {
@@ -273,7 +306,6 @@ export default function DeliveryForm() {
         err?.message ||
         "Failed to save delivery";
       setError(serverMessage);
-      console.error("Failed to save delivery", err?.response?.data || err);
     } finally {
       setSaving(false);
     }
@@ -414,7 +446,6 @@ export default function DeliveryForm() {
 
           <div className="bg-white p-6 rounded shadow-sm border">
             <h2 className="text-lg font-semibold mb-4">Load Items</h2>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               {/* Invoice Selection */}
               <div className="p-4 bg-gray-50 rounded border col-span-2">
@@ -424,32 +455,28 @@ export default function DeliveryForm() {
                 <select
                   className="w-full border rounded p-2"
                   onChange={(e) => handleInvoiceSelect(e.target.value)}
-                  defaultValue=""
+                  value={formData.invoice_id || ""}
                 >
-                  <option value="" disabled>
-                    Select an Invoice...
-                  </option>
+                  <option value="">Select an Invoice...</option>
                   {invoices
                     .filter((inv) =>
                       formData.customer_id
-                        ? String(inv.customer_id) ===
-                          String(formData.customer_id)
+                        ? String(inv.customer_id) === String(formData.customer_id)
                         : true,
                     )
                     .map((inv) => (
-                    <option key={inv.id} value={inv.id}>
-                      {inv.invoice_no} -{" "}
-                      {new Date(inv.invoice_date).toLocaleDateString()} (
-                      {inv.total_amount})
-                    </option>
-                  ))}
+                      <option key={inv.id} value={inv.id}>
+                        {inv.invoice_no} - {new Date(inv.invoice_date).toLocaleDateString()} (
+                        {inv.total_amount})
+                      </option>
+                    ))}
                 </select>
                 <p className="text-xs text-gray-500 mt-1">
                   Selecting an invoice will populate customer and order details.
                 </p>
               </div>
 
-              {/* Sales Order Display (Read Only or Manual Override) */}
+              {/* Sales Order Display */}
               <div className="p-4 bg-gray-50 rounded border col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Sales Order Number
@@ -464,89 +491,69 @@ export default function DeliveryForm() {
               </div>
             </div>
 
-            {/* Items Table */}
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="bg-gray-50 text-gray-700">
                   <tr>
                     <th className="p-3">Item</th>
-                    <th className="p-3 w-28">Ordered Qty</th>
-                    <th className="p-3 w-28">To Deliver</th>
-                    <th className="p-3 w-20">UOM</th>
-                    <th className="p-3 w-28">Unit Price</th>
-                    <th className="p-3 w-40">Tax</th>
-                    <th className="p-3 w-12">Action</th>
+                    <th className="p-3 w-28">Qty</th>
+                    <th className="p-3 w-24">UOM</th>
+                    <th className="p-3 w-48">Batch</th>
+                    <th className="p-3 w-12"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {formData.items.length === 0 ? (
-                    <tr>
-                      <td colSpan="7" className="p-8 text-center text-gray-500">
-                        No items loaded. Search for an order or invoice.
+                  {formData.items.map((item, idx) => (
+                    <tr key={idx}>
+                      <td className="p-3 font-medium">{item.item_name}</td>
+                      <td className="p-3">
+                        <input
+                          type="number"
+                          value={item.quantity}
+                          onChange={(e) => {
+                            const newItems = [...formData.items];
+                            newItems[idx].quantity = parseFloat(e.target.value) || 0;
+                            setFormData({ ...formData, items: newItems });
+                          }}
+                          className="w-full border rounded p-1"
+                        />
+                      </td>
+                      <td className="p-3">
+                        <input
+                          type="text"
+                          readOnly
+                          value={item.uom || ""}
+                          className="w-full border-none p-1 text-sm bg-transparent text-gray-600"
+                        />
+                      </td>
+                      <td className="p-3">
+                        <select
+                          value={item.batch_id || ""}
+                          onFocus={() => fetchItemBatches(item.item_id, idx)}
+                          onChange={(e) => handleItemChange(idx, "batch_id", e.target.value)}
+                          className="w-full border rounded p-1 text-sm"
+                        >
+                          <option value="">AUTO (FIFO)</option>
+                          {item.available_batches?.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.batch_no} ({b.qty} avail) {b.expiry_date ? `exp ${b.expiry_date.slice(0, 10)}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="p-3 text-center">
+                        <button
+                          onClick={() => {
+                            const newItems = formData.items.filter((_, i) => i !== idx);
+                            setFormData({ ...formData, items: newItems });
+                          }}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          &times;
+                        </button>
                       </td>
                     </tr>
-                  ) : (
-                    formData.items.map((item, idx) => (
-                      <tr key={idx}>
-                        <td className="p-3">
-                          {item.item_name ||
-                            itemsCatalog.find(
-                              (p) => String(p.id) === String(item.item_id),
-                            )?.item_name ||
-                            ""}
-                        </td>
-                        <td className="p-3">{item.ordered_qty}</td>
-                        <td className="p-3">
-                          <input
-                            type="number"
-                            value={item.quantity}
-                            onChange={(e) => {
-                              const newItems = [...formData.items];
-                              newItems[idx].quantity =
-                                parseFloat(e.target.value) || 0;
-                              setFormData({ ...formData, items: newItems });
-                            }}
-                            className="w-full border rounded p-1"
-                          />
-                        </td>
-                        <td className="p-3">{item.uom || "PCS"}</td>
-                        <td className="p-3">
-                          {Number(item.unit_price || 0).toFixed(2)}
-                        </td>
-                        <td className="p-3">
-                          <select
-                            value={item.tax_type || ""}
-                            onChange={(e) => {
-                              const newItems = [...formData.items];
-                              newItems[idx].tax_type = e.target.value;
-                              setFormData({ ...formData, items: newItems });
-                            }}
-                            className="w-full border rounded p-1"
-                          >
-                            <option value="">None</option>
-                            {taxes.map((t) => (
-                              <option key={t.value} value={t.value}>
-                                {t.label}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="p-3">
-                          <button
-                            onClick={() => {
-                              const newItems = formData.items.filter(
-                                (_, i) => i !== idx,
-                              );
-                              setFormData({ ...formData, items: newItems });
-                            }}
-                            className="text-red-500 hover:text-red-700"
-                          >
-                            &times;
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -556,8 +563,62 @@ export default function DeliveryForm() {
         {/* Sidebar */}
         <div className="space-y-6">
           <div className="bg-white p-6 rounded shadow-sm border">
-            <h2 className="text-lg font-semibold mb-4">Shipping Info</h2>
+            <h2 className="text-lg font-semibold mb-4">Financial Summary</h2>
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Tax Amount
+                </label>
+                <input
+                  type="number"
+                  readOnly
+                  value={formData.total_tax}
+                  className="w-full border rounded p-2 bg-gray-50"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Invoice Amount
+                </label>
+                <input
+                  type="number"
+                  readOnly
+                  value={formData.invoice_amount}
+                  className="w-full border rounded p-2 bg-gray-50 font-bold"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded shadow-sm border">
+            <h2 className="text-lg font-semibold mb-4">Instructions & Terms</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  DELIVERY INSTRUCTIONS
+                </label>
+                <textarea
+                  value={formData.delivery_instructions}
+                  onChange={(e) =>
+                    setFormData({ ...formData, delivery_instructions: e.target.value })
+                  }
+                  rows="3"
+                  className="w-full border rounded p-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  TERMS AND CONDITIONS
+                </label>
+                <textarea
+                  value={formData.terms_and_conditions}
+                  onChange={(e) =>
+                    setFormData({ ...formData, terms_and_conditions: e.target.value })
+                  }
+                  rows="3"
+                  className="w-full border rounded p-2"
+                />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Remarks
@@ -567,7 +628,7 @@ export default function DeliveryForm() {
                   onChange={(e) =>
                     setFormData({ ...formData, remarks: e.target.value })
                   }
-                  rows="4"
+                  rows="2"
                   className="w-full border rounded p-2"
                 />
               </div>

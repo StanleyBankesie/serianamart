@@ -10,12 +10,23 @@ export default function SalesTrackingReportPage() {
   const [to, setTo] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [customers, setCustomers] = useState([]);
+  const [customerId, setCustomerId] = useState("");
+
+  useEffect(() => {
+    api
+      .get("/sales/customers")
+      .then((res) => {
+        setCustomers(res.data?.items || []);
+      })
+      .catch(() => {});
+  }, []);
 
   async function run() {
     try {
       setLoading(true);
       const res = await api.get("/sales/reports/sales-tracking", {
-        params: { from: from || null, to: to || null },
+        params: { from: from || null, to: to || null, customerId: customerId || null },
       });
       setItems(res.data?.items || []);
     } catch (e) {
@@ -181,7 +192,22 @@ export default function SalesTrackingReportPage() {
                 onChange={(e) => setTo(e.target.value)}
               />
             </div>
-            <div className="md:col-span-2 flex items-end gap-2">
+            <div>
+              <label className="label">Customer</label>
+              <select
+                className="input"
+                value={customerId}
+                onChange={(e) => setCustomerId(e.target.value)}
+              >
+                <option value="">All Customers</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.customer_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-end gap-2">
               <button
                 type="button"
                 className="btn-success"
@@ -196,6 +222,7 @@ export default function SalesTrackingReportPage() {
                 onClick={() => {
                   setFrom("");
                   setTo("");
+                  setCustomerId("");
                 }}
                 disabled={loading}
               >

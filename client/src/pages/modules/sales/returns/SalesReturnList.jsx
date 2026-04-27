@@ -479,6 +479,8 @@ export default function SalesReturnList() {
                     <th className="text-right">Amount</th>
                     <th>Status</th>
                     <th className="text-right">Actions</th>
+                                    <th>Created By</th>
+                  <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -560,6 +562,8 @@ export default function SalesReturnList() {
                           </button>
                         )}
                       </td>
+                      <td>{u.created_by_name || "-"}</td>
+                      <td>{u.created_at ? new Date(u.created_at).toLocaleDateString() : "-"}</td>
                     </tr>
                   ))}
                 </tbody>

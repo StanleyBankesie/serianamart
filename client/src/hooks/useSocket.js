@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import io from "socket.io-client";
 import { useAuth } from "../auth/AuthContext";
+import { getStoredToken } from "../auth/authStorage.js";
 
 /**
  * Hook to manage Socket.io connection
@@ -25,8 +26,10 @@ export function useSocket() {
     typeof window !== "undefined" ? window.__omniSocketGlobal__ : null;
 
   useEffect(() => {
-    const tk = token || localStorage.getItem("token");
-    // Allow connection without token in dev; the server is tolerant.
+    const tk = token || getStoredToken();
+    if (!tk) {
+      return undefined;
+    }
 
     // Reuse global socket if exists
     if (globalHolder && globalHolder.socket) {

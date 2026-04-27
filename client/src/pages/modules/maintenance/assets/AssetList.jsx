@@ -43,7 +43,9 @@ export default function AssetList() {
 
       <div className="card"><div className="card-body overflow-x-auto">
         <table className="table">
-          <thead><tr><th>Asset No</th><th>Name</th><th>Location</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th>Asset No</th><th>Name</th><th>Location</th><th>Status</th><th />                    <th>Created By</th>
+                    <th>Created Date</th>
+                    </tr></thead>
           <tbody>
             {loading && (
               <tr>
@@ -79,6 +81,8 @@ export default function AssetList() {
                     </Link>
                   )}
                 </td>
+                <td>{a.created_by_name || "-"}</td>
+                <td>{a.created_at ? new Date(a.created_at).toLocaleDateString() : "-"}</td>
               </tr>
             ))}
           </tbody>

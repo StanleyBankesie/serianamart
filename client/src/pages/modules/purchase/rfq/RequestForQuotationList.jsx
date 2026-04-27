@@ -117,6 +117,8 @@ export default function RequestForQuotationList() {
                 <th>Suppliers</th>
                 <th>Status</th>
                 <th>Actions</th>
+                            <th>Created By</th>
+              <th>Created Date</th>
               </tr>
             </thead>
             <tbody>
@@ -182,6 +184,8 @@ export default function RequestForQuotationList() {
                         </Link>
                       </div>
                     </td>
+                    <td>{rfq.created_by_name || "-"}</td>
+                    <td>{rfq.created_at ? new Date(rfq.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))
               )}

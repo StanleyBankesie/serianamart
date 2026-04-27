@@ -16,12 +16,12 @@ export default function AccountGroupsPage() {
 
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
-  const [nature, setNature] = useState("ASSET");
+  const [nature, setNature] = useState("");
   const [parentId, setParentId] = useState("");
   const [editId, setEditId] = useState("");
   const [editCode, setEditCode] = useState("");
   const [editName, setEditName] = useState("");
-  const [editNature, setEditNature] = useState("ASSET");
+  const [editNature, setEditNature] = useState("");
   const [editParentId, setEditParentId] = useState("");
 
   async function load() {
@@ -57,6 +57,10 @@ export default function AccountGroupsPage() {
   async function create(e) {
     e.preventDefault();
     try {
+      if (!nature) {
+        toast.error("Nature is required");
+        return;
+      }
       // Auto-generate code based on parent code pattern or nature
       const parent =
         parentId && items.find((g) => String(g.id) === String(parentId));
@@ -93,6 +97,7 @@ export default function AccountGroupsPage() {
       toast.success("Account group created");
       setCode("");
       setName("");
+      setNature("");
       setParentId("");
       load();
     } catch (e2) {
@@ -121,14 +126,14 @@ export default function AccountGroupsPage() {
     setEditId(String(g.id));
     setEditCode(g.code || "");
     setEditName(g.name || "");
-    setEditNature(g.nature || "ASSET");
+    setEditNature(g.nature || "");
     setEditParentId(g.parent_id ? String(g.parent_id) : "");
   }
   function cancelEdit() {
     setEditId("");
     setEditCode("");
     setEditName("");
-    setEditNature("ASSET");
+    setEditNature("");
     setEditParentId("");
   }
   async function saveEdit() {
@@ -228,7 +233,9 @@ export default function AccountGroupsPage() {
                 className="input"
                 value={nature}
                 onChange={(e) => setNature(e.target.value)}
+                required
               >
+                <option value="">Select nature</option>
                 <option value="ASSET">Asset</option>
                 <option value="LIABILITY">Liability</option>
                 <option value="EQUITY">Equity</option>
@@ -246,7 +253,7 @@ export default function AccountGroupsPage() {
                 <option value="">None</option>
                 {rankedItems.map((g) => (
                   <option key={g.id} value={g.id}>
-                    {g.code} - {g.name}
+                    {g.name}
                   </option>
                 ))}
               </select>
@@ -302,6 +309,7 @@ export default function AccountGroupsPage() {
                               value={editNature}
                               onChange={(e) => setEditNature(e.target.value)}
                             >
+                              <option value="">Select nature</option>
                               <option value="ASSET">Asset</option>
                               <option value="LIABILITY">Liability</option>
                               <option value="EQUITY">Equity</option>
@@ -318,7 +326,7 @@ export default function AccountGroupsPage() {
                               <option value="">None</option>
                               {rankedItems.map((pg) => (
                                 <option key={`p-${pg.id}`} value={pg.id}>
-                                  {pg.code} - {pg.name}
+                                  {pg.name}
                                 </option>
                               ))}
                             </select>

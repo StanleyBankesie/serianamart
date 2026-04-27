@@ -481,6 +481,8 @@ export default function QuotationList() {
                     <th>Vilidity Date</th>
                     <th>Amount</th>
                     <th>Actions</th>
+                                    <th>Created By</th>
+                  <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -541,6 +543,8 @@ export default function QuotationList() {
                           ) : null}
                         </div>
                       </td>
+                      <td>{quot.created_by_name || "-"}</td>
+                      <td>{quot.created_at ? new Date(quot.created_at).toLocaleDateString() : "-"}</td>
                     </tr>
                   ))}
                 </tbody>

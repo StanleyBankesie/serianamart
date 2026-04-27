@@ -912,6 +912,8 @@ export default function PosInvoiceList() {
                 <th className="text-right">Amount</th>
                 <th>Status</th>
                 <th>Actions</th>
+                            <th>Created By</th>
+              <th>Created Date</th>
               </tr>
             </thead>
             <tbody>
@@ -981,6 +983,8 @@ export default function PosInvoiceList() {
                         </button>
                       </div>
                     </td>
+                    <td>{it.created_by_name || "-"}</td>
+                    <td>{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))
               )}

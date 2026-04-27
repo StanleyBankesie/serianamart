@@ -131,6 +131,32 @@ export default function QuotationForm() {
     return { sub, discAmt, net, taxAmt, total: net + taxAmt };
   };
 
+  const calcNewItemTaxBreakdown = () => {
+    const qty = parseFloat(newItem.qty) || 0;
+    const price = parseFloat(newItem.unit_price) || 0;
+    const disc = parseFloat(newItem.discount_percent) || 0;
+    const sub = qty * price;
+    const discAmt = (sub * disc) / 100;
+    const net = sub - discAmt;
+    const comps = taxComponentsByCode[String(newItem.tax_type)] || [];
+    const components = comps
+      .map((c) => {
+        const rate = Number(c.rate_percent) || 0;
+        return {
+          name: c.component_name,
+          rate,
+          sort_order: Number(c.sort_order || 0),
+          amount: (net * rate) / 100,
+        };
+      })
+      .sort((a, b) => a.sort_order - b.sort_order);
+    return {
+      net,
+      components,
+      taxTotal: components.reduce((s, c) => s + c.amount, 0),
+    };
+  };
+
   // Helper: Calculate Grand Totals
   const calcGrandTotal = () => {
     const sub = items.reduce((s, i) => s + (i.net || 0), 0);
@@ -233,6 +259,16 @@ export default function QuotationForm() {
     }
   }, [id]);
 
+  useEffect(() => {
+    ensureTaxComponentsLoaded();
+  }, [items]);
+
+  useEffect(() => {
+    const key = String(newItem.tax_type || "");
+    if (!key || key in taxComponentsByCode) return;
+    fetchTaxComponentsForCode(key);
+  }, [newItem.tax_type, taxComponentsByCode]);
+
   // Update preparedBy when user changes
   useEffect(() => {
     if (user?.username) {
@@ -313,7 +349,7 @@ export default function QuotationForm() {
 
   const fetchTaxCodes = async () => {
     try {
-      const response = await api.get("/finance/tax-codes");
+      const response = await api.get("/finance/tax-codes?form=QUOTATION");
       const fetchedTaxes = Array.isArray(response.data?.items)
         ? response.data.items
         : [];
@@ -339,6 +375,9 @@ export default function QuotationForm() {
           tax_type: vat20?.value,
           tax_rate: vat20?.rate,
         }));
+        if (vat20?.value) {
+          fetchTaxComponentsForCode(vat20.value);
+        }
       }
     } catch (error) {
       console.error("Error fetching tax codes:", error);
@@ -435,35 +474,59 @@ export default function QuotationForm() {
 
   const fetchStandardPriceForItem = async (productId, fallbackPrice) => {
     try {
-      const res = await api.get("/sales/prices/standard");
-      const items = Array.isArray(res.data?.items) ? res.data.items : [];
-      const ptId = getPriceTypeIdFromName(formData.price_type);
-      const filtered = items
-        .filter(
-          (p) =>
-            String(p.product_id) === String(productId) &&
-            (ptId ? String(p.price_type_id) === String(ptId) : true),
-        )
-        .sort((a, b) => {
-          const ad = a.effective_date
-            ? new Date(a.effective_date).getTime()
-            : 0;
-          const bd = b.effective_date
-            ? new Date(b.effective_date).getTime()
-            : 0;
-          return (
-            bd - ad ||
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-          );
-        });
-      if (filtered.length > 0) {
-        return Number(filtered[0].selling_price) || fallbackPrice || 0;
+      const res = await api.post("/sales/prices/best-price", {
+        product_id: productId,
+        quantity: 1,
+        date: formData.quotation_date,
+        price_type: formData.price_type || "RETAIL",
+        only_standard: true,
+        ...(formData.customer_id
+          ? { customer_id: formData.customer_id }
+          : {}),
+      });
+      const price = Number(res.data?.price);
+      if (Number.isFinite(price)) {
+        return price;
       }
       return fallbackPrice || 0;
     } catch (e) {
       console.error("Error fetching standard price:", e);
       return fallbackPrice || 0;
     }
+  };
+
+  const repriceQuotationLinesByPriceType = async (priceType) => {
+    const dateStr = formData.quotation_date;
+    const custId = formData.customer_id;
+    const nextLines = await Promise.all(
+      items.map(async (line) => {
+        if (!line.item_id) {
+          return { ...line, ...calcItemTotals(line) };
+        }
+        try {
+          const res = await api.post("/sales/prices/best-price", {
+            product_id: line.item_id,
+            quantity: Number(line.qty || 1),
+            date: dateStr,
+            price_type:
+              typeof priceType === "string"
+                ? priceType
+                : String(priceType || ""),
+            only_standard: true,
+            ...(custId ? { customer_id: custId } : {}),
+          });
+          if (res.data && res.data.price !== undefined) {
+            const unit = Math.round(Number(res.data.price || 0) * 100) / 100;
+            const next = { ...line, unit_price: unit };
+            return { ...next, ...calcItemTotals(next) };
+          }
+        } catch {
+          // fall through
+        }
+        return { ...line, ...calcItemTotals(line) };
+      }),
+    );
+    setItems(nextLines);
   };
 
   const fetchQuotation = async () => {
@@ -603,6 +666,9 @@ export default function QuotationForm() {
         [name]: value,
         valid_until: calcExpiry(d, v),
       }));
+    } else if (name === "price_type") {
+      setFormData((prev) => ({ ...prev, [name]: value }));
+      void repriceQuotationLinesByPriceType(value);
     } else {
       setFormData((prev) => ({ ...prev, [name]: value }));
     }
@@ -646,6 +712,9 @@ export default function QuotationForm() {
                     ? resolvedTaxRate
                     : tax.tax_rate,
               }));
+              if (resolvedTaxType) {
+                fetchTaxComponentsForCode(resolvedTaxType);
+              }
             } else {
               setNewItem((prev) => ({
                 ...prev,
@@ -664,6 +733,7 @@ export default function QuotationForm() {
       if (name === "tax_type") {
         const selectedTaxRate =
           taxes.find((t) => String(t.value) === String(value))?.rate || 0;
+        if (value) fetchTaxComponentsForCode(value);
         setNewItem((prev) => ({
           ...prev,
           [name]: value,
@@ -1426,11 +1496,6 @@ export default function QuotationForm() {
                       </option>
                     ))}
                   </select>
-                  {newItem.tax_rate !== undefined && (
-                    <div className="text-xs text-gray-500 mt-1">
-                      Tax rate: {Number(newItem.tax_rate).toFixed(2)}%
-                    </div>
-                  )}
                 </div>
               </div>
               <div className="flex justify-end">
@@ -1446,6 +1511,7 @@ export default function QuotationForm() {
               </div>
             </div>
             {items.length > 0 && (
+              <>
               <div className="overflow-x-auto rounded-lg border border-gray-200">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-100">
@@ -1510,28 +1576,36 @@ export default function QuotationForm() {
                       </tr>
                     ))}
                   </tbody>
-                  <tfoot className="bg-gray-50">
-                    <tr>
-                      <td
-                        colSpan="4"
-                        className="px-4 py-3 text-right font-semibold text-gray-700"
-                      >
-                        Totals:
-                      </td>
-                      <td className="px-4 py-3 font-bold text-gray-900">
-                        {calcGrandTotal().sub.toFixed(2)}
-                      </td>
-                      <td className="px-4 py-3 font-bold text-gray-900">
-                        {calcGrandTotal().tax.toFixed(2)}
-                      </td>
-                      <td className="px-4 py-3 font-bold text-gray-900">
-                        {calcGrandTotal().total.toFixed(2)}
-                      </td>
-                      <td className="print:hidden"></td>
-                    </tr>
-                  </tfoot>
                 </table>
               </div>
+              <div className="mt-4 ml-auto w-full max-w-md rounded-md bg-gray-100 px-4 py-3 space-y-2">
+                <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                  <span>Subtotal:</span>
+                  <span>{calcAggregates().netSub.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                  <span>Total Discount:</span>
+                  <span>{calcAggregates().discountTotal.toFixed(2)}</span>
+                </div>
+                {calcAggregates().components.map((c) => (
+                  <div
+                    key={c.name}
+                    className="flex items-center justify-between text-sm italic text-slate-600"
+                  >
+                    <span>{c.name}</span>
+                    <span>{c.amount.toFixed(2)}</span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between text-base font-bold text-slate-800 pt-1">
+                  <span>Total Tax:</span>
+                  <span>{calcAggregates().taxTotal.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-xl font-bold text-slate-900 pt-1">
+                  <span>Grand Total:</span>
+                  <span>{calcAggregates().grand.toFixed(2)}</span>
+                </div>
+              </div>
+              </>
             )}
             {items.length === 0 && (
               <div className="text-center py-10 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-300">
@@ -1675,34 +1749,32 @@ export default function QuotationForm() {
         <div className="grid grid-cols-2 gap-6">
           <div></div>
           <div>
-            <div>
-              <div className="grid grid-cols-2">
-                <div className="px-2 py-1 font-medium">Subtotal</div>
-                <div className="px-2 py-1 text-right">
-                  {calcAggregates().grossSub.toFixed(2)}
-                </div>
-                <div className="px-2 py-1 font-medium">Discount</div>
-                <div className="px-2 py-1 text-right">
-                  {calcAggregates().discountTotal.toFixed(2)}
-                </div>
-                <div className="px-2 py-1 font-medium">Net Sub Total</div>
-                <div className="px-2 py-1 text-right font-semibold">
-                  {calcAggregates().netSub.toFixed(2)}
-                </div>
-                {calcAggregates().components.map((c) => (
-                  <React.Fragment key={c.name}>
-                    <div className="px-2 py-1">
-                      {c.name} [{c.rate}%]
-                    </div>
-                    <div className="px-2 py-1 text-right">
-                      {c.amount.toFixed(2)}
-                    </div>
-                  </React.Fragment>
+            <div className="rounded-md bg-gray-100 px-4 py-3 space-y-2">
+              <div className="flex items-center justify-between text-[30px] font-semibold text-slate-700">
+                <span>Subtotal:</span>
+                <span>{calcAggregates().netSub.toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between text-[30px] font-semibold text-slate-700">
+                <span>Total Discount:</span>
+                <span>{calcAggregates().discountTotal.toFixed(2)}</span>
+              </div>
+              {calcAggregates().components.length > 0 &&
+                calcAggregates().components.map((c) => (
+                  <div
+                    key={c.name}
+                    className="flex items-center justify-between text-[24px] text-slate-600"
+                  >
+                    <span>{c.name}</span>
+                    <span>{c.amount.toFixed(2)}</span>
+                  </div>
                 ))}
-                <div className="px-2 py-1 font-semibold">Total</div>
-                <div className="px-2 py-1 text-right font-semibold">
-                  {calcAggregates().grand.toFixed(2)}
-                </div>
+              <div className="flex items-center justify-between text-[34px] font-bold text-slate-800 pt-1">
+                <span>Total Tax:</span>
+                <span>{calcAggregates().taxTotal.toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between text-[38px] font-bold text-slate-900 pt-1">
+                <span>Grand Total:</span>
+                <span>{calcAggregates().grand.toFixed(2)}</span>
               </div>
             </div>
           </div>
@@ -1829,34 +1901,32 @@ export default function QuotationForm() {
         <div className="grid grid-cols-2 gap-6">
           <div></div>
           <div>
-            <div>
-              <div className="grid grid-cols-2">
-                <div className="px-2 py-1 font-medium">Subtotal</div>
-                <div className="px-2 py-1 text-right">
-                  {calcAggregates().grossSub.toFixed(2)}
-                </div>
-                <div className="px-2 py-1 font-medium">Discount</div>
-                <div className="px-2 py-1 text-right">
-                  {calcAggregates().discountTotal.toFixed(2)}
-                </div>
-                <div className="px-2 py-1 font-medium">Net Sub Total</div>
-                <div className="px-2 py-1 text-right font-semibold">
-                  {calcAggregates().netSub.toFixed(2)}
-                </div>
-                {calcAggregates().components.map((c) => (
-                  <React.Fragment key={c.name}>
-                    <div className="px-2 py-1">
-                      {c.name} [{c.rate}%]
-                    </div>
-                    <div className="px-2 py-1 text-right">
-                      {c.amount.toFixed(2)}
-                    </div>
-                  </React.Fragment>
+            <div className="rounded-md bg-gray-100 px-4 py-3 space-y-2">
+              <div className="flex items-center justify-between text-[30px] font-semibold text-slate-700">
+                <span>Subtotal:</span>
+                <span>{calcAggregates().netSub.toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between text-[30px] font-semibold text-slate-700">
+                <span>Total Discount:</span>
+                <span>{calcAggregates().discountTotal.toFixed(2)}</span>
+              </div>
+              {calcAggregates().components.length > 0 &&
+                calcAggregates().components.map((c) => (
+                  <div
+                    key={c.name}
+                    className="flex items-center justify-between text-[24px] text-slate-600"
+                  >
+                    <span>{c.name}</span>
+                    <span>{c.amount.toFixed(2)}</span>
+                  </div>
                 ))}
-                <div className="px-2 py-1 font-semibold">Total</div>
-                <div className="px-2 py-1 text-right font-semibold">
-                  {calcAggregates().grand.toFixed(2)}
-                </div>
+              <div className="flex items-center justify-between text-[34px] font-bold text-slate-800 pt-1">
+                <span>Total Tax:</span>
+                <span>{calcAggregates().taxTotal.toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between text-[38px] font-bold text-slate-900 pt-1">
+                <span>Grand Total:</span>
+                <span>{calcAggregates().grand.toFixed(2)}</span>
               </div>
             </div>
           </div>

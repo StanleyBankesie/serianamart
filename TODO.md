@@ -1,3 +1,8 @@
-- [x] Update `ensureTemplateTables()` to ensure `adm_document_templates` exists with salary-slip compatible columns.
-- [x] Add backward-compatible column guards (`template_name`, `template_type`, `template`, and aliases if missing).
-- [x] Mark tasks complete after patching and sanity verification.
+# POS Enhancements (8 Tasks)
+
+**Current Status:** Hide delete button complete. New 8 tasks approved.
+
+## 1. POS Setup Tax Settings - Component Account Mapping
+
+- [ ] Create pos_tax_component_accounts table (server/routes/pos.routes.js)
+-

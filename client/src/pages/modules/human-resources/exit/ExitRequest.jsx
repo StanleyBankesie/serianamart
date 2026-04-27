@@ -12,6 +12,31 @@ export default function ExitRequest() {
     reason: "",
   });
   const [submitting, setSubmitting] = React.useState(false);
+  const [employees, setEmployees] = React.useState([]);
+  const [loadingEmployees, setLoadingEmployees] = React.useState(false);
+
+  React.useEffect(() => {
+    let mounted = true;
+    async function loadEmployees() {
+      setLoadingEmployees(true);
+      try {
+        const res = await api.get("/hr/employees", {
+          params: { status: "ACTIVE" },
+        });
+        if (mounted) {
+          setEmployees(res?.data?.items || []);
+        }
+      } catch {
+        toast.error("Failed to load employees");
+      } finally {
+        if (mounted) setLoadingEmployees(false);
+      }
+    }
+    loadEmployees();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -47,14 +72,25 @@ export default function ExitRequest() {
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm mb-1">Employee ID</label>
-            <input
+            <label className="block text-sm mb-1">Employee</label>
+            <select
               className="input"
               value={form.employee_id}
               onChange={(e) =>
                 setForm((s) => ({ ...s, employee_id: e.target.value }))
               }
-            />
+              required
+            >
+              <option value="">
+                {loadingEmployees ? "Loading employees..." : "Select employee"}
+              </option>
+              {employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {`${emp.first_name || ""} | ${emp.last_name || ""}`.trim()}
+                  {emp.emp_code ? `(${emp.emp_code})` : ""}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-sm mb-1">Exit Type</label>

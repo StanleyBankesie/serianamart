@@ -1032,6 +1032,8 @@ export default function SalesOrderList() {
                     <th>Status</th>
                     <th>Amount</th>
                     <th>Actions</th>
+                                    <th>Created By</th>
+                  <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1168,6 +1170,8 @@ export default function SalesOrderList() {
                           ) : null}
                         </div>
                       </td>
+                      <td>{order.created_by_name || "-"}</td>
+                      <td>{order.created_at ? new Date(order.created_at).toLocaleDateString() : "-"}</td>
                     </tr>
                   ))}
                 </tbody>

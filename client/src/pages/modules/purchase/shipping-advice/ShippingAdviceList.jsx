@@ -175,6 +175,8 @@ export default function ShippingAdviceList() {
                 <th>ETA</th>
                 <th>Status</th>
                 <th>Actions</th>
+                            <th>Created By</th>
+              <th>Created Date</th>
               </tr>
             </thead>
             <tbody>
@@ -275,6 +277,8 @@ export default function ShippingAdviceList() {
                         </button>
                       ) : null}
                     </td>
+                    <td>{r.created_by_name || "-"}</td>
+                    <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))
               )}

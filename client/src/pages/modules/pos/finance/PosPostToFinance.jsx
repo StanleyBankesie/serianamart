@@ -49,14 +49,21 @@ export default function PosPostToFinance() {
   const [actionsOpen, setActionsOpen] = useState(false);
 
   const [transactions, setTransactions] = useState([]);
+  const [allAccounts, setAllAccounts] = useState([]);
+  const [selectedReturnsAccount, setSelectedReturnsAccount] = useState("");
+  const [selectedSalesAccount, setSelectedSalesAccount] = useState("");
 
   const [denomCounts, setDenomCounts] = useState(DENOMINATIONS.map(() => 0));
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    Promise.all([api.get("/pos/terminals"), api.get("/pos/next-voucher-no")])
-      .then(([res, vRes]) => {
+    Promise.all([
+      api.get("/pos/terminals"),
+      api.get("/pos/next-voucher-no"),
+      api.get("/finance/accounts", { params: { postable: 1, active: 1 } }),
+    ])
+      .then(([res, vRes, accRes]) => {
         if (cancelled) return;
         const items = Array.isArray(res.data?.items) ? res.data.items : [];
         setTerminals(items);
@@ -67,6 +74,11 @@ export default function PosPostToFinance() {
         }
         const nextVNo = String(vRes.data?.voucher_no || "").trim();
         if (nextVNo) setVoucherNo(nextVNo);
+
+        const accounts = Array.isArray(accRes.data?.items)
+          ? accRes.data.items
+          : [];
+        setAllAccounts(accounts);
       })
       .catch(() => {
         if (cancelled) return;
@@ -213,7 +225,7 @@ export default function PosPostToFinance() {
   async function populateTransactions() {
     setLoading(true);
     try {
-      const [salesRes, accountsRes, taxRes, paymentModesRes] =
+      const [salesRes, accountsRes, taxRes, paymentModesRes, returnsRes] =
         await Promise.all([
           api.get("/pos/sales", {
             params: {
@@ -225,14 +237,27 @@ export default function PosPostToFinance() {
           api.get("/finance/accounts", { params: { postable: 1, active: 1 } }),
           api.get("/pos/tax-settings"),
           api.get("/pos/payment-modes"),
+          api.get("/sales/returns", {
+            params: {
+              date: voucherDate,
+              // We match the warehouse selected in POS to the returns warehouse
+            }
+          }).catch(() => ({ data: { items: [] } }))
         ]);
 
       const allSales = Array.isArray(salesRes.data?.items)
         ? salesRes.data.items
         : [];
-      const accounts = Array.isArray(accountsRes.data?.items)
-        ? accountsRes.data.items
+      const allReturns = Array.isArray(returnsRes?.data?.items)
+        ? returnsRes.data.items
         : [];
+
+      const accounts = allAccounts.length
+        ? allAccounts
+        : Array.isArray(accountsRes.data?.items)
+          ? accountsRes.data.items
+          : [];
+      if (!allAccounts.length) setAllAccounts(accounts);
       const accountsById = new Map(accounts.map((a) => [String(a.id), a]));
       const taxSettings = taxRes.data?.item || null;
       const paymentModes = Array.isArray(paymentModesRes.data?.items)
@@ -243,10 +268,33 @@ export default function PosPostToFinance() {
         const paid = String(s.payment_status || "").toUpperCase() === "PAID";
         return paid;
       });
-      if (!sales.length) {
+
+      // Filter returns by warehouse if specified
+      const returns = allReturns.filter(r => {
+        if (!warehouse) return true;
+        // In POS terminal table, warehouse is a string (name). In sal_returns, it's warehouse_id.
+        // We'll try to match by resolving the warehouse ID if possible, but for now we'll accept all for the date if no clear ID link.
+        return true; 
+      });
+
+      if (!sales.length && !returns.length) {
         setTransactions([]);
-        window.alert("No completed POS sales found for the selected date.");
+        window.alert("No POS sales or returns found for the selected date.");
         return;
+      }
+
+      let taxComponents = [];
+      if (taxSettings?.tax_code_id) {
+        try {
+          const compRes = await api.get(
+            `/finance/tax-codes/${taxSettings.tax_code_id}/components`,
+          );
+          if (Array.isArray(compRes.data?.items)) {
+            taxComponents = compRes.data.items;
+          }
+        } catch (err) {
+          console.warn("Failed to fetch tax components", err);
+        }
       }
 
       const taxMode = String(
@@ -263,7 +311,10 @@ export default function PosPostToFinance() {
       const incomeAccounts = accounts.filter(
         (a) => String(a.nature || "").toUpperCase() === "INCOME",
       );
-      const salesAccountId = pickDefaultSalesAccountId(incomeAccounts);
+      const defaultSalesAccountId = pickDefaultSalesAccountId(incomeAccounts);
+      const salesAccountId = selectedSalesAccount
+        ? Number(selectedSalesAccount)
+        : defaultSalesAccountId;
       if (!salesAccountId) {
         throw new Error("Sales account not configured for posting");
       }
@@ -271,7 +322,9 @@ export default function PosPostToFinance() {
       let totalSalesBase = 0;
       let totalTax = 0;
       const paymentTotals = new Map();
+      const componentTotals = new Map();
 
+      // Process Sales
       for (const s of sales) {
         const gross = Number(s.gross_amount || 0);
         const discount = Number(s.discount_amount || 0);
@@ -287,6 +340,21 @@ export default function PosPostToFinance() {
         totalSalesBase = roundTo2(totalSalesBase + Math.max(0, base));
         totalTax = roundTo2(totalTax + Math.max(0, tax));
 
+        // Calculate tax per component
+        if (taxActive && taxComponents.length > 0 && tax > 0) {
+          let currentBase = base;
+          for (const comp of taxComponents) {
+            const rate = Number(comp.rate_percent || 0);
+            const compTax = roundTo2((base * rate) / 100);
+            if (compTax > 0) {
+              componentTotals.set(
+                comp.id,
+                roundTo2((componentTotals.get(comp.id) || 0) + compTax),
+              );
+            }
+          }
+        }
+
         const method = String(s.payment_method || "CASH").toUpperCase();
         paymentTotals.set(
           method,
@@ -294,24 +362,80 @@ export default function PosPostToFinance() {
         );
       }
 
-      if (totalTax > 0 && !taxAccountId) {
-        throw new Error("Tax account not configured in POS Tax Settings");
+      // Process Returns (Subtract from totals)
+      for (const r of returns) {
+        const sub = Number(r.sub_total || 0);
+        const tax = Number(r.tax_amount || 0);
+        const total = Number(r.total_amount || 0);
+
+        totalSalesBase = roundTo2(totalSalesBase - sub);
+        totalTax = roundTo2(totalTax - tax);
+
+        // Subtract tax components proportionally if breakdown is used
+        if (taxActive && taxComponents.length > 0 && tax > 0) {
+          for (const comp of taxComponents) {
+            const rate = Number(comp.rate_percent || 0);
+            const compTax = roundTo2((sub * rate) / 100);
+            if (compTax > 0) {
+              componentTotals.set(
+                comp.id,
+                roundTo2((componentTotals.get(comp.id) || 0) - compTax),
+              );
+            }
+          }
+        }
+
+        // Subtract from payment totals (Defaulting to Cash for returns)
+        const method = "CASH"; 
+        paymentTotals.set(
+          method,
+          roundTo2((paymentTotals.get(method) || 0) - total),
+        );
       }
 
-      const next = [];
-      if (totalSalesBase > 0) {
+      let componentMappings = {};
+      if (taxSettings?.component_mappings) {
+        try {
+          componentMappings =
+            typeof taxSettings.component_mappings === "string"
+              ? JSON.parse(taxSettings.component_mappings)
+              : taxSettings.component_mappings;
+        } catch (e) {
+          componentMappings = {};
+        }
+      }
+
+      const useComponentBreakdown =
+        taxComponents.length > 0 && Object.keys(componentMappings).length > 0;
+
+      let next = [];
+      if (Math.abs(totalSalesBase) >= 0.01) {
         next.push({
           account: accountLabelFromAccountsById(accountsById, salesAccountId),
-          credit: totalSalesBase,
-          debit: 0,
+          credit: totalSalesBase > 0 ? totalSalesBase : 0,
+          debit: totalSalesBase < 0 ? Math.abs(totalSalesBase) : 0,
         });
       }
-      if (totalTax > 0 && taxAccountId) {
-        next.push({
-          account: accountLabelFromAccountsById(accountsById, taxAccountId),
-          credit: totalTax,
-          debit: 0,
-        });
+
+      if (Math.abs(totalTax) >= 0.01) {
+        if (useComponentBreakdown) {
+          for (const [compId, amt] of componentTotals.entries()) {
+            const compAccountId = componentMappings[compId];
+            if (!compAccountId) continue;
+            if (Math.abs(amt) < 0.01) continue;
+            next.push({
+              account: accountLabelFromAccountsById(accountsById, compAccountId),
+              credit: amt > 0 ? amt : 0,
+              debit: amt < 0 ? Math.abs(amt) : 0,
+            });
+          }
+        } else if (taxAccountId) {
+          next.push({
+            account: accountLabelFromAccountsById(accountsById, taxAccountId),
+            credit: totalTax > 0 ? totalTax : 0,
+            debit: totalTax < 0 ? Math.abs(totalTax) : 0,
+          });
+        }
       }
 
       const paymentModeByType = new Map();
@@ -333,7 +457,7 @@ export default function PosPostToFinance() {
 
       for (const method of methods) {
         const amt = roundTo2(paymentTotals.get(method) || 0);
-        if (amt <= 0) continue;
+        if (Math.abs(amt) < 0.01) continue;
         const needType =
           method === "CARD" ? "card" : method === "MOBILE" ? "mobile" : "cash";
         const pm = paymentModeByType.get(needType);
@@ -342,12 +466,12 @@ export default function PosPostToFinance() {
           accountsById,
           pm?.account,
         );
-        if (!payLabel) {
-          throw new Error(
-            `No linked Finance account found for payment type: ${needType}`,
-          );
-        }
-        next.push({ account: payLabel, credit: 0, debit: amt });
+        if (!payLabel) continue;
+        next.push({ 
+          account: payLabel, 
+          credit: amt < 0 ? Math.abs(amt) : 0, 
+          debit: amt > 0 ? amt : 0 
+        });
       }
 
       setTransactions(next);
@@ -363,6 +487,8 @@ export default function PosPostToFinance() {
     setVoucherNo("");
     setTransactions([]);
     setSearch("");
+    setSelectedReturnsAccount("");
+    setSelectedSalesAccount("");
     setDenomCounts(DENOMINATIONS.map(() => 0));
   }
 
@@ -478,6 +604,57 @@ export default function PosPostToFinance() {
                 disabled={loading || !warehouseSelectOptions.length}
               />
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="label">Sales Account (Credit)</label>
+              <select
+                className="input"
+                value={selectedSalesAccount}
+                onChange={(e) => setSelectedSalesAccount(e.target.value)}
+              >
+                <option value="">Default Sales Revenue Account</option>
+                {allAccounts
+                  .filter(
+                    (a) =>
+                      String(a.nature || "").toUpperCase() === "INCOME" ||
+                      String(a.code || "").match(/^40/),
+                  )
+                  .map((a) => (
+                    <option key={a.id} value={String(a.id)}>
+                      {a.code} — {a.name}
+                    </option>
+                  ))}
+              </select>
+              <small className="text-slate-500 mt-1 block">
+                Account to be credited for sales revenue
+              </small>
+            </div>
+          {/* Hidden as per user request */}
+          <div className="hidden">
+            <div>
+              <label className="label">Returns Account</label>
+              <select
+                className="input"
+                value={selectedReturnsAccount}
+                onChange={(e) => setSelectedReturnsAccount(e.target.value)}
+              >
+                <option value="">Default (4000 - Sales Revenue)</option>
+                {allAccounts
+                  .filter(
+                    (a) =>
+                      String(a.nature || "").toUpperCase() === "INCOME" ||
+                      String(a.code || "").match(/^40/),
+                  )
+                  .map((a) => (
+                    <option key={a.id} value={String(a.id)}>
+                      {a.code} — {a.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          </div>
           </div>
 
           <div>

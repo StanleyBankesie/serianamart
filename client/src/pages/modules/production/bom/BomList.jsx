@@ -24,7 +24,9 @@ export default function BomList() {
 
       <div className="card"><div className="card-body overflow-x-auto">
         <table className="table">
-          <thead><tr><th>Code</th><th>Product</th><th>Version</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th>Code</th><th>Product</th><th>Version</th><th>Status</th><th />                    <th>Created By</th>
+                    <th>Created Date</th>
+                    </tr></thead>
           <tbody>
             {items.map((b) => (
               <tr key={b.id}>
@@ -50,6 +52,8 @@ export default function BomList() {
                     </Link>
                   )}
                 </td>
+                <td>{b.created_by_name || "-"}</td>
+                <td>{b.created_at ? new Date(b.created_at).toLocaleDateString() : "-"}</td>
               </tr>
             ))}
           </tbody>

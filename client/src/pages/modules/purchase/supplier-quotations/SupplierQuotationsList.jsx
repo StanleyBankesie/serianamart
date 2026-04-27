@@ -131,6 +131,8 @@ export default function SupplierQuotationsList() {
                 <th>Status</th>
                 <th>Attachments</th>
                 <th>Actions</th>
+                            <th>Created By</th>
+              <th>Created Date</th>
               </tr>
             </thead>
             <tbody>
@@ -228,6 +230,8 @@ export default function SupplierQuotationsList() {
                         )}
                       </div>
                     </td>
+                    <td>{quotation.created_by_name || "-"}</td>
+                    <td>{quotation.created_at ? new Date(quotation.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))
               )}

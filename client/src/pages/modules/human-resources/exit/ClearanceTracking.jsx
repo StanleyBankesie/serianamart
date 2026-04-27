@@ -17,7 +17,7 @@ export default function ClearanceTracking() {
   const loadExits = async () => {
     setLoading(true);
     try {
-      const res = await api.get("/hr/reports"); // listExits is registered as /reports for some reason in routes
+      const res = await api.get("/hr/exits");
       setExits(res.data.items || []);
     } catch {
       toast.error("Failed to load exit requests");

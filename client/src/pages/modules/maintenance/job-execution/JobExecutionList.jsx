@@ -46,7 +46,9 @@ export default function JobExecutionList() {
           <div className="mb-4"><input className="input max-w-md" placeholder="Search by no, job order, status..." value={search} onChange={e => setSearch(e.target.value)} /></div>
           <div className="overflow-x-auto">
             <table className="table">
-              <thead><tr><th>Execution No</th><th>Job Order</th><th>Start Date</th><th>End Date</th><th>Technicians</th><th>Completion</th><th>Status</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Execution No</th><th>Job Order</th><th>Start Date</th><th>End Date</th><th>Technicians</th><th>Completion</th><th>Status</th><th>Actions</th>                    <th>Created By</th>
+                    <th>Created Date</th>
+                    </tr></thead>
               <tbody>
                 {loading && <tr><td colSpan="8" className="text-center py-8 text-slate-500">Loading...</td></tr>}
                 {!loading && !filtered.length && <tr><td colSpan="8" className="text-center py-8 text-slate-500">No executions found</td></tr>}

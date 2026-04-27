@@ -57,6 +57,8 @@ export default function CompanyList() {
                     <th>Name</th>
                     <th>Status</th>
                     <th />
+                                    <th>Created By</th>
+                  <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -89,6 +91,8 @@ export default function CompanyList() {
                             Edit
                           </Link>
                         </td>
+                        <td>{c.created_by_name || "-"}</td>
+                        <td>{c.created_at ? new Date(c.created_at).toLocaleDateString() : "-"}</td>
                       </tr>
                     ))
                   )}

@@ -90,6 +90,8 @@ export default function TransferAcceptanceList() {
                   <th>To Warehouse</th>
                   <th>Status</th>
                   <th>Actions</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -148,6 +150,8 @@ export default function TransferAcceptanceList() {
                         Open
                       </Link>
                     </td>
+                    <td>{t.created_by_name || "-"}</td>
+                    <td>{t.created_at ? new Date(t.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

@@ -9,9 +9,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ant-design/icons": "^6.1.1",
     "@reduxjs/toolkit": "^2.11.2",
     "antd": "^6.2.0",
     "axios": "^1.7.9",
+    "dagre": "^0.8.5",
     "date-fns": "^4.1.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^2.5.1",
@@ -22,6 +24,7 @@
     "react-redux": "^9.2.0",
     "react-router-dom": "^6.28.0",
     "react-toastify": "^10.0.6",
+    "reactflow": "^11.11.4",
     "socket.io-client": "^4.8.3",
     "xlsx": "^0.18.5"
   },

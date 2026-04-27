@@ -42,6 +42,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   const isDN = String(voucherTypeCode).toUpperCase() === "DN";
   const isCN = String(voucherTypeCode).toUpperCase() === "CN";
   const isJV = String(voucherTypeCode).toUpperCase() === "JV";
+  const isSV = String(voucherTypeCode).toUpperCase() === "SV";
+  const isPUV = String(voucherTypeCode).toUpperCase() === "PUV";
   const [rvForm, setRvForm] = useState({
     receivedFrom: "",
     receivedFromCode: "",
@@ -1673,7 +1675,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     }
   }
 
-  if (isJV || isCN || isDN) {
+  if (isJV || isCN || isDN || isSV || isPUV) {
     return (
       <div className="space-y-4">
         <div className="card">
@@ -2044,7 +2046,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                               <option value="">Select account</option>
                               {accounts.map((a) => (
                                 <option key={a.id} value={a.id}>
-                                  {a.code} - {a.name}
+                                  {isSV ? a.name : `${a.code} - ${a.name}`}
                                 </option>
                               ))}
                             </select>
@@ -4385,7 +4387,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                       type="number"
                       className={`input w-40 text-right ${disabledClass}`}
                       min="0"
-                      step="0.01"
+                      step="1"
                       value={Number(knockOffTotal || 0)}
                       onChange={(e) => {
                         const v = Number(e.target.value || 0);
@@ -4467,7 +4469,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                   className={`input text-right ${disabledClass}`}
                                   type="number"
                                   min="0"
-                                  step="0.01"
+                                  step="1"
                                   value={Number(it.amount || 0)}
                                   onChange={(e) =>
                                     setPvAmountForRef(

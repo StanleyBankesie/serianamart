@@ -33,7 +33,7 @@ function FilterableSelect({
 export default function PosReturnForm() {
   const [now, setNow] = useState(new Date());
   const [searchSaleId, setSearchSaleId] = useState("");
-  const [searchDate, setSearchDate] = useState("");
+  const [searchDate, setSearchDate] = useState(new Date().toISOString().slice(0, 10));
   const [searchPhone, setSearchPhone] = useState("");
   const [searchPayment, setSearchPayment] = useState("");
   const [receiptsLoading, setReceiptsLoading] = useState(false);
@@ -638,29 +638,6 @@ export default function PosReturnForm() {
                   />
                 </div>
                 <div>
-                  <label className="label">Receipt Number</label>
-                  <FilterableSelect
-                    value={searchSaleId}
-                    onChange={setSearchSaleId}
-                    options={receiptOptions}
-                    placeholder={
-                      receiptsLoading ? "Loading receipts..." : "Select receipt"
-                    }
-                    disabled={!dayOpen || receiptsLoading}
-                    filterPlaceholder="Filter receipts..."
-                  />
-                </div>
-                <div>
-                  <label className="label">Customer Phone</label>
-                  <input
-                    className="input"
-                    placeholder="e.g., 0244123456"
-                    value={searchPhone}
-                    onChange={(e) => setSearchPhone(e.target.value)}
-                    disabled={!dayOpen}
-                  />
-                </div>
-                <div>
                   <label className="label">Payment Method</label>
                   <FilterableSelect
                     value={searchPayment}
@@ -673,6 +650,29 @@ export default function PosReturnForm() {
                     placeholder="All Methods"
                     disabled={!dayOpen}
                     filterPlaceholder="Filter methods..."
+                  />
+                </div>
+                <div>
+                  <label className="label">Receipt Number</label>
+                  <FilterableSelect
+                    value={searchSaleId}
+                    onChange={setSearchSaleId}
+                    options={receiptOptions}
+                    placeholder={
+                      receiptsLoading ? "Loading receipts..." : "Select receipt"
+                    }
+                    disabled={!dayOpen || receiptsLoading}
+                    filterPlaceholder="Filter receipts..."
+                  />
+                </div>
+                <div style={{ display: 'none' }}>
+                  <label className="label">Customer Phone</label>
+                  <input
+                    className="input"
+                    placeholder="e.g., 0244123456"
+                    value={searchPhone}
+                    onChange={(e) => setSearchPhone(e.target.value)}
+                    disabled={!dayOpen}
                   />
                 </div>
                 <div>

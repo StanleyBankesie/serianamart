@@ -68,13 +68,15 @@ export const getUserById = async (req, res, next) => {
   try {
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    const items = await query(
-      `
+    const items = await query(`
       SELECT 
         u.*,
-        IF(u.profile_picture IS NULL, NULL, CONCAT('data:image/jpeg;base64,', TO_BASE64(u.profile_picture))) AS profile_picture_url
-      FROM adm_users u
-      WHERE u.id = :id
+        IF(u.profile_picture IS NULL, NULL, CONCAT('data:image/jpeg;base64,', TO_BASE64(u.profile_picture))) AS profile_picture_url,
+          u.created_at,
+          uc.username AS created_by_name
+         FROM adm_users u
+        LEFT JOIN adm_users uc ON uc.id = u.created_by
+         WHERE u.id = :id
       LIMIT 1
       `,
       { id },
@@ -95,13 +97,15 @@ export const getUserBranches = async (req, res, next) => {
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await ensureUserBranchMapping();
-    const items = await query(
-      `
-      SELECT b.id, b.company_id, b.name, b.code, c.name AS company_name
-      FROM adm_user_branches ub
+    const items = await query(`
+      SELECT b.id, b.company_id, b.name, b.code, c.name AS company_name,
+          ub.created_at,
+          uc.username AS created_by_name
+         FROM adm_user_branches ub
       JOIN adm_branches b ON b.id = ub.branch_id
       JOIN adm_companies c ON c.id = b.company_id
-      WHERE ub.user_id = :id
+        LEFT JOIN adm_users uc ON uc.id = ub.created_by
+         WHERE ub.user_id = :id
       ORDER BY c.name ASC, b.name ASC
       `,
       { id },
@@ -131,8 +135,12 @@ export const updateUserBranches = async (req, res, next) => {
       .filter((n) => Number.isFinite(n));
     await ensureUserBranchMapping();
 
-    const validBranches = await query(
-      `SELECT id FROM adm_branches WHERE company_id = :company_id`,
+    const validBranches = await query(`SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_branches
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :company_id`,
       { company_id },
     );
     const validSet = new Set(validBranches.map((r) => Number(r.id)));
@@ -142,21 +150,18 @@ export const updateUserBranches = async (req, res, next) => {
       }
     }
 
-    await query(
-      `DELETE FROM adm_user_branches WHERE user_id = :id AND company_id = :company_id`,
+    await query(`DELETE FROM adm_user_branches WHERE user_id = :id AND company_id = :company_id`,
       { id, company_id },
     );
     for (const bid of cleanIds) {
-      await query(
-        `INSERT INTO adm_user_branches (user_id, company_id, branch_id) VALUES (:id, :company_id, :bid)`,
+      await query(`INSERT INTO adm_user_branches (user_id, company_id, branch_id) VALUES (:id, :company_id, :bid)`,
         { id, company_id, bid },
       );
     }
 
     const primaryBranch = cleanIds[0] || null;
     if (primaryBranch) {
-      await query(
-        `UPDATE adm_users SET company_id = :company_id, branch_id = :branch_id WHERE id = :id`,
+      await query(`UPDATE adm_users SET company_id = :company_id, branch_id = :branch_id WHERE id = :id`,
         { id, company_id, branch_id: primaryBranch },
       );
     }
@@ -197,8 +202,7 @@ export const createUser = async (req, res, next) => {
         "company_id, branch_id, username, and email are required",
       );
 
-    const result = await query(
-      `INSERT INTO adm_users (
+    const result = await query(`INSERT INTO adm_users (
         company_id, branch_id, username, email, full_name, password_hash, is_active,
         profile_picture, is_employee, user_type, valid_from, valid_to, role_id
       ) VALUES (
@@ -234,8 +238,7 @@ export const createUser = async (req, res, next) => {
       ? branch_ids.map((x) => Number(x)).filter((n) => Number.isFinite(n))
       : [Number(branch_id)].filter((n) => Number.isFinite(n));
     for (const bid of branchesToAssign) {
-      await query(
-        `INSERT INTO adm_user_branches (user_id, company_id, branch_id) VALUES (:user_id, :company_id, :branch_id)`,
+      await query(`INSERT INTO adm_user_branches (user_id, company_id, branch_id) VALUES (:user_id, :company_id, :branch_id)`,
         { user_id: newUserId, company_id, branch_id: bid },
       );
     }
@@ -330,13 +333,11 @@ export const updateUser = async (req, res, next) => {
       const cleanIds = branch_ids
         .map((x) => Number(x))
         .filter((n) => Number.isFinite(n));
-      await query(
-        `DELETE FROM adm_user_branches WHERE user_id = :id AND company_id = :company_id`,
+      await query(`DELETE FROM adm_user_branches WHERE user_id = :id AND company_id = :company_id`,
         { id, company_id },
       );
       for (const bid of cleanIds) {
-        await query(
-          `INSERT INTO adm_user_branches (user_id, company_id, branch_id) VALUES (:user_id, :company_id, :branch_id)`,
+        await query(`INSERT INTO adm_user_branches (user_id, company_id, branch_id) VALUES (:user_id, :company_id, :branch_id)`,
           { user_id: id, company_id, branch_id: bid },
         );
       }
@@ -423,21 +424,27 @@ export const getUserPermissionsContext = async (req, res, next) => {
       });
       if (roles.length) role = roles[0];
 
-      pages = await query(
-        `
-        SELECT p.* 
-        FROM adm_role_pages rp
+      pages = await query(`
+        SELECT p.*,
+          rp.created_at,
+          u.username AS created_by_name
+         FROM adm_role_pages rp
         JOIN adm_pages p ON rp.page_id = p.id
-        WHERE rp.role_id = :roleId
+        LEFT JOIN adm_users u ON u.id = rp.created_by
+         WHERE rp.role_id = :roleId
         ORDER BY p.module, p.name
       `,
         { roleId: user.role_id },
       );
     }
 
-    const permissions = await query(
-      `
-      SELECT * FROM adm_user_permissions WHERE user_id = :userId
+    const permissions = await query(`
+      SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_user_permissions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE user_id = :userId
     `,
       { userId: id },
     );
@@ -472,8 +479,7 @@ export const saveUserPermissions = async (req, res, next) => {
     for (const p of permissions) {
       if (!p.page_id) continue;
       try {
-        await query(
-          `INSERT INTO adm_user_permissions (user_id, page_id, can_view, can_create, can_edit, can_delete)
+        await query(`INSERT INTO adm_user_permissions (user_id, page_id, can_view, can_create, can_edit, can_delete)
            VALUES (:userId, :pageId, :canView, :canCreate, :canEdit, :canDelete)
            ON DUPLICATE KEY UPDATE
              can_view = :canView,
@@ -527,8 +533,7 @@ export const saveUserFeaturePermissions = async (req, res, next) => {
       const canEdit = p.can_edit ? 1 : 0;
       const canDelete = p.can_delete ? 1 : 0;
 
-      await query(
-        `INSERT INTO adm_user_permissions (user_id, page_id, can_view, can_create, can_edit, can_delete)
+      await query(`INSERT INTO adm_user_permissions (user_id, page_id, can_view, can_create, can_edit, can_delete)
          VALUES (:userId, :pageId, :canView, :canCreate, :canEdit, :canDelete)
          ON DUPLICATE KEY UPDATE
            can_view = VALUES(can_view),
@@ -566,8 +571,12 @@ export const getUserFeaturePermissionsContext = async (req, res, next) => {
     await ensureRoleFeaturesTable();
     await ensureRolePermissionsTable();
 
-    const users = await query(
-      `SELECT id, username, email, role_id FROM adm_users WHERE id = :id LIMIT 1`,
+    const users = await query(`SELECT id, username, email, role_id,
+          created_at,
+          uc.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users uc ON uc.id = created_by
+         WHERE id = :id LIMIT 1`,
       { id: userId },
     );
     if (!users.length) throw httpError(404, "NOT_FOUND", "User not found");
@@ -585,18 +594,24 @@ export const getUserFeaturePermissionsContext = async (req, res, next) => {
       });
     }
 
-    const roleFeatureRows = await query(
-      `SELECT feature_key FROM adm_role_features WHERE role_id = :roleId ORDER BY feature_key`,
+    const roleFeatureRows = await query(`SELECT feature_key,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_role_features
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE role_id = :roleId ORDER BY feature_key`,
       { roleId },
     );
     const roleFeatureKeys = roleFeatureRows
       .map((r) => String(r.feature_key || "").trim())
       .filter(Boolean);
 
-    const pages = await query(
-      `SELECT id AS page_id, path, module, name, feature_key
-       FROM adm_pages
-       WHERE is_active = 1 AND path IS NOT NULL AND path <> ''
+    const pages = await query(`SELECT id AS page_id, path, module, name, feature_key,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_pages
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE is_active = 1 AND path IS NOT NULL AND path <> ''
        ORDER BY path`,
       {},
     );
@@ -683,17 +698,19 @@ export const getUserFeaturePermissionsList = async (req, res, next) => {
     await ensurePagesTable();
     await ensureUserPermissionsTable();
 
-    const rows = await query(
-      `
+    const rows = await query(`
       SELECT 
         p.feature_key,
         MAX(up.can_view) AS can_view,
         MAX(up.can_create) AS can_create,
         MAX(up.can_edit) AS can_edit,
-        MAX(up.can_delete) AS can_delete
-      FROM adm_user_permissions up
+        MAX(up.can_delete) AS can_delete,
+          up.created_at,
+          u.username AS created_by_name
+         FROM adm_user_permissions up
       JOIN adm_pages p ON p.id = up.page_id
-      WHERE up.user_id = :userId
+        LEFT JOIN adm_users u ON u.id = up.created_by
+         WHERE up.user_id = :userId
       GROUP BY p.feature_key
       ORDER BY p.feature_key
       `,
@@ -712,17 +729,19 @@ export const getUserFeaturePermissionsList = async (req, res, next) => {
 
 export const getUserAssignments = async (req, res, next) => {
   try {
-    const items = await query(
-      `SELECT 
+    const items = await query(`SELECT 
          u.id, 
          u.username, 
          u.email, 
          r.name as role_name,
-         COUNT(up.page_id) as custom_count
-       FROM adm_users u
+         COUNT(up.page_id) as custom_count,
+          u.created_at,
+          uc.username AS created_by_name
+         FROM adm_users u
        JOIN adm_user_permissions up ON u.id = up.user_id
        LEFT JOIN adm_roles r ON u.role_id = r.id
-       GROUP BY u.id, u.username, u.email, r.name
+        LEFT JOIN adm_users uc ON uc.id = u.created_by
+         GROUP BY u.id, u.username, u.email, r.name, uc.username
        ORDER BY u.username`,
     );
     res.json({

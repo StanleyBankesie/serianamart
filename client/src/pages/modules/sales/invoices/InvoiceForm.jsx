@@ -356,7 +356,7 @@ export default function InvoiceForm() {
 
   const fetchTaxCodes = async () => {
     try {
-      const response = await api.get("/finance/tax-codes");
+      const response = await api.get("/finance/tax-codes?form=INVOICE");
       const fetchedTaxes = Array.isArray(response.data?.items)
         ? response.data.items
         : [];
@@ -367,7 +367,9 @@ export default function InvoiceForm() {
       }));
       setTaxes(mappedTaxes);
       if (mappedTaxes.length > 0 && !newItem.tax_type) {
-        setNewItem((prev) => ({ ...prev, tax_type: mappedTaxes[0].value }));
+        const defaultTaxId = mappedTaxes[0].value;
+        setNewItem((prev) => ({ ...prev, tax_type: defaultTaxId }));
+        fetchTaxComponentsForCode(defaultTaxId);
       }
     } catch (error) {
       console.error("Error fetching tax codes:", error);
@@ -431,6 +433,31 @@ export default function InvoiceForm() {
     const total = sub + taxTotal;
     return { sub, components, taxTotal, total };
   };
+  const calcNewItemTaxBreakdown = () => {
+    const qty = parseFloat(newItem.qty) || 0;
+    const price = parseFloat(newItem.unit_price) || 0;
+    const disc = parseFloat(newItem.discount_percent) || 0;
+    const sub = qty * price;
+    const discAmt = (sub * disc) / 100;
+    const net = sub - discAmt;
+    const comps = taxComponentsByCode[String(newItem.tax_type)] || [];
+    const components = comps
+      .map((c) => {
+        const rate = Number(c.rate_percent) || 0;
+        return {
+          name: c.component_name,
+          rate,
+          sort_order: Number(c.sort_order || 0),
+          amount: (net * rate) / 100,
+        };
+      })
+      .sort((a, b) => a.sort_order - b.sort_order);
+    return {
+      net,
+      components,
+      taxTotal: components.reduce((s, c) => s + c.amount, 0),
+    };
+  };
   const calcAggregates = () => {
     const grossSub = lines.reduce((s, i) => s + (i.sub || 0), 0);
     const discountTotal = lines.reduce((s, i) => s + (i.discAmt || 0), 0);
@@ -448,8 +475,13 @@ export default function InvoiceForm() {
       grand,
     };
   };
+  useEffect(() => {
+    const key = String(newItem.tax_type || "");
+    if (!key || key in taxComponentsByCode) return;
+    fetchTaxComponentsForCode(key);
+  }, [newItem.tax_type, taxComponentsByCode]);
 
-  const toAbsoluteUrl = (url) => {
+  function resolveUrl(url) {
     const u = String(url || "").trim();
     if (!u) return "";
     if (
@@ -810,6 +842,9 @@ export default function InvoiceForm() {
                     ? resolvedTaxRate
                     : tax.tax_rate,
               }));
+              if (resolvedTaxType) {
+                fetchTaxComponentsForCode(resolvedTaxType);
+              }
             } else {
               setNewItem((prev) => ({
                 ...prev,
@@ -841,6 +876,9 @@ export default function InvoiceForm() {
         const num = value === "" ? "" : Math.round(Number(value) * 100) / 100;
         setNewItem((prev) => ({ ...prev, [name]: num }));
       } else {
+        if (name === "tax_type" && value) {
+          fetchTaxComponentsForCode(value);
+        }
         setNewItem((prev) => ({ ...prev, [name]: value }));
       }
     }
@@ -1469,7 +1507,7 @@ export default function InvoiceForm() {
               <div>
                 <label className="label">Payment Type</label>
                 <div className="flex items-center gap-6">
-                  <label className="inline-flex items-center gap-2">
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
                     <input
                       type="radio"
                       name="payment_type"
@@ -1480,7 +1518,7 @@ export default function InvoiceForm() {
                     />
                     <span>Cash</span>
                   </label>
-                  <label className="inline-flex items-center gap-2">
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
                     <input
                       type="radio"
                       name="payment_type"
@@ -1493,6 +1531,19 @@ export default function InvoiceForm() {
                   </label>
                 </div>
               </div>
+              {form.payment_type === "CREDIT" && (
+                <div>
+                  <label className="label">Payment Date *</label>
+                  <input
+                    type="date"
+                    className="input"
+                    value={form.payment_date || ""}
+                    onChange={(e) => update("payment_date", e.target.value)}
+                    required={form.payment_type === "CREDIT"}
+                    disabled={readOnly}
+                  />
+                </div>
+              )}
               <div>
                 <label className="label">Currency</label>
                 <select
@@ -1750,11 +1801,6 @@ export default function InvoiceForm() {
                         </option>
                       ))}
                     </select>
-                    {newItem.tax_rate !== undefined && (
-                      <div className="text-xs text-gray-500 mt-1">
-                        Tax rate: {Number(newItem.tax_rate).toFixed(2)}%
-                      </div>
-                    )}
                   </div>
                 </div>
                 <div className="flex justify-end">
@@ -2117,9 +2163,7 @@ export default function InvoiceForm() {
                         key={c.name}
                         className="flex justify-between text-sm text-gray-700"
                       >
-                        <span>
-                          {c.name} [{c.rate}%]
-                        </span>
+                        <span>{c.name}</span>
                         <span>{c.amount.toFixed(2)}</span>
                       </div>
                     ))}
@@ -2291,7 +2335,7 @@ export default function InvoiceForm() {
                 {calcAggregates().components.map((c) => (
                   <React.Fragment key={c.name}>
                     <div className="px-2 py-1">
-                      {c.name} [{c.rate}%]
+                      {c.name}
                     </div>
                     <div className="px-2 py-1 text-right">
                       {c.amount.toFixed(2)}
@@ -2433,7 +2477,7 @@ export default function InvoiceForm() {
                 {calcAggregates().components.map((c) => (
                   <div key={c.name} className="contents">
                     <div className="px-2 py-1">
-                      {c.name} [{c.rate}%]
+                      {c.name}
                     </div>
                     <div className="px-2 py-1 text-right">
                       {c.amount.toFixed(2)}

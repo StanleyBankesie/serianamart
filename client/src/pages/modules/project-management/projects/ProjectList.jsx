@@ -22,7 +22,9 @@ export default function ProjectList() {
 
       <div className="card"><div className="card-body overflow-x-auto">
         <table className="table">
-          <thead><tr><th>Code</th><th>Name</th><th>Status</th><th className="text-right">Budget</th><th /></tr></thead>
+          <thead><tr><th>Code</th><th>Name</th><th>Status</th><th className="text-right">Budget</th><th />                    <th>Created By</th>
+                    <th>Created Date</th>
+                    </tr></thead>
           <tbody>
             {items.map((p) => (
               <tr key={p.id}>
@@ -31,6 +33,8 @@ export default function ProjectList() {
                 <td>{p.status}</td>
                 <td className="text-right">{Number(p.budget).toFixed(2)}</td>
                 <td><Link to={`/project-management/projects/${p.id}`} className="text-brand hover:text-brand-600 text-sm font-medium">Edit</Link></td>
+                <td>{p.created_by_name || "-"}</td>
+                <td>{p.created_at ? new Date(p.created_at).toLocaleDateString() : "-"}</td>
               </tr>
             ))}
           </tbody>

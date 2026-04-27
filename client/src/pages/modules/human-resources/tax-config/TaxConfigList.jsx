@@ -112,6 +112,8 @@ function PAYECalculator({ bands }) {
               <th className="pb-2 pr-3 text-right">Rate</th>
               <th className="pb-2 pr-3 text-right">Taxable Amount</th>
               <th className="pb-2 text-right">Tax</th>
+                        <th>Created By</th>
+            <th>Created Date</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200/60 dark:divide-slate-700/60">
@@ -1155,6 +1157,8 @@ export default function TaxConfigList() {
                             &times;
                           </button>
                         </td>
+                        <td>{b.created_by_name || "-"}</td>
+                        <td>{b.created_at ? new Date(b.created_at).toLocaleDateString() : "-"}</td>
                       </tr>
                     ))}
                     {tier3Taxes.length === 0 && (

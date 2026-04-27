@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 
 import PosReports from "./reports/PosReports.jsx";
+import PosCustomerHistory from "./reports/PosCustomerHistory.jsx";
 import PosSetup from "./setup/PosSetup.jsx";
 import PosReturnForm from "./returns/PosReturnForm.jsx";
 import PosRegister from "./register/PosRegister.jsx";
@@ -152,6 +153,12 @@ function PosLanding() {
           description: "Charts and analytics for POS",
           icon: "📈",
         },
+        {
+          name: "Customer History",
+          path: "/pos/customer-history",
+          description: "View customer purchase history by date range",
+          icon: "🕑",
+        },
       ],
     },
   ];
@@ -189,6 +196,7 @@ export default function PosHome() {
       <Route path="/day-management" element={<PosDayManagement />} />
 
       <Route path="/reports" element={<PosReports />} />
+      <Route path="/customer-history" element={<PosCustomerHistory />} />
       <Route path="/setup" element={<PosSetup />} />
       <Route path="/dashboard" element={<PosDashboard />} />
     </Routes>
@@ -206,4 +214,5 @@ export const posFeatures = [
   { module_key: "pos", label: "POS Setup", path: "/pos/setup", type: "feature" },
   { module_key: "pos", label: "POS Reports", path: "/pos/reports", type: "dashboard" },
   { module_key: "pos", label: "Dashboard", path: "/pos/dashboard", type: "dashboard" },
+  { module_key: "pos", label: "Customer History", path: "/pos/customer-history", type: "dashboard" },
 ];

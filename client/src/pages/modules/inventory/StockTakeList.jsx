@@ -90,6 +90,8 @@ export default function StockTakeList() {
                   <th>Warehouse</th>
                   <th>Status</th>
                   <th>Actions</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -145,6 +147,8 @@ export default function StockTakeList() {
                         Edit
                       </Link>
                     </td>
+                    <td>{s.created_by_name || "-"}</td>
+                    <td>{s.created_at ? new Date(s.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

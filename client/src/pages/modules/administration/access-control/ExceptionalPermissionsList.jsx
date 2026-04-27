@@ -91,6 +91,8 @@ export default function ExceptionalPermissionsList() {
                     <th>Exception Type</th>
                     <th>Effective From</th>
                     <th>Effective To</th>
+                                    <th>Created By</th>
+                  <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -115,6 +117,8 @@ export default function ExceptionalPermissionsList() {
                       <td>{r.exception_type || "STANDARD"}</td>
                       <td>{r.effective_from || "-"}</td>
                       <td>{r.effective_to || "-"}</td>
+                      <td>{r.created_by_name || "-"}</td>
+                      <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                     </tr>
                   ))}
                 </tbody>

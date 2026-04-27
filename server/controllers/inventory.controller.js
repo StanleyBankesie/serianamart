@@ -2,8 +2,7 @@ import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 
 async function hasColumn(tableName, columnName) {
-  const rows = await query(
-    `
+  const rows = await query(`
     SELECT COUNT(*) AS c
     FROM information_schema.columns
     WHERE table_schema = DATABASE()
@@ -75,11 +74,13 @@ async function resolveCategoryId(companyId, raw) {
   const v = String(raw || "").trim();
   if (!v) return null;
   const code = v.toUpperCase();
-  const rows = await query(
-    `
-    SELECT id
-    FROM inv_item_categories
-    WHERE company_id = :companyId
+  const rows = await query(`
+    SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_item_categories
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
       AND (UPPER(category_code) = :code OR UPPER(category_name) = :code)
     LIMIT 1
     `,
@@ -92,11 +93,13 @@ async function resolveGroupId(companyId, raw) {
   const v = String(raw || "").trim();
   if (!v) return null;
   const code = v.toUpperCase();
-  const rows = await query(
-    `
-    SELECT id
-    FROM inv_item_groups
-    WHERE company_id = :companyId
+  const rows = await query(`
+    SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_item_groups
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
       AND (UPPER(group_code) = :code OR UPPER(group_name) = :code)
     LIMIT 1
     `,
@@ -109,11 +112,13 @@ async function resolveCurrencyId(companyId, raw) {
   const v = String(raw || "").trim();
   if (!v) return null;
   const code = v.toUpperCase();
-  const rows = await query(
-    `
-    SELECT id
-    FROM fin_currencies
-    WHERE company_id = :companyId
+  const rows = await query(`
+    SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM fin_currencies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
       AND (UPPER(code) = :code OR UPPER(name) = :code)
     LIMIT 1
     `,
@@ -126,11 +131,13 @@ async function resolvePriceTypeId(companyId, raw) {
   const v = String(raw || "").trim();
   if (!v) return null;
   const name = v;
-  const rows = await query(
-    `
-    SELECT id
-    FROM sal_price_types
-    WHERE company_id = :companyId
+  const rows = await query(`
+    SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM sal_price_types
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
       AND UPPER(name) = UPPER(:name)
     LIMIT 1
     `,
@@ -143,11 +150,13 @@ async function resolveTaxCodeId(companyId, raw) {
   const v = String(raw || "").trim();
   if (!v) return null;
   const code = v.toUpperCase();
-  const rows = await query(
-    `
-    SELECT id
-    FROM fin_tax_codes
-    WHERE company_id = :companyId
+  const rows = await query(`
+    SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM fin_tax_codes
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
       AND (UPPER(code) = :code OR UPPER(name) = :code)
     LIMIT 1
     `,
@@ -162,21 +171,26 @@ async function resolveAccountId(companyId, raw) {
   // Prefer code match; fallback to name
   const asNum = Number(v);
   if (Number.isFinite(asNum) && asNum > 0) {
-    const rows = await query(
-      `
-      SELECT id FROM fin_accounts
-      WHERE company_id = :companyId AND id = :id
+    const rows = await query(`
+      SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM fin_accounts
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND id = :id
       LIMIT 1
       `,
       { companyId, id: asNum },
     ).catch(() => []);
     return Number(rows?.[0]?.id || 0) || null;
   }
-  const rows = await query(
-    `
-    SELECT id
-    FROM fin_accounts
-    WHERE company_id = :companyId
+  const rows = await query(`
+    SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM fin_accounts
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
       AND (UPPER(code) = UPPER(:v) OR UPPER(name) = UPPER(:v))
     LIMIT 1
     `,
@@ -189,11 +203,13 @@ async function resolveOrCreateCategoryId(companyId, raw) {
   const v = String(raw || "").trim();
   if (!v) return null;
   const existing =
-    (await query(
-      `
-      SELECT id
-      FROM inv_item_categories
-      WHERE company_id = :companyId
+    (await query(`
+      SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_item_categories
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
         AND (UPPER(category_code) = :code OR UPPER(category_name) = :code)
       LIMIT 1
       `,
@@ -207,8 +223,7 @@ async function resolveOrCreateCategoryId(companyId, raw) {
     .slice(0, 30);
   const name = v.slice(0, 150);
   try {
-    const ins = await query(
-      `
+    const ins = await query(`
       INSERT INTO inv_item_categories (company_id, category_code, category_name, is_active)
       VALUES (:companyId, :code, :name, 1)
       `,
@@ -224,11 +239,13 @@ async function resolveOrCreateGroupId(companyId, raw) {
   const v = String(raw || "").trim();
   if (!v) return null;
   const existing =
-    (await query(
-      `
-      SELECT id
-      FROM inv_item_groups
-      WHERE company_id = :companyId
+    (await query(`
+      SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_item_groups
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
         AND (UPPER(group_code) = :code OR UPPER(group_name) = :code)
       LIMIT 1
       `,
@@ -242,8 +259,7 @@ async function resolveOrCreateGroupId(companyId, raw) {
     .slice(0, 30);
   const name = v.slice(0, 150);
   try {
-    const ins = await query(
-      `
+    const ins = await query(`
       INSERT INTO inv_item_groups (company_id, group_code, group_name, is_active)
       VALUES (:companyId, :code, :name, 1)
       `,
@@ -262,8 +278,7 @@ export const listItems = async (req, res, next) => {
     const groupCol = (await hasColumn("inv_items", "group_id"))
       ? "group_id"
       : "item_group_id";
-    const rows = await query(
-      `
+    const rows = await query(`
       SELECT i.id,
              i.item_code,
              i.item_name,
@@ -289,8 +304,10 @@ export const listItems = async (req, res, next) => {
              i.is_sellable,
              i.is_purchasable,
              i.is_active,
-             COALESCE(sb.qty, 0) AS avail_qty
-      FROM inv_items i
+             COALESCE(sb.qty, 0) AS avail_qty,
+          i.created_at,
+          u.username AS created_by_name
+         FROM inv_items i
       LEFT JOIN inv_item_types t
         ON t.company_id = i.company_id
        AND t.type_code = i.item_type
@@ -306,7 +323,8 @@ export const listItems = async (req, res, next) => {
         ON sb.company_id = i.company_id
        AND sb.branch_id = :branchId
        AND sb.item_id = i.id
-      WHERE i.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.company_id = :companyId
       ORDER BY i.item_name ASC
       `,
       { companyId, branchId },
@@ -320,11 +338,13 @@ export const listItems = async (req, res, next) => {
 export const listWarehouses = async (req, res, next) => {
   try {
     const { companyId, branchId } = req.scope;
-    const rows = await query(
-      `
-      SELECT w.id, w.warehouse_code, w.warehouse_name, w.location, w.is_active, w.branch_id
-      FROM inv_warehouses w
-      WHERE w.company_id = :companyId AND w.branch_id = :branchId
+    const rows = await query(`
+      SELECT w.id, w.warehouse_code, w.warehouse_name, w.location, w.is_active, w.branch_id,
+          w.created_at,
+          u.username AS created_by_name
+         FROM inv_warehouses w
+        LEFT JOIN adm_users u ON u.id = w.created_by
+         WHERE w.company_id = :companyId AND w.branch_id = :branchId
       ORDER BY w.warehouse_name ASC
       `,
       { companyId, branchId },
@@ -348,8 +368,11 @@ export const bulkUpdateStockBalances = async (req, res, next) => {
     let resolvedWarehouseId = warehouseId;
     const warehouseCode = String(body.warehouseCode || "").trim();
     if (!resolvedWarehouseId && warehouseCode) {
-      const wRows = await query(
-        `SELECT id FROM inv_warehouses 
+      const wRows = await query(`SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_warehouses
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId AND branch_id = :branchId 
            AND UPPER(warehouse_code) = :code 
          LIMIT 1`,
@@ -371,8 +394,11 @@ export const bulkUpdateStockBalances = async (req, res, next) => {
     codes.forEach((c, i) => (params[`c${i}`] = c));
     let codeToId = new Map();
     if (codes.length) {
-      const items = await query(
-        `SELECT id, item_code FROM inv_items 
+      const items = await query(`SELECT id, item_code,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_items
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId 
            AND item_code IN (${placeholders})`,
         params,
@@ -403,8 +429,7 @@ export const bulkUpdateStockBalances = async (req, res, next) => {
       }
       try {
         // Upsert with replacement (set absolute quantity)
-        await query(
-          `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
+        await query(`INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
            VALUES (:companyId, :branchId, :warehouseId, :itemId, :qty)
            ON DUPLICATE KEY UPDATE qty = :qty`,
           {
@@ -432,11 +457,13 @@ export const getItemById = async (req, res, next) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    const rows = await query(
-      `
-      SELECT i.*
-      FROM inv_items i
-      WHERE i.id = :id AND i.company_id = :companyId
+    const rows = await query(`
+      SELECT i.*,
+          i.created_at,
+          u.username AS created_by_name
+         FROM inv_items i
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.id = :id AND i.company_id = :companyId
       LIMIT 1
       `,
       { id, companyId },
@@ -554,18 +581,19 @@ export const createItem = async (req, res, next) => {
         "item_code and item_name are required",
       );
     // Prevent duplicate item_name within the same company (case-insensitive)
-    const dup = await query(
-      `SELECT id 
-       FROM inv_items 
-       WHERE company_id = :companyId AND UPPER(item_name) = UPPER(:itemName) 
+    const dup = await query(`SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_items
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND UPPER(item_name) = UPPER(:itemName) 
        LIMIT 1`,
       { companyId, itemName },
     );
     if (dup.length) {
       throw httpError(409, "DUPLICATE_ITEM_NAME", "Item name already exists");
     }
-    const result = await query(
-      `
+    const result = await query(`
       INSERT INTO inv_items (company_id, item_code, item_name, uom, item_type, barcode, cost_price, selling_price, currency_id, price_type_id, image_url, vat_on_purchase_id, vat_on_sales_id, purchase_account_id, sales_account_id, category_id, ${groupCol}, service_item, is_stockable, is_sellable, is_purchasable, is_active)
       VALUES (:companyId, :itemCode, :itemName, :uom, :itemType, :barcode, :costPrice, :sellingPrice, :currencyId, :priceTypeId, :imageUrl, :vatOnPurchaseId, :vatOnSalesId, :purchaseAccountId, :salesAccountId, :categoryId, :itemGroupId, :serviceItem, :isStockable, :isSellable, :isPurchasable, :isActive)
       `,
@@ -648,18 +676,19 @@ export const updateItem = async (req, res, next) => {
         "item_code and item_name are required",
       );
     // Prevent duplicate item_name on rename (case-insensitive)
-    const exists = await query(
-      `SELECT id 
-       FROM inv_items 
-       WHERE company_id = :companyId AND UPPER(item_name) = UPPER(:itemName) AND id <> :id
+    const exists = await query(`SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_items
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND UPPER(item_name) = UPPER(:itemName) AND id <> :id
        LIMIT 1`,
       { companyId, itemName, id },
     );
     if (exists.length) {
       throw httpError(409, "DUPLICATE_ITEM_NAME", "Item name already exists");
     }
-    const upd = await query(
-      `
+    const upd = await query(`
       UPDATE inv_items
       SET item_code = :itemCode,
           item_name = :itemName,
@@ -743,11 +772,13 @@ export const bulkUpsertItems = async (req, res, next) => {
       (r) => !String(r.item_code || r.ITEM_CODE || "").trim(),
     );
     if (needNextCode) {
-      const rec = await query(
-        `
-        SELECT item_code
-        FROM inv_items
-        WHERE company_id = :companyId AND item_code REGEXP '^[0-9]+$'
+      const rec = await query(`
+        SELECT item_code,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_items
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND item_code REGEXP '^[0-9]+$'
         ORDER BY CAST(item_code AS UNSIGNED) DESC
         LIMIT 1
         `,
@@ -778,11 +809,13 @@ export const bulkUpsertItems = async (req, res, next) => {
         let itemCode = String(r.item_code || r.ITEM_CODE || "").trim();
         if (!itemCode) {
           if (baseNextNum == null) {
-            const rec2 = await query(
-              `
-              SELECT item_code
-              FROM inv_items
-              WHERE company_id = :companyId AND item_code REGEXP '^[0-9]+$'
+            const rec2 = await query(`
+              SELECT item_code,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_items
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND item_code REGEXP '^[0-9]+$'
               ORDER BY CAST(item_code AS UNSIGNED) DESC
               LIMIT 1
               `,
@@ -968,14 +1001,17 @@ export const bulkUpsertItems = async (req, res, next) => {
         const safetyStock = Number(r.safety_stock || r.SAFETY_STOCK || 0);
         const description = r.description || r.DESCRIPTION || null;
 
-        const exists = await query(
-          `SELECT id FROM inv_items WHERE company_id = :companyId AND UPPER(item_name) = UPPER(:itemName) LIMIT 1`,
+        const exists = await query(`SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_items
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND UPPER(item_name) = UPPER(:itemName) LIMIT 1`,
           { companyId, itemName },
         );
         if (exists.length) {
           const id = Number(exists[0].id);
-          await query(
-            `
+          await query(`
             UPDATE inv_items
             SET item_code = :itemCode,
                 item_name = :itemName,
@@ -1028,8 +1064,7 @@ export const bulkUpsertItems = async (req, res, next) => {
           );
           updated += 1;
         } else {
-          await query(
-            `
+          await query(`
             INSERT INTO inv_items (company_id, item_code, item_name, uom, item_type, barcode, cost_price, selling_price, currency_id, price_type_id, image_url, vat_on_purchase_id, vat_on_sales_id, purchase_account_id, sales_account_id, category_id, ${groupCol}, service_item, is_stockable, is_sellable, is_purchasable, is_active, min_stock_level, max_stock_level, reorder_level, safety_stock, description)
             VALUES (:companyId, :itemCode, :itemName, :uom, :itemType, :barcode, :costPrice, :sellingPrice, :currencyId, :priceTypeId, :imageUrl, :vatOnPurchaseId, :vatOnSalesId, :purchaseAccountId, :salesAccountId, :categoryId, :itemGroupId, :serviceItem, :isStockable, :isSellable, :isPurchasable, :isActive, :minStock, :maxStock, :reorderLevel, :safetyStock, :description)
             `,
@@ -1087,11 +1122,13 @@ export const getWarehouseById = async (req, res, next) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    const rows = await query(
-      `
-      SELECT w.*
-      FROM inv_warehouses w
-      WHERE w.id = :id AND w.company_id = :companyId AND w.branch_id = :branchId
+    const rows = await query(`
+      SELECT w.*,
+          w.created_at,
+          u.username AS created_by_name
+         FROM inv_warehouses w
+        LEFT JOIN adm_users u ON u.id = w.created_by
+         WHERE w.id = :id AND w.company_id = :companyId AND w.branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1118,8 +1155,7 @@ export const createWarehouse = async (req, res, next) => {
         "VALIDATION_ERROR",
         "warehouse_code and warehouse_name are required",
       );
-    const result = await query(
-      `
+    const result = await query(`
       INSERT INTO inv_warehouses (company_id, branch_id, warehouse_code, warehouse_name, location, is_active)
       VALUES (:companyId, :branchId, :warehouseCode, :warehouseName, :location, :isActive)
       `,
@@ -1156,8 +1192,7 @@ export const updateWarehouse = async (req, res, next) => {
         "VALIDATION_ERROR",
         "warehouse_code and warehouse_name are required",
       );
-    const upd = await query(
-      `
+    const upd = await query(`
       UPDATE inv_warehouses
       SET warehouse_code = :warehouseCode,
           warehouse_name = :warehouseName,
@@ -1197,11 +1232,13 @@ export const linkWarehouseBranch = async (req, res, next) => {
         "VALIDATION_ERROR",
         "branch_id is required to link warehouse",
       );
-    const branchRow = await query(
-      `
-      SELECT id, company_id
-      FROM adm_branches
-      WHERE id = :branchId
+    const branchRow = await query(`
+      SELECT id, company_id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_branches
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :branchId
       LIMIT 1
       `,
       { branchId: targetBranchId },
@@ -1214,11 +1251,13 @@ export const linkWarehouseBranch = async (req, res, next) => {
         "VALIDATION_ERROR",
         "Branch belongs to a different company",
       );
-    const whRow = await query(
-      `
-      SELECT id, company_id, branch_id
-      FROM inv_warehouses
-      WHERE id = :id AND company_id = :companyId
+    const whRow = await query(`
+      SELECT id, company_id, branch_id,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_warehouses
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId
       LIMIT 1
       `,
       { id, companyId },
@@ -1230,8 +1269,7 @@ export const linkWarehouseBranch = async (req, res, next) => {
       : [];
     if (allowedBranches.length && !allowedBranches.includes(targetBranchId))
       throw httpError(403, "FORBIDDEN", "Branch access denied");
-    const upd = await query(
-      `
+    const upd = await query(`
       UPDATE inv_warehouses
       SET branch_id = :branchId
       WHERE id = :id AND company_id = :companyId
@@ -1249,11 +1287,13 @@ export const linkWarehouseBranch = async (req, res, next) => {
 export const getNextItemCode = async (req, res, next) => {
   try {
     const { companyId } = req.scope;
-    const rows = await query(
-      `
-      SELECT item_code
-      FROM inv_items
-      WHERE company_id = :companyId AND item_code REGEXP '^[0-9]+$'
+    const rows = await query(`
+      SELECT item_code,
+          created_at,
+          u.username AS created_by_name
+         FROM inv_items
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND item_code REGEXP '^[0-9]+$'
       ORDER BY CAST(item_code AS UNSIGNED) DESC
       LIMIT 1
       `,
@@ -1271,17 +1311,19 @@ export const getNextItemCode = async (req, res, next) => {
 export const listItemGroups = async (req, res, next) => {
   try {
     const { companyId } = req.scope;
-    const rows = await query(
-      `
+    const rows = await query(`
       SELECT g.id,
              g.group_code,
              g.group_name,
              g.parent_group_id,
              pg.group_name AS parent_group_name,
-             g.is_active
-      FROM inv_item_groups g
+             g.is_active,
+          g.created_at,
+          u.username AS created_by_name
+         FROM inv_item_groups g
       LEFT JOIN inv_item_groups pg ON pg.id = g.parent_group_id
-      WHERE g.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = g.created_by
+         WHERE g.company_id = :companyId
       ORDER BY g.group_name ASC, g.id ASC
       `,
       { companyId },
@@ -1298,11 +1340,13 @@ export const getItemGroupById = async (req, res, next) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    const rows = await query(
-      `
-      SELECT g.*
-      FROM inv_item_groups g
-      WHERE g.id = :id AND g.company_id = :companyId
+    const rows = await query(`
+      SELECT g.*,
+          g.created_at,
+          u.username AS created_by_name
+         FROM inv_item_groups g
+        LEFT JOIN adm_users u ON u.id = g.created_by
+         WHERE g.id = :id AND g.company_id = :companyId
       LIMIT 1
       `,
       { id, companyId },
@@ -1328,8 +1372,7 @@ export const createItemGroup = async (req, res, next) => {
         "VALIDATION_ERROR",
         "group_code and group_name are required",
       );
-    const ins = await query(
-      `
+    const ins = await query(`
       INSERT INTO inv_item_groups (company_id, group_code, group_name, parent_group_id, is_active)
       VALUES (:companyId, :groupCode, :groupName, :parentGroupId, :isActive)
       `,
@@ -1364,8 +1407,7 @@ export const updateItemGroup = async (req, res, next) => {
         "VALIDATION_ERROR",
         "parent_group_id cannot be the same as id",
       );
-    const upd = await query(
-      `
+    const upd = await query(`
       UPDATE inv_item_groups
       SET group_code = :groupCode,
           group_name = :groupName,
@@ -1386,17 +1428,19 @@ export const updateItemGroup = async (req, res, next) => {
 export const listItemCategories = async (req, res, next) => {
   try {
     const { companyId } = req.scope;
-    const rows = await query(
-      `
+    const rows = await query(`
       SELECT c.id,
              c.category_code,
              c.category_name,
              c.parent_category_id,
              pc.category_name AS parent_category_name,
-             c.is_active
-      FROM inv_item_categories c
+             c.is_active,
+          c.created_at,
+          u.username AS created_by_name
+         FROM inv_item_categories c
       LEFT JOIN inv_item_categories pc ON pc.id = c.parent_category_id
-      WHERE c.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.company_id = :companyId
       ORDER BY c.category_name ASC, c.id ASC
       `,
       { companyId },
@@ -1413,11 +1457,13 @@ export const getItemCategoryById = async (req, res, next) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    const rows = await query(
-      `
-      SELECT c.*
-      FROM inv_item_categories c
-      WHERE c.id = :id AND c.company_id = :companyId
+    const rows = await query(`
+      SELECT c.*,
+          c.created_at,
+          u.username AS created_by_name
+         FROM inv_item_categories c
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.id = :id AND c.company_id = :companyId
       LIMIT 1
       `,
       { id, companyId },
@@ -1444,8 +1490,7 @@ export const createItemCategory = async (req, res, next) => {
         "VALIDATION_ERROR",
         "category_code and category_name are required",
       );
-    const ins = await query(
-      `
+    const ins = await query(`
       INSERT INTO inv_item_categories (company_id, category_code, category_name, parent_category_id, is_active)
       VALUES (:companyId, :categoryCode, :categoryName, :parentCategoryId, :isActive)
       `,
@@ -1480,8 +1525,7 @@ export const updateItemCategory = async (req, res, next) => {
         "VALIDATION_ERROR",
         "parent_category_id cannot be the same as id",
       );
-    const upd = await query(
-      `
+    const upd = await query(`
       UPDATE inv_item_categories
       SET category_code = :categoryCode,
           category_name = :categoryName,
@@ -1506,8 +1550,7 @@ export const deleteItemCategory = async (req, res, next) => {
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     try {
-      const del = await query(
-        `DELETE FROM inv_item_categories WHERE id = :id AND company_id = :companyId`,
+      const del = await query(`DELETE FROM inv_item_categories WHERE id = :id AND company_id = :companyId`,
         { id, companyId },
       );
       if (!del.affectedRows)
@@ -1533,11 +1576,13 @@ export const deleteItemCategory = async (req, res, next) => {
 export const listItemTypes = async (req, res, next) => {
   try {
     const { companyId } = req.scope;
-    const rows = await query(
-      `
-      SELECT t.id, t.type_code, t.type_name, t.is_active
-      FROM inv_item_types t
-      WHERE t.company_id = :companyId
+    const rows = await query(`
+      SELECT t.id, t.type_code, t.type_name, t.is_active,
+          t.created_at,
+          u.username AS created_by_name
+         FROM inv_item_types t
+        LEFT JOIN adm_users u ON u.id = t.created_by
+         WHERE t.company_id = :companyId
       ORDER BY t.type_name ASC, t.id ASC
       `,
       { companyId },
@@ -1554,11 +1599,13 @@ export const getItemTypeById = async (req, res, next) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    const rows = await query(
-      `
-      SELECT t.*
-      FROM inv_item_types t
-      WHERE t.id = :id AND t.company_id = :companyId
+    const rows = await query(`
+      SELECT t.*,
+          t.created_at,
+          u.username AS created_by_name
+         FROM inv_item_types t
+        LEFT JOIN adm_users u ON u.id = t.created_by
+         WHERE t.id = :id AND t.company_id = :companyId
       LIMIT 1
       `,
       { id, companyId },
@@ -1583,8 +1630,7 @@ export const createItemType = async (req, res, next) => {
         "VALIDATION_ERROR",
         "type_code and type_name are required",
       );
-    const ins = await query(
-      `
+    const ins = await query(`
       INSERT INTO inv_item_types (company_id, type_code, type_name, is_active)
       VALUES (:companyId, :typeCode, :typeName, :isActive)
       `,
@@ -1612,8 +1658,7 @@ export const updateItemType = async (req, res, next) => {
         "VALIDATION_ERROR",
         "type_code and type_name are required",
       );
-    const upd = await query(
-      `
+    const upd = await query(`
       UPDATE inv_item_types
       SET type_code = :typeCode,
           type_name = :typeName,
@@ -1636,8 +1681,7 @@ export const deleteItemType = async (req, res, next) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    const del = await query(
-      `DELETE FROM inv_item_types WHERE id = :id AND company_id = :companyId`,
+    const del = await query(`DELETE FROM inv_item_types WHERE id = :id AND company_id = :companyId`,
       { id, companyId },
     );
     if (!del.affectedRows)
@@ -1651,8 +1695,7 @@ export const deleteItemType = async (req, res, next) => {
 export const listUnitConversions = async (req, res, next) => {
   try {
     const { companyId } = req.scope;
-    const rows = await query(
-      `
+    const rows = await query(`
       SELECT c.id,
              c.item_id,
              i.item_code,
@@ -1660,10 +1703,13 @@ export const listUnitConversions = async (req, res, next) => {
              c.from_uom,
              c.to_uom,
              c.conversion_factor,
-             c.is_active
-      FROM inv_unit_conversions c
+             c.is_active,
+          c.created_at,
+          u.username AS created_by_name
+         FROM inv_unit_conversions c
       JOIN inv_items i ON i.id = c.item_id
-      WHERE c.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.company_id = :companyId
       ORDER BY i.item_name ASC, c.from_uom ASC, c.to_uom ASC, c.id ASC
       `,
       { companyId },
@@ -1680,11 +1726,13 @@ export const getUnitConversionById = async (req, res, next) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    const rows = await query(
-      `
-      SELECT c.*
-      FROM inv_unit_conversions c
-      WHERE c.id = :id AND c.company_id = :companyId
+    const rows = await query(`
+      SELECT c.*,
+          c.created_at,
+          u.username AS created_by_name
+         FROM inv_unit_conversions c
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.id = :id AND c.company_id = :companyId
       LIMIT 1
       `,
       { id, companyId },
@@ -1719,8 +1767,7 @@ export const createUnitConversion = async (req, res, next) => {
         "item_id, from_uom, to_uom, conversion_factor (positive number) are required",
       );
     }
-    const ins = await query(
-      `
+    const ins = await query(`
       INSERT INTO inv_unit_conversions (company_id, item_id, from_uom, to_uom, conversion_factor, is_active)
       VALUES (:companyId, :itemId, :fromUom, :toUom, :conversionFactor, :isActive)
       `,
@@ -1757,8 +1804,7 @@ export const updateUnitConversion = async (req, res, next) => {
         "item_id, from_uom, to_uom, conversion_factor (positive number) are required",
       );
     }
-    const upd = await query(
-      `
+    const upd = await query(`
       UPDATE inv_unit_conversions
       SET item_id = :itemId,
           from_uom = :fromUom,
@@ -1780,11 +1826,13 @@ export const updateUnitConversion = async (req, res, next) => {
 export const listUoms = async (req, res, next) => {
   try {
     const { companyId } = req.scope;
-    const rows = await query(
-      `
-      SELECT u.*
-      FROM inv_uoms u
-      WHERE u.company_id = :companyId
+    const rows = await query(`
+      SELECT u.*,
+          u.created_at,
+          uc.username AS created_by_name
+         FROM inv_uoms u
+        LEFT JOIN adm_users uc ON uc.id = u.created_by
+         WHERE u.company_id = :companyId
       ORDER BY u.uom_name ASC
       `,
       { companyId },
@@ -1809,8 +1857,7 @@ export const createUom = async (req, res, next) => {
         "VALIDATION_ERROR",
         "uom_code and uom_name are required",
       );
-    const ins = await query(
-      `
+    const ins = await query(`
       INSERT INTO inv_uoms (company_id, uom_code, uom_name, uom_type, is_active)
       VALUES (:companyId, :uomCode, :uomName, :uomType, :isActive)
       `,

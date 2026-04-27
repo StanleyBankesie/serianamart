@@ -123,6 +123,8 @@ export default function JournalVoucherList() {
                   <th>Credit</th>
                   <th>Status</th>
                   <th>Actions</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -171,6 +173,8 @@ export default function JournalVoucherList() {
                         )}
                       </div>
                     </td>
+                    <td>{voucher.created_by_name || "-"}</td>
+                    <td>{voucher.created_at ? new Date(voucher.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

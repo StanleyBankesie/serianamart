@@ -96,6 +96,8 @@ export default function ServiceOrdersList() {
                   <th>Status</th>
                   <th>Total</th>
                   <th>Actions</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -136,6 +138,8 @@ export default function ServiceOrdersList() {
                         )}
                       </div>
                     </td>
+                    <td>{it.created_by_name || "-"}</td>
+                    <td>{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

@@ -39,13 +39,6 @@ export default function StockVerificationForm({
     { value: "PERIODIC", label: "Periodic" },
   ];
 
-  const statusOptions = [
-    { value: "DRAFT", label: "Draft" },
-    { value: "PENDING_APPROVAL", label: "Pending Approval" },
-    { value: "APPROVED", label: "Approved" },
-    { value: "REJECTED", label: "Rejected" },
-  ];
-
   const checkWorkflowStatus = async () => {
     setCheckingWf(true);
     try {
@@ -178,7 +171,9 @@ export default function StockVerificationForm({
   }, [isNew]);
 
   useEffect(() => {
-    const warehouseId = formData.warehouse_id ? Number(formData.warehouse_id) : 0;
+    const warehouseId = formData.warehouse_id
+      ? Number(formData.warehouse_id)
+      : 0;
     const targets = Array.isArray(items)
       ? items.filter((item) => item.item_id).map((item) => item.id)
       : [];
@@ -296,52 +291,81 @@ export default function StockVerificationForm({
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const buildPayload = () => ({
+    verification_no: formData.verification_number,
+    verification_date: formData.verification_date,
+    warehouse_id: Number(formData.warehouse_id),
+    verification_type: formData.verification_type,
+    status: formData.status || "DRAFT",
+    remarks: formData.remarks,
+    details: items
+      .filter((i) => i.item_id)
+      .map((i) => ({
+        item_id: Number(i.item_id),
+        system_qty: Number(i.system_qty || 0),
+        reserve_qty: Number(i.reserve_qty || 0),
+        verified_qty: Number(i.verified_qty || 0),
+        variance_qty:
+          Number(i.verified_qty || 0) -
+          (Number(i.system_qty || 0) + Number(i.reserve_qty || 0)),
+        uom: i.uom || "PCS",
+        remarks: i.remarks || null,
+      })),
+  });
+
+  const saveVerification = async ({ navigateAfterSave = true } = {}) => {
     if (!formData.warehouse_id || !formData.verification_date) {
       alert("Please fill in all required fields");
-      return;
+      return null;
     }
 
     setSaving(true);
     setError("");
 
     try {
-      const payload = {
-        verification_no: formData.verification_number,
-        verification_date: formData.verification_date,
-        warehouse_id: Number(formData.warehouse_id),
-        verification_type: formData.verification_type,
-        status: formData.status,
-        remarks: formData.remarks,
-        details: items
-          .filter((i) => i.item_id)
-          .map((i) => ({
-            item_id: Number(i.item_id),
-            system_qty: Number(i.system_qty || 0),
-            reserve_qty: Number(i.reserve_qty || 0),
-            verified_qty: Number(i.verified_qty || 0),
-            variance_qty:
-              Number(i.verified_qty || 0) -
-              (Number(i.system_qty || 0) + Number(i.reserve_qty || 0)),
-            uom: i.uom || "PCS",
-            remarks: i.remarks || null,
-          })),
-      };
+      const payload = buildPayload();
+      let savedId = id;
 
       if (isNew) {
-        await api.post("/inventory/stock-verification", payload);
+        const res = await api.post("/inventory/stock-verification", payload);
+        savedId = res.data?.id || null;
       } else {
         await api.put(`/inventory/stock-verification/${id}`, payload);
       }
 
-      if (isModal) {
-        onClose && onClose(true);
-      } else {
-        navigate("/inventory/stock-verification");
+      if (navigateAfterSave) {
+        if (isModal) {
+          onClose && onClose(true);
+        } else {
+          navigate("/inventory/stock-verification");
+        }
       }
+      return savedId || id || null;
     } catch (e2) {
       setError(e2?.response?.data?.message || "Failed to save verification");
+      return null;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    await saveVerification();
+  };
+
+  const handleConfirmVerification = async () => {
+    const currentId = await saveVerification({ navigateAfterSave: false });
+    if (!currentId) return;
+
+    setSaving(true);
+    setError("");
+    try {
+      await api.post(`/inventory/stock-verification/${currentId}/submit`);
+      alert("Verification confirmed and approved");
+      if (isModal) onClose && onClose(true);
+      else navigate("/inventory/stock-verification");
+    } catch (e) {
+      setError(e?.response?.data?.message || "Confirmation failed");
     } finally {
       setSaving(false);
     }
@@ -369,104 +393,6 @@ export default function StockVerificationForm({
                 : `Editing ${formData.verification_number}`}
             </p>
           </div>
-        </div>
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={() =>
-              isModal
-                ? onClose && onClose()
-                : navigate("/inventory/stock-verification")
-            }
-            className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            Cancel
-          </button>
-          {!formData.status || formData.status === "DRAFT" ? (
-            <>
-              <button
-                onClick={handleSubmit}
-                disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
-                style={{ backgroundColor: "#15803d" }}
-              >
-                <Save className="w-5 h-5" />
-                {saving ? "Saving..." : "Save"}
-              </button>
-              {((!isWfActive && !checkingWf) || id !== "new") &&
-                (!formData.status || formData.status === "DRAFT") && (
-                  <button
-                    onClick={async () => {
-                      try {
-                        setSaving(true);
-                        let currentId = id;
-                        if (isNew) {
-                          const saveRes = await api.post(
-                            "/inventory/stock-verification",
-                            {
-                              verification_no: formData.verification_number,
-                              verification_date: formData.verification_date,
-                              warehouse_id: Number(formData.warehouse_id),
-                              verification_type: formData.verification_type,
-                              remarks: formData.remarks,
-                              details: items
-                                .filter((i) => i.item_id)
-                                .map((i) => ({
-                                  item_id: Number(i.item_id),
-                                  system_qty: Number(i.system_qty || 0),
-                                  reserve_qty: Number(i.reserve_qty || 0),
-                                  verified_qty: Number(i.verified_qty || 0),
-                                  uom: i.uom || "PCS",
-                                  remarks: i.remarks || null,
-                                })),
-                            },
-                          );
-                          currentId = saveRes.data?.id;
-                        } else {
-                          await api.put(`/inventory/stock-verification/${id}`, {
-                            verification_date: formData.verification_date,
-                            warehouse_id: Number(formData.warehouse_id),
-                            verification_type: formData.verification_type,
-                            remarks: formData.remarks,
-                            details: items
-                              .filter((i) => i.item_id)
-                              .map((i) => ({
-                                item_id: Number(i.item_id),
-                                system_qty: Number(i.system_qty || 0),
-                                reserve_qty: Number(i.reserve_qty || 0),
-                                verified_qty: Number(i.verified_qty || 0),
-                                uom: i.uom || "PCS",
-                                remarks: i.remarks || null,
-                              })),
-                          });
-                        }
-
-                        if (!currentId)
-                          throw new Error("Could not resolve document ID");
-
-                        await api.post(
-                          `/inventory/stock-verification/${currentId}/submit`,
-                        );
-                        alert("Verification confirmed and approved");
-                        if (isModal) onClose && onClose(true);
-                        else navigate("/inventory/stock-verification");
-                      } catch (e) {
-                        setError(
-                          e?.response?.data?.message || "Confirmation failed",
-                        );
-                      } finally {
-                        setSaving(false);
-                      }
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
-                    style={{ backgroundColor: "#4f46e5" }}
-                  >
-                    <Check className="w-5 h-5" />
-                    {saving ? "Confirming..." : "Confirm Verification"}
-                  </button>
-                )}
-            </>
-          ) : null}
         </div>
         {isModal && (
           <button
@@ -556,25 +482,6 @@ export default function StockVerificationForm({
                   {verificationTypes.map((type) => (
                     <option key={type.value} value={type.value}>
                       {type.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Status *
-                </label>
-                <select
-                  name="status"
-                  value={formData.status}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                >
-                  {statusOptions.map((status) => (
-                    <option key={status.value} value={status.value}>
-                      {status.label}
                     </option>
                   ))}
                 </select>
@@ -765,6 +672,49 @@ export default function StockVerificationForm({
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex flex-col md:flex-row gap-3 md:justify-end">
+              <button
+                type="button"
+                onClick={() =>
+                  isModal
+                    ? onClose && onClose()
+                    : navigate("/inventory/stock-verification")
+                }
+                className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              {(!formData.status || formData.status === "DRAFT") && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={saving}
+                    className="flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+                    style={{ backgroundColor: "#15803d" }}
+                  >
+                    <Save className="w-5 h-5" />
+                    {saving ? "Saving..." : "Save"}
+                  </button>
+                  {((!isWfActive && !checkingWf) || id !== "new") &&
+                    (!formData.status || formData.status === "DRAFT") && (
+                      <button
+                        type="button"
+                        onClick={handleConfirmVerification}
+                        disabled={saving}
+                        className="flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+                        style={{ backgroundColor: "#4f46e5" }}
+                      >
+                        <Check className="w-5 h-5" />
+                        {saving ? "Confirming..." : "Confirm Verification"}
+                      </button>
+                    )}
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -47,7 +47,9 @@ export default function MaintenanceBillList() {
           <div className="mb-4"><input className="input max-w-md" placeholder="Search by bill no, supplier, status..." value={search} onChange={e => setSearch(e.target.value)} /></div>
           <div className="overflow-x-auto">
             <table className="table">
-              <thead><tr><th>Bill No</th><th>Bill Date</th><th>Due Date</th><th>Supplier</th><th className="text-right">Total</th><th>Currency</th><th>Payment</th><th>Status</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Bill No</th><th>Bill Date</th><th>Due Date</th><th>Supplier</th><th className="text-right">Total</th><th>Currency</th><th>Payment</th><th>Status</th><th>Actions</th>                    <th>Created By</th>
+                    <th>Created Date</th>
+                    </tr></thead>
               <tbody>
                 {loading && <tr><td colSpan="9" className="text-center py-8 text-slate-500">Loading...</td></tr>}
                 {!loading && !filtered.length && <tr><td colSpan="9" className="text-center py-8 text-slate-500">No bills found</td></tr>}

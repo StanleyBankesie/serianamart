@@ -274,12 +274,6 @@ function HRDashboard() {
       title: "Policies & Reports",
       features: [
         {
-          name: "Medical Policies",
-          path: "/human-resources/medical-policies",
-          description: "Setup employee medical insurance policies",
-          icon: "🏥",
-        },
-        {
           name: "Policies",
           path: "/human-resources/policies",
           description: "Manage and view company policies",
@@ -537,12 +531,6 @@ export const humanResourcesFeatures = [
     module_key: "human-resources",
     label: "Payslips",
     path: "/human-resources/payslips",
-    type: "feature",
-  },
-  {
-    module_key: "human-resources",
-    label: "Medical Policies",
-    path: "/human-resources/medical-policies",
     type: "feature",
   },
   {

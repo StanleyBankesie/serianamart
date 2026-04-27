@@ -13,23 +13,27 @@ export const getUserRole = async (req, res, next) => {
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     let items = [];
     try {
-      items = await query(
-        `
-        SELECT r.id, r.company_id, r.name, r.code, r.is_active
-        FROM adm_user_roles ur
+      items = await query(`
+        SELECT r.id, r.company_id, r.name, r.code, r.is_active,
+          ur.created_at,
+          u.username AS created_by_name
+         FROM adm_user_roles ur
         JOIN adm_roles r ON r.id = ur.role_id
-        WHERE ur.user_id = :id AND r.is_active = 1
+        LEFT JOIN adm_users u ON u.id = ur.created_by
+         WHERE ur.user_id = :id AND r.is_active = 1
         ORDER BY r.name ASC
         `,
         { id },
       );
     } catch (err) {
-      items = await query(
-        `
-        SELECT r.id, r.company_id, r.name, r.code, r.is_active
-        FROM adm_users u
+      items = await query(`
+        SELECT r.id, r.company_id, r.name, r.code, r.is_active,
+          u.created_at,
+          uc.username AS created_by_name
+         FROM adm_users u
         JOIN adm_roles r ON r.id = u.role_id
-        WHERE u.id = :id
+        LEFT JOIN adm_users uc ON uc.id = u.created_by
+         WHERE u.id = :id
         LIMIT 1
         `,
         { id },

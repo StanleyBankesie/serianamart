@@ -108,6 +108,8 @@ export default function SuppliersList() {
                   <th>Email</th>
                   <th>Status</th>
                   <th>Actions</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -168,6 +170,8 @@ export default function SuppliersList() {
                         </Link>
                       )}
                     </td>
+                    <td>{s.created_by_name || "-"}</td>
+                    <td>{s.created_at ? new Date(s.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

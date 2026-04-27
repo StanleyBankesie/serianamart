@@ -34,7 +34,7 @@ export default function SupplierQuotationForm() {
       item_name: "",
       qty: 0,
       unit_price: 0,
-      tax_percent: 0,
+      tax_code_id: "",
       delivery_date: "",
       line_total: 0,
     },
@@ -53,6 +53,7 @@ export default function SupplierQuotationForm() {
   const [currencies, setCurrencies] = useState([]);
   const [initialQuotationCurrencyId, setInitialQuotationCurrencyId] =
     useState(null);
+  const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
 
   useEffect(() => {
     let mounted = true;
@@ -63,7 +64,7 @@ export default function SupplierQuotationForm() {
           api.get("/purchase/suppliers"),
           api.get("/inventory/items"),
           api.get("/purchase/rfqs"),
-          api.get("/finance/tax-codes"),
+          api.get("/finance/tax-codes?form=SUPPLIER_QUOTATION"),
           api.get("/finance/currencies"),
         ]);
 
@@ -176,10 +177,10 @@ export default function SupplierQuotationForm() {
               item_name: d.item_name || "",
               qty: Number(d.qty) || 0,
               unit_price: Number(d.unit_price) || 0,
-              tax_percent:
-                d.tax_percent !== undefined && d.tax_percent !== null
-                  ? Number(d.tax_percent) || 0
-                  : 0,
+              tax_code_id:
+                d.tax_code_id !== undefined && d.tax_code_id !== null
+                  ? String(d.tax_code_id)
+                  : "",
               delivery_date: d.delivery_date
                 ? String(d.delivery_date).split("T")[0]
                 : "",
@@ -193,7 +194,7 @@ export default function SupplierQuotationForm() {
                 item_name: "",
                 qty: 0,
                 unit_price: 0,
-                tax_percent: 0,
+                tax_code_id: "",
                 delivery_date: "",
                 line_total: 0,
               },
@@ -209,6 +210,7 @@ export default function SupplierQuotationForm() {
                 return baseItems.map((item, idx) => ({
                   ...item,
                   ...(parsed.items[idx] || {}),
+                  tax_code_id: parsed.items[idx]?.tax_code_id || item.tax_code_id || "",
                 }));
               }
             }
@@ -232,6 +234,26 @@ export default function SupplierQuotationForm() {
       mounted = false;
     };
   }, [id, isEdit]);
+
+  const fetchTaxComponentsForCode = async (taxCodeId) => {
+    const key = String(taxCodeId || "");
+    if (!key) return;
+    try {
+      const resp = await api.get(`/finance/tax-codes/${taxCodeId}/components`);
+      const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
+      setTaxComponentsByCode((prev) => ({ ...prev, [key]: items }));
+    } catch {}
+  };
+
+  useEffect(() => {
+    const uniqueTaxIds = Array.from(
+      new Set(items.map((l) => String(l.tax_code_id)).filter(Boolean)),
+    );
+    const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
+    if (missing.length) {
+      Promise.all(missing.map((id) => fetchTaxComponentsForCode(id)));
+    }
+  }, [items]);
 
   const fetchExchangeRateForCode = async (selectedCode) => {
     const code = String(selectedCode || "").toUpperCase();
@@ -371,7 +393,7 @@ export default function SupplierQuotationForm() {
             item_name: d.item_name || "",
             qty: Number(d.qty) || 0,
             unit_price: 0,
-            tax_percent: 0,
+            tax_code_id: "",
             delivery_date: d.required_date || "",
             line_total: 0,
           }));
@@ -397,7 +419,7 @@ export default function SupplierQuotationForm() {
       }
     }
 
-    if (field === "qty" || field === "unit_price" || field === "tax_percent") {
+    if (field === "qty" || field === "unit_price" || field === "tax_code_id") {
       const qty = parseFloat(updatedItems[index].qty || 0);
       const unitPrice = parseFloat(updatedItems[index].unit_price || 0);
       updatedItems[index].line_total = qty * unitPrice;
@@ -414,7 +436,7 @@ export default function SupplierQuotationForm() {
         item_name: "",
         qty: 0,
         unit_price: 0,
-        tax_percent: 0,
+        tax_code_id: "",
         delivery_date: "",
         line_total: 0,
       },
@@ -427,31 +449,74 @@ export default function SupplierQuotationForm() {
     }
   };
 
-  const subtotal = useMemo(
-    () =>
-      items.reduce((sum, item) => sum + (parseFloat(item.line_total) || 0), 0),
-    [items]
-  );
+  const totals = useMemo(() => {
+    const compTotals = {};
+    const sub = items.reduce(
+      (sum, item) => sum + (parseFloat(item.line_total) || 0),
+      0,
+    );
 
-  const totalTax = useMemo(
-    () =>
-      items.reduce((sum, item) => {
-        const qty = parseFloat(item.qty) || 0;
-        const unitPrice = parseFloat(item.unit_price) || 0;
-        const taxPct = parseFloat(item.tax_percent) || 0;
-        const base = qty * unitPrice;
-        return sum + base * (taxPct / 100);
-      }, 0),
-    [items]
-  );
+    items.forEach((item) => {
+      const qty = parseFloat(item.qty) || 0;
+      const unitPrice = parseFloat(item.unit_price) || 0;
+      const base = qty * unitPrice;
+
+      const taxCodeId = item.tax_code_id;
+      const comps = taxComponentsByCode[String(taxCodeId)] || [];
+      if (comps.length > 0) {
+        comps.forEach((c) => {
+          const rate = Number(c.rate_percent) || 0;
+          const amt = (base * rate) / 100;
+          const name = c.component_name;
+          if (!compTotals[name]) {
+            compTotals[name] = {
+              amount: 0,
+              rate,
+              sort_order: c.sort_order || 0,
+            };
+          }
+          compTotals[name].amount += amt;
+        });
+      } else {
+        const tc = taxCodes.find((t) => String(t.id) === String(taxCodeId));
+        const rate = tc ? Number(tc.rate_percent) || 0 : 0;
+        const amt = (base * rate) / 100;
+        if (rate > 0) {
+          const name = "Tax";
+          if (!compTotals[name]) {
+            compTotals[name] = { amount: 0, rate, sort_order: 99 };
+          }
+          compTotals[name].amount += amt;
+        }
+      }
+    });
+
+    const components = Object.keys(compTotals)
+      .map((name) => ({
+        name,
+        amount: compTotals[name].amount,
+        rate: compTotals[name].rate,
+        sort_order: compTotals[name].sort_order,
+      }))
+      .sort((a, b) => a.sort_order - b.sort_order);
+
+    const totalTax = components.reduce((s, c) => s + c.amount, 0);
+
+    return { subtotal: sub, totalTax, components };
+  }, [items, taxCodes, taxComponentsByCode]);
 
   const grandTotal = useMemo(() => {
     const shipping = parseFloat(formData.shipping_cost) || 0;
     const discountPct = parseFloat(formData.discount_percent) || 0;
-    const beforeDiscount = subtotal + totalTax + shipping;
+    const sub = totals.subtotal;
+    const tTax = totals.totalTax;
+    const beforeDiscount = sub + tTax + shipping;
     const discount = beforeDiscount * (discountPct / 100);
     return beforeDiscount - discount;
-  }, [subtotal, totalTax, formData.shipping_cost, formData.discount_percent]);
+  }, [totals, formData.shipping_cost, formData.discount_percent]);
+
+  const totalTax = useMemo(() => totals.totalTax, [totals.totalTax]);
+  const subtotal = useMemo(() => totals.subtotal, [totals.subtotal]);
 
   const totalAmount = useMemo(() => subtotal, [subtotal]);
 
@@ -485,6 +550,7 @@ export default function SupplierQuotationForm() {
             item_id: Number(r.item_id),
             qty: Number(r.qty) || 0,
             unit_price: Number(r.unit_price) || 0,
+            tax_code_id: r.tax_code_id ? Number(r.tax_code_id) : null,
             line_total: Number(r.line_total) || 0,
           })),
         attachments: attachments.map((a) => ({
@@ -507,7 +573,7 @@ export default function SupplierQuotationForm() {
           discount_percent: formData.discount_percent,
         },
         items: items.map((r) => ({
-          tax_percent: r.tax_percent,
+           tax_code_id: r.tax_code_id,
           delivery_date: r.delivery_date,
         })),
       };
@@ -944,14 +1010,14 @@ export default function SupplierQuotationForm() {
                     <td>
                       <select
                         className="input text-right"
-                        value={item.tax_percent}
+                        value={item.tax_code_id}
                         onChange={(e) =>
-                          handleItemChange(index, "tax_percent", e.target.value)
+                          handleItemChange(index, "tax_code_id", e.target.value)
                         }
                       >
                         <option value={0}>No Tax</option>
                         {taxCodes.map((t) => (
-                          <option key={t.id} value={t.rate_percent}>
+                          <option key={t.id} value={String(t.id)}>
                             {t.code} - {t.name} (
                             {Number(t.rate_percent).toFixed(2)}
                             %)
@@ -1007,8 +1073,18 @@ export default function SupplierQuotationForm() {
                   <div className="font-semibold">{subtotal.toFixed(2)}</div>
                 </div>
                 <div className="flex items-center gap-2 justify-center flex-1">
-                  <div>Total Tax</div>
-                  <div className="font-semibold">{totalTax.toFixed(2)}</div>
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-2">
+                       <span>Total Tax</span>
+                       <span className="font-semibold">{totalTax.toFixed(2)}</span>
+                    </div>
+                    {(totals.components || []).map(c => (
+                       <div key={c.name} className="text-xs text-slate-500 pl-4 flex justify-between gap-2">
+                          <span>{c.name} ({c.rate}%):</span>
+                          <span>{Number(c.amount || 0).toFixed(2)}</span>
+                       </div>
+                    ))}
+                  </div>
                 </div>
                 <div className="flex-1" />
               </div>

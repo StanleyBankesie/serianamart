@@ -203,6 +203,12 @@ export default function FinanceHome() {
           icon: "⏰",
         },
         {
+          name: "Outstanding Receivable",
+          path: "/finance/reports/outstanding-receivable",
+          description: "Upcoming and overdue receivables",
+          icon: "📆",
+        },
+        {
           name: "Customer Outstanding",
           path: "/finance/reports/customer-outstanding",
           description: "Receivables outstanding by customer",
@@ -285,6 +291,12 @@ export default function FinanceHome() {
           path: "/finance/reports/ratio-analysis",
           description: "Key performance ratios",
           icon: "📈",
+        },
+        {
+          name: "Graphical Chart of Accounts",
+          path: "/finance/reports/chart-of-accounts-graphical",
+          description: "Hierarchical visual view of accounts",
+          icon: "🌳",
         },
       ],
     },
@@ -433,6 +445,12 @@ export const financeFeatures = [
   },
   {
     module_key: "finance",
+    label: "Outstanding Receivable",
+    path: "/finance/reports/outstanding-receivable",
+    type: "dashboard",
+  },
+  {
+    module_key: "finance",
     label: "Customer Outstanding",
     path: "/finance/reports/customer-outstanding",
     type: "dashboard",
@@ -501,6 +519,12 @@ export const financeFeatures = [
     module_key: "finance",
     label: "Ratio Analysis",
     path: "/finance/reports/ratio-analysis",
+    type: "dashboard",
+  },
+  {
+    module_key: "finance",
+    label: "Graphical Chart of Accounts",
+    path: "/finance/reports/chart-of-accounts-graphical",
     type: "dashboard",
   },
   {

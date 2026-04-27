@@ -22,7 +22,9 @@ export default function TaskList() {
 
       <div className="card"><div className="card-body overflow-x-auto">
         <table className="table">
-          <thead><tr><th>Project</th><th>Title</th><th>Assignee</th><th>Due</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th>Project</th><th>Title</th><th>Assignee</th><th>Due</th><th>Status</th><th />                    <th>Created By</th>
+                    <th>Created Date</th>
+                    </tr></thead>
           <tbody>
             {items.map((t) => (
               <tr key={t.id}>
@@ -32,6 +34,8 @@ export default function TaskList() {
                 <td>{new Date(t.due).toLocaleDateString()}</td>
                 <td>{t.status}</td>
                 <td><Link to={`/project-management/tasks/${t.id}`} className="text-brand hover:text-brand-600 text-sm font-medium">Edit</Link></td>
+                <td>{t.created_by_name || "-"}</td>
+                <td>{t.created_at ? new Date(t.created_at).toLocaleDateString() : "-"}</td>
               </tr>
             ))}
           </tbody>

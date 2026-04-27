@@ -178,6 +178,8 @@ export default function StockUpdationList() {
                   <th>Items</th>
                   <th>Status</th>
                   <th>Actions</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -302,6 +304,8 @@ export default function StockUpdationList() {
                         ) : null}
                       </div>
                     </td>
+                    <td>{adj.created_by_name || "-"}</td>
+                    <td>{adj.created_at ? new Date(adj.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

@@ -228,8 +228,8 @@ export default function CashFlowReportPage() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((r) => (
-                  <tr key={`${r.bank_account_id}-${r.account_id}`} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                {items.map((r, idx) => (
+                  <tr key={`${r.bank_account_id}-${r.account_id}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
                     <td className="font-bold text-slate-700 dark:text-slate-200 py-4">{r.bank_name}</td>
                     <td>
                       <div className="font-medium text-slate-900 dark:text-slate-100">{r.account_code}</div>

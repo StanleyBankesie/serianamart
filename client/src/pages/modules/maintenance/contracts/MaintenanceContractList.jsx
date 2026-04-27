@@ -53,7 +53,9 @@ export default function MaintenanceContractList() {
           <div className="mb-4"><input className="input max-w-md" placeholder="Search by no, supplier, status..." value={search} onChange={e => setSearch(e.target.value)} /></div>
           <div className="overflow-x-auto">
             <table className="table">
-              <thead><tr><th>Contract No</th><th>Supplier</th><th>Assets Covered</th><th>Start</th><th>End</th><th className="text-right">Value</th><th>Status</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Contract No</th><th>Supplier</th><th>Assets Covered</th><th>Start</th><th>End</th><th className="text-right">Value</th><th>Status</th><th>Actions</th>                    <th>Created By</th>
+                    <th>Created Date</th>
+                    </tr></thead>
               <tbody>
                 {loading && <tr><td colSpan="8" className="text-center py-8 text-slate-500">Loading...</td></tr>}
                 {!loading && !filtered.length && <tr><td colSpan="8" className="text-center py-8 text-slate-500">No contracts found</td></tr>}

@@ -65,11 +65,14 @@ export default function PosSalesEntry() {
   const [taxType, setTaxType] = useState("Exclusive");
   const [taxCodeLabel, setTaxCodeLabel] = useState("");
   const [taxActive, setTaxActive] = useState(true);
+  const [taxComponents, setTaxComponents] = useState([]);
+  const [taxCodeId, setTaxCodeId] = useState(null);
   const [dayOpen, setDayOpen] = useState(false);
   const [dayExists, setDayExists] = useState(false);
   const [dayStatus, setDayStatus] = useState("");
   const [dayLoading, setDayLoading] = useState(true);
   const [terminalCode, setTerminalCode] = useState("");
+  const [terminalWarehouseId, setTerminalWarehouseId] = useState("");
   const [amountPaid, setAmountPaid] = useState("");
   const [customers, setCustomers] = useState([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
@@ -143,7 +146,11 @@ export default function PosSalesEntry() {
         );
         const code =
           (assigned.length ? String(assigned[0]?.code || "") : "") || "";
+        const wId =
+          (assigned.length ? String(assigned[0]?.warehouse_id || "") : "") ||
+          "";
         setTerminalCode(code);
+        setTerminalWarehouseId(wId);
         try {
           const raw = sessionStorage.getItem("omni.pos.day");
           if (raw) {
@@ -269,9 +276,9 @@ export default function PosSalesEntry() {
 
   useEffect(() => {
     let mounted = true;
-    api
-      .get("/pos/tax-settings")
-      .then((res) => {
+    async function loadTaxSettings() {
+      try {
+        const res = await api.get("/pos/tax-settings");
         if (!mounted) return;
         const item = res.data?.item || null;
         if (!item) {
@@ -279,6 +286,8 @@ export default function PosSalesEntry() {
           setTaxRatePercent(0);
           setTaxType("Exclusive");
           setTaxCodeLabel("");
+          setTaxComponents([]);
+          setTaxCodeId(null);
           return;
         }
         const enabled = item.is_active !== 0 && item.is_active !== false;
@@ -287,6 +296,8 @@ export default function PosSalesEntry() {
           setTaxRatePercent(0);
           setTaxType("Exclusive");
           setTaxCodeLabel("");
+          setTaxComponents([]);
+          setTaxCodeId(null);
           return;
         }
         if (item.tax_type) setTaxType(String(item.tax_type));
@@ -296,14 +307,37 @@ export default function PosSalesEntry() {
         const code = String(item.tax_code || "").trim();
         const id = String(item.tax_code_id || "").trim();
         setTaxCodeLabel(name || code || id || "");
-      })
-      .catch(() => {
+
+        // Fetch tax components if tax code exists
+        const taxCodeId = Number(item.tax_code_id || 0);
+        if (taxCodeId > 0) {
+          setTaxCodeId(taxCodeId);
+          try {
+            const compRes = await api.get(
+              `/finance/tax-codes/${taxCodeId}/components`,
+            );
+            if (Array.isArray(compRes.data?.items)) {
+              setTaxComponents(compRes.data.items);
+            }
+          } catch (err) {
+            console.warn("Failed to fetch tax components", err);
+            setTaxComponents([]);
+          }
+        } else {
+          setTaxComponents([]);
+          setTaxCodeId(null);
+        }
+      } catch (err) {
         if (!mounted) return;
         setTaxActive(false);
         setTaxRatePercent(0);
         setTaxType("Exclusive");
         setTaxCodeLabel("");
-      });
+        setTaxComponents([]);
+        setTaxCodeId(null);
+      }
+    }
+    loadTaxSettings();
     return () => {
       mounted = false;
     };
@@ -400,8 +434,11 @@ export default function PosSalesEntry() {
     let mounted = true;
     setItemsLoading(true);
     setItemsError("");
+    const params = terminalWarehouseId
+      ? { warehouse_id: terminalWarehouseId }
+      : {};
     api
-      .get("/inventory/items")
+      .get("/inventory/items", { params })
       .then((res) => {
         if (!mounted) return;
         const raw = Array.isArray(res.data?.items) ? res.data.items : [];
@@ -412,7 +449,7 @@ export default function PosSalesEntry() {
             name: it.item_name || "",
             code: it.item_code || "",
             price: Number(it.selling_price ?? 0),
-            availQty: Number(it.avail_qty ?? 0),
+            availQty: Number(it.stock_level ?? 0),
             image_url: it.image_url || "",
             barcode: it.barcode || "",
           }));
@@ -429,7 +466,7 @@ export default function PosSalesEntry() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [terminalWarehouseId]);
 
   useEffect(() => {
     let mounted = true;
@@ -906,6 +943,28 @@ export default function PosSalesEntry() {
         terminal: terminalCode || "",
         tax_rate_percent: taxActive ? taxRatePercent : 0,
         tax_type: taxActive ? taxType : "Exclusive",
+        tax_code_id: taxActive && taxCodeId ? Number(taxCodeId) : null,
+        tax_components: (() => {
+          if (!taxActive || !Array.isArray(taxComponents) || !taxComponents.length) return [];
+          let currentBase = subtotal;
+          const res = [];
+          for (const comp of taxComponents) {
+            const rate = Number(comp.rate_percent || 0);
+            let compTax = 0;
+            if (comp.compound_level) {
+              compTax = (currentBase * rate) / 100;
+            } else {
+              compTax = (subtotal * rate) / 100;
+            }
+            res.push({
+              id: comp.id,
+              name: comp.component_name || comp.name,
+              amount: Math.round(compTax * 100) / 100
+            });
+            currentBase += compTax;
+          }
+          return res;
+        })(),
       };
       const res = await api.post("/pos/sales", payload);
       const rcp = String(res.data?.receipt_no || "");
@@ -1396,7 +1455,9 @@ export default function PosSalesEntry() {
                           <th className="px-3 py-2 text-left">Item Code</th>
                           <th className="px-3 py-2 text-left">Item Name</th>
                           <th className="px-3 py-2 text-right">Price</th>
-                          <th className="px-3 py-2 text-right">Avail_Qty</th>
+                          <th className="px-3 py-2 text-right">
+                            Available Qty
+                          </th>
                           <th className="px-3 py-2 text-right">QTY</th>
                           <th className="px-3 py-2 text-right">Discount</th>
                           <th className="px-3 py-2 text-right">Total</th>
@@ -1451,8 +1512,8 @@ export default function PosSalesEntry() {
                                     name="discount"
                                     type="number"
                                     className={`input text-right w-24 ${!canEditDiscount() ? "disabled-light-blue" : ""}`}
-                                    min={0}
-                                    step={0.01}
+                                    min={1}
+                                    step={1}
                                     value={discount}
                                     onChange={(e) =>
                                       updateCartField(

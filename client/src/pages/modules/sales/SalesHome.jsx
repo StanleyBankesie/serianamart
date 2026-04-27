@@ -324,22 +324,14 @@ const SalesModuleHome = () => {
           path: "/sales/price-setup",
           description: "Manage standard and customer pricing",
           icon: "💰",
-          actions: [
-            { label: "Manage", path: "/sales/price-setup", type: "primary" },
-          ],
+          actions: [],
         },
         {
           title: "Discount Schemes",
           path: "/sales/discount-schemes",
           description: "Configure discount rules and promotions",
           icon: "🏷️",
-          actions: [
-            {
-              label: "Manage",
-              path: "/sales/discount-schemes",
-              type: "primary",
-            },
-          ],
+          actions: [],
         },
       ],
     },
@@ -416,9 +408,7 @@ const SalesModuleHome = () => {
           path: "/sales/bulk-upload",
           description: "Import customers in bulk",
           icon: "📤",
-          actions: [
-            { label: "Upload", path: "/sales/bulk-upload", type: "primary" },
-          ],
+          actions: [],
         },
       ],
     },

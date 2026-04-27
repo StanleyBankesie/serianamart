@@ -24,7 +24,9 @@ export default function ReportList() {
 
       <div className="card"><div className="card-body overflow-x-auto">
         <table className="table">
-          <thead><tr><th>Name</th><th>Module</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th>Name</th><th>Module</th><th>Status</th><th />                    <th>Created By</th>
+                    <th>Created Date</th>
+                    </tr></thead>
           <tbody>
             {items.map((r) => (
               <tr key={r.id}>
@@ -49,6 +51,8 @@ export default function ReportList() {
                     </Link>
                   )}
                 </td>
+                <td>{r.created_by_name || "-"}</td>
+                <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
               </tr>
             ))}
           </tbody>

@@ -12,7 +12,9 @@ export default function CustomerCreditList() {
       </div></div>
 
       <div className="card"><div className="card-body overflow-x-auto">
-        <table className="table"><thead><tr><th>Customer</th><th className="text-right">Credit Limit</th><th>Currency</th><th /></tr></thead>
+        <table className="table"><thead><tr><th>Customer</th><th className="text-right">Credit Limit</th><th>Currency</th><th />                    <th>Created By</th>
+                    <th>Created Date</th>
+                    </tr></thead>
           <tbody>
             {items.map((r) => (
               <tr key={r.id}>
@@ -20,6 +22,8 @@ export default function CustomerCreditList() {
                 <td className="text-right">{Number(r.creditLimit).toFixed(2)}</td>
                 <td>{r.currency}</td>
                 <td><Link to={`/sales/customer-credit/${r.id}`} className="text-brand hover:text-brand-600 text-sm font-medium">Edit</Link></td>
+                <td>{r.created_by_name || "-"}</td>
+                <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
               </tr>
             ))}
           </tbody>

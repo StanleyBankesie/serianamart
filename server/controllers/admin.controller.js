@@ -74,8 +74,7 @@ export const updateExceptionalPermissionController = async (req, res, next) => {
       user_id = users[0].id;
     }
 
-    const result = await query(
-      `
+    const result = await query(`
       UPDATE adm_exceptional_permissions
       SET
         user_id = COALESCE(:user_id, user_id),
@@ -143,8 +142,12 @@ export const getMe = async (req, res) => {
     let profile_picture_url = null;
     if (Number.isFinite(id) && id > 0) {
       try {
-        const rows = await query(
-          `SELECT u.profile_picture FROM adm_users u WHERE u.id = :id LIMIT 1`,
+        const rows = await query(`SELECT u.profile_picture,
+          u.created_at,
+          uc.username AS created_by_name
+         FROM adm_users u
+        LEFT JOIN adm_users uc ON uc.id = u.created_by
+         WHERE u.id = :id LIMIT 1`,
           { id },
         );
         if (rows.length) {
@@ -253,10 +256,12 @@ export const getExceptionalPermissionsForUser = async (req, res, next) => {
     if (!userId) {
       throw httpError(400, "VALIDATION_ERROR", "Invalid user id");
     }
-    const items = await query(
-      `SELECT id, user_id, permission_code, effect, is_active, effective_from, effective_to, approved_by, exception_type
-       FROM adm_exceptional_permissions
-       WHERE user_id = :userId
+    const items = await query(`SELECT id, user_id, permission_code, effect, is_active, effective_from, effective_to, approved_by, exception_type,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_exceptional_permissions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE user_id = :userId
        ORDER BY permission_code`,
       { userId },
     );
@@ -302,15 +307,17 @@ export const bulkUpsertExceptionalPermissionsForUser = async (
       const exception_type = p?.exception_type
         ? String(p.exception_type)
         : "STANDARD";
-      const rows = await query(
-        `SELECT id FROM adm_exceptional_permissions 
+      const rows = await query(`SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_exceptional_permissions
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE user_id = :userId AND permission_code = :code 
          LIMIT 1`,
         { userId, code },
       );
       if (rows.length) {
-        await query(
-          `UPDATE adm_exceptional_permissions
+        await query(`UPDATE adm_exceptional_permissions
            SET effect = :effect, is_active = :is_active, reason = :reason, exception_type = :exception_type
            WHERE id = :id`,
           {
@@ -322,8 +329,7 @@ export const bulkUpsertExceptionalPermissionsForUser = async (
           },
         );
       } else {
-        await query(
-          `INSERT INTO adm_exceptional_permissions
+        await query(`INSERT INTO adm_exceptional_permissions
              (user_id, permission_code, effect, reason, is_active, exception_type)
            VALUES
              (:userId, :code, :effect, :reason, :is_active, :exception_type)`,
@@ -340,11 +346,13 @@ export const bulkUpsertExceptionalPermissionsForUser = async (
 export const listExceptionalPermissions = async (req, res, next) => {
   try {
     await ensureExceptionalPermissionsTable();
-    const items = await query(
-      `SELECT ep.*, u.username, u.email as user_email, u.full_name as user_name 
-       FROM adm_exceptional_permissions ep
+    const items = await query(`SELECT ep.*, u.username, u.email as user_email, u.full_name as user_name,
+          ep.created_at,
+          uc.username AS created_by_name
+         FROM adm_exceptional_permissions ep
        JOIN adm_users u ON ep.user_id = u.id
-       ORDER BY ep.created_at DESC`,
+        LEFT JOIN adm_users uc ON uc.id = ep.created_by
+         ORDER BY ep.created_at DESC`,
     );
     res.json({
       success: true,
@@ -361,11 +369,13 @@ export const getExceptionalPermissionById = async (req, res, next) => {
     await ensureExceptionalPermissionsTable();
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    const items = await query(
-      `SELECT ep.*, u.username, u.email as userEmail 
-       FROM adm_exceptional_permissions ep
+    const items = await query(`SELECT ep.*, u.username, u.email as userEmail,
+          ep.created_at,
+          uc.username AS created_by_name
+         FROM adm_exceptional_permissions ep
        JOIN adm_users u ON ep.user_id = u.id
-       WHERE ep.id = :id LIMIT 1`,
+        LEFT JOIN adm_users uc ON uc.id = ep.created_by
+         WHERE ep.id = :id LIMIT 1`,
       { id },
     );
     if (!items.length)
@@ -407,8 +417,7 @@ export const createExceptionalPermission = async (req, res, next) => {
     if (!users.length)
       throw httpError(404, "NOT_FOUND", "User with this username not found");
     const user_id = users[0].id;
-    const result = await query(
-      `INSERT INTO adm_exceptional_permissions (
+    const result = await query(`INSERT INTO adm_exceptional_permissions (
          user_id, permission_code, effect, reason, is_active,
          effective_from, effective_to, approved_by, exception_type
        ) VALUES (

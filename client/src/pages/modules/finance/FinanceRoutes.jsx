@@ -8,17 +8,19 @@ import VoucherRegisterReportPage from "./reports/VoucherRegisterReportPage.jsx";
 import TrialBalanceReportPage from "./reports/TrialBalanceReportPage.jsx";
 import JournalReportPage from "./reports/JournalReportPage.jsx";
 import GeneralLedgerReportPage from "./reports/GeneralLedgerReportPage.jsx";
+import CreditorsLedgerReportPage from "./reports/CreditorsLedgerReportPage.jsx";
+import SupplierOutstandingReportPage from "./reports/SupplierOutstandingReportPage.jsx";
 import ProfitAndLossReportPage from "./reports/ProfitAndLossReportPage.jsx";
 import BalanceSheetReportPage from "./reports/BalanceSheetReportPage.jsx";
 import ChartOfAccountsReportPage from "./reports/ChartOfAccountsReportPage.jsx";
 import CashFlowReportPage from "./reports/CashFlowReportPage.jsx";
 import PaymentDueReportPage from "./reports/PaymentDueReportPage.jsx";
+import OutstandingReceivableReportPage from "./reports/OutstandingReceivableReportPage.jsx";
 import CustomerOutstandingReportPage from "./reports/CustomerOutstandingReportPage.jsx";
 import AuditTrailReportPage from "./reports/AuditTrailReportPage.jsx";
 import DebtorsLedgerReportPage from "./reports/DebtorsLedgerReportPage.jsx";
-import CreditorsLedgerReportPage from "./reports/CreditorsLedgerReportPage.jsx";
-import SupplierOutstandingReportPage from "./reports/SupplierOutstandingReportPage.jsx";
 import RatioAnalysisReportPage from "./reports/RatioAnalysisReportPage.jsx";
+import GraphicalChartOfAccountsPage from "./reports/GraphicalChartOfAccountsPage.jsx";
 import AccountGroupsPage from "./setup/AccountGroupsPage.jsx";
 import AccountsPage from "./setup/AccountsPage.jsx";
 import TaxCodesPage from "./setup/TaxCodesPage.jsx";
@@ -37,213 +39,221 @@ import BankReconciliationTransactionReportPage from "./banking/reports/BankRecon
 export default function FinanceRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<FinanceHome />} />
-      <Route path="/dashboard" element={<FinanceDashboardPage />} />
+      <Route index element={<FinanceHome />} />
+      <Route path="dashboard" element={<FinanceDashboardPage />} />
 
       <Route
-        path="/journal-voucher"
+        path="journal-voucher"
         element={<VoucherListPage voucherTypeCode="JV" title="Journal Entry" />}
       />
       <Route
-        path="/journal-voucher/create"
+        path="journal-voucher/create"
         element={
           <VoucherFormPage voucherTypeCode="JV" title="New Journal Entry" />
         }
       />
       <Route
-        path="/journal-voucher/:id"
+        path="journal-voucher/:id"
         element={<VoucherFormPage voucherTypeCode="JV" title="Journal Entry" />}
       />
 
       <Route
-        path="/payment-voucher"
+        path="payment-voucher"
         element={<VoucherListPage voucherTypeCode="PV" title="Make Payment" />}
       />
       <Route
-        path="/payment-voucher/create"
+        path="payment-voucher/create"
         element={<VoucherFormPage voucherTypeCode="PV" title="Make Payment" />}
       />
       <Route
-        path="/payment-voucher/:id"
+        path="payment-voucher/:id"
         element={<VoucherFormPage voucherTypeCode="PV" title="Make Payment" />}
       />
 
       <Route
-        path="/receipt-voucher"
+        path="receipt-voucher"
         element={
           <VoucherListPage voucherTypeCode="RV" title="Receive Payment" />
         }
       />
       <Route
-        path="/receipt-voucher/create"
+        path="receipt-voucher/create"
         element={
           <VoucherFormPage voucherTypeCode="RV" title="Receive Payment" />
         }
       />
       <Route
-        path="/receipt-voucher/:id"
+        path="receipt-voucher/:id"
         element={
           <VoucherFormPage voucherTypeCode="RV" title="Receive Payment" />
         }
       />
 
       <Route
-        path="/contra-voucher"
+        path="contra-voucher"
         element={
           <VoucherListPage voucherTypeCode="CV" title="Account Transfer" />
         }
       />
       <Route
-        path="/contra-voucher/create"
+        path="contra-voucher/create"
         element={
           <VoucherFormPage voucherTypeCode="CV" title="Account Transfer" />
         }
       />
       <Route
-        path="/contra-voucher/:id"
+        path="contra-voucher/:id"
         element={
           <VoucherFormPage voucherTypeCode="CV" title="Account Transfer" />
         }
       />
 
       <Route
-        path="/sales-voucher"
+        path="sales-voucher"
         element={
           <VoucherListPage voucherTypeCode="SV" title="Sales Vouchers" />
         }
       />
       <Route
-        path="/sales-voucher/create"
+        path="sales-voucher/create"
         element={
           <VoucherFormPage voucherTypeCode="SV" title="New Sales Voucher" />
         }
       />
       <Route
-        path="/sales-voucher/:id"
+        path="sales-voucher/:id"
         element={
           <VoucherFormPage voucherTypeCode="SV" title="Sales Vouchers" />
         }
       />
 
       <Route
-        path="/purchase-voucher"
+        path="purchase-voucher"
         element={
           <VoucherListPage voucherTypeCode="PUV" title="Purchase Vouchers" />
         }
       />
       <Route
-        path="/purchase-voucher/create"
+        path="purchase-voucher/create"
         element={
           <VoucherFormPage voucherTypeCode="PUV" title="New Purchase Voucher" />
         }
       />
       <Route
-        path="/purchase-voucher/:id"
+        path="purchase-voucher/:id"
         element={
           <VoucherFormPage voucherTypeCode="PUV" title="Purchase Vouchers" />
         }
       />
 
       <Route
-        path="/debit-note"
+        path="debit-note"
         element={<VoucherListPage voucherTypeCode="DN" title="Debit Notes" />}
       />
       <Route
-        path="/debit-note/create"
+        path="debit-note/create"
         element={
           <VoucherFormPage voucherTypeCode="DN" title="New Debit Note" />
         }
       />
       <Route
-        path="/debit-note/:id"
+        path="debit-note/:id"
         element={<VoucherFormPage voucherTypeCode="DN" title="Debit Notes" />}
       />
 
       <Route
-        path="/credit-note"
+        path="credit-note"
         element={<VoucherListPage voucherTypeCode="CN" title="Credit Notes" />}
       />
       <Route
-        path="/credit-note/create"
+        path="credit-note/create"
         element={
           <VoucherFormPage voucherTypeCode="CN" title="New Credit Note" />
         }
       />
       <Route
-        path="/credit-note/:id"
+        path="credit-note/:id"
         element={<VoucherFormPage voucherTypeCode="CN" title="Credit Notes" />}
       />
 
-      <Route path="/account-groups" element={<AccountGroupsPage />} />
-      <Route path="/accounts" element={<AccountsPage />} />
-      <Route path="/coa" element={<AccountsPage />} />
-      <Route path="/tax-codes" element={<TaxCodesPage />} />
-      <Route path="/cost-centers" element={<CostCentersPage />} />
-      <Route path="/currencies" element={<CurrenciesPage />} />
-      <Route path="/fiscal-years" element={<FiscalYearsPage />} />
-      <Route path="/opening-balances" element={<OpeningBalancesPage />} />
-      <Route path="/bank-reconciliation" element={<BankReconciliationList />} />
+      <Route path="account-groups" element={<AccountGroupsPage />} />
+      <Route path="accounts" element={<AccountsPage />} />
+      <Route path="coa" element={<AccountsPage />} />
+      <Route path="tax-codes" element={<TaxCodesPage />} />
+      <Route path="cost-centers" element={<CostCentersPage />} />
+      <Route path="currencies" element={<CurrenciesPage />} />
+      <Route path="fiscal-years" element={<FiscalYearsPage />} />
+      <Route path="opening-balances" element={<OpeningBalancesPage />} />
+      <Route path="bank-reconciliation" element={<BankReconciliationList />} />
       <Route
-        path="/bank-reconciliation/:id"
+        path="bank-reconciliation/:id"
         element={<BankReconciliationForm />}
       />
-      <Route path="/pdc-postings" element={<PdcPostingsList />} />
-      <Route path="/pdc-postings/:id" element={<PdcPostingForm />} />
+      <Route path="pdc-postings" element={<PdcPostingsList />} />
+      <Route path="pdc-postings/:id" element={<PdcPostingForm />} />
       <Route
-        path="/reports/bank-reconciliations"
+        path="reports/bank-reconciliations"
         element={<BankReconciliationsReportPage />}
       />
       <Route
-        path="/reports/bank-reconciliation-transactions"
+        path="reports/bank-reconciliation-transactions"
         element={<BankReconciliationTransactionReportPage />}
       />
 
-      <Route path="/reports" element={<VoucherRegisterReportPage />} />
+      <Route path="reports" element={<VoucherRegisterReportPage />} />
       <Route
-        path="/reports/voucher-register"
+        path="reports/voucher-register"
         element={<VoucherRegisterReportPage />}
       />
       <Route
-        path="/reports/trial-balance"
+        path="reports/trial-balance"
         element={<TrialBalanceReportPage />}
       />
-      <Route path="/reports/journals" element={<JournalReportPage />} />
+      <Route path="reports/journals" element={<JournalReportPage />} />
       <Route
-        path="/reports/general-ledger"
+        path="reports/general-ledger"
         element={<GeneralLedgerReportPage />}
       />
-      <Route path="/reports/payment-due" element={<PaymentDueReportPage />} />
+      <Route path="reports/payment-due" element={<PaymentDueReportPage />} />
+      <Route path="reports/outstanding-receivable" element={<OutstandingReceivableReportPage />} />
       <Route
-        path="/reports/customer-outstanding"
+        path="reports/customer-outstanding"
         element={<CustomerOutstandingReportPage />}
       />
-      <Route path="/reports/audit-trail" element={<AuditTrailReportPage />} />
+      <Route path="reports/audit-trail" element={<AuditTrailReportPage />} />
       <Route
-        path="/reports/debtors-ledger"
+        path="reports/debtors-ledger"
         element={<DebtorsLedgerReportPage />}
       />
       <Route
-        path="/reports/creditors-ledger"
+        path="reports/creditors-ledger"
         element={<CreditorsLedgerReportPage />}
       />
       <Route
-        path="/reports/supplier-outstanding"
+        path="reports/supplier-outstanding"
         element={<SupplierOutstandingReportPage />}
       />
       <Route
-        path="/reports/ratio-analysis"
+        path="reports/ratio-analysis"
         element={<RatioAnalysisReportPage />}
       />
       <Route
-        path="/reports/profit-and-loss"
+        path="reports/profit-and-loss"
         element={<ProfitAndLossReportPage />}
       />
       <Route
-        path="/reports/balance-sheet"
+        path="reports/balance-sheet"
         element={<BalanceSheetReportPage />}
       />
-      <Route path="/reports/cash-flow" element={<CashFlowReportPage />} />
-      <Route path="/reports/chart-of-accounts" element={<ChartOfAccountsReportPage />} />
+      <Route path="reports/cash-flow" element={<CashFlowReportPage />} />
+      <Route
+        path="reports/chart-of-accounts"
+        element={<ChartOfAccountsReportPage />}
+      />
+      <Route
+        path="reports/chart-of-accounts-graphical"
+        element={<GraphicalChartOfAccountsPage />}
+      />
 
       <Route path="*" element={<Navigate to="/finance" replace />} />
     </Routes>

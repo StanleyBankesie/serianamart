@@ -113,6 +113,8 @@ export default function PurchaseReturnList() {
                     <th>Return Date</th>
                     <th>Supplier</th>
                     <th className="text-right">Amount</th>
+                                    <th>Created By</th>
+                  <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -124,6 +126,8 @@ export default function PurchaseReturnList() {
                       <td className="text-right">
                         {(Number(r.total_amount || 0)).toFixed(2)}
                       </td>
+                      <td>{r.created_by_name || "-"}</td>
+                      <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                     </tr>
                   ))}
                 </tbody>

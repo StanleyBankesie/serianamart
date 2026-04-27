@@ -129,6 +129,8 @@ export default function StockTransferList() {
                   <th>Items</th>
                   <th>Status</th>
                   <th>Actions</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -209,6 +211,8 @@ export default function StockTransferList() {
                         ) : null}
                       </div>
                     </td>
+                    <td>{transfer.created_by_name || "-"}</td>
+                    <td>{transfer.created_at ? new Date(transfer.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

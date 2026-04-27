@@ -70,6 +70,8 @@ export default function ServiceExecutionsList() {
                     <th>Date</th>
                     <th>Status</th>
                     <th>Actions</th>
+                                    <th>Created By</th>
+                  <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -103,6 +105,8 @@ export default function ServiceExecutionsList() {
                           </Link>
                         )}
                       </td>
+                      <td>{it.created_by_name || "-"}</td>
+                      <td>{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
                     </tr>
                   ))}
                   {!items.length && (

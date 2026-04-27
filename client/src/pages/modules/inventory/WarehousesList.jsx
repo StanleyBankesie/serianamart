@@ -90,6 +90,8 @@ export default function WarehousesList() {
                   <th>Location</th>
                   <th>Status</th>
                   <th>Actions</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -145,6 +147,8 @@ export default function WarehousesList() {
                         Edit
                       </Link>
                     </td>
+                    <td>{w.created_by_name || "-"}</td>
+                    <td>{w.created_at ? new Date(w.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

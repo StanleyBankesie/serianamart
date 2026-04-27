@@ -162,6 +162,8 @@ export default function ServiceRequestsList() {
                   <th>Priority</th>
                   <th>Status</th>
                   <th>Actions</th>
+                                <th>Created By</th>
+                <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -260,6 +262,8 @@ export default function ServiceRequestsList() {
                           </span>
                         ) : null}
                       </td>
+                      <td>{r.created_by_name || "-"}</td>
+                      <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                     </tr>
                   ))}
               </tbody>

@@ -48,7 +48,9 @@ export default function SupplierQuotationsList() {
           </div>
           <div className="overflow-x-auto">
             <table className="table">
-              <thead><tr><th>Quotation No</th><th>Date</th><th>RFQ Ref</th><th>Supplier</th><th>Total</th><th>Currency</th><th>Status</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Quotation No</th><th>Date</th><th>RFQ Ref</th><th>Supplier</th><th>Total</th><th>Currency</th><th>Status</th><th>Actions</th>                    <th>Created By</th>
+                    <th>Created Date</th>
+                    </tr></thead>
               <tbody>
                 {loading && <tr><td colSpan="8" className="text-center py-8 text-slate-500">Loading...</td></tr>}
                 {!loading && !filtered.length && <tr><td colSpan="8" className="text-center py-8 text-slate-500">No quotations found</td></tr>}

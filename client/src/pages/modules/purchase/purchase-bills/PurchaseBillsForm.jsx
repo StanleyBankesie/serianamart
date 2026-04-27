@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
-import { Trash } from "lucide-react";
+import { Trash2, Plus } from "lucide-react";
 
 const CURRENCIES = [
   { id: 4, code: "GHS", name: "Ghanaian Cedi" },
@@ -36,6 +36,7 @@ export default function PurchaseBillsForm() {
   const [currentBillId, setCurrentBillId] = useState(
     id && id !== "new" ? Number(id) : null,
   );
+  const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
 
   const [formData, setFormData] = useState({
     bill_no: "",
@@ -55,18 +56,16 @@ export default function PurchaseBillsForm() {
     other_charges: 0,
   });
 
-  const [lines, setLines] = useState([
-    {
-      id: Date.now(),
-      item_id: "",
-      uom_id: "",
-      qty: 0,
-      unit_price: 0,
-      discount_percent: 0,
-      tax_amount: 0,
-      line_total: 0,
-    },
-  ]);
+  const [lines, setLines] = useState([]);
+  const [newItem, setNewItem] = useState({
+    item_id: "",
+    uom_id: "",
+    qty: 1,
+    unit_price: 0,
+    discount_percent: 0,
+    tax_code_id: "",
+    tax_amount: 0,
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -85,7 +84,7 @@ export default function PurchaseBillsForm() {
           api.get("/purchase/orders").catch(() => ({ data: { items: [] } })),
           api.get("/inventory/items").catch(() => ({ data: { items: [] } })),
           api.get("/inventory/uoms").catch(() => ({ data: { items: [] } })),
-          api.get("/finance/tax-codes").catch(() => ({ data: { items: [] } })),
+          api.get(`/finance/tax-codes?form=${billType === "IMPORT" ? "PURCHASE_BILL_IMPORT" : "PURCHASE_BILL_LOCAL"}`).catch(() => ({ data: { items: [] } })),
         ]);
 
         if (mounted) {
@@ -140,6 +139,119 @@ export default function PurchaseBillsForm() {
       mounted = false;
     };
   }, []);
+
+  const fetchTaxComponentsForCode = async (taxCodeId) => {
+    const key = String(taxCodeId || "");
+    if (!key) return;
+    try {
+      const resp = await api.get(`/finance/tax-codes/${taxCodeId}/components`);
+      const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
+      setTaxComponentsByCode((prev) => ({ ...prev, [key]: items }));
+    } catch {}
+  };
+
+  useEffect(() => {
+    const uniqueTaxIds = Array.from(
+      new Set([
+        ...lines.map((l) => String(l.tax_code_id)).filter(Boolean),
+        newItem.tax_code_id ? String(newItem.tax_code_id) : null,
+      ].filter(Boolean)),
+    );
+    const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
+    if (missing.length) {
+      Promise.all(missing.map((id) => fetchTaxComponentsForCode(id)));
+    }
+  }, [lines, newItem.tax_code_id]);
+
+  const calcNewItemTaxBreakdown = () => {
+    const qty = Number(newItem.qty || 0);
+    const price = Number(newItem.unit_price || 0);
+    const discP = Number(newItem.discount_percent || 0);
+    const gross = qty * price;
+    const disc = gross * (discP / 100);
+    const taxableTotal = Math.max(0, gross - disc);
+
+    const components = [];
+    let taxTotal = 0;
+    const comps = taxComponentsByCode[String(newItem.tax_code_id)] || [];
+
+    if (comps.length > 0) {
+      comps.forEach((c) => {
+        const rate = Number(c.rate_percent) || 0;
+        const amt = (taxableTotal * rate) / 100;
+        components.push({ name: c.component_name, rate, amount: amt });
+        taxTotal += amt;
+      });
+    } else if (newItem.tax_code_id) {
+      const tc = taxCodes.find((t) => String(t.id) === String(newItem.tax_code_id));
+      const rate = tc ? Number(tc.rate_percent) || 0 : 0;
+      const amt = (taxableTotal * rate) / 100;
+      if (rate > 0) {
+        components.push({ name: "Tax", rate, amount: amt });
+        taxTotal = amt;
+      }
+    }
+    return { components, taxTotal, taxableTotal };
+  };
+
+  const handleNewItemChange = (e) => {
+    const { name, value } = e.target;
+    setNewItem((prev) => {
+      let next = { ...prev, [name]: value };
+      if (name === "item_id") {
+        const it = availableItems.find((i) => String(i.id) === String(value));
+        if (it && it.uom) {
+          const u = uoms.find((uom) => String(uom.uom_code) === String(it.uom));
+          next.uom_id = u ? String(u.id) : "";
+        }
+        if (it && it.cost_price) {
+          next.unit_price = Number(it.cost_price);
+        }
+        // Fetch default tax
+        const fetchTax = async () => {
+          try {
+            const res = await api.get(`/finance/item-tax/${value}`);
+            const tax = res.data?.tax;
+            if (tax && tax.id) {
+              setNewItem(p => p.item_id === value ? { ...p, tax_code_id: String(tax.id) } : p);
+            }
+          } catch {}
+        };
+        fetchTax();
+      }
+      return next;
+    });
+  };
+
+  const addItemToLines = () => {
+    if (!newItem.item_id || !newItem.qty) return;
+    const { taxTotal, taxableTotal } = calcNewItemTaxBreakdown();
+    const it = availableItems.find((x) => String(x.id) === String(newItem.item_id));
+    const uo = uoms.find((u) => String(u.id) === String(newItem.uom_id));
+    
+    setLines((prev) => [
+      ...prev,
+      {
+        ...newItem,
+        id: Date.now(),
+        item_name: it?.item_name || "",
+        item_code: it?.item_code || "",
+        uom_name: uo?.uom_code || uo?.uom_name || "",
+        tax_amount: taxTotal,
+        line_total: taxableTotal + taxTotal,
+      },
+    ]);
+    
+    setNewItem({
+      item_id: "",
+      uom_id: "",
+      qty: 1,
+      unit_price: 0,
+      discount_percent: 0,
+      tax_code_id: "",
+      tax_amount: 0,
+    });
+  };
 
   useEffect(() => {
     if (isNew) return;
@@ -206,13 +318,18 @@ export default function PurchaseBillsForm() {
     const qty = Number(line.qty) || 0;
     const unitPrice = Number(line.unit_price) || 0;
     const discountPercent = Number(line.discount_percent) || 0;
-    let taxAmount = Number(line.tax_amount) || 0;
+    let taxAmount = 0;
 
-    // Logic: (qty * price) - discount + tax
     const gross = qty * unitPrice;
     const discount = gross * (discountPercent / 100);
     const taxable = gross - discount;
-    if (line.tax_code_id) {
+
+    const comps = taxComponentsByCode[String(line.tax_code_id)] || [];
+    if (comps.length > 0) {
+      comps.forEach((c) => {
+        taxAmount += (taxable * (Number(c.rate_percent) || 0)) / 100;
+      });
+    } else if (line.tax_code_id) {
       const tc = taxCodes.find(
         (t) => String(t.id) === String(line.tax_code_id),
       );
@@ -600,13 +717,52 @@ export default function PurchaseBillsForm() {
       (sum, l) => sum + (Number(l.qty) || 0) * (Number(l.unit_price) || 0),
       0,
     );
-    const lineTaxTotal = lines.reduce(
-      (sum, l) => sum + (Number(l.tax_amount) || 0),
-      0,
-    );
-    // Note: line_total includes item discount.
-    // If we want total discount, we sum item discounts + global discount.
-    // Item discount = (qty * price * percent / 100)
+    const compTotals = {};
+
+    lines.forEach((l) => {
+      const gross = (Number(l.qty) || 0) * (Number(l.unit_price) || 0);
+      const disc = (gross * (Number(l.discount_percent) || 0)) / 100;
+      const base = gross - disc;
+
+      const taxCodeId = l.tax_code_id;
+      const comps = taxComponentsByCode[String(taxCodeId)] || [];
+      if (comps.length > 0) {
+        comps.forEach((c) => {
+          const rate = Number(c.rate_percent) || 0;
+          const amt = (base * rate) / 100;
+          const name = c.component_name;
+          if (!compTotals[name]) {
+            compTotals[name] = {
+              amount: 0,
+              rate,
+              sort_order: c.sort_order || 0,
+            };
+          }
+          compTotals[name].amount += amt;
+        });
+      } else {
+        const amt = Number(l.tax_amount || 0);
+        if (amt > 0) {
+          const name = "Tax";
+          if (!compTotals[name]) {
+            compTotals[name] = { amount: 0, rate: 0, sort_order: 99 };
+          }
+          compTotals[name].amount += amt;
+        }
+      }
+    });
+
+    const components = Object.keys(compTotals)
+      .map((name) => ({
+        name,
+        amount: compTotals[name].amount,
+        rate: compTotals[name].rate,
+        sort_order: compTotals[name].sort_order,
+      }))
+      .sort((a, b) => a.sort_order - b.sort_order);
+
+    const lineTaxTotal = components.reduce((s, c) => s + c.amount, 0);
+
     const itemDiscounts = lines.reduce((sum, l) => {
       const gross = (Number(l.qty) || 0) * (Number(l.unit_price) || 0);
       return sum + (gross * (Number(l.discount_percent) || 0)) / 100;
@@ -620,12 +776,13 @@ export default function PurchaseBillsForm() {
     const grandTotal =
       subTotal - totalDiscount + lineTaxTotal + freight + other;
 
-    return { subTotal, itemDiscounts, lineTaxTotal, grandTotal };
+    return { subTotal, itemDiscounts, lineTaxTotal, grandTotal, components };
   }, [
     lines,
     formData.discount_amount,
     formData.freight_charges,
     formData.other_charges,
+    taxComponentsByCode,
   ]);
 
   const handleSubmit = async (status = "DRAFT") => {
@@ -966,16 +1123,116 @@ export default function PurchaseBillsForm() {
       </div>
 
       <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg px-4 py-2 flex justify-between items-center">
-          <h3 className="font-semibold">Items</h3>
-          <button
-            type="button"
-            className="btn-success text-xs"
-            onClick={addLine}
-          >
-            + Add Item
-          </button>
-        </div>
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg mb-4">
+            <h4 className="text-sm font-semibold mb-3 text-brand">Add Item Manually</h4>
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-3">
+              <div className="md:col-span-2">
+                <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Item</label>
+                <select
+                  name="item_id"
+                  className="input text-sm"
+                  value={newItem.item_id}
+                  onChange={handleNewItemChange}
+                >
+                  <option value="">Select Item</option>
+                  {itemOptions.map((i) => (
+                    <option key={i.id} value={String(i.id)}>
+                      {i.item_code} - {i.item_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Qty</label>
+                <input
+                  type="number"
+                  name="qty"
+                  className="input text-sm"
+                  value={newItem.qty}
+                  onChange={handleNewItemChange}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">UOM</label>
+                <select
+                  name="uom_id"
+                  className="input text-sm"
+                  value={newItem.uom_id}
+                  onChange={handleNewItemChange}
+                >
+                  <option value="">Select UOM</option>
+                  {uoms.map((u) => (
+                    <option key={u.id} value={String(u.id)}>
+                      {u.uom_code}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Price</label>
+                <input
+                  type="number"
+                  name="unit_price"
+                  className="input text-sm"
+                  value={newItem.unit_price}
+                  onChange={handleNewItemChange}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Disc %</label>
+                <input
+                  type="number"
+                  name="discount_percent"
+                  className="input text-sm"
+                  value={newItem.discount_percent}
+                  onChange={handleNewItemChange}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Tax Code</label>
+                <select
+                  name="tax_code_id"
+                  className="input text-sm"
+                  value={newItem.tax_code_id}
+                  onChange={handleNewItemChange}
+                >
+                  <option value="">No Tax</option>
+                  {taxCodes.map((t) => (
+                    <option key={t.id} value={String(t.id)}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="md:col-span-2">
+                 {newItem.tax_code_id && calcNewItemTaxBreakdown().components.length > 0 && (
+                   <div className="border border-brand/20 bg-brand/5 rounded-md p-2 text-[11px] mt-1">
+                     <span className="font-bold block border-b border-brand/10 mb-1">Tax Calculation:</span>
+                     {calcNewItemTaxBreakdown().components.map(c => (
+                       <div key={c.name} className="flex justify-between">
+                         <span>{c.name} ({c.rate}%):</span>
+                         <span className="font-semibold">{c.amount.toFixed(2)}</span>
+                       </div>
+                     ))}
+                     <div className="flex justify-between border-t border-brand/10 mt-1 pt-1 font-bold italic">
+                       <span>Total Tax:</span>
+                       <span>{calcNewItemTaxBreakdown().taxTotal.toFixed(2)}</span>
+                     </div>
+                   </div>
+                 )}
+              </div>
+              <div className="md:col-span-2 flex items-end justify-end">
+                <button
+                  type="button"
+                  className="btn btn-primary px-4 py-1.5 text-xs flex items-center gap-2"
+                  onClick={addItemToLines}
+                  disabled={!newItem.item_id || !newItem.qty}
+                >
+                  <Plus className="w-3 h-3" /> Add Item
+                </button>
+              </div>
+            </div>
+          </div>
         <div className="card-body overflow-x-auto">
           <div className="mb-2 text-xs text-slate-600">
             Unit of Measure and Conversions: select UOM per line. If the supplier
@@ -1004,112 +1261,82 @@ export default function PurchaseBillsForm() {
               </tr>
             </thead>
             <tbody>
-              {lines.map((l) => (
-                <tr key={l.id}>
-                  <td>
-                    <select
-                      className="input text-sm w-full"
-                      value={l.item_id}
-                      onChange={(e) =>
-                        handleLineChange(l.id, "item_id", e.target.value)
-                      }
-                    >
-                      <option value="">Select Item</option>
-                      {itemOptions.map((i) => (
-                        <option key={i.id} value={String(i.id)}>
-                          {i.item_code} - {i.item_name}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      className="input text-right text-sm w-full"
-                      value={l.qty}
-                      onChange={(e) =>
-                        handleLineChange(l.id, "qty", e.target.value)
-                      }
-                    />
-                  </td>
-                  <td>
-                    <select
-                      className="input text-sm w-full"
-                      value={l.uom_id}
-                      onChange={(e) =>
-                        handleLineChange(l.id, "uom_id", e.target.value)
-                      }
-                    >
-                      <option value="">Select UOM</option>
-                      {uoms.map((u) => (
-                        <option key={u.id} value={String(u.id)}>
-                          {u.uom_name
-                            ? `${u.uom_name} (${u.uom_code})`
-                            : u.uom_code}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      className="input text-right text-sm w-full"
-                      value={l.unit_price}
-                      onChange={(e) =>
-                        handleLineChange(l.id, "unit_price", e.target.value)
-                      }
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      className="input text-right text-sm w-full"
-                      value={l.discount_percent}
-                      onChange={(e) =>
-                        handleLineChange(
-                          l.id,
-                          "discount_percent",
-                          e.target.value,
-                        )
-                      }
-                    />
-                  </td>
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <select
-                        className="input text-sm w-full"
-                        value={l.tax_code_id || ""}
-                        onChange={(e) =>
-                          handleLineChange(l.id, "tax_code_id", e.target.value)
-                        }
-                      >
-                        <option value="">No Tax</option>
-                        {taxCodes.map((t) => (
-                          <option key={t.id} value={String(t.id)}>
-                            {t.name}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="text-right w-32">
-                        {Number(l.tax_amount || 0).toFixed(2)}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="text-right font-medium">
-                    {Number(l.line_total).toFixed(2)}
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="text-red-500 hover:text-red-700 p-1"
-                      onClick={() => removeLine(l.id)}
-                      title="Remove"
-                    >
-                      <Trash size={16} />
-                    </button>
+              {lines.length === 0 ? (
+                <tr>
+                  <td colSpan="8" className="text-center py-10 text-slate-400 bg-slate-50 italic">
+                    No items added yet. Use the section above to add items or pick a PO/GRN.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                lines.map((l, idx) => {
+                  const gross = (Number(l.qty) || 0) * (Number(l.unit_price) || 0);
+                  const discAmt = (gross * (Number(l.discount_percent) || 0)) / 100;
+                  const net = gross - discAmt;
+                  const taxAmt = (Number(l.line_total) || 0) - net;
+                  const it = availableItems.find(i => String(i.id) === String(l.item_id));
+                  const uo = uoms.find(u => String(u.id) === String(l.uom_id));
+                  return (
+                    <tr key={l.id || idx}>
+                      <td>
+                        <div className="font-semibold text-slate-800">
+                          {l.item_name || it?.item_name || "Unknown Item"}
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-mono">
+                          {l.item_code || it?.item_code || ""}
+                        </div>
+                      </td>
+                      <td className="text-right">
+                        {isNew ? (
+                          <input
+                            type="number"
+                            className="input text-right text-xs w-20 ml-auto"
+                            value={l.qty}
+                            onChange={(e) => handleLineChange(l.id, "qty", e.target.value)}
+                          />
+                        ) : l.qty}
+                      </td>
+                      <td className="text-right">
+                         {l.uom_name || uo?.uom_code || ""}
+                      </td>
+                      <td className="text-right">
+                        {isNew ? (
+                          <input
+                            type="number"
+                            className="input text-right text-xs w-24 ml-auto"
+                            value={l.unit_price}
+                            onChange={(e) => handleLineChange(l.id, "unit_price", e.target.value)}
+                          />
+                        ) : Number(l.unit_price).toFixed(2)}
+                      </td>
+                      <td className="text-right">
+                        {l.discount_percent}%
+                      </td>
+                      <td className="text-right text-slate-500">
+                        {taxAmt.toFixed(2)}
+                      </td>
+                      <td className="text-right font-medium">
+                        {net.toFixed(2)}
+                      </td>
+                      <td className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                           <span className="font-bold text-brand">
+                             {Number(l.line_total).toFixed(2)}
+                           </span>
+                           {!isNew ? null : (
+                             <button
+                               type="button"
+                               className="text-red-400 hover:text-red-700 transition-colors ml-2"
+                               onClick={() => removeLine(l.id)}
+                             >
+                               <Trash2 size={14} />
+                             </button>
+                           )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -1149,12 +1376,23 @@ export default function PurchaseBillsForm() {
                 onChange={handleChange}
               />
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600">Tax Amount:</span>
-              <span className="font-semibold">
-                {totals.lineTaxTotal.toFixed(2)}
-              </span>
-            </div>
+                <div className="flex justify-between items-center py-2 border-b border-slate-200 dark:border-slate-700">
+                  <span className="text-sm">Tax</span>
+                  <span className="font-semibold">
+                    {totals.lineTaxTotal.toFixed(2)}
+                  </span>
+                </div>
+                {(totals.components || []).map((c) => (
+                  <div
+                    key={c.name}
+                    className="flex justify-between items-center py-1 text-xs text-slate-500 pl-4"
+                  >
+                    <span>
+                      {c.name} ({c.rate}%):
+                    </span>
+                    <span>{Number(c.amount || 0).toFixed(2)}</span>
+                  </div>
+                ))}
             <div className="flex justify-between items-center">
               <span className="text-gray-600">Freight Charges:</span>
               <input

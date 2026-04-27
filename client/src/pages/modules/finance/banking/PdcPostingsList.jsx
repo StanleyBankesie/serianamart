@@ -251,7 +251,7 @@ export default function PdcPostingsList() {
         </div>
 
         <div className="lg:col-span-3 space-y-6">
-          <div class="card bg-base-100 shadow-xl border border-slate-200 overflow-hidden">
+          <div className="card bg-base-100 shadow-xl border border-slate-200 overflow-hidden">
             <div className="card-header bg-slate-50 p-4 border-b border-slate-200">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <h2 className="text-lg font-bold text-slate-700">

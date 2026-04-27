@@ -43,21 +43,18 @@ export const ensureCompanyColumns = async () => {
     await query(`ALTER TABLE ${table} ADD COLUMN tax_id VARCHAR(100) NULL`);
   }
   if (!(await hasColumn(table, "registration_no"))) {
-    await query(
-      `ALTER TABLE ${table} ADD COLUMN registration_no VARCHAR(100) NULL`,
+    await query(`ALTER TABLE ${table} ADD COLUMN registration_no VARCHAR(100) NULL`,
     );
   }
   if (!(await hasColumn(table, "fiscal_year_start_month"))) {
-    await query(
-      `ALTER TABLE ${table} ADD COLUMN fiscal_year_start_month TINYINT UNSIGNED DEFAULT 1`,
+    await query(`ALTER TABLE ${table} ADD COLUMN fiscal_year_start_month TINYINT UNSIGNED DEFAULT 1`,
     );
   }
   if (!(await hasColumn(table, "timezone"))) {
     await query(`ALTER TABLE ${table} ADD COLUMN timezone VARCHAR(64) NULL`);
   }
   if (!(await hasColumn(table, "currency_id"))) {
-    await query(
-      `ALTER TABLE ${table} ADD COLUMN currency_id BIGINT UNSIGNED NULL`,
+    await query(`ALTER TABLE ${table} ADD COLUMN currency_id BIGINT UNSIGNED NULL`,
     );
   }
   if (!(await hasColumn(table, "logo"))) {
@@ -183,8 +180,12 @@ export const getCompanies = async (req, res, next) => {
       params.is_active = Number(Boolean(active));
     }
     const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
-    const items = await query(
-      `SELECT id, name, code, is_active, created_at FROM adm_companies ${where} ORDER BY name ASC`,
+    const items = await query(`SELECT id, name, code, is_active, created_at,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies ${where}
+        LEFT JOIN adm_users u ON u.id = created_by
+         ORDER BY name ASC`,
       params,
     );
     res.json({ items });
@@ -204,23 +205,27 @@ export const getCompanyById = async (req, res, next) => {
 
     let items = [];
     try {
-      items = await query(
-        `SELECT id, name, code, is_active, created_at,
+      items = await query(`SELECT id, name, code, is_active, created_at,
                 address, city, state, postal_code, country,
                 telephone, email, website, tax_id, registration_no,
                 fiscal_year_start_month, timezone, currency_id,
-                CASE WHEN logo IS NULL THEN 0 ELSE 1 END AS has_logo
-         FROM adm_companies 
+                CASE WHEN logo IS NULL THEN 0 ELSE 1 END AS has_logo,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE id = :id LIMIT 1`,
         { id },
       );
     } catch (err) {
-      items = await query(
-        `SELECT id, name, code, is_active, created_at,
+      items = await query(`SELECT id, name, code, is_active, created_at,
                 address, city, state, postal_code, country,
                 telephone, email, website, tax_id, registration_no,
-                fiscal_year_start_month, timezone, currency_id
-         FROM adm_companies 
+                fiscal_year_start_month, timezone, currency_id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE id = :id LIMIT 1`,
         { id },
       );
@@ -354,11 +359,13 @@ export const getBranches = async (req, res, next) => {
     }
     const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
 
-    const items = await query(
-      `SELECT b.*, c.name as company_name
+    const items = await query(`SELECT b.*, c.name as company_name,
+          b.created_at,
+          u.username AS created_by_name
          FROM adm_branches b
          JOIN adm_companies c ON b.company_id = c.id
          ${where}
+        LEFT JOIN adm_users u ON u.id = b.created_by
          ORDER BY c.name ASC, b.name ASC`,
       params,
     );
@@ -420,8 +427,7 @@ export const createBranch = async (req, res, next) => {
     if (!name || !code)
       throw httpError(400, "VALIDATION_ERROR", "name and code are required");
 
-    const result = await query(
-      `INSERT INTO adm_branches (
+    const result = await query(`INSERT INTO adm_branches (
           company_id, name, code, is_active,
           address, city, state, postal_code, country,
           location, telephone, email, remarks
@@ -480,8 +486,7 @@ export const updateBranch = async (req, res, next) => {
     if (!name || !code)
       throw httpError(400, "VALIDATION_ERROR", "name and code are required");
 
-    const result = await query(
-      `UPDATE adm_branches
+    const result = await query(`UPDATE adm_branches
          SET company_id = :company_id,
              name = :name,
              code = :code,
@@ -645,6 +650,26 @@ export const createDepartment = async (req, res, next) => {
       message: "Department created",
       data: { id: result.insertId },
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getCurrentCompany = async (req, res, next) => {
+  try {
+    const { companyId } = req.scope;
+    if (!companyId) throw httpError(401, "UNAUTHORIZED", "Company scope not found");
+
+    const items = await query(
+      `SELECT id, name, code, is_active, address, city, state, postal_code, country,
+              telephone, email, website, tax_id, registration_no,
+              fiscal_year_start_month, timezone, currency_id
+         FROM adm_companies
+        WHERE id = :id LIMIT 1`,
+      { id: companyId },
+    );
+    if (!items.length) throw httpError(404, "NOT_FOUND", "Company not found");
+    res.json({ item: items[0] });
   } catch (err) {
     next(err);
   }
