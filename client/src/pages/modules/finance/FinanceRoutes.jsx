@@ -59,15 +59,15 @@ export default function FinanceRoutes() {
 
       <Route
         path="payment-voucher"
-        element={<VoucherListPage voucherTypeCode="PV" title="Make Payment" />}
+        element={<VoucherListPage voucherTypeCode="PAYV" title="Make Payment" />}
       />
       <Route
         path="payment-voucher/create"
-        element={<VoucherFormPage voucherTypeCode="PV" title="Make Payment" />}
+        element={<VoucherFormPage voucherTypeCode="PAYV" title="Make Payment" />}
       />
       <Route
         path="payment-voucher/:id"
-        element={<VoucherFormPage voucherTypeCode="PV" title="Make Payment" />}
+        element={<VoucherFormPage voucherTypeCode="PAYV" title="Make Payment" />}
       />
 
       <Route
@@ -130,19 +130,19 @@ export default function FinanceRoutes() {
       <Route
         path="purchase-voucher"
         element={
-          <VoucherListPage voucherTypeCode="PUV" title="Purchase Vouchers" />
+          <VoucherListPage voucherTypeCode="PV" title="Purchase Vouchers" />
         }
       />
       <Route
         path="purchase-voucher/create"
         element={
-          <VoucherFormPage voucherTypeCode="PUV" title="New Purchase Voucher" />
+          <VoucherFormPage voucherTypeCode="PV" title="New Purchase Voucher" />
         }
       />
       <Route
         path="purchase-voucher/:id"
         element={
-          <VoucherFormPage voucherTypeCode="PUV" title="Purchase Vouchers" />
+          <VoucherFormPage voucherTypeCode="PV" title="Purchase Vouchers" />
         }
       />
 

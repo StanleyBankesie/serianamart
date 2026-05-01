@@ -2078,7 +2078,6 @@ router.get("/reports/system-log-book", requireAuth, async (req, res, next) => {
          FROM adm_system_logs s
         LEFT JOIN adm_users u ON s.user_id = u.id
         ${whereSys}
-        LEFT JOIN adm_users u ON u.id = s.created_by
          ORDER BY s.event_time DESC
         LIMIT 200
         `,
@@ -2174,7 +2173,6 @@ router.get(
                  GROUP_CONCAT(r.code ORDER BY r.code SEPARATOR ',') AS role_codes
           FROM adm_user_roles ur
           JOIN adm_roles r ON r.id = ur.role_id
-        LEFT JOIN adm_users u ON u.id = l.created_by
          WHERE r.is_active = 1
           GROUP BY ur.user_id
         ) r ON r.user_id = l.user_id

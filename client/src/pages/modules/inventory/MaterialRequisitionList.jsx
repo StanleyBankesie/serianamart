@@ -686,8 +686,8 @@ export default function MaterialRequisitionList() {
                         )}
                       </div>
                     </td>
-                    <td>{u.created_by_name || "-"}</td>
-                    <td>{u.created_at ? new Date(u.created_at).toLocaleDateString() : "-"}</td>
+                    <td>{req.created_by_name || "-"}</td>
+                    <td>{req.created_at ? new Date(req.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

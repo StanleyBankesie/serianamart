@@ -1,0 +1,697 @@
+import express from "express";
+import {
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+} from "../middleware/auth.js";
+import { requirePermission } from "../middleware/requirePermission.js";
+import * as hrController from "../controllers/hr.controller.js";
+
+const router = express.Router();
+
+// Employees
+router.get(
+  "/employees",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listEmployees,
+);
+router.get(
+  "/employees/:id",
+  requireAuth,
+  requireCompanyScope,
+  hrController.getEmployeeById,
+);
+router.post(
+  "/employees",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.saveEmployee,
+);
+router.post(
+  "/employees/bulk",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.saveEmployeesBulk,
+);
+
+// Departments & Positions
+router.get(
+  "/departments",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listDepartments,
+);
+router.post(
+  "/departments",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.saveDepartment,
+);
+router.get(
+  "/positions",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listPositions,
+);
+router.post(
+  "/positions",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.savePosition,
+);
+
+// Locations
+router.get(
+  "/setup/locations",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listLocations,
+);
+router.post(
+  "/setup/locations",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.saveLocation,
+);
+
+router.get(
+  "/setup/employment-types",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listEmploymentTypes,
+);
+router.post(
+  "/setup/employment-types",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveEmploymentType,
+);
+router.get(
+  "/setup/employee-categories",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listEmployeeCategories,
+);
+router.post(
+  "/setup/employee-categories",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveEmployeeCategory,
+);
+router.get(
+  "/setup/allowance-types",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listAllowanceTypes,
+);
+router.post(
+  "/setup/allowance-types",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveAllowanceType,
+);
+router.get(
+  "/setup/parameters",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listParameters,
+);
+router.post(
+  "/setup/parameters",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveParameters,
+);
+
+// Recruitment
+router.get(
+  "/requisitions/next-req-no",
+  requireAuth,
+  requireCompanyScope,
+  hrController.getNextRequisitionNo,
+);
+router.get(
+  "/requisitions",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listRequisitions,
+);
+router.post(
+  "/requisitions",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.saveRequisition,
+);
+router.get(
+  "/requisitions/:id",
+  requireAuth,
+  requireCompanyScope,
+  hrController.getRequisitionById,
+);
+router.post(
+  "/requisitions/:id/submit",
+  requireAuth,
+  requireCompanyScope,
+  hrController.submitRequisition,
+);
+router.get(
+  "/candidates",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listCandidates,
+);
+router.post(
+  "/candidates",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveCandidate,
+);
+router.get(
+  "/candidates/:id",
+  requireAuth,
+  requireCompanyScope,
+  hrController.getCandidate,
+);
+
+// Promotions
+router.get(
+  "/promotions",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listPromotions,
+);
+router.post(
+  "/promotions",
+  requireAuth,
+  requireCompanyScope,
+  hrController.savePromotion,
+);
+
+// Interviews
+router.get(
+  "/interviews",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listInterviews,
+);
+router.post(
+  "/interviews",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveInterview,
+);
+router.get(
+  "/offers",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listOffers,
+);
+router.post(
+  "/offers",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveOffer,
+);
+
+// Onboarding
+router.get(
+  "/onboarding/assignments",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listOnboardingAssignments,
+);
+router.post(
+  "/onboarding/assign",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.assignOnboardingChecklist,
+);
+router.post(
+  "/onboarding/task-update",
+  requireAuth,
+  requireCompanyScope,
+  hrController.updateOnboardingTask,
+);
+
+// Attendance
+router.get(
+  "/shifts",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listShifts,
+);
+router.post(
+  "/shifts",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveShift,
+);
+
+// Work Schedules
+router.get(
+  "/work-schedules",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listWorkSchedules,
+);
+router.post(
+  "/work-schedules",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveWorkSchedule,
+);
+router.post(
+  "/attendance/clock-in",
+  requireAuth,
+  requireCompanyScope,
+  hrController.clockIn,
+);
+router.post(
+  "/attendance/clock-out",
+  requireAuth,
+  requireCompanyScope,
+  hrController.clockOut,
+);
+router.get(
+  "/attendance",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listAttendance,
+);
+router.get("/attendance/bulk", requireAuth, requireCompanyScope, (req, res) =>
+  res.json({ ok: true }),
+);
+router.post(
+  "/attendance/bulk",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveBulkAttendance,
+);
+router.post(
+  "/timesheets",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveTimesheet,
+);
+router.get(
+  "/timesheets",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listTimesheets,
+);
+router.post(
+  "/attendance/biometric",
+  requireAuth,
+  requireCompanyScope,
+  hrController.biometricWebhook,
+);
+
+// Leave Management
+router.get(
+  "/leave/types",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listLeaveTypes,
+);
+router.get(
+  "/leave/types/:id",
+  requireAuth,
+  requireCompanyScope,
+  hrController.getLeaveType,
+);
+router.post(
+  "/leave/types",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveLeaveType,
+);
+// --- NEW LEAVE ERP ROUTES ---
+router.get(
+  "/leave/dashboard",
+  requireAuth,
+  requireCompanyScope,
+  hrController.getLeaveDashboard,
+);
+router.post(
+  "/leave/apply",
+  requireAuth,
+  requireCompanyScope,
+  hrController.applyLeave,
+);
+router.post(
+  "/leave/schedule",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.scheduleLeave,
+);
+router.post(
+  "/leave/roster",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.saveLeaveRoster,
+);
+router.get(
+  "/leave/records",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listLeaveRecords,
+);
+router.delete(
+  "/leave/records/:id",
+  requireAuth,
+  requireCompanyScope,
+  hrController.deleteLeaveRecord,
+);
+router.put(
+  "/leave/records/:id",
+  requireAuth,
+  requireCompanyScope,
+  hrController.updateLeave,
+);
+router.get(
+  "/leave/calendar",
+  requireAuth,
+  requireCompanyScope,
+  hrController.leaveCalendar,
+);
+router.get(
+  "/leave/balances",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listLeaveBalances,
+);
+
+// Salary Configuration
+router.get(
+  "/salary-structures",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listSalaryStructures,
+);
+router.post(
+  "/salary-structures",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveSalaryStructure,
+);
+router.get(
+  "/salary-structure/active",
+  requireAuth,
+  requireCompanyScope,
+  hrController.getActiveSalaryStructure,
+);
+router.get(
+  "/salary/base-salaries",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listBaseSalaries,
+);
+router.post(
+  "/salary/base-salaries",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveBaseSalary,
+);
+router.post(
+  "/salary/base-salaries/bulk",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveBaseSalariesBulk,
+);
+
+// Tax Configuration
+router.get(
+  "/tax-configs",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listTaxConfigs,
+);
+router.post(
+  "/tax-configs",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveTaxConfig,
+);
+
+// Allowances
+router.get(
+  "/allowances",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listAllowances,
+);
+router.post(
+  "/allowances",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.saveAllowance,
+);
+
+// Loans
+router.get("/loans", requireAuth, requireCompanyScope, hrController.listLoans);
+router.post(
+  "/loans",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.saveLoan,
+);
+
+// Payroll
+router.get(
+  "/payroll/periods",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listPayrollPeriods,
+);
+router.post(
+  "/payroll/periods",
+  requireAuth,
+  requireCompanyScope,
+  hrController.savePayrollPeriod,
+);
+router.post(
+  "/payroll/generate",
+  requireAuth,
+  requireCompanyScope,
+  hrController.generatePayroll,
+);
+router.post(
+  "/payroll/close",
+  requireAuth,
+  requireCompanyScope,
+  hrController.closePayroll,
+);
+router.get(
+  "/payroll/breakdown",
+  requireAuth,
+  requireCompanyScope,
+  hrController.getPayrollBreakdown,
+);
+router.post(
+  "/payroll/backfill-tier3",
+  requireAuth,
+  requireCompanyScope,
+  hrController.backfillTier3,
+);
+
+// Loan Types (Setup)
+router.get(
+  "/loan-types",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listLoanTypes,
+);
+router.post(
+  "/loan-types",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveLoanType,
+);
+
+// Salary Components Registry
+router.get(
+  "/salary-components",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listSalaryComponents,
+);
+router.post(
+  "/salary-components/map-account",
+  requireAuth,
+  requireCompanyScope,
+  hrController.mapSalaryComponentAccount,
+);
+
+
+// Payslips
+router.get(
+  "/payslips",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listPayslips,
+);
+router.post(
+  "/payslips/send-email-bulk",
+  requireAuth,
+  requireCompanyScope,
+  hrController.sendEmailBulk,
+);
+router.post(
+  "/payslips/send-email",
+  requireAuth,
+  requireCompanyScope,
+  hrController.sendPayslipEmail,
+);
+
+// Performance
+router.get(
+  "/performance/kpis",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listKPIs,
+);
+router.post(
+  "/performance/kpis",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveKPI,
+);
+router.get(
+  "/performance/reviews",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listPerformanceReviews,
+);
+router.post(
+  "/performance/reviews",
+  requireAuth,
+  requireCompanyScope,
+  hrController.savePerformanceReview,
+);
+
+// Training
+router.get(
+  "/training/programs",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listTrainingPrograms,
+);
+router.post(
+  "/training/programs",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveTrainingProgram,
+);
+router.get(
+  "/training/records",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listTrainingRecords,
+);
+router.post(
+  "/training/records",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveTrainingRecord,
+);
+
+// Compliance
+router.get(
+  "/policies",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listPolicies,
+);
+router.post(
+  "/policies",
+  requireAuth,
+  requireCompanyScope,
+  hrController.savePolicy,
+);
+router.get(
+  "/medical-policies",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listMedicalPolicies,
+);
+router.post(
+  "/medical-policies",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  hrController.saveMedicalPolicy,
+);
+router.get(
+  "/medical-policies/:id",
+  requireAuth,
+  requireCompanyScope,
+  hrController.getMedicalPolicy,
+);
+router.post(
+  "/policies/acknowledge",
+  requireAuth,
+  requireCompanyScope,
+  hrController.acknowledgePolicy,
+);
+
+// Exit & Clearance
+router.get("/exits", requireAuth, requireCompanyScope, hrController.listExits);
+router.post("/exits", requireAuth, requireCompanyScope, hrController.saveExit);
+router.get(
+  "/clearance",
+  requireAuth,
+  requireCompanyScope,
+  hrController.listClearance,
+);
+router.post(
+  "/clearance/update",
+  requireAuth,
+  requireCompanyScope,
+  hrController.updateClearance,
+);
+
+// HR Reports
+router.get(
+  "/reports/employees",
+  requireAuth,
+  requireCompanyScope,
+  hrController.reportEmployees,
+);
+router.get(
+  "/reports/ssf",
+  requireAuth,
+  requireCompanyScope,
+  hrController.reportSSF,
+);
+router.get(
+  "/reports/paye",
+  requireAuth,
+  requireCompanyScope,
+  hrController.reportPAYE,
+);
+router.get(
+  "/reports/loans",
+  requireAuth,
+  requireCompanyScope,
+  hrController.reportEmployeeLoans,
+);
+router.get(
+  "/reports/allowances",
+  requireAuth,
+  requireCompanyScope,
+  hrController.reportEmployeeAllowances,
+);
+
+export default router;

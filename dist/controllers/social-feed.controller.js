@@ -44,7 +44,9 @@ export const getPosts = async (req, res) => {
           p.created_at,
           u.full_name,
           u.profile_picture AS profile_picture,
-          (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = ?) AS user_liked
+          (SELECT COUNT(*)
+         FROM post_likes pl
+         WHERE pl.post_id = p.id AND pl.user_id = ?) AS user_liked
         FROM posts p
         JOIN adm_users u ON p.user_id = u.id
         WHERE 
@@ -94,9 +96,11 @@ export const getPosts = async (req, res) => {
               pc.comment_text,
               pc.created_at,
               u.full_name,
-              u.profile_picture AS profile_picture
+              u.profile_picture AS profile_picture,
+              uc.username AS created_by_name
             FROM post_comments pc
             JOIN adm_users u ON pc.user_id = u.id
+            LEFT JOIN adm_users uc ON uc.id = pc.created_by
             WHERE pc.post_id = ?
             ORDER BY pc.created_at DESC
             LIMIT 3
@@ -108,7 +112,12 @@ export const getPosts = async (req, res) => {
             if (!blob) return null;
             const b = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
             let mime = "image/jpeg";
-            if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) {
+            if (
+              b.length >= 3 &&
+              b[0] === 0xff &&
+              b[1] === 0xd8 &&
+              b[2] === 0xff
+            ) {
               mime = "image/jpeg";
             } else if (
               b.length >= 8 &&
@@ -137,12 +146,10 @@ export const getPosts = async (req, res) => {
             }
             return `data:${mime};base64,${b.toString("base64")}`;
           };
-          const mappedComments = comments
-            .reverse()
-            .map((c) => ({
-              ...c,
-              profile_picture_url: toUrl(c.profile_picture),
-            }));
+          const mappedComments = comments.reverse().map((c) => ({
+            ...c,
+            profile_picture_url: toUrl(c.profile_picture),
+          }));
           return {
             ...post,
             image_url: toAbsoluteImageUrl(post.image_url),
@@ -194,7 +201,12 @@ export const getPostById = async (req, res) => {
           p.created_at,
           u.full_name,
           u.profile_picture AS profile_picture,
-          (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = ?) AS user_liked
+          (SELECT COUNT(*),
+          pl.created_at,
+          u.username AS created_by_name
+         FROM post_likes pl
+        LEFT JOIN adm_users u ON u.id = pl.created_by
+         WHERE pl.post_id = p.id AND pl.user_id = ?) AS user_liked
         FROM posts p
         JOIN adm_users u ON p.user_id = u.id
         WHERE p.id = ?
@@ -215,10 +227,13 @@ export const getPostById = async (req, res) => {
           pc.comment_text,
           pc.created_at,
           u.full_name,
-          u.profile_picture AS profile_picture
-        FROM post_comments pc
+          u.profile_picture AS profile_picture,
+          pc.created_at,
+          u.username AS created_by_name
+         FROM post_comments pc
         JOIN adm_users u ON pc.user_id = u.id
-        WHERE pc.post_id = ?
+        LEFT JOIN adm_users u ON u.id = pc.created_by
+         WHERE pc.post_id = ?
         ORDER BY pc.created_at ASC
         `,
         [postId],
@@ -373,10 +388,13 @@ export const createPost = async (req, res) => {
         SELECT 
           p.*,
           u.full_name,
-          u.profile_picture AS profile_picture
-        FROM posts p
+          u.profile_picture AS profile_picture,
+          p.created_at,
+          u.username AS created_by_name
+         FROM posts p
         JOIN adm_users u ON p.user_id = u.id
-        WHERE p.id = ?
+        LEFT JOIN adm_users u ON u.id = p.created_by
+         WHERE p.id = ?
         `,
         [postId],
       );
@@ -463,10 +481,13 @@ export const getPostComments = async (req, res) => {
           pc.comment_text,
           pc.created_at,
           u.full_name,
-          u.profile_picture AS profile_picture
-        FROM post_comments pc
+          u.profile_picture AS profile_picture,
+          pc.created_at,
+          u.username AS created_by_name
+         FROM post_comments pc
         JOIN adm_users u ON pc.user_id = u.id
-        WHERE pc.post_id = ?
+        LEFT JOIN adm_users u ON u.id = pc.created_by
+         WHERE pc.post_id = ?
         ORDER BY pc.created_at ASC
         LIMIT ? OFFSET ?
         `,
@@ -543,7 +564,12 @@ export const updatePostImage = async (req, res) => {
     try {
       // Only the owner can update the image
       const [rows] = await connection.query(
-        `SELECT id, user_id FROM posts WHERE id = ? LIMIT 1`,
+        `SELECT id, user_id,
+          created_at,
+          u.username AS created_by_name
+         FROM posts
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = ? LIMIT 1`,
         [postId],
       );
       if (!rows.length) {
@@ -553,14 +579,12 @@ export const updatePostImage = async (req, res) => {
       }
       const ownerId = Number(rows[0].user_id);
       if (!userId || userId !== ownerId) {
-        return res
-          .status(403)
-          .json({ success: false, message: "Not allowed" });
+        return res.status(403).json({ success: false, message: "Not allowed" });
       }
-      await connection.query(
-        `UPDATE posts SET image_url = ? WHERE id = ?`,
-        [image_url, postId],
-      );
+      await connection.query(`UPDATE posts SET image_url = ? WHERE id = ?`, [
+        image_url,
+        postId,
+      ]);
       res.json({ success: true, message: "Image updated", image_url });
     } finally {
       await connection.release();
@@ -583,10 +607,13 @@ export const getPostLikes = async (req, res) => {
         SELECT 
           pl.user_id,
           u.full_name,
-          u.profile_picture AS profile_picture
-        FROM post_likes pl
+          u.profile_picture AS profile_picture,
+          pl.created_at,
+          u.username AS created_by_name
+         FROM post_likes pl
         JOIN adm_users u ON pl.user_id = u.id
-        WHERE pl.post_id = ?
+        LEFT JOIN adm_users u ON u.id = pl.created_by
+         WHERE pl.post_id = ?
         ORDER BY u.full_name ASC
         LIMIT ? OFFSET ?
         `,
@@ -661,7 +688,12 @@ export const likePost = async (req, res) => {
     try {
       // Check if user already liked
       const [existingLike] = await connection.query(
-        `SELECT id FROM post_likes WHERE post_id = ? AND user_id = ?`,
+        `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM post_likes
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE post_id = ? AND user_id = ?`,
         [postId, userId],
       );
 
@@ -685,7 +717,12 @@ export const likePost = async (req, res) => {
 
       // Get post info for notifications
       const [postRows] = await connection.query(
-        `SELECT user_id, visibility_type, warehouse_id FROM posts WHERE id = ?`,
+        `SELECT user_id, visibility_type, warehouse_id,
+          created_at,
+          u.username AS created_by_name
+         FROM posts
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = ?`,
         [postId],
       );
 
@@ -707,9 +744,15 @@ export const likePost = async (req, res) => {
         success: true,
         message: "Post liked",
         like_count: (
-          await connection.query(`SELECT like_count FROM posts WHERE id = ?`, [
-            postId,
-          ])
+          await connection.query(
+            `SELECT like_count,
+          created_at,
+          u.username AS created_by_name
+         FROM posts
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = ?`,
+            [postId],
+          )
         )[0][0].like_count,
       });
     } finally {
@@ -739,7 +782,12 @@ export const unlikePost = async (req, res) => {
     try {
       // Check if user liked
       const [existingLike] = await connection.query(
-        `SELECT id FROM post_likes WHERE post_id = ? AND user_id = ?`,
+        `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM post_likes
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE post_id = ? AND user_id = ?`,
         [postId, userId],
       );
 
@@ -765,9 +813,15 @@ export const unlikePost = async (req, res) => {
         success: true,
         message: "Post unliked",
         like_count: (
-          await connection.query(`SELECT like_count FROM posts WHERE id = ?`, [
-            postId,
-          ])
+          await connection.query(
+            `SELECT like_count,
+          created_at,
+          u.username AS created_by_name
+         FROM posts
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = ?`,
+            [postId],
+          )
         )[0][0].like_count,
       });
     } finally {
@@ -821,17 +875,25 @@ export const addComment = async (req, res) => {
         SELECT 
           pc.*,
           u.full_name,
-          u.profile_picture AS profile_picture
-        FROM post_comments pc
+          u.profile_picture AS profile_picture,
+          pc.created_at,
+          u.username AS created_by_name
+         FROM post_comments pc
         JOIN adm_users u ON pc.user_id = u.id
-        WHERE pc.id = ?
+        LEFT JOIN adm_users u ON u.id = pc.created_by
+         WHERE pc.id = ?
         `,
         [result.insertId],
       );
 
       // Get post info for notifications
       const [postRows] = await connection.query(
-        `SELECT user_id FROM posts WHERE id = ?`,
+        `SELECT user_id,
+          created_at,
+          u.username AS created_by_name
+         FROM posts
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = ?`,
         [postId],
       );
 
@@ -901,7 +963,12 @@ export const addComment = async (req, res) => {
           ? c0.profile_picture
           : Buffer.from(c0.profile_picture);
         let mime = "image/jpeg";
-        if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+        if (
+          buf.length >= 3 &&
+          buf[0] === 0xff &&
+          buf[1] === 0xd8 &&
+          buf[2] === 0xff
+        ) {
           mime = "image/jpeg";
         } else if (
           buf.length >= 8 &&
@@ -1002,7 +1069,12 @@ const triggerPostNotifications = async (
 
   try {
     const [userRows] = await connection.query(
-      `SELECT full_name FROM adm_users WHERE id = ?`,
+      `SELECT full_name,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = ?`,
       [userId],
     );
     const userName = userRows[0]?.full_name || "User";
@@ -1012,14 +1084,24 @@ const triggerPostNotifications = async (
     if (visibility_type === "company") {
       // Notify all users except poster
       const [allUsers] = await connection.query(
-        `SELECT id FROM adm_users WHERE id != ?`,
+        `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id != ?`,
         [userId],
       );
       targetUsers = allUsers.map((u) => u.id);
     } else if (visibility_type === "warehouse") {
       // Notify warehouse users except poster
       const [warehouseUsers] = await connection.query(
-        `SELECT id FROM adm_users WHERE warehouse_id = ? AND id != ?`,
+        `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE warehouse_id = ? AND id != ?`,
         [warehouseId, userId],
       );
       targetUsers = warehouseUsers.map((u) => u.id);
@@ -1081,7 +1163,12 @@ const triggerLikeNotification = async (
 
   try {
     const [userRows] = await connection.query(
-      `SELECT full_name FROM adm_users WHERE id = ?`,
+      `SELECT full_name,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = ?`,
       [userId],
     );
     const userName = userRows[0]?.full_name || "User";
@@ -1139,7 +1226,12 @@ const triggerCommentNotification = async (
 
   try {
     const [userRows] = await connection.query(
-      `SELECT full_name FROM adm_users WHERE id = ?`,
+      `SELECT full_name,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = ?`,
       [userId],
     );
     const userName = userRows[0]?.full_name || "User";

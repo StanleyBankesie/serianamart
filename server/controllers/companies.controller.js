@@ -110,48 +110,77 @@ export const updateCompanies = async (req, res, next) => {
     if (!name || !code)
       throw httpError(400, "VALIDATION_ERROR", "name and code are required");
 
-    const baseParams = {
-      id,
-      name,
-      code,
-      is_active: is_active === undefined ? 1 : Number(Boolean(is_active)),
-    };
-    const optional = {
-      address,
-      city,
-      state,
-      postal_code,
-      country,
-      telephone,
-      email,
-      website,
-      tax_id,
-      registration_no,
-      fiscal_year_start_month:
-        fiscal_year_start_month !== undefined
-          ? toNumber(fiscal_year_start_month, 1)
-          : undefined,
-      timezone,
-      currency_id:
-        currency_id !== undefined ? toNumber(currency_id, null) : undefined,
-    };
-    const setClauses = [
-      "name = :name",
-      "code = :code",
-      "is_active = :is_active",
-    ];
-    const params = { ...baseParams };
-    for (const [key, val] of Object.entries(optional)) {
-      if (val !== undefined) {
-        setClauses.push(`${key} = :${key}`);
-        params[key] = val;
+    const conn = await query.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const baseParams = {
+        id,
+        name,
+        code,
+        is_active: is_active === undefined ? 1 : Number(Boolean(is_active)),
+      };
+      const optional = {
+        address,
+        city,
+        state,
+        postal_code,
+        country,
+        telephone,
+        email,
+        website,
+        tax_id,
+        registration_no,
+        fiscal_year_start_month:
+          fiscal_year_start_month !== undefined
+            ? toNumber(fiscal_year_start_month, 1)
+            : undefined,
+        timezone,
+        currency_id:
+          currency_id !== undefined ? toNumber(currency_id, null) : undefined,
+      };
+      const setClauses = [
+        "name = ?",
+        "code = ?",
+        "is_active = ?",
+      ];
+      const paramArray = [
+        baseParams.name,
+        baseParams.code,
+        baseParams.is_active
+      ];
+      for (const [key, val] of Object.entries(optional)) {
+        if (val !== undefined) {
+          setClauses.push(`${key} = ?`);
+          paramArray.push(val);
+        }
       }
+      const sql = `UPDATE adm_companies SET ${setClauses.join(
+        ", ",
+      )} WHERE id = ?`;
+      paramArray.push(id);
+      await conn.execute(sql, paramArray);
+
+      // Sync base currency
+      const cid = toNumber(currency_id, null);
+      if (cid) {
+        await conn.execute(
+          "UPDATE fin_currencies SET is_base = 0 WHERE company_id = ?",
+          [id],
+        );
+        await conn.execute(
+          "UPDATE fin_currencies SET is_base = 1 WHERE id = ? AND company_id = ?",
+          [cid, id],
+        );
+      }
+
+      await conn.commit();
+      res.json({ affectedRows: 1 });
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
     }
-    const sql = `UPDATE adm_companies SET ${setClauses.join(
-      ", ",
-    )} WHERE id = :id`;
-    const result = await query(sql, params);
-    res.json({ affectedRows: result.affectedRows });
   } catch (err) {
     next(err);
   }

@@ -605,8 +605,8 @@ export default function GeneralRequisitionList() {
                         ) : null}
                       </div>
                     </td>
-                    <td>{u.created_by_name || "-"}</td>
-                    <td>{u.created_at ? new Date(u.created_at).toLocaleDateString() : "-"}</td>
+                    <td>{r.created_by_name || "-"}</td>
+                    <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))
               )}

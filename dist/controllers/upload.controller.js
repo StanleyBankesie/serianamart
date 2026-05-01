@@ -30,10 +30,13 @@ async function getSystemSetting(key, companyId = null, branchId = null) {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
   } catch {}
-  const rows = await query(
-    `
-    SELECT setting_value FROM adm_system_settings 
-    WHERE setting_key = :key 
+  const rows = await query(`
+    SELECT setting_value,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_system_settings
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE setting_key = :key 
       AND (company_id = :companyId OR company_id IS NULL)
       AND (branch_id = :branchId OR branch_id IS NULL)
     ORDER BY company_id DESC, branch_id DESC

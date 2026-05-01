@@ -407,7 +407,81 @@ function getDefaultSampleTemplate(type) {
     return `${head}<div class="doc">${header}${title("* Direct Purchase *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each direct_purchase.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{quantity}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
   }
   if (canonical === "purchase-bill") {
-    return `${head}<div class="doc">${header}${title("* Purchase Bill *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each purchase_bill.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{quantity}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
+    return `${head}<div class="doc">${header}${title("* Purchase Bill *")}
+    <div style="margin-bottom: 12px; font-size: 12px; display: flex; justify-content: space-between;">
+      <div>
+        <div><strong>Supplier:</strong> {{supplier.name}}</div>
+        <div>{{supplier.address}}</div>
+        <div>{{supplier.phone}}</div>
+        <div>{{supplier.email}}</div>
+      </div>
+      <div style="text-align: right;">
+        <div><strong>Bill No:</strong> {{purchase_bill.number}}</div>
+        <div><strong>Date:</strong> {{purchase_bill.date}}</div>
+        <div><strong>Status:</strong> {{purchase_bill.status}}</div>
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Code</th>
+          <th>Description</th>
+          <th class="num">Qty</th>
+          <th>UOM</th>
+          <th class="num">Price</th>
+          <th class="num">Disc%</th>
+          <th class="num">Tax</th>
+          <th class="num">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each purchase_bill.items}}
+        <tr>
+          <td>{{inc @index}}</td>
+          <td>{{code}}</td>
+          <td>{{name}}</td>
+          <td class="num">{{quantity}}</td>
+          <td>{{uom}}</td>
+          <td class="num">{{price}}</td>
+          <td class="num">{{discount}}%</td>
+          <td class="num">{{tax}}</td>
+          <td class="num">{{amount}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+    <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
+      <div style="width: 250px; font-size: 12px;">
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0;">
+          <span>Sub Total:</span>
+          <span>{{purchase_bill.sub_total}}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0;">
+          <span>Total Discount:</span>
+          <span>{{purchase_bill.discount_total}}</span>
+        </div>
+        {{#each purchase_bill.tax_summary}}
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0;">
+          <span>{{name}} ({{rate}}%):</span>
+          <span>{{amount}}</span>
+        </div>
+        {{/each}}
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0;">
+          <span>Freight Charges:</span>
+          <span>{{purchase_bill.freight_charges}}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0;">
+          <span>Other Charges:</span>
+          <span>{{purchase_bill.other_charges}}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; padding: 4px 0; border-top: 1px solid #000;">
+          <span>Grand Total:</span>
+          <span>{{purchase_bill.total}}</span>
+        </div>
+      </div>
+    </div>
+    </div>`;
   }
   if (canonical === "grn") {
     return `${head}<div class="doc">${header}${title("* Goods Receipt Note *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Ordered</th><th>Received</th><th>Accepted</th><th>UOM</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each grn.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{ordered}}</td><td class="num">{{received}}</td><td class="num">{{accepted}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
@@ -899,6 +973,58 @@ async function loadPreviewData(type, companyId, branchId) {
         sub_total: 340,
         tax_amount: 0,
         total: 340,
+      },
+    };
+  }
+  if (type === "purchase-bill") {
+    return {
+      company: company || {},
+      supplier: {
+        name: "Sample Supplier Ltd",
+        address: "Industrial Area, Accra",
+        phone: "+233 20 000 0000",
+        email: "supplier@example.com",
+      },
+      purchase_bill: {
+        id: 0,
+        number: "PBL-PREVIEW",
+        date: new Date().toDateString(),
+        status: "DRAFT",
+        remarks: "Sample purchase bill",
+        sub_total: 340,
+        discount_total: 0,
+        tax_total: 45.9,
+        freight_charges: 20,
+        other_charges: 10,
+        total: 415.9,
+        tax_summary: [
+          { name: "VAT", rate: "12.50", amount: "42.50" },
+          { name: "NHIL", rate: "1.00", amount: "3.40" },
+        ],
+        items: [
+          {
+            name: "Sample Item",
+            description: "Sample Item",
+            code: "ITEM001",
+            quantity: 3,
+            uom: "PCS",
+            price: 80,
+            discount: 0,
+            tax: 30,
+            amount: 270,
+          },
+          {
+            name: "Sample Item 2",
+            description: "Sample Item 2",
+            code: "ITEM002",
+            quantity: 2,
+            uom: "PCS",
+            price: 50,
+            discount: 0,
+            tax: 15.9,
+            amount: 115.9,
+          },
+        ],
       },
     };
   }
@@ -1448,10 +1574,10 @@ async function loadData(type, id, companyId, branchId) {
     ).catch(() => []);
     if (!hdr) throw httpError(404, "NOT_FOUND", "Document not found");
     const details = await query(`
-      SELECT d.id, d.item_id, d.qty, d.uom, d.unit_price, d.tax_percent, d.discount_percent, d.line_total, d.tax_code_id, i.item_code, i.item_name,
+      SELECT d.id, d.item_id, d.qty, d.uom, d.unit_price, d.tax_amount, d.discount_percent, d.line_total, d.tax_code_id, i.item_code, i.item_name,
           d.created_at,
           u.username AS created_by_name
-         FROM pur_bill_items d
+         FROM pur_bill_details d
       LEFT JOIN inv_items i ON i.id = d.item_id
         LEFT JOIN adm_users u ON u.id = d.created_by
          WHERE d.bill_id = :id
@@ -1487,7 +1613,12 @@ async function loadData(type, id, companyId, branchId) {
         date: hdr.bill_date ? String(hdr.bill_date).slice(0, 10) : null,
         status: hdr.status,
         remarks: hdr.remarks || "",
-        total: hdr.net_amount || hdr.total_amount || 0,
+        sub_total: hdr.total_amount || 0,
+        discount_total: hdr.discount_amount || 0,
+        tax_total: hdr.tax_amount || 0,
+        freight_charges: hdr.freight_charges || 0,
+        other_charges: hdr.other_charges || 0,
+        total: hdr.net_amount || 0,
         tax_summary,
         items: items.map((d) => ({
           name: d.item_name,
@@ -1497,19 +1628,14 @@ async function loadData(type, id, companyId, branchId) {
           uom: d.uom,
           price: d.unit_price,
           discount: d.discount_percent || 0,
-          tax: d.tax_percent || 0,
-          amount:
-            d.line_total != null
-              ? d.line_total
-              : Number(d.qty || 0) *
-                Number(d.unit_price || 0) *
-                (1 - Number(d.discount_percent || 0) / 100) *
-                (1 + Number(d.tax_percent || 0) / 100),
+          tax: d.tax_amount || 0,
+          amount: d.line_total || (Number(d.qty || 0) * Number(d.unit_price || 0)),
         })),
       },
     };
     billObj.document = billObj.purchase_bill;
     billObj.items = billObj.purchase_bill.items;
+    billObj.tax_summary = tax_summary;
     return billObj;
   }
   if (type === "grn") {
@@ -1974,73 +2100,6 @@ async function loadData(type, id, companyId, branchId) {
     grnObj.document = grnObj.grn;
     grnObj.items = grnObj.grn.items;
     return grnObj;
-  }
-  if (type === "purchase-bill") {
-    const [bill] = await query(`
-      SELECT h.*, s.supplier_name, s.address AS supplier_address, s.email AS supplier_email, s.telephone AS supplier_phone,
-          h.created_at,
-          u.username AS created_by_name
-         FROM pur_bills h
-      LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
-        LEFT JOIN adm_users u ON u.id = h.created_by
-         WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
-      LIMIT 1
-      `,
-      { id, companyId, branchId },
-    ).catch(() => []);
-    if (!bill) throw httpError(404, "NOT_FOUND", "Purchase Bill not found");
-    const details = await query(`
-      SELECT d.*, it.item_code, it.item_name,
-          d.created_at,
-          u.username AS created_by_name
-         FROM pur_bill_details d
-      LEFT JOIN inv_items it ON it.id = d.item_id
-        LEFT JOIN adm_users u ON u.id = d.created_by
-         WHERE d.bill_id = :id
-      ORDER BY d.id ASC
-      `,
-      { id },
-    ).catch(() => []);
-    const [company] = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_companies
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :companyId LIMIT 1`,
-      { companyId },
-    ).catch(() => []);
-    const billObj = {
-      company: company || {},
-      supplier: {
-        name: bill.supplier_name,
-        address: bill.supplier_address,
-        email: bill.supplier_email,
-        phone: bill.supplier_phone,
-      },
-      purchase_bill: {
-        id: bill.id,
-        number: bill.bill_no,
-        date: bill.bill_date ? String(bill.bill_date).slice(0, 10) : null,
-        status: bill.status,
-        sub_total: bill.sub_total,
-        tax_amount: bill.tax_amount,
-        total: bill.net_amount,
-        remarks: bill.remarks,
-        items: (details || []).map((d) => ({
-          code: d.item_code,
-          name: d.item_name,
-          quantity: d.qty,
-          uom: d.uom,
-          price: d.unit_price,
-          discount: d.discount_percent,
-          tax: d.tax_amount,
-          amount: d.line_total,
-        })),
-      },
-    };
-    billObj.document = billObj.purchase_bill;
-    billObj.items = billObj.purchase_bill.items;
-    return billObj;
   }
   if (type === "direct-purchase") {
     const [dp] = await query(`

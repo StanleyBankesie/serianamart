@@ -136,6 +136,7 @@ async function ensureWarehousesTable() {
         warehouse_code VARCHAR(50) NOT NULL,
         warehouse_name VARCHAR(150) NOT NULL,
         is_active TINYINT(1) NOT NULL DEFAULT 1,
+        created_by BIGINT UNSIGNED DEFAULT NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         UNIQUE KEY uq_warehouse_scope_code (company_id, branch_id, warehouse_code),
@@ -367,14 +368,12 @@ async function ensureReturnToStoresStockInTrigger() {
           SET v_company_id = NEW.company_id;
           SET v_branch_id = NEW.branch_id;
           SET v_warehouse_id = NEW.warehouse_id;
-          INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty, batch_no, serial_no, expiry_date, entry_date, source_type, source_id)
+          INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty, batch_no, serial_no, expiry_date, entry_date, source_type, source_id, created_at, created_by)
           SELECT v_company_id, v_branch_id, v_warehouse_id, d.item_id, COALESCE(d.qty_returned, 0),
                  d.batch_serial, NULL, NULL, NOW(), 'RETURN_TO_STORES', NEW.id,
-          d.created_at,
-          u.username AS created_by_name
-         FROM inv_return_to_stores_details d
-        LEFT JOIN adm_users u ON u.id = d.created_by
-         WHERE d.rts_id = NEW.id
+                 d.created_at, d.created_by
+          FROM inv_return_to_stores_details d
+          WHERE d.rts_id = NEW.id
           ON DUPLICATE KEY UPDATE
             qty = qty + VALUES(qty),
             batch_no = VALUES(batch_no),
@@ -1208,9 +1207,9 @@ router.get(
                w.warehouse_name,
                dep.dept_name AS department_name,
                COUNT(d.id) AS item_count,
-               MAX(u.username) AS forwarded_to_username,
+               fu.username AS forwarded_to_username,
           r.created_at,
-          u.username AS created_by_name
+          cu.username AS created_by_name
          FROM inv_material_requisitions r
         LEFT JOIN inv_material_requisition_details d ON d.requisition_id = r.id
         LEFT JOIN inv_warehouses w ON w.id = r.warehouse_id
@@ -1221,14 +1220,13 @@ router.get(
           JOIN (
             SELECT document_id, MAX(id) AS max_id
             FROM adm_document_workflows
-        LEFT JOIN adm_users u ON u.id = r.created_by
-         WHERE company_id = :companyId
-              AND status = 'PENDING'
+            WHERE status = 'PENDING'
               AND (document_type = 'MATERIAL_REQUISITION' OR document_type = 'Material Requisition')
             GROUP BY document_id
           ) m ON m.max_id = t.id
         ) x ON x.document_id = r.id
-        LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
+        LEFT JOIN adm_users fu ON fu.id = x.assigned_to_user_id
+        LEFT JOIN adm_users cu ON cu.id = r.created_by
         ${where}
         GROUP BY r.id
         ORDER BY r.requisition_date DESC, r.id DESC
@@ -1393,7 +1391,6 @@ router.get(
           u.username AS created_by_name
          FROM v_inv_stock_summary v
         LEFT JOIN inv_items i ON i.id = v.item_id
-        LEFT JOIN adm_users u ON u.id = v.created_by
          WHERE ${where}
         ORDER BY i.item_name ASC
         `,
@@ -1442,7 +1439,6 @@ router.get(
           u.username AS created_by_name
          FROM v_inv_stock_summary v
         LEFT JOIN inv_items i ON i.id = v.item_id
-        LEFT JOIN adm_users u ON u.id = v.created_by
          WHERE ${where}
         ORDER BY i.item_name ASC
         `,
@@ -1508,7 +1504,6 @@ router.get(
          FROM v_inv_issue_register v
         LEFT JOIN inv_items i ON i.id = v.item_id
         LEFT JOIN hr_departments d ON d.id = v.department_id
-        LEFT JOIN adm_users u ON u.id = v.created_by
          WHERE ${where.join(" AND ")}
         ORDER BY v.issue_date DESC, v.issue_id DESC
         `,
@@ -1570,7 +1565,6 @@ router.get(
           u.username AS created_by_name
          FROM v_inv_material_returns v
         LEFT JOIN inv_items i ON i.id = v.item_id
-        LEFT JOIN adm_users u ON u.id = v.created_by
          WHERE ${where.join(" AND ")}
         ORDER BY v.rts_date DESC, v.rts_id DESC
         `,
@@ -2211,7 +2205,8 @@ router.get(
           ON dw.document_id = r.id 
           AND dw.document_type = 'RETURN_TO_STORES'
           AND dw.status = 'PENDING'
-        LEFT JOIN adm_users u ON u.id = dw.assigned_to_user_id
+        LEFT JOIN adm_users fu ON fu.id = dw.assigned_to_user_id
+        LEFT JOIN adm_users cu ON cu.id = r.created_by
         WHERE r.company_id = :companyId AND r.branch_id = :branchId
         ORDER BY r.rts_date DESC, r.id DESC
         `,
@@ -2370,12 +2365,9 @@ async function ensureReportingViews() {
       d.qty_issued,
       d.uom,
       COALESCE((
-        SELECT SUM(rd.qty_returned),
-          r.created_at,
-          u.username AS created_by_name
+        SELECT SUM(rd.qty_returned)
          FROM inv_return_to_stores r
         JOIN inv_return_to_stores_details rd ON rd.rts_id = r.id
-        LEFT JOIN adm_users u ON u.id = r.created_by
          WHERE r.company_id = i.company_id
           AND r.branch_id = i.branch_id
           AND rd.item_id = d.item_id
@@ -2393,9 +2385,13 @@ async function ensureReportingViews() {
           AND (r.department_id <=> i.department_id)
           AND (r.warehouse_id <=> i.warehouse_id)
           AND r.rts_date >= i.issue_date
-      ), 0) AS remaining_qty
+      ), 0) AS remaining_qty,
+      i.created_by,
+      i.created_at,
+      u.username AS created_by_name
     FROM inv_issue_to_requirement i
     JOIN inv_issue_to_requirement_details d ON d.issue_id = i.id
+    LEFT JOIN adm_users u ON u.id = i.created_by
   `).catch(() => {});
   await query(`DROP VIEW IF EXISTS v_inv_material_returns`).catch(() => {});
   await query(`
@@ -2412,11 +2408,12 @@ async function ensureReportingViews() {
       d.item_id,
       d.qty,
       d.uom,
-          r.created_at,
-          u.username AS created_by_name
-         FROM inv_return_to_stores r
+      r.created_at,
+      r.created_by,
+      u.username AS created_by_name
+     FROM inv_return_to_stores r
     JOIN inv_return_to_stores_details d ON d.rts_id = r.id
-        LEFT JOIN adm_users u ON u.id = r.created_by
+    LEFT JOIN adm_users u ON u.id = r.created_by
         `).catch(() => {});
 }
 
@@ -3013,9 +3010,9 @@ router.get(
         SELECT a.id, a.updation_no, a.updation_date, a.status,
                w.warehouse_name,
                COUNT(d.id) AS item_count,
-               u.username AS forwarded_to_username,
+               fu.username AS forwarded_to_username,
           a.created_at,
-          u.username AS created_by_name
+          cu.username AS created_by_name
          FROM inv_stock_updations a
           LEFT JOIN inv_stock_updation_details d ON d.updation_id = a.id
           LEFT JOIN inv_warehouses w ON w.id = a.warehouse_id
@@ -3025,14 +3022,13 @@ router.get(
             JOIN (
               SELECT document_id, MAX(id) AS max_id
               FROM adm_document_workflows
-        LEFT JOIN adm_users u ON u.id = a.created_by
-         WHERE company_id = :companyId
-                AND status = 'PENDING'
-                AND (document_type = 'STOCK_UPDATION')
+              WHERE status = 'PENDING'
+                AND document_type = 'STOCK_UPDATION'
               GROUP BY document_id
             ) m ON m.max_id = t.id
           ) x ON x.document_id = a.id
-          LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
+          LEFT JOIN adm_users fu ON fu.id = x.assigned_to_user_id
+          LEFT JOIN adm_users cu ON cu.id = a.created_by
          WHERE a.company_id = :companyId AND a.branch_id = :branchId
          GROUP BY a.id
          ORDER BY a.updation_date DESC, a.id DESC
@@ -3787,11 +3783,8 @@ router.get(
       }
       const rows = await query(
         `
-        SELECT b.*,
-          b.created_at,
-          u.username AS created_by_name
+        SELECT b.*
          FROM v_active_stock_details b
-        LEFT JOIN adm_users u ON u.id = b.created_by
          WHERE ${whereParts.join(" AND ")}
          ORDER BY COALESCE(b.expiry_date,'9999-12-31') ASC, b.id ASC
         `,
@@ -4494,9 +4487,9 @@ router.get(
         `
         SELECT g.id, g.grn_no, g.grn_date, g.grn_type, g.status,
                s.supplier_name, w.warehouse_name,
-               u.username AS forwarded_to_username,
-          g.created_at,
-          u.username AS created_by_name
+               u_appr.username AS forwarded_to_username,
+               u_creator.username AS created_by_name,
+               g.created_at
          FROM inv_goods_receipt_notes g
           LEFT JOIN pur_suppliers s ON s.id = g.supplier_id
           LEFT JOIN inv_warehouses w ON w.id = g.warehouse_id
@@ -4506,14 +4499,14 @@ router.get(
               JOIN (
                 SELECT document_id, MAX(id) AS max_id
                   FROM adm_document_workflows
-        LEFT JOIN adm_users u ON u.id = g.created_by
-         WHERE company_id = :companyId
-                   AND status = 'PENDING'
-                   AND (document_type IN ('GRN','GOODS_RECEIPT','GOODS_RECEIPT_NOTE'))
-                 GROUP BY document_id
+                  WHERE company_id = :companyId
+                    AND status = 'PENDING'
+                    AND (document_type IN ('GRN','GOODS_RECEIPT','GOODS_RECEIPT_NOTE'))
+                  GROUP BY document_id
               ) m ON m.max_id = t.id
           ) x ON x.document_id = g.id
-          LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
+          LEFT JOIN adm_users u_appr ON u_appr.id = x.assigned_to_user_id
+          LEFT JOIN adm_users u_creator ON u_creator.id = g.created_by
          ${where}
          ORDER BY g.grn_date DESC, g.id DESC
         `,
@@ -4567,6 +4560,352 @@ router.get(
       res.json({ item: { ...hdr, details: details || [] } });
     } catch (e) {
       next(e);
+    }
+  },
+);
+
+router.post(
+  "/grn",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId } = req.scope;
+      const userId = toNumber(req.scope?.userId ?? req.user?.sub);
+
+      const payload = req.body;
+      const grn_type = String(payload.grn_type || "LOCAL").toUpperCase();
+      let grn_no = payload.grn_no;
+
+      await conn.beginTransaction();
+
+      if (!grn_no) {
+        grn_no = await nextGRNNo(companyId, branchId, grn_type);
+      }
+
+      const status = "DRAFT";
+
+      const [hdrRes] = await conn.execute(
+        `INSERT INTO inv_goods_receipt_notes (
+          company_id, branch_id, grn_no, grn_date, grn_type, status,
+          supplier_id, warehouse_id, po_id, port_clearance_id,
+          invoice_no, invoice_date, invoice_amount, invoice_due_date,
+          delivery_number, delivery_date, bill_of_lading, customs_entry_no,
+          shipping_company, port_of_entry, remarks, created_by
+        ) VALUES (
+          :companyId, :branchId, :grn_no, :grn_date, :grn_type, :status,
+          :supplier_id, :warehouse_id, :po_id, :port_clearance_id,
+          :invoice_no, :invoice_date, :invoice_amount, :invoice_due_date,
+          :delivery_number, :delivery_date, :bill_of_lading, :customs_entry_no,
+          :shipping_company, :port_of_entry, :remarks, :userId
+        )`,
+        {
+          companyId,
+          branchId,
+          grn_no,
+          grn_date: payload.grn_date || null,
+          grn_type,
+          status,
+          supplier_id: payload.supplier_id || null,
+          warehouse_id: payload.warehouse_id || null,
+          po_id: payload.po_id || null,
+          port_clearance_id: payload.port_clearance_id || null,
+          invoice_no: payload.invoice_no || null,
+          invoice_date: payload.invoice_date || null,
+          invoice_amount: payload.invoice_amount || null,
+          invoice_due_date: payload.invoice_due_date || null,
+          delivery_number: payload.delivery_number || null,
+          delivery_date: payload.delivery_date || null,
+          bill_of_lading: payload.bill_of_lading || null,
+          customs_entry_no: payload.customs_entry_no || null,
+          shipping_company: payload.shipping_company || null,
+          port_of_entry: payload.port_of_entry || null,
+          remarks: payload.remarks || null,
+          userId,
+        },
+      );
+
+      const grnId = hdrRes.insertId;
+
+      const details = Array.isArray(payload.details) ? payload.details : [];
+      for (const d of details) {
+        await conn.execute(
+          `INSERT INTO inv_goods_receipt_note_details (
+            grn_id, item_id, qty_ordered, qty_received, qty_accepted,
+            input_qty, input_uom, uom, unit_price, line_amount,
+            batch_serial, mfg_date, expiry_date, inspection_status, remarks, created_by
+          ) VALUES (
+            :grn_id, :item_id, :qty_ordered, :qty_received, :qty_accepted,
+            :input_qty, :input_uom, :uom, :unit_price, :line_amount,
+            :batch_serial, :mfg_date, :expiry_date, :inspection_status, :remarks, :userId
+          )`,
+          {
+            grn_id: grnId,
+            item_id: d.item_id || null,
+            qty_ordered: d.qty_ordered || null,
+            qty_received: d.qty_received || null,
+            qty_accepted: d.qty_accepted || null,
+            input_qty: d.input_qty || null,
+            input_uom: d.input_uom || null,
+            uom: d.uom || null,
+            unit_price: d.unit_price || null,
+            line_amount: d.line_amount || null,
+            batch_serial: d.batch_serial || null,
+            mfg_date: d.mfg_date || null,
+            expiry_date: d.expiry_date || null,
+            inspection_status: d.inspection_status || "PENDING",
+            remarks: d.remarks || null,
+            userId,
+          },
+        );
+      }
+
+      await conn.commit();
+      res.status(201).json({ id: grnId, grn_no });
+    } catch (err) {
+      if (conn) await conn.rollback();
+      next(err);
+    } finally {
+      if (conn) conn.release();
+    }
+  },
+);
+
+router.put(
+  "/grn/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      const userId = toNumber(req.scope?.userId ?? req.user?.sub);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+
+      const payload = req.body;
+
+      const [curr] = await conn.execute(
+        `SELECT status FROM inv_goods_receipt_notes WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
+      );
+      if (!curr.length) throw httpError(404, "NOT_FOUND", "GRN not found");
+      if (curr[0].status !== "DRAFT") {
+        throw httpError(400, "BAD_REQUEST", "Can only edit DRAFT GRNs");
+      }
+
+      await conn.beginTransaction();
+
+      await conn.execute(
+        `UPDATE inv_goods_receipt_notes SET
+          supplier_id = :supplier_id,
+          warehouse_id = :warehouse_id,
+          po_id = :po_id,
+          port_clearance_id = :port_clearance_id,
+          invoice_no = :invoice_no,
+          invoice_date = :invoice_date,
+          invoice_amount = :invoice_amount,
+          invoice_due_date = :invoice_due_date,
+          delivery_number = :delivery_number,
+          delivery_date = :delivery_date,
+          bill_of_lading = :bill_of_lading,
+          customs_entry_no = :customs_entry_no,
+          shipping_company = :shipping_company,
+          port_of_entry = :port_of_entry,
+          remarks = :remarks
+        WHERE id = :id`,
+        {
+          id,
+          supplier_id: payload.supplier_id || null,
+          warehouse_id: payload.warehouse_id || null,
+          po_id: payload.po_id || null,
+          port_clearance_id: payload.port_clearance_id || null,
+          invoice_no: payload.invoice_no || null,
+          invoice_date: payload.invoice_date || null,
+          invoice_amount: payload.invoice_amount || null,
+          invoice_due_date: payload.invoice_due_date || null,
+          delivery_number: payload.delivery_number || null,
+          delivery_date: payload.delivery_date || null,
+          bill_of_lading: payload.bill_of_lading || null,
+          customs_entry_no: payload.customs_entry_no || null,
+          shipping_company: payload.shipping_company || null,
+          port_of_entry: payload.port_of_entry || null,
+          remarks: payload.remarks || null,
+        },
+      );
+
+      await conn.execute(
+        `DELETE FROM inv_goods_receipt_note_details WHERE grn_id = :id`,
+        { id },
+      );
+
+      const details = Array.isArray(payload.details) ? payload.details : [];
+      for (const d of details) {
+        await conn.execute(
+          `INSERT INTO inv_goods_receipt_note_details (
+            grn_id, item_id, qty_ordered, qty_received, qty_accepted,
+            input_qty, input_uom, uom, unit_price, line_amount,
+            batch_serial, mfg_date, expiry_date, inspection_status, remarks, created_by
+          ) VALUES (
+            :grn_id, :item_id, :qty_ordered, :qty_received, :qty_accepted,
+            :input_qty, :input_uom, :uom, :unit_price, :line_amount,
+            :batch_serial, :mfg_date, :expiry_date, :inspection_status, :remarks, :userId
+          )`,
+          {
+            grn_id: id,
+            item_id: d.item_id || null,
+            qty_ordered: d.qty_ordered || null,
+            qty_received: d.qty_received || null,
+            qty_accepted: d.qty_accepted || null,
+            input_qty: d.input_qty || null,
+            input_uom: d.input_uom || null,
+            uom: d.uom || null,
+            unit_price: d.unit_price || null,
+            line_amount: d.line_amount || null,
+            batch_serial: d.batch_serial || null,
+            mfg_date: d.mfg_date || null,
+            expiry_date: d.expiry_date || null,
+            inspection_status: d.inspection_status || "PENDING",
+            remarks: d.remarks || null,
+            userId,
+          },
+        );
+      }
+
+      await conn.commit();
+      res.json({ id });
+    } catch (err) {
+      if (conn) await conn.rollback();
+      next(err);
+    } finally {
+      if (conn) conn.release();
+    }
+  },
+);
+
+router.post(
+  "/grn/:id/submit",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      const userId = toNumber(req.scope?.userId ?? req.user?.sub);
+      const { amount, workflow_id, target_user_id } = req.body;
+
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+
+      const [curr] = await conn.execute(
+        `SELECT status, grn_no FROM inv_goods_receipt_notes WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
+      );
+      if (!curr.length) throw httpError(404, "NOT_FOUND", "GRN not found");
+      if (curr[0].status !== "DRAFT") {
+        throw httpError(400, "BAD_REQUEST", "Can only submit DRAFT GRNs");
+      }
+
+      await conn.beginTransaction();
+
+      let finalStatus = "APPROVED"; // By default auto-approve if no workflow
+      if (workflow_id) {
+        const [steps] = await conn.execute(
+          `SELECT step_order, approver_user_id
+             FROM adm_workflow_steps
+            WHERE workflow_id = :workflowId
+            ORDER BY step_order ASC
+            LIMIT 1`,
+          { workflowId: workflow_id },
+        );
+        if (!steps.length) {
+          throw httpError(400, "BAD_REQUEST", "Workflow has no steps");
+        }
+
+        const firstStep = steps[0];
+        const [allowedUsers] = await conn.execute(
+          `SELECT approver_user_id
+             FROM adm_workflow_step_approvers
+            WHERE workflow_id = :workflowId AND step_order = :stepOrder`,
+          { workflowId: workflow_id, stepOrder: firstStep.step_order },
+        );
+        const allowedSet = new Set(
+          allowedUsers.map((r) => Number(r.approver_user_id)),
+        );
+        let assignedToUserId = toNumber(firstStep.approver_user_id);
+        if (target_user_id != null && allowedSet.has(Number(target_user_id))) {
+          assignedToUserId = Number(target_user_id);
+        } else if (allowedUsers.length > 0) {
+          assignedToUserId = Number(allowedUsers[0].approver_user_id);
+        }
+        if (!assignedToUserId) {
+          throw httpError(
+            400,
+            "BAD_REQUEST",
+            "Workflow step 1 has no approver configured",
+          );
+        }
+
+        const [wfRes] = await conn.execute(
+          `INSERT INTO adm_document_workflows (
+            company_id, workflow_id, document_type, document_id, amount, current_step_order, status, assigned_to_user_id
+          ) VALUES (
+            :companyId, :workflowId, 'GRN', :documentId, :amount, :stepOrder, 'PENDING', :assignedTo
+          )`,
+          {
+            companyId,
+            workflowId: workflow_id,
+            documentId: id,
+            amount: amount == null ? null : Number(amount),
+            stepOrder: firstStep.step_order,
+            assignedTo: assignedToUserId,
+          },
+        );
+
+        await conn.execute(
+          `INSERT INTO adm_workflow_tasks (
+            company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action
+          ) VALUES (
+            :companyId, :workflowId, :dwId, :documentId, 'GRN', :stepOrder, :assignedTo, 'PENDING'
+          )`,
+          {
+            companyId,
+            workflowId: workflow_id,
+            dwId: wfRes.insertId,
+            documentId: id,
+            stepOrder: firstStep.step_order,
+            assignedTo: assignedToUserId,
+          },
+        );
+
+        await conn.execute(
+          `INSERT INTO adm_workflow_logs (
+            document_workflow_id, step_order, action, actor_user_id, comments
+          ) VALUES (
+            :dwId, :stepOrder, 'SUBMIT', :userId, ''
+          )`,
+          { dwId: wfRes.insertId, stepOrder: firstStep.step_order, userId },
+        );
+
+        finalStatus = "PENDING_APPROVAL";
+      }
+
+      await conn.execute(
+        `UPDATE inv_goods_receipt_notes SET status = :status WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { status: finalStatus, id, companyId, branchId },
+      );
+
+      await conn.commit();
+      res.json({ id, status: finalStatus });
+    } catch (err) {
+      if (conn) await conn.rollback();
+      next(err);
+    } finally {
+      if (conn) conn.release();
     }
   },
 );
@@ -4646,11 +4985,8 @@ async function ensureIssueToRequirementTables() {
 async function nextIssueNo(companyId, branchId) {
   const rows = await query(
     `
-    SELECT issue_no,
-          created_at,
-          u.username AS created_by_name
+    SELECT issue_no
          FROM inv_issue_to_requirement
-        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
       AND branch_id = :branchId
       AND issue_no LIKE 'ISS-%'
@@ -4684,13 +5020,10 @@ router.get(
         SELECT i.id, i.issue_no, i.issue_date, i.warehouse_id, i.issued_to,
                i.department_id, i.status, i.remarks, i.issue_type,
                i.requisition_id, i.created_by, i.created_at, i.updated_at,
-               w.warehouse_name, d.dept_name AS department_name, u.username AS created_by_username,
-          i.created_at,
-          u.username AS created_by_name
+               w.warehouse_name, d.dept_name AS department_name, u.username AS created_by_name
          FROM inv_issue_to_requirement i
         LEFT JOIN inv_warehouses w ON w.id = i.warehouse_id
         LEFT JOIN hr_departments d ON d.id = i.department_id
-        LEFT JOIN adm_users u ON u.id = i.created_by
         LEFT JOIN adm_users u ON u.id = i.created_by
          WHERE i.company_id = :companyId AND i.branch_id = :branchId
         ORDER BY i.issue_date DESC, i.id DESC
@@ -4743,14 +5076,11 @@ router.get(
           iv.item_name, 
           iv.uom as item_uom,
           v.returned_qty,
-          v.remaining_qty,
-          d.created_at,
-          u.username AS created_by_name
+          v.remaining_qty
          FROM inv_issue_to_requirement_details d
         LEFT JOIN inv_items iv ON iv.id = d.item_id
         LEFT JOIN v_inv_issue_register v 
           ON v.issue_id = :id AND v.item_id = d.item_id
-        LEFT JOIN adm_users u ON u.id = d.created_by
          WHERE d.issue_id = :id
         ORDER BY d.id ASC
         `,
@@ -7390,12 +7720,9 @@ router.get(
 
       const items = await query(
         `
-        SELECT *,
-          created_at,
-          u.username AS created_by_name
+        SELECT *
          FROM v_active_stock_details
         ${where}
-        LEFT JOIN adm_users u ON u.id = created_by
          ORDER BY item_name ASC, entry_date ASC
         LIMIT 1000
       `,
@@ -7725,13 +8052,13 @@ router.post(
         `
         SELECT DISTINCT u.id, u.email,
           u.created_at,
-          u.username AS created_by_name
+          cu.username AS created_by_name
          FROM adm_users u
         JOIN adm_notification_prefs np
           ON np.user_id = u.id
          AND np.pref_key = 'low-stock'
          AND np.email_enabled = 1
-        LEFT JOIN adm_users u ON u.id = u.created_by
+        LEFT JOIN adm_users cu ON cu.id = u.created_by
          WHERE u.is_active = 1
           AND u.company_id = :companyId
           AND u.branch_id = :branchId
@@ -7843,8 +8170,8 @@ router.get(
         JOIN inv_stock_verification_details d ON d.verification_id = v.id
         JOIN inv_items i ON i.id = d.item_id
         LEFT JOIN inv_warehouses w ON w.id = v.warehouse_id
-        ${where}
         LEFT JOIN adm_users u ON u.id = v.created_by
+        ${where}
          ORDER BY v.verification_date DESC, v.verification_no DESC
         `,
         params,

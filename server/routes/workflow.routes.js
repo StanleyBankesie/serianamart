@@ -111,6 +111,13 @@ router.get(
   },
 );
 
+// Mark Notifications Read (Bulk)
+router.put(
+  "/notifications/read-bulk",
+  requireAuth,
+  workflowController.markNotificationsReadBulk,
+);
+
 // Mark Notification Read
 router.put(
   "/notifications/:id/read",

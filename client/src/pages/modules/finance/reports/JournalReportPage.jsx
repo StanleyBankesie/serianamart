@@ -183,6 +183,7 @@ export default function JournalReportPage() {
               <thead className="sticky top-0 z-10">
                 <tr>
                   <th>Date</th>
+                  <th>Voucher Type</th>
                   <th>Voucher No</th>
                   <th>Line</th>
                   <th>Account</th>
@@ -195,6 +196,7 @@ export default function JournalReportPage() {
                 {items.map((r, idx) => (
                   <tr key={`${r.id}-${idx}`}>
                     <td>{new Date(r.voucher_date).toLocaleDateString()}</td>
+                    <td>{r.voucher_type_name || r.voucher_type_code || "-"}</td>
                     <td className="font-medium">{r.voucher_no}</td>
                     <td>{r.line_no}</td>
                     <td>

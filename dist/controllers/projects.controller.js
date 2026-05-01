@@ -9,9 +9,12 @@ function toNumber(v, fallback = null) {
 export const listProjects = async (req, res, next) => {
   try {
     const { companyId, branchId } = req.scope;
-    const items = await query(
-      `SELECT id, project_code, project_name, project_status, start_date, end_date, created_at FROM pm_projects 
-       WHERE company_id = :companyId AND branch_id = :branchId ORDER BY start_date DESC LIMIT 100`,
+    const items = await query(`SELECT id, project_code, project_name, project_status, start_date, end_date, created_at,
+          created_at,
+          u.username AS created_by_name
+         FROM pm_projects
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND branch_id = :branchId ORDER BY start_date DESC LIMIT 100`,
       { companyId, branchId },
     );
     res.json({ items });
@@ -26,8 +29,12 @@ export const getProjectById = async (req, res, next) => {
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
-    const items = await query(
-      `SELECT * FROM pm_projects WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+    const items = await query(`SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM pm_projects
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
       { id, companyId, branchId },
     );
     if (!items.length) throw httpError(404, "NOT_FOUND", "Project not found");
@@ -56,8 +63,7 @@ export const createProject = async (req, res, next) => {
         "project_code and project_name are required",
       );
 
-    const result = await query(
-      `INSERT INTO pm_projects (company_id, branch_id, project_code, project_name, project_status, start_date, end_date, remarks)
+    const result = await query(`INSERT INTO pm_projects (company_id, branch_id, project_code, project_name, project_status, start_date, end_date, remarks)
        VALUES (:companyId, :branchId, :project_code, :project_name, :project_status, :start_date, :end_date, :remarks)`,
       {
         companyId,

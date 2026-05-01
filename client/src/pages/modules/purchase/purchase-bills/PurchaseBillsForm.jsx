@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { toast } from "react-toastify";
 import { api } from "api/client";
 import { Trash2, Plus } from "lucide-react";
 
@@ -84,7 +85,11 @@ export default function PurchaseBillsForm() {
           api.get("/purchase/orders").catch(() => ({ data: { items: [] } })),
           api.get("/inventory/items").catch(() => ({ data: { items: [] } })),
           api.get("/inventory/uoms").catch(() => ({ data: { items: [] } })),
-          api.get(`/finance/tax-codes?form=${billType === "IMPORT" ? "PURCHASE_BILL_IMPORT" : "PURCHASE_BILL_LOCAL"}`).catch(() => ({ data: { items: [] } })),
+          api
+            .get(
+              `/finance/tax-codes?form=${billType === "IMPORT" ? "PURCHASE_BILL_IMPORT" : "PURCHASE_BILL_LOCAL"}`,
+            )
+            .catch(() => ({ data: { items: [] } })),
         ]);
 
         if (mounted) {
@@ -101,9 +106,18 @@ export default function PurchaseBillsForm() {
             Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : [],
           );
           setUoms(Array.isArray(uomsRes.data?.items) ? uomsRes.data.items : []);
-          setTaxCodes(
-            Array.isArray(taxesRes.data?.items) ? taxesRes.data.items : [],
-          );
+          const fetchedTaxCodes = Array.isArray(taxesRes.data?.items)
+            ? taxesRes.data.items
+            : [];
+          setTaxCodes(fetchedTaxCodes);
+          // Auto-select the first tax code for new (blank) items
+          if (fetchedTaxCodes.length > 0) {
+            setNewItem((prev) =>
+              !prev.tax_code_id
+                ? { ...prev, tax_code_id: String(fetchedTaxCodes[0].id) }
+                : prev,
+            );
+          }
         }
 
         // Fetch GRNs
@@ -151,11 +165,11 @@ export default function PurchaseBillsForm() {
   };
 
   useEffect(() => {
+    const ids = lines.map((l) => l.tax_code_id);
+    if (newItem.tax_code_id) ids.push(newItem.tax_code_id);
+
     const uniqueTaxIds = Array.from(
-      new Set([
-        ...lines.map((l) => String(l.tax_code_id)).filter(Boolean),
-        newItem.tax_code_id ? String(newItem.tax_code_id) : null,
-      ].filter(Boolean)),
+      new Set(ids.filter((id) => id && id !== "undefined")),
     );
     const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
     if (missing.length) {
@@ -183,7 +197,9 @@ export default function PurchaseBillsForm() {
         taxTotal += amt;
       });
     } else if (newItem.tax_code_id) {
-      const tc = taxCodes.find((t) => String(t.id) === String(newItem.tax_code_id));
+      const tc = taxCodes.find(
+        (t) => String(t.id) === String(newItem.tax_code_id),
+      );
       const rate = tc ? Number(tc.rate_percent) || 0 : 0;
       const amt = (taxableTotal * rate) / 100;
       if (rate > 0) {
@@ -213,7 +229,9 @@ export default function PurchaseBillsForm() {
             const res = await api.get(`/finance/item-tax/${value}`);
             const tax = res.data?.tax;
             if (tax && tax.id) {
-              setNewItem(p => p.item_id === value ? { ...p, tax_code_id: String(tax.id) } : p);
+              setNewItem((p) =>
+                p.item_id === value ? { ...p, tax_code_id: String(tax.id) } : p,
+              );
             }
           } catch {}
         };
@@ -226,9 +244,11 @@ export default function PurchaseBillsForm() {
   const addItemToLines = () => {
     if (!newItem.item_id || !newItem.qty) return;
     const { taxTotal, taxableTotal } = calcNewItemTaxBreakdown();
-    const it = availableItems.find((x) => String(x.id) === String(newItem.item_id));
+    const it = availableItems.find(
+      (x) => String(x.id) === String(newItem.item_id),
+    );
     const uo = uoms.find((u) => String(u.id) === String(newItem.uom_id));
-    
+
     setLines((prev) => [
       ...prev,
       {
@@ -241,7 +261,7 @@ export default function PurchaseBillsForm() {
         line_total: taxableTotal + taxTotal,
       },
     ]);
-    
+
     setNewItem({
       item_id: "",
       uom_id: "",
@@ -296,6 +316,7 @@ export default function PurchaseBillsForm() {
                 qty: Number(d.qty) || 0,
                 unit_price: Number(d.unit_price) || 0,
                 discount_percent: Number(d.discount_percent) || 0,
+                tax_code_id: d.tax_code_id ? String(d.tax_code_id) : "",
                 tax_amount: Number(d.tax_amount) || 0,
                 line_total: Number(d.line_total) || 0,
               }))
@@ -495,8 +516,12 @@ export default function PurchaseBillsForm() {
   const populateGrnDetails = async (grnId) => {
     try {
       const res = await api.get(`/purchase/grns/${grnId}`);
-      const grnItem = res.data?.item;
-      const grnDetails = res.data?.item?.details;
+      const grnItem = res.data?.item || null;
+      const grnDetails = Array.isArray(res.data?.item?.details)
+        ? res.data.item.details
+        : Array.isArray(res.data?.details)
+          ? res.data.details
+          : [];
 
       if (grnItem) {
         setFormData((prev) => ({
@@ -538,42 +563,89 @@ export default function PurchaseBillsForm() {
         }
       }
 
+      const uniqueItemIds = Array.from(
+        new Set(
+          (Array.isArray(grnDetails) ? grnDetails : [])
+            .map((d) => (d?.item_id != null ? String(d.item_id) : ""))
+            .filter(Boolean),
+        ),
+      );
+
+      const itemTaxByItemId = {};
+      if (uniqueItemIds.length > 0) {
+        await Promise.all(
+          uniqueItemIds.map(async (itemId) => {
+            try {
+              const taxRes = await api.get(`/finance/item-tax/${itemId}`);
+              const tax = taxRes.data?.tax;
+              if (tax && tax.id) {
+                itemTaxByItemId[String(itemId)] = {
+                  tax_code_id: String(tax.id),
+                };
+              }
+            } catch {}
+          }),
+        );
+      }
+
       if (Array.isArray(grnDetails) && grnDetails.length > 0) {
         const newLines = grnDetails.map((d) => {
           const uomObj = uoms.find(
-            (u) => u.uom_code === d.uom || u.uom_name === d.uom,
+            (u) =>
+              String(u.uom_code) === String(d.uom) ||
+              String(u.uom_name) === String(d.uom),
           );
-          const qty = Number(d.qty_accepted) || 0;
-          const unitPrice = Number(d.unit_price) || 0;
-          const lineTotal = qty * unitPrice;
+          const itemId = d.item_id != null ? String(d.item_id) : "";
+          const it = availableItems.find((i) => String(i.id) === itemId);
 
-          return {
+          const qty =
+            Number(d.qty_accepted) ||
+            Number(d.qtyAccepted) ||
+            Number(d.qty_received) ||
+            Number(d.qtyReceived) ||
+            Number(d.qty) ||
+            Number(d.quantity) ||
+            0;
+          const unitPrice =
+            Number(d.unit_price) ||
+            Number(d.unitPrice) ||
+            Number(d.cost_price) ||
+            Number(d.costPrice) ||
+            Number(d.price) ||
+            0;
+
+          const defaultTaxCodeId =
+            itemTaxByItemId[itemId]?.tax_code_id ||
+            (newItem.tax_code_id ? String(newItem.tax_code_id) : "");
+
+          const baseLine = {
             id: Date.now() + Math.random(),
-            item_id: d.item_id ? String(d.item_id) : "",
+            item_id: itemId,
             uom_id: uomObj ? String(uomObj.id) : "",
             qty,
             unit_price: unitPrice,
             discount_percent: 0,
-            tax_amount: 0,
-            line_total: lineTotal,
+            tax_code_id: defaultTaxCodeId,
+            item_name: it?.item_name || "",
+            item_code: it?.item_code || "",
           };
+          return recalcLine(baseLine);
         });
         setLines(newLines);
+      } else {
+        setLines([]);
       }
-      const itemIds = Array.from(
-        new Set(
-          grnDetails
-            .map((d) => (d.item_id ? String(d.item_id) : ""))
-            .filter(Boolean),
-        ),
-      );
-      const options = itemIds.map((id) => {
-        const it = availableItems.find((i) => String(i.id) === id);
-        return it || { id, item_code: id, item_name: "" };
-      });
-      setItemOptions(options);
+      if (uniqueItemIds.length > 0) {
+        const options = uniqueItemIds
+          .map((id) => availableItems.find((i) => String(i.id) === id))
+          .filter(Boolean);
+        setItemOptions(options);
+      } else {
+        setItemOptions(availableItems);
+      }
     } catch (err) {
       console.error("Failed to load GRN details", err);
+      setItemOptions(availableItems);
     }
   };
 
@@ -825,6 +897,8 @@ export default function PurchaseBillsForm() {
             qty: Number(l.qty) || 0,
             unit_price: Number(l.unit_price) || 0,
             discount_percent: Number(l.discount_percent) || 0,
+            tax_code_id: l.tax_code_id ? Number(l.tax_code_id) : null,
+            taxCodeId: l.tax_code_id ? Number(l.tax_code_id) : null,
             tax_amount: Number(l.tax_amount) || 0,
             line_total: Number(l.line_total) || 0,
           })),
@@ -839,6 +913,7 @@ export default function PurchaseBillsForm() {
         setCurrentBillId(Number(id));
       }
 
+      toast.success(isNew ? "Purchase bill created successfully" : "Purchase bill updated successfully");
       navigate(`/purchase/purchase-bills-${billType.toLowerCase()}`);
     } catch (e2) {
       setError(e2?.response?.data?.message || "Failed to save purchase bill");
@@ -887,6 +962,8 @@ export default function PurchaseBillsForm() {
             qty: Number(l.qty) || 0,
             unit_price: Number(l.unit_price) || 0,
             discount_percent: Number(l.discount_percent) || 0,
+            tax_code_id: l.tax_code_id ? Number(l.tax_code_id) : null,
+            taxCodeId: l.tax_code_id ? Number(l.tax_code_id) : null,
             tax_amount: Number(l.tax_amount) || 0,
             line_total: Number(l.line_total) || 0,
           })),
@@ -906,6 +983,7 @@ export default function PurchaseBillsForm() {
       }
       await api.post(`/purchase/bills/${postId}/post`, {});
       setFormData((prev) => ({ ...prev, status: "POSTED" }));
+      toast.success("Purchase bill posted successfully");
       navigate(`/purchase/purchase-bills-${billType.toLowerCase()}`);
     } catch (e) {
       setError(e?.response?.data?.message || "Posting failed");
@@ -1123,130 +1201,8 @@ export default function PurchaseBillsForm() {
       </div>
 
       <div className="card">
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg mb-4">
-            <h4 className="text-sm font-semibold mb-3 text-brand">Add Item Manually</h4>
-            <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-3">
-              <div className="md:col-span-2">
-                <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Item</label>
-                <select
-                  name="item_id"
-                  className="input text-sm"
-                  value={newItem.item_id}
-                  onChange={handleNewItemChange}
-                >
-                  <option value="">Select Item</option>
-                  {itemOptions.map((i) => (
-                    <option key={i.id} value={String(i.id)}>
-                      {i.item_code} - {i.item_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Qty</label>
-                <input
-                  type="number"
-                  name="qty"
-                  className="input text-sm"
-                  value={newItem.qty}
-                  onChange={handleNewItemChange}
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">UOM</label>
-                <select
-                  name="uom_id"
-                  className="input text-sm"
-                  value={newItem.uom_id}
-                  onChange={handleNewItemChange}
-                >
-                  <option value="">Select UOM</option>
-                  {uoms.map((u) => (
-                    <option key={u.id} value={String(u.id)}>
-                      {u.uom_code}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Price</label>
-                <input
-                  type="number"
-                  name="unit_price"
-                  className="input text-sm"
-                  value={newItem.unit_price}
-                  onChange={handleNewItemChange}
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Disc %</label>
-                <input
-                  type="number"
-                  name="discount_percent"
-                  className="input text-sm"
-                  value={newItem.discount_percent}
-                  onChange={handleNewItemChange}
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Tax Code</label>
-                <select
-                  name="tax_code_id"
-                  className="input text-sm"
-                  value={newItem.tax_code_id}
-                  onChange={handleNewItemChange}
-                >
-                  <option value="">No Tax</option>
-                  {taxCodes.map((t) => (
-                    <option key={t.id} value={String(t.id)}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="md:col-span-2">
-                 {newItem.tax_code_id && calcNewItemTaxBreakdown().components.length > 0 && (
-                   <div className="border border-brand/20 bg-brand/5 rounded-md p-2 text-[11px] mt-1">
-                     <span className="font-bold block border-b border-brand/10 mb-1">Tax Calculation:</span>
-                     {calcNewItemTaxBreakdown().components.map(c => (
-                       <div key={c.name} className="flex justify-between">
-                         <span>{c.name} ({c.rate}%):</span>
-                         <span className="font-semibold">{c.amount.toFixed(2)}</span>
-                       </div>
-                     ))}
-                     <div className="flex justify-between border-t border-brand/10 mt-1 pt-1 font-bold italic">
-                       <span>Total Tax:</span>
-                       <span>{calcNewItemTaxBreakdown().taxTotal.toFixed(2)}</span>
-                     </div>
-                   </div>
-                 )}
-              </div>
-              <div className="md:col-span-2 flex items-end justify-end">
-                <button
-                  type="button"
-                  className="btn btn-primary px-4 py-1.5 text-xs flex items-center gap-2"
-                  onClick={addItemToLines}
-                  disabled={!newItem.item_id || !newItem.qty}
-                >
-                  <Plus className="w-3 h-3" /> Add Item
-                </button>
-              </div>
-            </div>
-          </div>
+        {/* Manual item addition hidden as per request */}
         <div className="card-body overflow-x-auto">
-          <div className="mb-2 text-xs text-slate-600">
-            Unit of Measure and Conversions: select UOM per line. If the supplier
-            billed in a different UOM than the item’s default, define or verify a
-            conversion to ensure correct quantities and amounts.
-            <span className="ml-2">
-              <Link
-                to="/inventory/unit-conversions"
-                className="text-brand font-medium underline"
-              >
-                Manage conversions
-              </Link>
-            </span>
-          </div>
           <table className="table w-full">
             <thead>
               <tr>
@@ -1263,18 +1219,28 @@ export default function PurchaseBillsForm() {
             <tbody>
               {lines.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="text-center py-10 text-slate-400 bg-slate-50 italic">
-                    No items added yet. Use the section above to add items or pick a PO/GRN.
+                  <td
+                    colSpan="8"
+                    className="text-center py-10 text-slate-400 bg-slate-50 italic"
+                  >
+                    No items added yet. Use the section above to add items or
+                    pick a PO/GRN.
                   </td>
                 </tr>
               ) : (
                 lines.map((l, idx) => {
-                  const gross = (Number(l.qty) || 0) * (Number(l.unit_price) || 0);
-                  const discAmt = (gross * (Number(l.discount_percent) || 0)) / 100;
+                  const gross =
+                    (Number(l.qty) || 0) * (Number(l.unit_price) || 0);
+                  const discAmt =
+                    (gross * (Number(l.discount_percent) || 0)) / 100;
                   const net = gross - discAmt;
                   const taxAmt = (Number(l.line_total) || 0) - net;
-                  const it = availableItems.find(i => String(i.id) === String(l.item_id));
-                  const uo = uoms.find(u => String(u.id) === String(l.uom_id));
+                  const it = availableItems.find(
+                    (i) => String(i.id) === String(l.item_id),
+                  );
+                  const uo = uoms.find(
+                    (u) => String(u.id) === String(l.uom_id),
+                  );
                   return (
                     <tr key={l.id || idx}>
                       <td>
@@ -1291,12 +1257,16 @@ export default function PurchaseBillsForm() {
                             type="number"
                             className="input text-right text-xs w-20 ml-auto"
                             value={l.qty}
-                            onChange={(e) => handleLineChange(l.id, "qty", e.target.value)}
+                            onChange={(e) =>
+                              handleLineChange(l.id, "qty", e.target.value)
+                            }
                           />
-                        ) : l.qty}
+                        ) : (
+                          l.qty
+                        )}
                       </td>
                       <td className="text-right">
-                         {l.uom_name || uo?.uom_code || ""}
+                        {l.uom_name || uo?.uom_code || ""}
                       </td>
                       <td className="text-right">
                         {isNew ? (
@@ -1304,13 +1274,19 @@ export default function PurchaseBillsForm() {
                             type="number"
                             className="input text-right text-xs w-24 ml-auto"
                             value={l.unit_price}
-                            onChange={(e) => handleLineChange(l.id, "unit_price", e.target.value)}
+                            onChange={(e) =>
+                              handleLineChange(
+                                l.id,
+                                "unit_price",
+                                e.target.value,
+                              )
+                            }
                           />
-                        ) : Number(l.unit_price).toFixed(2)}
+                        ) : (
+                          Number(l.unit_price).toFixed(2)
+                        )}
                       </td>
-                      <td className="text-right">
-                        {l.discount_percent}%
-                      </td>
+                      <td className="text-right">{l.discount_percent}%</td>
                       <td className="text-right text-slate-500">
                         {taxAmt.toFixed(2)}
                       </td>
@@ -1319,18 +1295,18 @@ export default function PurchaseBillsForm() {
                       </td>
                       <td className="text-right">
                         <div className="flex items-center justify-end gap-2">
-                           <span className="font-bold text-brand">
-                             {Number(l.line_total).toFixed(2)}
-                           </span>
-                           {!isNew ? null : (
-                             <button
-                               type="button"
-                               className="text-red-400 hover:text-red-700 transition-colors ml-2"
-                               onClick={() => removeLine(l.id)}
-                             >
-                               <Trash2 size={14} />
-                             </button>
-                           )}
+                          <span className="font-bold text-brand">
+                            {Number(l.line_total).toFixed(2)}
+                          </span>
+                          {!isNew ? null : (
+                            <button
+                              type="button"
+                              className="text-red-400 hover:text-red-700 transition-colors ml-2"
+                              onClick={() => removeLine(l.id)}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1376,23 +1352,23 @@ export default function PurchaseBillsForm() {
                 onChange={handleChange}
               />
             </div>
-                <div className="flex justify-between items-center py-2 border-b border-slate-200 dark:border-slate-700">
-                  <span className="text-sm">Tax</span>
-                  <span className="font-semibold">
-                    {totals.lineTaxTotal.toFixed(2)}
-                  </span>
-                </div>
-                {(totals.components || []).map((c) => (
-                  <div
-                    key={c.name}
-                    className="flex justify-between items-center py-1 text-xs text-slate-500 pl-4"
-                  >
-                    <span>
-                      {c.name} ({c.rate}%):
-                    </span>
-                    <span>{Number(c.amount || 0).toFixed(2)}</span>
-                  </div>
-                ))}
+            <div className="flex justify-between items-center py-2 border-b border-slate-200 dark:border-slate-700">
+              <span className="text-sm">Tax</span>
+              <span className="font-semibold">
+                {totals.lineTaxTotal.toFixed(2)}
+              </span>
+            </div>
+            {(totals.components || []).map((c) => (
+              <div
+                key={c.name}
+                className="flex justify-between items-center py-1 text-xs text-slate-500 pl-4"
+              >
+                <span>
+                  {c.name} ({c.rate}%):
+                </span>
+                <span>{Number(c.amount || 0).toFixed(2)}</span>
+              </div>
+            ))}
             <div className="flex justify-between items-center">
               <span className="text-gray-600">Freight Charges:</span>
               <input

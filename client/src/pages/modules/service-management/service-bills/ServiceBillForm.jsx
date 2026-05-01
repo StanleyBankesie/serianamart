@@ -335,9 +335,16 @@ export default function ServiceBillForm() {
         );
         try {
           const taxRes = await api.get("/finance/tax-codes?form=SERVICE_BILL");
-          setTaxCodes(
-            Array.isArray(taxRes.data?.items) ? taxRes.data.items : [],
-          );
+          const fetchedTaxCodes = Array.isArray(taxRes.data?.items) ? taxRes.data.items : [];
+          setTaxCodes(fetchedTaxCodes);
+          // Auto-select first tax code for new items
+          if (fetchedTaxCodes.length > 0) {
+            setNewItem((prev) =>
+              !prev.tax_code_id
+                ? { ...prev, tax_code_id: String(fetchedTaxCodes[0].id) }
+                : prev,
+            );
+          }
         } catch {}
       } catch {}
     }

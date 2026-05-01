@@ -8,12 +8,18 @@ const ALL_PAGES = [
   { value: "INVOICE", label: "Invoice" },
   { value: "PURCHASE_BILL_LOCAL", label: "Purchase Bill Local" },
   { value: "PURCHASE_BILL_IMPORT", label: "Purchase Bill Import" },
+  { value: "LOCAL_PURCHASE_ORDER", label: "Local Purchase Orders" },
+  { value: "IMPORT_PURCHASE_ORDER", label: "Import Purchase Orders" },
   { value: "MAINTENANCE_BILL", label: "Maintenance Bill" },
   { value: "SERVICE_BILL", label: "Service Bill" },
   { value: "SALES_ORDER", label: "Sales Order" },
   { value: "QUOTATION", label: "Quotation" },
   { value: "SUPPLIER_QUOTATION", label: "Supplier Quotation" },
 ];
+
+const SALES_PAGES = ["INVOICE", "SALES_ORDER", "QUOTATION", "SUPPLIER_QUOTATION"];
+const PURCHASE_PAGES = ["DIRECT_PURCHASE", "PURCHASE_BILL_IMPORT", "PURCHASE_BILL_LOCAL", "LOCAL_PURCHASE_ORDER", "IMPORT_PURCHASE_ORDER"];
+const SERVICE_PAGES = ["SERVICE_BILL", "MAINTENANCE_BILL"];
 
 export default function TaxCodesPage() {
   const [items, setItems] = useState([]);
@@ -32,8 +38,10 @@ export default function TaxCodesPage() {
   const [editing, setEditing] = useState({});
   const [selectedTaxId, setSelectedTaxId] = useState(null);
   const [selectedTax, setSelectedTax] = useState(null);
+  const [accounts, setAccounts] = useState([]);
   const [components, setComponents] = useState([]);
   const [compName, setCompName] = useState("");
+  const [compAccountId, setCompAccountId] = useState("");
   const [compRate, setCompRate] = useState("");
   const [compOrder, setCompOrder] = useState("");
   const [compCompoundLevels, setCompCompoundLevels] = useState(["0"]);
@@ -81,8 +89,12 @@ export default function TaxCodesPage() {
   async function load() {
     try {
       setLoading(true);
-      const res = await api.get("/finance/tax-codes");
-      setItems(res.data?.items || []);
+      const [taxesRes, accountsRes] = await Promise.all([
+        api.get("/finance/tax-codes"),
+        api.get("/finance/accounts", { params: { postable: 1, active: 1 } }),
+      ]);
+      setItems(taxesRes.data?.items || []);
+      setAccounts(Array.isArray(accountsRes.data?.items) ? accountsRes.data.items : []);
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to load tax codes");
     } finally {
@@ -109,6 +121,7 @@ export default function TaxCodesPage() {
     setSelectedTaxId(r.id);
     setSelectedTax(r);
     setCompName("");
+    setCompAccountId("");
     setCompRate("");
     setCompOrder("");
     setCompCompoundLevels(["0"]);
@@ -122,6 +135,7 @@ export default function TaxCodesPage() {
     try {
       await api.post(`/finance/tax-codes/${selectedTaxId}/components`, {
         componentName: compName.trim(),
+        accountId: compAccountId ? Number(compAccountId) : null,
         ratePercent: compRate ? Number(compRate) : 0,
         sortOrder: compOrder ? Number(compOrder) : 100,
         compoundLevel: Number(normalizeStepLevels(compCompoundLevels)[0]),
@@ -132,6 +146,7 @@ export default function TaxCodesPage() {
         "Component added (account auto-created under Tax Payables)",
       );
       setCompName("");
+      setCompAccountId("");
       setCompRate("");
       setCompOrder("");
       setCompCompoundLevels(["0"]);
@@ -149,6 +164,7 @@ export default function TaxCodesPage() {
       ...p,
       [c.id]: {
         component_name: c.component_name,
+        account_id: c.account_id || "",
         rate_percent: c.rate_percent,
         sort_order: c.sort_order,
         compound_level: c.compound_level,
@@ -177,6 +193,7 @@ export default function TaxCodesPage() {
     try {
       await api.put(`/finance/tax-components/${id}`, {
         componentName: data.component_name,
+        accountId: data.account_id ? Number(data.account_id) : null,
         ratePercent:
           data.rate_percent === "" || data.rate_percent === null
             ? undefined
@@ -231,6 +248,38 @@ export default function TaxCodesPage() {
     );
   }
 
+  function handleCreateScopeChange(scope, checked) {
+    if (scope === "SALES") {
+      setIsSalesTax(checked);
+      setValidPages(prev => checked ? Array.from(new Set([...prev, ...SALES_PAGES])) : prev.filter(p => !SALES_PAGES.includes(p)));
+    } else if (scope === "PURCHASE") {
+      setIsPurchaseTax(checked);
+      setValidPages(prev => checked ? Array.from(new Set([...prev, ...PURCHASE_PAGES])) : prev.filter(p => !PURCHASE_PAGES.includes(p)));
+    } else if (scope === "SERVICE") {
+      setIsServiceTax(checked);
+      setValidPages(prev => checked ? Array.from(new Set([...prev, ...SERVICE_PAGES])) : prev.filter(p => !SERVICE_PAGES.includes(p)));
+    }
+  }
+
+  function handleEditScopeChange(id, scopeField, checked) {
+    setEditing((p) => {
+      const draft = p[id] || {};
+      let updatedPages = draft.valid_pages || [];
+      
+      const scopePages = scopeField === "is_sales_tax" ? SALES_PAGES : 
+                         scopeField === "is_purchase_tax" ? PURCHASE_PAGES : 
+                         SERVICE_PAGES;
+
+      if (checked) {
+        updatedPages = Array.from(new Set([...updatedPages, ...scopePages]));
+      } else {
+        updatedPages = updatedPages.filter(pg => !scopePages.includes(pg));
+      }
+
+      return { ...p, [id]: { ...draft, [scopeField]: checked, valid_pages: updatedPages } };
+    });
+  }
+
   async function create(e) {
     e.preventDefault();
     try {
@@ -263,7 +312,9 @@ export default function TaxCodesPage() {
   }
 
   function startEdit(r) {
-    const parsedPages = Array.isArray(r.valid_pages) ? r.valid_pages : [];
+    const parsedPages = typeof r.valid_pages === 'string' && r.valid_pages.trim() !== ''
+      ? r.valid_pages.split(',').map(s => s.trim())
+      : Array.isArray(r.valid_pages) ? r.valid_pages : [];
     setEditing((p) => ({
       ...p,
       [r.id]: {
@@ -460,7 +511,7 @@ export default function TaxCodesPage() {
                       <input
                         type="checkbox"
                         checked={isSalesTax}
-                        onChange={(e) => setIsSalesTax(e.target.checked)}
+                        onChange={(e) => handleCreateScopeChange("SALES", e.target.checked)}
                       />
                       Sales Tax
                     </label>
@@ -468,7 +519,7 @@ export default function TaxCodesPage() {
                       <input
                         type="checkbox"
                         checked={isPurchaseTax}
-                        onChange={(e) => setIsPurchaseTax(e.target.checked)}
+                        onChange={(e) => handleCreateScopeChange("PURCHASE", e.target.checked)}
                       />
                       Purchase Tax
                     </label>
@@ -476,7 +527,7 @@ export default function TaxCodesPage() {
                       <input
                         type="checkbox"
                         checked={isServiceTax}
-                        onChange={(e) => setIsServiceTax(e.target.checked)}
+                        onChange={(e) => handleCreateScopeChange("SERVICE", e.target.checked)}
                       />
                       Service Tax
                     </label>
@@ -597,13 +648,7 @@ export default function TaxCodesPage() {
                                 <input
                                   type="checkbox"
                                   checked={!!draft.is_sales_tax}
-                                  onChange={(e) =>
-                                    updateEdit(
-                                      r.id,
-                                      "is_sales_tax",
-                                      e.target.checked,
-                                    )
-                                  }
+                                  onChange={(e) => handleEditScopeChange(r.id, "is_sales_tax", e.target.checked)}
                                 />
                                 Sales
                               </label>
@@ -611,13 +656,7 @@ export default function TaxCodesPage() {
                                 <input
                                   type="checkbox"
                                   checked={!!draft.is_purchase_tax}
-                                  onChange={(e) =>
-                                    updateEdit(
-                                      r.id,
-                                      "is_purchase_tax",
-                                      e.target.checked,
-                                    )
-                                  }
+                                  onChange={(e) => handleEditScopeChange(r.id, "is_purchase_tax", e.target.checked)}
                                 />
                                 Purchase
                               </label>
@@ -625,13 +664,7 @@ export default function TaxCodesPage() {
                                 <input
                                   type="checkbox"
                                   checked={!!draft.is_service_tax}
-                                  onChange={(e) =>
-                                    updateEdit(
-                                      r.id,
-                                      "is_service_tax",
-                                      e.target.checked,
-                                    )
-                                  }
+                                  onChange={(e) => handleEditScopeChange(r.id, "is_service_tax", e.target.checked)}
                                 />
                                 Service
                               </label>
@@ -807,6 +840,21 @@ export default function TaxCodesPage() {
                     required
                   />
                 </div>
+                <div className="md:col-span-2">
+                  <label className="label">Ledger Account</label>
+                  <select
+                    className="input text-xs"
+                    value={compAccountId}
+                    onChange={(e) => setCompAccountId(e.target.value)}
+                  >
+                    <option value="">Auto-Resolve (Recommended)</option>
+                    {accounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.code} - {acc.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="md:col-span-1">
                   <label className="label">Rate (%)</label>
                   <input
@@ -876,6 +924,7 @@ export default function TaxCodesPage() {
                   <thead>
                     <tr>
                       <th>Component</th>
+                      <th>Account Mapping</th>
                       <th>Rate (%)</th>
                       <th>Calculate On</th>
                       <th>Sort</th>
@@ -887,6 +936,7 @@ export default function TaxCodesPage() {
                     {components.map((c) => {
                       const isEdit = !!compEditing[c.id];
                       const d = compEditing[c.id] || {};
+                      const acc = accounts.find(a => String(a.id) === String(c.account_id));
                       return (
                         <tr key={c.id}>
                           <td className="font-medium">
@@ -908,6 +958,34 @@ export default function TaxCodesPage() {
                               />
                             ) : (
                               c.component_name
+                            )}
+                          </td>
+                          <td>
+                            {isEdit ? (
+                              <select
+                                className="input text-xs"
+                                value={
+                                  d.account_id === undefined
+                                    ? c.account_id || ""
+                                    : d.account_id
+                                }
+                                onChange={(e) =>
+                                  compUpdateEdit(
+                                    c.id,
+                                    "account_id",
+                                    e.target.value,
+                                  )
+                                }
+                              >
+                                <option value="">Auto-Resolve</option>
+                                {accounts.map((a) => (
+                                  <option key={a.id} value={a.id}>
+                                    {a.code} - {a.name}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              acc ? `${acc.code} - ${acc.name}` : <span className="text-slate-400 italic">Auto-Resolve</span>
                             )}
                           </td>
                           <td>
@@ -1179,7 +1257,7 @@ export default function TaxCodesPage() {
                       type="checkbox"
                       checked={!!editing[editingTaxId]?.is_sales_tax}
                       onChange={(e) =>
-                        updateEdit(
+                        handleEditScopeChange(
                           editingTaxId,
                           "is_sales_tax",
                           e.target.checked,
@@ -1193,7 +1271,7 @@ export default function TaxCodesPage() {
                       type="checkbox"
                       checked={!!editing[editingTaxId]?.is_purchase_tax}
                       onChange={(e) =>
-                        updateEdit(
+                        handleEditScopeChange(
                           editingTaxId,
                           "is_purchase_tax",
                           e.target.checked,
@@ -1207,7 +1285,7 @@ export default function TaxCodesPage() {
                       type="checkbox"
                       checked={!!editing[editingTaxId]?.is_service_tax}
                       onChange={(e) =>
-                        updateEdit(
+                        handleEditScopeChange(
                           editingTaxId,
                           "is_service_tax",
                           e.target.checked,

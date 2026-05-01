@@ -117,6 +117,11 @@ export default function Sidebar() {
           label: "Returns",
           path: "/purchase/returns",
         },
+        {
+          key: "purchase-setup",
+          label: "Setup",
+          path: "/purchase/setup",
+        },
       ],
     },
     {

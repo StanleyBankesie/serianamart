@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import { filterAndSort } from "../../../../utils/searchUtils.js";
 
 export default function DebtorsLedgerReportPage() {
   const [from, setFrom] = useState("");
@@ -11,6 +12,38 @@ export default function DebtorsLedgerReportPage() {
   const [order, setOrder] = useState("old");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [accounts, setAccounts] = useState([]);
+  const [accountId, setAccountId] = useState("");
+  const [accountQuery, setAccountQuery] = useState("");
+
+  // Load debtors accounts (ASSET group nature = accounts receivable/debtors)
+  async function loadAccounts() {
+    try {
+      const res = await api.get("/finance/accounts", {
+        params: { active: 1 },
+      });
+      // Filter accounts that are in ASSET group (debtors)
+      const allAccounts = res.data?.items || [];
+      setAccounts(allAccounts);
+    } catch {
+      toast.error("Failed to load accounts");
+    }
+  }
+
+  useEffect(() => {
+    loadAccounts();
+  }, []);
+
+  const filteredAccounts = useMemo(() => {
+    // Filter for asset nature accounts (debtors)
+    const debtorsAccounts = accounts.filter(
+      (a) => String(a.nature || a.group_nature || "").toUpperCase() === "ASSET"
+    );
+    return filterAndSort(debtorsAccounts, {
+      query: accountQuery,
+      getKeys: (a) => [a.code, a.name],
+    });
+  }, [accounts, accountQuery]);
 
   const totals = useMemo(() => {
     const debit = items.reduce((sum, r) => sum + Number(r.debit || 0), 0);
@@ -22,9 +55,9 @@ export default function DebtorsLedgerReportPage() {
   async function run() {
     try {
       setLoading(true);
-      const res = await api.get("/finance/reports/debtors-ledger", {
-        params: { from: from || null, to: to || null },
-      });
+      const params = { from: from || null, to: to || null };
+      if (accountId) params.accountId = accountId;
+      const res = await api.get("/finance/reports/debtors-ledger", { params });
       const rows = res.data?.items || [];
       const openRow =
         rows.length && rows[0]?.doc_no === "OPEN" ? rows[0] : null;
@@ -49,7 +82,7 @@ export default function DebtorsLedgerReportPage() {
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, order]);
+  }, [from, to, order, accountId]);
 
   return (
     <div className="space-y-4">
@@ -72,7 +105,28 @@ export default function DebtorsLedgerReportPage() {
 
       <div className="card">
         <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
+            <div className="md:col-span-2">
+              <label className="label">Account (Debtors)</label>
+              <input
+                className="input mb-2"
+                placeholder="Search account code/name..."
+                value={accountQuery}
+                onChange={(e) => setAccountQuery(e.target.value)}
+              />
+              <select
+                className="input"
+                value={accountId}
+                onChange={(e) => setAccountId(e.target.value)}
+              >
+                <option value="">All Debtors</option>
+                {filteredAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.code} — {a.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="label">From</label>
               <input
@@ -222,12 +276,13 @@ export default function DebtorsLedgerReportPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th>Date</th>
-                  <th>Document</th>
-                  <th>Description</th>
+                  <th>Voucher Date</th>
+                  <th>Voucher No</th>
+                  <th>Narration</th>
                   <th className="text-right">Debit</th>
                   <th className="text-right">Credit</th>
-                  <th className="text-right">Balance</th>
+                  <th className="text-right">Running Balance</th>
+                  <th>Bal Type</th>
                 </tr>
               </thead>
               <tbody>
@@ -239,15 +294,16 @@ export default function DebtorsLedgerReportPage() {
                         sum + Number(x.debit || 0) - Number(x.credit || 0),
                       0,
                     );
+                  const balType = running > 0 ? "Dr" : running < 0 ? "Cr" : "-";
                   return (
                     <tr key={r.id || idx}>
                       <td>
-                        {r.txn_date
-                          ? new Date(r.txn_date).toLocaleDateString()
+                        {r.voucher_date || r.txn_date
+                          ? new Date(r.voucher_date || r.txn_date).toLocaleDateString()
                           : "-"}
                       </td>
-                      <td className="font-medium">{r.doc_no || "-"}</td>
-                      <td>{r.description || "-"}</td>
+                      <td className="font-medium">{r.voucher_no || r.doc_no || "-"}</td>
+                      <td>{r.narration || r.description || "-"}</td>
                       <td className="text-right">
                         {Number(r.debit || 0).toLocaleString()}
                       </td>
@@ -255,7 +311,12 @@ export default function DebtorsLedgerReportPage() {
                         {Number(r.credit || 0).toLocaleString()}
                       </td>
                       <td className="text-right">
-                        {Number(running || 0).toLocaleString()}
+                        {Number(Math.abs(running) || 0).toLocaleString()}
+                      </td>
+                      <td>
+                        <span className={`badge badge-sm ${balType === "Dr" ? "badge-info" : balType === "Cr" ? "badge-warning" : "badge-ghost"}`}>
+                          {balType}
+                        </span>
                       </td>
                     </tr>
                   );
@@ -273,7 +334,12 @@ export default function DebtorsLedgerReportPage() {
                     {totals.credit.toLocaleString()}
                   </td>
                   <td className="text-right font-medium">
-                    {totals.balance.toLocaleString()}
+                    {Math.abs(totals.balance).toLocaleString()}
+                  </td>
+                  <td>
+                    <span className={`badge badge-sm ${totals.balance > 0 ? "badge-info" : totals.balance < 0 ? "badge-warning" : "badge-ghost"}`}>
+                      {totals.balance > 0 ? "Dr" : totals.balance < 0 ? "Cr" : "-"}
+                    </span>
                   </td>
                 </tr>
               </tfoot>

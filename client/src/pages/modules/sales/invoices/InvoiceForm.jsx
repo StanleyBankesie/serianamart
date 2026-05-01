@@ -346,7 +346,11 @@ export default function InvoiceForm() {
 
   useEffect(() => {
     const uniqueTaxIds = Array.from(
-      new Set(lines.map((i) => String(i.tax_type)).filter(Boolean)),
+      new Set(
+        lines
+          .map((i) => i.tax_type)
+          .filter((id) => id && id !== "undefined"),
+      ),
     );
     const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
     if (missing.length) {
@@ -397,15 +401,6 @@ export default function InvoiceForm() {
       const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
       setTaxComponentsByCode((prev) => ({ ...prev, [key]: items }));
     } catch {}
-  };
-  const ensureTaxComponentsLoaded = async () => {
-    const uniqueTaxIds = Array.from(
-      new Set(lines.map((i) => String(i.tax_type)).filter(Boolean)),
-    );
-    const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
-    if (missing.length) {
-      await Promise.all(missing.map((id) => fetchTaxComponentsForCode(id)));
-    }
   };
   const calcTaxComponentsTotals = () => {
     const sub = lines.reduce((s, i) => s + (i.net || 0), 0);

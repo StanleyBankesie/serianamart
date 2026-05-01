@@ -7,8 +7,21 @@ export async function getUserRoleId(userId) {
     "SELECT role_id FROM adm_users WHERE id = :id LIMIT 1",
     { id: userId },
   );
-  const roleId = toNumber(rows?.[0]?.role_id);
-  return roleId || null;
+  const directRoleId = toNumber(rows?.[0]?.role_id);
+  if (directRoleId) return directRoleId;
+
+  // Backward compatibility: some deployments still map roles in adm_user_roles.
+  const fallbackRows = await query(
+    `SELECT ur.role_id
+       FROM adm_user_roles ur
+       JOIN adm_roles r ON r.id = ur.role_id
+      WHERE ur.user_id = :id
+        AND COALESCE(r.is_active, 1) = 1
+      ORDER BY ur.created_at DESC, ur.role_id DESC
+      LIMIT 1`,
+    { id: userId },
+  ).catch(() => []);
+  return toNumber(fallbackRows?.[0]?.role_id) || null;
 }
 
 export function checkModuleAccess(moduleKey) {
@@ -45,7 +58,8 @@ export function checkModuleAccess(moduleKey) {
       const rows = await query(
         `SELECT 1 
          FROM adm_role_modules 
-         WHERE role_id = :roleId AND LOWER(module_key) = LOWER(:moduleKey) 
+         WHERE role_id = :roleId
+           AND (LOWER(module_key) = LOWER(:moduleKey) OR module_key = '*')
          LIMIT 1`,
         { roleId, moduleKey },
       );
@@ -54,7 +68,7 @@ export function checkModuleAccess(moduleKey) {
           `SELECT 1
            FROM adm_role_permissions
            WHERE role_id = :roleId
-             AND LOWER(module_key) = LOWER(:moduleKey)
+             AND (LOWER(module_key) = LOWER(:moduleKey) OR module_key = '*')
              AND can_view = 1
            LIMIT 1`,
           { roleId, moduleKey },
@@ -116,7 +130,8 @@ export function checkFeatureAccess(featureKey) {
 
       const moduleAccess = await query(
         `SELECT 1 FROM adm_role_modules 
-         WHERE role_id = :roleId AND module_key = :moduleKey 
+         WHERE role_id = :roleId
+           AND (LOWER(module_key) = LOWER(:moduleKey) OR module_key = '*')
          LIMIT 1`,
         { roleId, moduleKey },
       );
@@ -155,12 +170,27 @@ export function checkFeatureAction(featureKey, action) {
         const moduleKey = req.moduleKey;
         const actionKey = String(action || "view").toLowerCase();
         const row = await query(
-          `SELECT can_view, can_create, can_edit, can_delete 
+          `SELECT can_view, can_create, can_edit, can_delete
            FROM adm_role_permissions 
-           WHERE role_id = :roleId AND module_key = :moduleKey 
+           WHERE role_id = :roleId
+             AND feature_key = :featureKey
            LIMIT 1`,
-          { roleId, moduleKey },
+          { roleId, featureKey },
         );
+        const fallbackRow = row.length
+          ? row
+          : await query(
+              `SELECT
+               MAX(COALESCE(can_view, 0)) AS can_view,
+               MAX(COALESCE(can_create, 0)) AS can_create,
+               MAX(COALESCE(can_edit, 0)) AS can_edit,
+               MAX(COALESCE(can_delete, 0)) AS can_delete
+             FROM adm_role_permissions
+             WHERE role_id = :roleId
+               AND (LOWER(module_key) = LOWER(:moduleKey) OR module_key = '*')
+           LIMIT 1`,
+              { roleId, moduleKey },
+            );
         const col =
           actionKey === "create"
             ? "can_create"
@@ -169,7 +199,7 @@ export function checkFeatureAction(featureKey, action) {
               : actionKey === "delete"
                 ? "can_delete"
                 : "can_view";
-        const allowed = !!row?.[0]?.[col];
+        const allowed = !!fallbackRow?.[0]?.[col];
         if (!allowed) {
           return next(httpError(403, "FORBIDDEN", "Action not allowed"));
         }
@@ -198,9 +228,14 @@ export function checkModuleAction(moduleKey, action) {
         const roleId = await getUserRoleId(userId);
         const actionKey = String(action || "view").toLowerCase();
         const row = await query(
-          `SELECT can_view, can_create, can_edit, can_delete 
-           FROM adm_role_permissions 
-           WHERE role_id = :roleId AND module_key = :moduleKey 
+          `SELECT
+             MAX(COALESCE(can_view, 0)) AS can_view,
+             MAX(COALESCE(can_create, 0)) AS can_create,
+             MAX(COALESCE(can_edit, 0)) AS can_edit,
+             MAX(COALESCE(can_delete, 0)) AS can_delete
+           FROM adm_role_permissions
+           WHERE role_id = :roleId
+             AND (LOWER(module_key) = LOWER(:moduleKey) OR module_key = '*')
            LIMIT 1`,
           { roleId, moduleKey },
         );

@@ -14,6 +14,7 @@ import {
   consumeStockFIFOTx,
   ensureStockBalancesWarehouseInfrastructure,
 } from "../services/stock.service.js";
+import { ensureCustomerFinAccountIdTx } from "../controllers/finance.controller.js";
 import multer from "multer";
 
 const router = express.Router();
@@ -76,7 +77,7 @@ async function nextVoucherNoTx(conn, { companyId, voucherTypeId }) {
   const seq = needPad
     ? String(vt.next_number).padStart(6, "0")
     : String(vt.next_number);
-  const voucherNo = `${vt.prefix}-${seq}`;
+  const voucherNo = `${vt.prefix}${seq}`;
   await conn.execute(
     "UPDATE fin_voucher_types SET next_number = next_number + 1 WHERE company_id = :companyId AND id = :voucherTypeId",
     { companyId, voucherTypeId },
@@ -422,59 +423,6 @@ async function resolveDefaultSalesAccountId(conn, { companyId }) {
     { companyId },
   );
   return Number(rows?.[0]?.id || 0) || 0;
-}
-
-async function ensureCustomerFinAccountIdTx(conn, { companyId, customerId }) {
-  const [custRows] = await conn.execute(
-    "SELECT id, customer_code, customer_name, currency_id FROM sal_customers WHERE company_id = :companyId AND id = :id LIMIT 1",
-    { companyId, id: customerId },
-  );
-  const cust = custRows?.[0] || null;
-  if (!cust) return 0;
-  const code =
-    cust.customer_code && String(cust.customer_code).trim()
-      ? String(cust.customer_code).trim()
-      : `C${String(Number(cust.id || 0)).padStart(5, "0")}`;
-  const [accRows] = await conn.execute(
-    "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
-    { companyId, code },
-  );
-  const accIdExisting = Number(accRows?.[0]?.id || 0) || 0;
-  if (accIdExisting) return accIdExisting;
-  // Create the customer AR account under Debtors group
-  const [grpRows] = await conn.execute(
-    "SELECT id FROM fin_account_groups WHERE company_id = :companyId AND code = 'DEBTORS' LIMIT 1",
-    { companyId },
-  );
-  let debtorsGroupId = Number(grpRows?.[0]?.id || 0) || 0;
-  if (!debtorsGroupId) {
-    const [gIns] = await conn.execute(
-      `INSERT INTO fin_account_groups (company_id, code, name, nature, is_active)
-       VALUES (:companyId, 'DEBTORS', 'Debtors', 'ASSET', 1)`,
-      { companyId },
-    );
-    debtorsGroupId = Number(gIns?.insertId || 0) || 0;
-  }
-  let currencyId = cust.currency_id || null;
-  if (!currencyId) {
-    const [curRows] = await conn.execute(
-      "SELECT id FROM fin_currencies WHERE company_id = :companyId AND is_base = 1 LIMIT 1",
-      { companyId },
-    );
-    currencyId = Number(curRows?.[0]?.id || 0) || null;
-  }
-  const [ins] = await conn.execute(
-    `INSERT INTO fin_accounts (company_id, group_id, code, name, currency_id, is_control_account, is_postable, is_active)
-     VALUES (:companyId, :groupId, :code, :name, :currencyId, 0, 1, 1)`,
-    {
-      companyId,
-      groupId: debtorsGroupId,
-      code,
-      name: cust.customer_name,
-      currencyId,
-    },
-  );
-  return Number(ins?.insertId || 0) || 0;
 }
 
 async function fetchItemSalesAccountMap(conn, { companyId, itemIds }) {
@@ -2104,9 +2052,9 @@ router.post(
           toYmd(sale_datetime) || new Date().toISOString().slice(0, 10);
         const [vIns] = await conn.execute(
           `INSERT INTO fin_vouchers
-            (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
+            (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, balanced_amount, status, created_by, approved_by, posted_by)
            VALUES
-            (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
+            (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, :ba, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
           {
             companyId,
             branchId,
@@ -2114,9 +2062,10 @@ router.post(
             voucherTypeId,
             voucherNo,
             voucherDate,
-            narration: `POS Receipt ${receipt_no}${customer_name ? " • " + String(customer_name) : ""}`,
+            narration: `POS Sale Receipt ${receipt_no}${customer_name ? " to " + String(customer_name) : ""}`,
             totalDebit: net,
             totalCredit: roundTo2(baseSales + tax),
+            ba: net,
             createdBy,
             approvedBy: createdBy,
             postedBy: createdBy,
@@ -2370,9 +2319,9 @@ router.post(
       const createdBy = req.user?.id ?? req.user?.sub ?? null;
       const [vIns] = await conn.execute(
         `INSERT INTO fin_vouchers
-          (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
+          (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, balanced_amount, status, created_by, approved_by, posted_by)
          VALUES
-          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
+          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, :ba, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
         {
           companyId,
           branchId,
@@ -2380,9 +2329,10 @@ router.post(
           voucherTypeId,
           voucherNo,
           voucherDate,
-          narration: `POS Session ${sessionNo}`,
+          narration: `POS Aggregated Sales for Session ${sessionNo} - ${sess.cashier_name || 'Cashier'}`,
           totalDebit: bankTotal,
           totalCredit: roundTo2(baseSales + taxTotal),
+          ba: bankTotal,
           createdBy,
           approvedBy: createdBy,
           postedBy: createdBy,
@@ -2800,7 +2750,7 @@ router.post(
             nature: "LIABILITY",
           }));
       }
-      const narration = `POS Sales for Day ${dateStr}`;
+      const narration = `POS Aggregated Sales for Day ${dateStr}${terminalCode ? ' - Terminal ' + terminalCode : ''}`;
       const [existingV] = await conn.execute(
         `SELECT id FROM fin_vouchers
          WHERE company_id = :companyId AND branch_id = :branchId

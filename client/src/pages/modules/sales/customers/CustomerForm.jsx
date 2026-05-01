@@ -110,12 +110,17 @@ export default function CustomerForm() {
         createdId = res?.data?.id || res?.data?.item?.id || null;
       }
       dispatch(setRefresh({ key: "customers", id: createdId || null }));
+      
+      // Show success message
+      const successMessage = isEdit ? "Customer updated successfully!" : "Customer created successfully!";
+      
       navigate("/sales/customers", {
         state: {
           afterSave: {
             entity: "customers",
             id: createdId || null,
             ts: Date.now(),
+            message: successMessage,
           },
         },
         replace: true,

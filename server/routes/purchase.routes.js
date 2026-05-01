@@ -591,7 +591,7 @@ async function nextVoucherNoTx(conn, { companyId, voucherTypeId }) {
   );
   const vt = rows?.[0];
   if (!vt) throw httpError(404, "NOT_FOUND", "Voucher type not found");
-  const voucherNo = `${vt.prefix}-${vt.next_number}`;
+  const voucherNo = `${vt.prefix}${String(vt.next_number).padStart(6, "0")}`;
   await conn.execute(
     "UPDATE fin_voucher_types SET next_number = next_number + 1 WHERE company_id = :companyId AND id = :voucherTypeId",
     { companyId, voucherTypeId },
@@ -719,6 +719,7 @@ async function resolveGrnClearingAccountIdAuto(conn, { companyId, grnNo }) {
   );
   const codeAccId = Number(codeRows?.[0]?.id || 0) || 0;
   if (codeAccId) return codeAccId;
+
   const ref = String(grnNo || "").trim();
   if (ref) {
     const [clrRows] = await conn.execute(
@@ -726,7 +727,7 @@ async function resolveGrnClearingAccountIdAuto(conn, { companyId, grnNo }) {
        FROM fin_voucher_lines
        WHERE company_id = :companyId
          AND reference_no = :ref
-         AND LOWER(description) LIKE '%clearing%'
+         AND (LOWER(description) LIKE '%clearing%' OR LOWER(description) LIKE '%grn%')
        ORDER BY id DESC
        LIMIT 1`,
       { companyId, ref },
@@ -734,6 +735,7 @@ async function resolveGrnClearingAccountIdAuto(conn, { companyId, grnNo }) {
     const accId = Number(clrRows?.[0]?.account_id || 0) || 0;
     if (accId) return accId;
   }
+
   const [accRows] = await conn.execute(
     `SELECT a.id
      FROM fin_accounts a
@@ -747,13 +749,37 @@ async function resolveGrnClearingAccountIdAuto(conn, { companyId, grnNo }) {
          LOWER(a.name) LIKE '%grni%' OR
          LOWER(a.name) LIKE '%goods received%' OR
          LOWER(a.name) LIKE '%goods receipt%' OR
-         LOWER(a.name) LIKE '%clearing%'
+         LOWER(a.name) LIKE '%clearing%' OR
+         LOWER(a.name) LIKE '%accrual%'
        )
-     ORDER BY a.code ASC
+     ORDER BY 
+       CASE 
+         WHEN LOWER(a.name) LIKE '%grn%' THEN 0
+         WHEN LOWER(a.name) LIKE '%clearing%' THEN 1
+         ELSE 2
+       END,
+       a.code ASC
      LIMIT 1`,
     { companyId },
   );
-  return Number(accRows?.[0]?.id || 0) || 0;
+  const resolvedId = Number(accRows?.[0]?.id || 0) || 0;
+  if (resolvedId) return resolvedId;
+
+  // AUTO-CREATE if not found
+  const groupId = await ensureGroupIdTx(conn, {
+    companyId,
+    code: "2002",
+    name: "Current Liabilities",
+    nature: "LIABILITY",
+  });
+  const [ins] = await conn.execute(
+    `INSERT INTO fin_accounts
+      (company_id, group_id, code, name, is_control_account, is_postable, is_active)
+     VALUES
+      (:companyId, :groupId, '2100', 'GRN Clearing Account', 0, 1, 1)`,
+    { companyId, groupId },
+  );
+  return Number(ins?.insertId || 0) || 0;
 }
 async function resolveVatInputAccountIdAuto(conn, { companyId }) {
   const [codeRows] = await conn.execute(
@@ -897,6 +923,7 @@ async function postGrnAccrualTx(
     );
     const codeAccId = Number(codeRows?.[0]?.id || 0) || 0;
     if (codeAccId) return codeAccId;
+
     const [accRows] = await conn.execute(
       `SELECT a.id
        FROM fin_accounts a
@@ -908,13 +935,37 @@ async function postGrnAccrualTx(
          AND (
            LOWER(a.name) LIKE '%inventory%' OR
            LOWER(a.name) LIKE '%stock%' OR
-           LOWER(a.name) LIKE '%merchandise%'
+           LOWER(a.name) LIKE '%merchandise%' OR
+           LOWER(a.name) LIKE '%warehouse%'
          )
-       ORDER BY a.code ASC
+       ORDER BY 
+         CASE 
+           WHEN LOWER(a.name) LIKE '%inventory%' THEN 0
+           WHEN LOWER(a.name) LIKE '%stock%' THEN 1
+           ELSE 2
+         END,
+         a.code ASC
        LIMIT 1`,
       { companyId },
     );
-    return Number(accRows?.[0]?.id || 0) || 0;
+    const resolvedId = Number(accRows?.[0]?.id || 0) || 0;
+    if (resolvedId) return resolvedId;
+
+    // AUTO-CREATE if not found
+    const groupId = await ensureGroupIdTx(conn, {
+      companyId,
+      code: "1001",
+      name: "Current Assets",
+      nature: "ASSET",
+    });
+    const [ins] = await conn.execute(
+      `INSERT INTO fin_accounts
+        (company_id, group_id, code, name, is_control_account, is_postable, is_active)
+       VALUES
+        (:companyId, :groupId, '1200', 'Inventory Account', 0, 1, 1)`,
+      { companyId, groupId },
+    );
+    return Number(ins?.insertId || 0) || 0;
   }
   const [hdrRows] = await conn.execute(
     "SELECT grn_no, grn_type, po_id, supplier_id, port_clearance_id, clearing_id FROM inv_goods_receipt_notes WHERE company_id = :companyId AND branch_id = :branchId AND id = :id LIMIT 1",
@@ -994,7 +1045,7 @@ async function postGrnAccrualTx(
       voucherTypeId,
       voucherNo,
       voucherDate,
-      narration: `GRN ${hdr.grn_no} inventory accrual`,
+      narration: `Inventory Accrual for GRN ${hdr.grn_no}`,
       totalDebit: inventoryValue,
       totalCredit: inventoryValue,
       createdBy: null,
@@ -1055,9 +1106,500 @@ async function nextSequentialNo(table, column, prefix) {
   return `${prefix}-${String(nextNum).padStart(6, "0")}`;
 }
 
-// ==========================================
-// Service Confirmations (moved from Inventory)
-// ==========================================
+async function ensureGroupIdTx(
+  conn,
+  { companyId, code, name, nature, parentId = null },
+) {
+  const [existingRows] = await conn.execute(
+    "SELECT id FROM fin_account_groups WHERE company_id = :companyId AND (code = :code OR name = :name) LIMIT 1",
+    { companyId, code, name },
+  );
+  const existingId = Number(existingRows?.[0]?.id || 0) || 0;
+  if (existingId) return existingId;
+  const [ins] = await conn.execute(
+    `INSERT INTO fin_account_groups
+      (company_id, code, name, nature, parent_id, is_active)
+     VALUES
+      (:companyId, :code, :name, :nature, :parentId, 1)`,
+    { companyId, code, name, nature, parentId },
+  );
+  return Number(ins?.insertId || 0) || 0;
+}
+async function resolveUniqueAccountCodeTx(
+  conn,
+  { companyId, preferredCode, ownerAccountId, fallbackPrefix },
+) {
+  const preferred = String(preferredCode || "").trim();
+  const ownerId = Number(ownerAccountId || 0) || 0;
+  const baseFallback = String(fallbackPrefix || "ACC")
+    .trim()
+    .replace(/\s+/g, "-");
+  const candidates = [];
+  if (preferred) candidates.push(preferred);
+  candidates.push(baseFallback);
+  for (let i = 1; i <= 50; i += 1) candidates.push(`${baseFallback}-${i}`);
+  for (const candidate of candidates) {
+    const [rows] = await conn.execute(
+      "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
+      { companyId, code: candidate },
+    );
+    const existingId = Number(rows?.[0]?.id || 0) || 0;
+    if (!existingId || existingId === ownerId) return candidate;
+  }
+  return preferred || `${baseFallback}-${Date.now()}`;
+}
+async function resolveCurrencyIdByCodeOrBaseTx(conn, { companyId, code }) {
+  const wanted = String(code || "")
+    .trim()
+    .toUpperCase();
+  if (wanted) {
+    const [rows] = await conn.execute(
+      "SELECT id FROM fin_currencies WHERE company_id = :companyId AND UPPER(code) = :code LIMIT 1",
+      { companyId, code: wanted },
+    );
+    const id = Number(rows?.[0]?.id || 0) || 0;
+    if (id) return id;
+  }
+  const [baseRows] = await conn.execute(
+    "SELECT id FROM fin_currencies WHERE company_id = :companyId AND is_base = 1 LIMIT 1",
+    { companyId },
+  );
+  return Number(baseRows?.[0]?.id || 0) || 0;
+}
+
+async function ensurePurchaseTaxComponentAccountTx(conn, { companyId, taxDetailId, componentName }) {
+  const safeName = String(componentName || "").trim();
+  if (!safeName) return 0;
+  
+  // First check if the tax detail ALREADY has an account_id
+  const [detRows] = await conn.execute(
+    "SELECT account_id FROM fin_tax_details WHERE id = :taxDetailId",
+    { taxDetailId }
+  );
+  if (detRows && detRows[0] && detRows[0].account_id) {
+    return Number(detRows[0].account_id);
+  }
+
+  // Create or resolve an account
+  const groupId = await ensureGroupIdTx(conn, {
+    companyId,
+    code: "TAXREC",
+    name: "Tax Receivables",
+    nature: "ASSET",
+  });
+  const currencyId = (await resolveCurrencyIdByCodeOrBaseTx(conn, { companyId, code: "GHS" })) || null;
+  const code = `PTAX-${String(Number(taxDetailId || 0)).padStart(4, "0")}`;
+  
+  const [existingRows] = await conn.execute(
+    "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
+    { companyId, code },
+  );
+  const existingId = Number(existingRows?.[0]?.id || 0) || 0;
+  let finalAccountId = existingId;
+  
+  if (existingId) {
+    await conn.execute(
+      `UPDATE fin_accounts
+          SET group_id = :groupId,
+              name = :name,
+              currency_id = :currencyId,
+              is_active = 1
+        WHERE company_id = :companyId AND id = :id`,
+      { companyId, id: existingId, groupId, name: safeName, currencyId },
+    );
+  } else {
+    const [ins] = await conn.execute(
+      `INSERT INTO fin_accounts
+        (company_id, group_id, code, name, currency_id, is_control_account, is_postable, is_active)
+       VALUES
+        (:companyId, :groupId, :code, :name, :currencyId, 0, 1, 1)`,
+      { companyId, groupId, code, name: safeName, currencyId },
+    );
+    finalAccountId = Number(ins?.insertId || 0) || 0;
+  }
+  
+  if (finalAccountId) {
+    // Update the fin_tax_details with the new account_id
+    await conn.execute(
+      "UPDATE fin_tax_details SET account_id = :accountId WHERE id = :taxDetailId",
+      { accountId: finalAccountId, taxDetailId }
+    );
+  }
+  return finalAccountId;
+}
+async function loadTaxComponentsByCodeTx(conn, { companyId, taxCodeId }) {
+  const [rows] = await conn.execute(
+    `SELECT c.tax_detail_id,
+            COALESCE(c.rate_percent, d.rate_percent, 0) AS rate_percent,
+            COALESCE(c.compound_level, 0) AS compound_level,
+            COALESCE(c.sort_order, 100) AS sort_order,
+            d.component_name
+       FROM fin_tax_components c
+       JOIN fin_tax_details d
+         ON d.id = c.tax_detail_id
+      WHERE c.company_id = :companyId
+        AND c.tax_code_id = :taxCodeId
+        AND c.is_active = 1
+      ORDER BY c.compound_level ASC, c.sort_order ASC, d.component_name ASC`,
+    { companyId, taxCodeId },
+  );
+  return Array.isArray(rows) ? rows : [];
+}
+
+function allocateTaxComponents(baseAmount, taxAmount, components) {
+  const base = Math.max(0, Number(baseAmount || 0));
+  const expectedTax = Math.max(0, Number(taxAmount || 0));
+  const list = Array.isArray(components) ? components : [];
+  if (!list.length || !(expectedTax > 0)) return [];
+  const grouped = new Map();
+  for (const comp of list) {
+    const level = Number(comp.compound_level || 0);
+    if (!grouped.has(level)) grouped.set(level, []);
+    grouped.get(level).push(comp);
+  }
+  const levels = Array.from(grouped.keys()).sort((a, b) => a - b);
+  let currentBase = base;
+  const raw = [];
+  for (const level of levels) {
+    const comps = grouped.get(level) || [];
+    let levelTotal = 0;
+    for (const comp of comps) {
+      const amt = (currentBase * Number(comp.rate_percent || 0)) / 100;
+      raw.push({ ...comp, amount: amt });
+      levelTotal += amt;
+    }
+    currentBase += levelTotal;
+  }
+  const rounded = raw.map((r) => ({
+    ...r,
+    amount: Math.round(Number(r.amount || 0) * 100) / 100,
+  }));
+  const totalRounded = rounded.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const diff = Math.round((expectedTax - totalRounded) * 100) / 100;
+  if (rounded.length && Math.abs(diff) > 0.00001) {
+    rounded[rounded.length - 1].amount =
+      Math.round(
+        (Number(rounded[rounded.length - 1].amount || 0) + diff) * 100,
+      ) / 100;
+  }
+  return rounded.filter((r) => Number(r.amount || 0) > 0);
+}
+
+
+async function postPurchaseBillVoucherTx(conn, { companyId, branchId, billId, userId, isDirectPurchase = false }) {
+  const [setupRows] = await conn.execute(
+    "SELECT freight_account_id, other_charges_account_id FROM pur_setup WHERE company_id = :companyId LIMIT 1",
+    { companyId }
+  );
+  const setup = setupRows?.[0] || {};
+  let defaultFreightAcc = Number(setup.freight_account_id || 0);
+  let defaultOtherAcc = Number(setup.other_charges_account_id || 0);
+
+  if (!defaultFreightAcc) {
+    defaultFreightAcc = await resolveChargesExpenseAccountIdAuto(conn, { companyId });
+  }
+  if (!defaultOtherAcc) {
+    defaultOtherAcc = await resolveChargesExpenseAccountIdAuto(conn, { companyId });
+  }
+
+  let hdr;
+  if (isDirectPurchase) {
+    const [rows] = await conn.execute(
+      `SELECT h.id, h.dp_no AS bill_no, h.dp_date AS bill_date, h.supplier_id, h.currency_id, h.exchange_rate, h.net_amount, h.freight_charges, h.other_charges, h.tax_amount, s.supplier_name
+       FROM pur_direct_purchase_hdr h
+       LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
+       WHERE h.id = :billId`,
+      { billId }
+    );
+    hdr = rows?.[0];
+  } else {
+    const [rows] = await conn.execute(
+      `SELECT b.id, b.bill_no, b.bill_date, b.supplier_id, b.currency_id, b.exchange_rate, b.net_amount, b.freight_charges, b.other_charges, b.tax_amount, s.supplier_name
+       FROM pur_bills b
+       LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
+       WHERE b.id = :billId`,
+      { billId }
+    );
+    hdr = rows?.[0];
+  }
+  if (!hdr) return 0;
+  
+  if (!(Number(hdr.net_amount || 0) > 0)) return 0;
+
+  // Supplier
+  const supplierAccountId = await ensureSupplierFinAccountIdTx(conn, { companyId, supplierId: hdr.supplier_id });
+  if (!supplierAccountId) {
+    throw httpError(400, "VALIDATION_ERROR", "Supplier account could not be resolved");
+  }
+
+  // Delete existing voucher
+  const [existingRows] = await conn.execute(
+    `SELECT v.id
+       FROM fin_vouchers v
+       JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id
+       JOIN fin_voucher_lines l ON l.voucher_id = v.id
+      WHERE v.company_id = :companyId
+        AND v.branch_id = :branchId
+        AND vt.code = 'PV'
+        AND l.reference_no = :ref
+      LIMIT 1`,
+    { companyId, branchId, ref: hdr.bill_no },
+  );
+  const existingId = Number(existingRows?.[0]?.id || 0) || 0;
+  if (existingId) {
+    await conn.execute("DELETE FROM fin_voucher_lines WHERE voucher_id = :vid", { vid: existingId });
+    await conn.execute("DELETE FROM fin_vouchers WHERE id = :vid", { vid: existingId });
+  }
+
+  const voucherTypeId = await ensureJournalVoucherTypeIdTx(conn, { companyId }); // or Purchase Voucher?
+  // Let's use PV for Purchase Voucher.
+  let pvTypeId = await resolveVoucherTypeIdByCode(conn, { companyId, code: "PV" });
+  if (!pvTypeId) {
+    await conn.execute(
+      `INSERT INTO fin_voucher_types
+        (company_id, code, name, category, prefix, next_number, requires_approval, is_active)
+       VALUES
+        (:companyId, 'PV', 'Purchase Voucher', 'PURCHASE', 'PV', 1, 0, 1)`,
+      { companyId },
+    ).catch(() => null);
+    pvTypeId = await resolveVoucherTypeIdByCode(conn, { companyId, code: "PV" });
+  }
+  const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
+  const voucherNo = await nextVoucherNoTx(conn, { companyId, voucherTypeId: pvTypeId });
+
+  // Details
+  let details;
+  if (isDirectPurchase) {
+    const [rows] = await conn.execute(
+      "SELECT item_id, qty, unit_price, discount_percent, tax_amount, tax_code_id FROM pur_direct_purchase_dtl WHERE hdr_id = :billId",
+      { billId }
+    );
+    details = rows || [];
+  } else {
+    const [rows] = await conn.execute(
+      "SELECT item_id, qty, unit_price, discount_percent, tax_amount, tax_code_id FROM pur_bill_details WHERE bill_id = :billId",
+      { billId }
+    );
+    details = rows || [];
+  }
+
+  // Map item purchase accounts
+  const itemIds = Array.from(new Set(details.map(d => Number(d.item_id)).filter(id => id > 0)));
+  const itemAccountMap = new Map();
+  if (itemIds.length) {
+    const placeholders = itemIds.map((_, i) => `:id${i}`).join(",");
+    const params = { companyId };
+    itemIds.forEach((id, i) => params[`id${i}`] = id);
+    const [itemsRows] = await conn.execute(
+      `SELECT id, purchase_account_id FROM inv_items WHERE company_id = :companyId AND id IN (${placeholders})`,
+      params
+    );
+    for (const r of itemsRows || []) {
+      itemAccountMap.set(Number(r.id), Number(r.purchase_account_id));
+    }
+  }
+
+  // fallback purchase account
+  let defaultPurchaseAccountId = await resolveChargesExpenseAccountIdAuto(conn, { companyId }); // or a default COGS
+
+  const rate = Number(hdr.exchange_rate || 1);
+  const purchaseDebits = new Map();
+  const taxLines = [];
+  
+  for (const d of details) {
+    const qty = Number(d.qty || 0);
+    const price = Number(d.unit_price || 0);
+    const discPct = Number(d.discount_percent || 0);
+    const gross = qty * price;
+    const disc = gross * (discPct / 100);
+    const net = gross - disc;
+    const baseNet = net * rate;
+
+    const accId = itemAccountMap.get(Number(d.item_id)) || defaultPurchaseAccountId;
+    purchaseDebits.set(accId, (purchaseDebits.get(accId) || 0) + baseNet);
+
+    const taxAmt = Number(d.tax_amount || 0);
+    const taxCodeId = Number(d.tax_code_id || 0);
+    if (taxCodeId && taxAmt > 0) {
+      const components = await loadTaxComponentsByCodeTx(conn, { companyId, taxCodeId });
+      const allocations = allocateTaxComponents(net, taxAmt, components);
+      if (allocations.length) {
+        taxLines.push(...allocations);
+      }
+    }
+  }
+
+
+  // Calculate tax debits
+  const taxDebits = new Map();
+  for (const tl of taxLines) {
+    const tlAmountBase = Number(tl.amount || 0) * rate;
+    const accId = await ensurePurchaseTaxComponentAccountTx(conn, { companyId, taxDetailId: tl.tax_detail_id, componentName: tl.component_name });
+    if (accId) {
+      taxDebits.set(accId, (taxDebits.get(accId) || 0) + tlAmountBase);
+    }
+  }
+
+  // Charges
+  const freightBase = Number(hdr.freight_charges || 0) * rate;
+  const otherBase = Number(hdr.other_charges || 0) * rate;
+  const totalDebit = Array.from(purchaseDebits.values()).reduce((a,b)=>a+b, 0) 
+                   + Array.from(taxDebits.values()).reduce((a,b)=>a+b, 0)
+                   + freightBase + otherBase;
+
+  const totalCredit = Number(hdr.net_amount || 0) * rate;
+
+  const [vIns] = await conn.execute(
+    `INSERT INTO fin_vouchers
+      (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, balanced_amount, status, created_by, approved_by, posted_by)
+     VALUES
+      (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, :currencyId, :exchangeRate, :td, :tc, :ba, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
+    {
+      companyId,
+      branchId,
+      fiscalYearId,
+      voucherTypeId: pvTypeId,
+      voucherNo,
+      voucherDate: hdr.bill_date || toYmd(new Date()),
+      narration: `Bill made..... ${hdr.bill_no} from ${hdr.supplier_name || "Supplier"}${hdr.remarks ? " - " + hdr.remarks : ""}`,
+      currencyId: hdr.currency_id,
+      exchangeRate: hdr.exchange_rate,
+      td: totalDebit,
+      tc: totalCredit,
+      ba: totalCredit,
+      createdBy: userId || null,
+      approvedBy: userId || null,
+      postedBy: userId || null,
+    },
+  );
+  const voucherId = Number(vIns?.insertId || 0) || 0;
+  let lineNo = 1;
+
+  // Credit Supplier
+  await conn.execute(
+    `INSERT INTO fin_voucher_lines
+      (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+     VALUES
+      (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :ref)`,
+    {
+      companyId, voucherId, lineNo: lineNo++, accountId: supplierAccountId,
+      description: `Payable for ${hdr.bill_no}`, credit: totalCredit, ref: hdr.bill_no
+    }
+  );
+
+  // Debit Purchases
+  for (const [accId, amt] of purchaseDebits) {
+    if (Math.round(amt*100) <= 0) continue;
+    await conn.execute(
+      `INSERT INTO fin_voucher_lines
+        (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+       VALUES
+        (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :ref)`,
+      {
+        companyId, voucherId, lineNo: lineNo++, accountId: accId,
+        description: `Purchases for ${hdr.bill_no}`, debit: amt, ref: hdr.bill_no
+      }
+    );
+  }
+
+  // Debit Taxes
+  for (const [accId, amt] of taxDebits) {
+    if (Math.round(amt*100) <= 0) continue;
+    await conn.execute(
+      `INSERT INTO fin_voucher_lines
+        (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+       VALUES
+        (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :ref)`,
+      {
+        companyId, voucherId, lineNo: lineNo++, accountId: accId,
+        description: `Tax on ${hdr.bill_no}`, debit: amt, ref: hdr.bill_no
+      }
+    );
+  }
+
+  // Debit Freight
+  if (Math.round(freightBase*100) > 0) {
+    await conn.execute(
+      `INSERT INTO fin_voucher_lines
+        (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+       VALUES
+        (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :ref)`,
+      {
+        companyId, voucherId, lineNo: lineNo++, accountId: defaultFreightAcc,
+        description: `Freight for ${hdr.bill_no}`, debit: freightBase, ref: hdr.bill_no
+      }
+    );
+  }
+
+  // Debit Other Charges
+  if (Math.round(otherBase*100) > 0) {
+    await conn.execute(
+      `INSERT INTO fin_voucher_lines
+        (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+       VALUES
+        (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :ref)`,
+      {
+        companyId, voucherId, lineNo: lineNo++, accountId: defaultOtherAcc,
+        description: `Other Charges for ${hdr.bill_no}`, debit: otherBase, ref: hdr.bill_no
+      }
+    );
+  }
+
+  return { voucherId, voucherNo };
+}
+
+
+
+router.get(
+  "/setup",
+  requireAuth,
+  requireCompanyScope,
+  requirePermission("PURCHASE.SETUP.VIEW"),
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const [rows] = await pool.query(
+        "SELECT freight_account_id, other_charges_account_id FROM pur_setup WHERE company_id = ? LIMIT 1",
+        [companyId],
+      );
+      if (rows && rows.length > 0) {
+        res.json(rows[0]);
+      } else {
+        res.json({});
+      }
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.put(
+  "/setup",
+  requireAuth,
+  requireCompanyScope,
+  requirePermission("PURCHASE.SETUP.EDIT"),
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const { freight_account_id, other_charges_account_id } = req.body;
+      const [existing] = await pool.query("SELECT id FROM pur_setup WHERE company_id = ? LIMIT 1", [companyId]);
+      if (existing && existing.length > 0) {
+        await pool.query(
+          "UPDATE pur_setup SET freight_account_id = ?, other_charges_account_id = ? WHERE company_id = ?",
+          [freight_account_id || null, other_charges_account_id || null, companyId]
+        );
+      } else {
+        await pool.query(
+          "INSERT INTO pur_setup (company_id, freight_account_id, other_charges_account_id) VALUES (?, ?, ?)",
+          [companyId, freight_account_id || null, other_charges_account_id || null]
+        );
+      }
+      res.json({ message: "Setup updated" });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 router.get(
   "/service-confirmations",
@@ -1499,121 +2041,7 @@ router.put(
           },
         );
       }
-      const rate = Number(exchangeRate || 1);
-      const goodsExclusive = Math.max(0, subtotal - totalDiscount);
-      const vatAmount = Math.max(0, totalTax);
-      const goodsBase = Math.round(goodsExclusive * rate * 100) / 100;
-      const vatBase = Math.round(vatAmount * rate * 100) / 100;
-      const [grnDetRows] = await conn.execute(
-        "SELECT SUM(qty_accepted * unit_price) AS goods_base FROM inv_goods_receipt_note_details WHERE grn_id = :grnId",
-        { grnId },
-      );
-      const grnGoodsBase =
-        Math.round(Number(grnDetRows?.[0]?.goods_base || 0) * 100) / 100;
-      const grnClearingAccountId = await resolveGrnClearingAccountIdAuto(conn, {
-        companyId,
-        grnNo,
-      });
-      let vatInputAccountId = 0;
-      if (vatBase > 0) {
-        vatInputAccountId = await resolveVatInputAccountIdAuto(conn, {
-          companyId,
-        });
-      }
-      const chargesBase = 0;
-      const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
-      const voucherTypeId = await ensureJournalVoucherTypeIdTx(conn, {
-        companyId,
-      });
-      const voucherNo = await nextVoucherNoTx(conn, {
-        companyId,
-        voucherTypeId,
-      });
-      const voucherDate = toYmd(new Date());
-      const apCredit =
-        Math.round((goodsBase + vatBase + chargesBase) * 100) / 100;
-      const totalDebit = grnGoodsBase + (vatBase > 0 ? vatBase : 0);
-      const totalCredit = apCredit;
-      const [vIns] = await conn.execute(
-        `INSERT INTO fin_vouchers
-          (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
-         VALUES
-          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
-        {
-          companyId,
-          branchId,
-          fiscalYearId,
-          voucherTypeId,
-          voucherNo,
-          voucherDate,
-          narration: `Purchase Bill ${billNo} posting`,
-          totalDebit,
-          totalCredit,
-          createdBy: req.user?.sub || null,
-          approvedBy: req.user?.sub || null,
-          postedBy: req.user?.sub || null,
-        },
-      );
-      const billVoucherId = Number(vIns?.insertId || 0) || 0;
-      let lineNo = 1;
-      await conn.execute(
-        `INSERT INTO fin_voucher_lines
-          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-         VALUES
-          (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
-        {
-          companyId,
-          voucherId: billVoucherId,
-          lineNo: lineNo++,
-          accountId: grnClearingAccountId,
-          description: `GRN ${grnNo} clearing`,
-          debit: grnGoodsBase,
-          referenceNo: billNo,
-        },
-      );
-      if (vatBase > 0 && vatInputAccountId) {
-        await conn.execute(
-          `INSERT INTO fin_voucher_lines
-            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-           VALUES
-            (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
-          {
-            companyId,
-            voucherId: billVoucherId,
-            lineNo: lineNo++,
-            accountId: vatInputAccountId,
-            description: `VAT input on ${billNo}`,
-            debit: vatBase,
-            referenceNo: billNo,
-          },
-        );
-      }
-      const [apRows] = await conn.execute(
-        `SELECT id
-         FROM fin_accounts
-         WHERE company_id = :companyId
-           AND is_active = 1
-           AND is_postable = 1
-           AND code = '2001'
-         LIMIT 1`,
-        { companyId },
-      );
-      const supplierAccId = Number(apRows?.[0]?.id || 0) || 0;
-      await conn.execute(
-        `INSERT INTO fin_voucher_lines
-          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-         VALUES
-          (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :referenceNo)`,
-        {
-          companyId,
-          voucherId: billVoucherId,
-          lineNo: lineNo++,
-          accountId: supplierAccId,
-          description: `AP for ${billNo}`,
-          credit: apCredit,
-          referenceNo: billNo,
-        },
-      );
+      const { voucherId: billVoucherId } = await postPurchaseBillVoucherTx(conn, { companyId, branchId, billId: billId, userId: req.user?.sub, isDirectPurchase: false });
       await conn.execute(
         "UPDATE pur_bills SET status = 'POSTED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
         { id: billId, companyId, branchId },
@@ -3740,7 +4168,7 @@ router.post(
           voucherTypeId,
           voucherNo,
           voucherDate,
-          narration: `Purchase Return ${return_no} debit note`,
+          narration: `Purchase Return for Order ${return_no}`,
           totalDebit: total_amount,
           totalCredit: total_amount,
           createdBy: created_by,
@@ -6257,217 +6685,7 @@ router.post(
           "Bill amount exceeds GRN value",
         );
       }
-      const grnClearingAccountId = await resolveGrnClearingAccountIdAuto(conn, {
-        companyId,
-        grnNo: String(bill.grn_no || ""),
-      });
-      if (!grnClearingAccountId) {
-        throw httpError(
-          400,
-          "VALIDATION_ERROR",
-          "GRN clearing account not resolved",
-        );
-      }
-      let vatInputAccountId = 0;
-      if (!isImport && vatBase > 0) {
-        vatInputAccountId = await resolveVatInputAccountIdAuto(conn, {
-          companyId,
-        });
-        if (!vatInputAccountId) {
-          throw httpError(
-            400,
-            "VALIDATION_ERROR",
-            "VAT input account not configured",
-          );
-        }
-      }
-      let expenseAccountId = 0;
-      if (chargesBase > 0) {
-        expenseAccountId = await resolveChargesExpenseAccountIdAuto(conn, {
-          companyId,
-        });
-        if (!expenseAccountId) {
-          throw httpError(
-            400,
-            "VALIDATION_ERROR",
-            "Expense account not configured",
-          );
-        }
-      }
-      const [apRows] = await conn.execute(
-        `SELECT id
-         FROM fin_accounts
-         WHERE company_id = :companyId
-           AND is_active = 1
-           AND is_postable = 1
-           AND code = '2001'
-         LIMIT 1`,
-        { companyId },
-      );
-      const supplierAccId = Number(apRows?.[0]?.id || 0) || 0;
-      if (!supplierAccId) {
-        throw httpError(
-          400,
-          "VALIDATION_ERROR",
-          "Accounts Payable – Trade (2001) not configured",
-        );
-      }
-      const fxDiff = isImport
-        ? Math.round((goodsBase - grnGoodsBase) * 100) / 100
-        : 0;
-      let fxGainAccountId = 0;
-      let fxLossAccountId = 0;
-      if (isImport && Math.abs(fxDiff) > 0) {
-        const fxAccounts = await resolveFxGainLossAccountsAuto(conn, {
-          companyId,
-        });
-        fxGainAccountId = Number(fxAccounts.fxGainAccountId || 0);
-        fxLossAccountId = Number(fxAccounts.fxLossAccountId || 0);
-        if (!fxGainAccountId || !fxLossAccountId) {
-          throw httpError(
-            400,
-            "VALIDATION_ERROR",
-            "FX gain/loss accounts not configured",
-          );
-        }
-      }
-      const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
-      const voucherTypeId = await ensureJournalVoucherTypeIdTx(conn, {
-        companyId,
-      });
-      const voucherNo = await nextVoucherNoTx(conn, {
-        companyId,
-        voucherTypeId,
-      });
-      const voucherDate = toYmd(new Date());
-      const apCredit = isImport
-        ? goodsBase
-        : Math.round((goodsBase + vatBase + chargesBase) * 100) / 100;
-      const totalDebit =
-        grnGoodsBase +
-        (isImport ? 0 : vatBase) +
-        chargesBase +
-        (fxDiff > 0 ? fxDiff : 0);
-      const totalCredit = apCredit + (fxDiff < 0 ? -fxDiff : 0);
-      const [vIns] = await conn.execute(
-        `INSERT INTO fin_vouchers
-          (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
-         VALUES
-          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
-        {
-          companyId,
-          branchId,
-          fiscalYearId,
-          voucherTypeId,
-          voucherNo,
-          voucherDate,
-          narration: `Purchase Bill ${bill.bill_no} posting`,
-          totalDebit,
-          totalCredit,
-          createdBy: req.user?.sub || null,
-          approvedBy: req.user?.sub || null,
-          postedBy: req.user?.sub || null,
-        },
-      );
-      const voucherId = Number(vIns?.insertId || 0) || 0;
-      let lineNo = 1;
-      await conn.execute(
-        `INSERT INTO fin_voucher_lines
-          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-         VALUES
-          (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
-        {
-          companyId,
-          voucherId,
-          lineNo: lineNo++,
-          accountId: grnClearingAccountId,
-          description: `GRN ${bill.grn_no} clearing`,
-          debit: grnGoodsBase,
-          referenceNo: bill.bill_no,
-        },
-      );
-      if (!isImport && vatBase > 0) {
-        await conn.execute(
-          `INSERT INTO fin_voucher_lines
-            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-           VALUES
-            (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
-          {
-            companyId,
-            voucherId,
-            lineNo: lineNo++,
-            accountId: vatInputAccountId,
-            description: `VAT input on ${bill.bill_no}`,
-            debit: vatBase,
-            referenceNo: bill.bill_no,
-          },
-        );
-      }
-      if (chargesBase > 0) {
-        await conn.execute(
-          `INSERT INTO fin_voucher_lines
-            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-           VALUES
-            (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
-          {
-            companyId,
-            voucherId,
-            lineNo: lineNo++,
-            accountId: expenseAccountId,
-            description: `Charges on ${bill.bill_no}`,
-            debit: chargesBase,
-            referenceNo: bill.bill_no,
-          },
-        );
-      }
-      if (isImport && fxDiff > 0) {
-        await conn.execute(
-          `INSERT INTO fin_voucher_lines
-            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-           VALUES
-            (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
-          {
-            companyId,
-            voucherId,
-            lineNo: lineNo++,
-            accountId: fxLossAccountId,
-            description: `FX loss on ${bill.bill_no}`,
-            debit: fxDiff,
-            referenceNo: bill.bill_no,
-          },
-        );
-      } else if (isImport && fxDiff < 0) {
-        await conn.execute(
-          `INSERT INTO fin_voucher_lines
-            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-           VALUES
-            (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :referenceNo)`,
-          {
-            companyId,
-            voucherId,
-            lineNo: lineNo++,
-            accountId: fxGainAccountId,
-            description: `FX gain on ${bill.bill_no}`,
-            credit: -fxDiff,
-            referenceNo: bill.bill_no,
-          },
-        );
-      }
-      await conn.execute(
-        `INSERT INTO fin_voucher_lines
-          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-         VALUES
-          (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :referenceNo)`,
-        {
-          companyId,
-          voucherId,
-          lineNo: lineNo++,
-          accountId: supplierAccId,
-          description: `AP for ${bill.bill_no}`,
-          credit: apCredit,
-          referenceNo: bill.bill_no,
-        },
-      );
+      const { voucherId, voucherNo } = await postPurchaseBillVoucherTx(conn, { companyId, branchId, billId: id, userId: req.user?.sub, isDirectPurchase: false });
       await conn.execute(
         "UPDATE pur_bills SET status = 'POSTED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
         { id, companyId, branchId },
@@ -7117,6 +7335,15 @@ router.post(
           { id, companyId, branchId },
         )
         .catch(() => null);
+            if (status === "POSTED") {
+        await postPurchaseBillVoucherTx(conn, {
+          companyId,
+          branchId,
+          billId: id,
+          userId: req.user?.sub,
+          isDirectPurchase: false,
+        });
+      }
       await conn.commit();
       res.json({ success: true, id, bill_no: billNo });
     } catch (e) {
@@ -8027,6 +8254,7 @@ router.post(
         const qty = Number(d.qty);
         const unitPrice = Number(d.unit_price);
         const lineTax = Number(d.tax_amount || 0);
+        const taxCodeId = toNumber(d.tax_code_id ?? d.taxCodeId) || null;
         const uomId = toNumber(d.uom_id) || null;
         const discountPercent = Number(d.discount_percent) || 0;
 
@@ -8044,6 +8272,7 @@ router.post(
           qty,
           unitPrice,
           lineTax,
+          taxCodeId,
           lineTotal,
           uomId,
           discountPercent,
@@ -8100,9 +8329,9 @@ router.post(
         await conn.execute(
           `
           INSERT INTO pur_bill_details
-            (bill_id, item_id, uom_id, qty, unit_price, discount_percent, tax_amount, line_total)
+            (bill_id, item_id, uom_id, qty, unit_price, discount_percent, tax_amount, line_total, tax_code_id)
           VALUES
-            (:billId, :itemId, :uomId, :qty, :unitPrice, :discountPercent, :taxAmount, :lineTotal)
+            (:billId, :itemId, :uomId, :qty, :unitPrice, :discountPercent, :taxAmount, :lineTotal, :taxCodeId)
           `,
           {
             billId,
@@ -8112,9 +8341,33 @@ router.post(
             unitPrice: nd.unitPrice,
             discountPercent: nd.discountPercent,
             taxAmount: nd.lineTax,
+            taxCodeId: nd.taxCodeId,
             lineTotal: nd.lineTotal,
           },
         );
+      }
+
+      // Automatically create purchase voucher entry if bill is posted
+      let voucherId = null;
+      let voucherNo = null;
+      if (status === "POSTED") {
+        try {
+          const voucherResult = await postPurchaseBillVoucherTx(conn, {
+            companyId,
+            branchId,
+            billId,
+            userId: req.user?.sub || createdBy,
+            isDirectPurchase: false,
+          });
+          if (voucherResult) {
+            voucherId = voucherResult.voucherId;
+            voucherNo = voucherResult.voucherNo;
+          }
+        } catch (voucherErr) {
+          console.error("Failed to create purchase voucher:", voucherErr);
+          // We don't rollback the bill creation if voucher fails, 
+          // but we log it. User can retry posting from the UI.
+        }
       }
 
       await conn.commit();
@@ -8123,6 +8376,8 @@ router.post(
         bill_no: billNo,
         total_amount: totalAmount,
         net_amount: netAmount,
+        voucher_id: voucherId,
+        voucher_no: voucherNo,
       });
     } catch (err) {
       if (conn) await conn.rollback();
@@ -8187,6 +8442,7 @@ router.put(
         const qty = Number(d.qty);
         const unitPrice = Number(d.unit_price);
         const lineTax = Number(d.tax_amount || 0);
+        const taxCodeId = toNumber(d.tax_code_id ?? d.taxCodeId) || null;
         const uomId = toNumber(d.uom_id) || null;
         const discountPercent = Number(d.discount_percent) || 0;
 
@@ -8204,6 +8460,7 @@ router.put(
           qty,
           unitPrice,
           lineTax,
+          taxCodeId,
           lineTotal,
           uomId,
           discountPercent,
@@ -8271,9 +8528,9 @@ router.put(
         await conn.execute(
           `
           INSERT INTO pur_bill_details
-            (bill_id, item_id, uom_id, qty, unit_price, discount_percent, tax_amount, line_total)
+            (bill_id, item_id, uom_id, qty, unit_price, discount_percent, tax_amount, line_total, tax_code_id)
           VALUES
-            (:id, :itemId, :uomId, :qty, :unitPrice, :discountPercent, :taxAmount, :lineTotal)
+            (:id, :itemId, :uomId, :qty, :unitPrice, :discountPercent, :taxAmount, :lineTotal, :taxCodeId)
           `,
           {
             id,
@@ -8283,9 +8540,25 @@ router.put(
             unitPrice: nd.unitPrice,
             discountPercent: nd.discountPercent,
             taxAmount: nd.lineTax,
+            taxCodeId: nd.taxCodeId,
             lineTotal: nd.lineTotal,
           },
         );
+      }
+
+      // Automatically create purchase voucher entry if bill is posted
+      if (status === "POSTED") {
+        try {
+          await postPurchaseBillVoucherTx(conn, {
+            companyId,
+            branchId,
+            billId: id,
+            userId: req.user?.sub,
+            isDirectPurchase: false,
+          });
+        } catch (voucherErr) {
+          console.error("Failed to create purchase voucher during update:", voucherErr);
+        }
       }
 
       await conn.commit();
@@ -8936,6 +9209,7 @@ router.post(
           taxPercent,
           lineTotal,
           uom: String(d.uom || "PCS"),
+          taxCodeId: d.tax_code_id ? toNumber(d.tax_code_id) : null,
           batchNo: d.batch_no ? String(d.batch_no).trim() : null,
           mfgDate: d.mfg_date || null,
           expDate: d.exp_date || null,
@@ -8973,9 +9247,9 @@ router.post(
       for (const d of cleanDetails) {
         await conn.execute(
           `INSERT INTO pur_direct_purchase_dtl
-           (hdr_id, item_id, qty, uom, unit_price, discount_percent, tax_percent, line_total, mfg_date, exp_date, batch_no)
+           (hdr_id, item_id, qty, uom, unit_price, discount_percent, tax_percent, line_total, mfg_date, exp_date, batch_no, tax_code_id)
            VALUES
-           (:hdrId, :itemId, :qty, :uom, :unitPrice, :discountPercent, :taxPercent, :lineTotal, :mfgDate, :expDate, :batchNo)`,
+           (:hdrId, :itemId, :qty, :uom, :unitPrice, :discountPercent, :tax_percent, :lineTotal, :mfgDate, :expDate, :batchNo, :taxCodeId)`,
           {
             hdrId: dpId,
             itemId: d.itemId,
@@ -8983,11 +9257,12 @@ router.post(
             uom: d.uom,
             unitPrice: d.unitPrice,
             discountPercent: d.discountPercent,
-            taxPercent: d.taxPercent,
+            tax_percent: d.taxPercent,
             lineTotal: d.lineTotal,
             mfgDate: d.mfgDate || null,
             expDate: d.expDate || null,
             batchNo: d.batchNo || null,
+            taxCodeId: d.taxCodeId || null,
           },
         );
       }
@@ -9094,9 +9369,9 @@ router.post(
       for (const d of cleanDetails) {
         await conn.execute(
           `INSERT INTO pur_bill_details
-            (bill_id, item_id, uom_id, qty, unit_price, discount_percent, tax_amount, line_total)
+            (bill_id, item_id, uom_id, qty, unit_price, discount_percent, tax_amount, line_total, tax_code_id)
            VALUES
-            (:billId, :itemId, NULL, :qty, :unitPrice, :discountPercent, :taxAmount, :lineTotal)`,
+            (:billId, :itemId, NULL, :qty, :unitPrice, :discountPercent, :taxAmount, :lineTotal, :taxCodeId)`,
           {
             billId,
             itemId: d.itemId,
@@ -9113,126 +9388,12 @@ router.post(
                   100,
               ) / 100,
             lineTotal: d.lineTotal,
+            taxCodeId: d.taxCodeId || null,
           },
         );
       }
 
-      const rate = Number(exchangeRate || 1);
-      const goodsExclusive = Math.max(0, subtotal - totalDiscount);
-      const vatAmount = Math.max(0, totalTax);
-      const goodsBase = Math.round(goodsExclusive * rate * 100) / 100;
-      const vatBase = Math.round(vatAmount * rate * 100) / 100;
-      const [grnDetRows] = await conn.execute(
-        "SELECT SUM(qty_accepted * unit_price) AS goods_base FROM inv_goods_receipt_note_details WHERE grn_id = :grnId",
-        { grnId },
-      );
-      const grnGoodsBase =
-        Math.round(Number(grnDetRows?.[0]?.goods_base || 0) * 100) / 100;
-      const grnClearingAccountId = await resolveGrnClearingAccountIdAuto(conn, {
-        companyId,
-        grnNo,
-      });
-      let vatInputAccountId = 0;
-      if (vatBase > 0) {
-        vatInputAccountId = await resolveVatInputAccountIdAuto(conn, {
-          companyId,
-        });
-      }
-      let expenseAccountId = 0;
-      const chargesBase = 0;
-      const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
-      const voucherTypeId = await ensureJournalVoucherTypeIdTx(conn, {
-        companyId,
-      });
-      const voucherNo = await nextVoucherNoTx(conn, {
-        companyId,
-        voucherTypeId,
-      });
-      const voucherDate = toYmd(new Date());
-      const apCredit =
-        Math.round((goodsBase + vatBase + chargesBase) * 100) / 100;
-      const totalDebit = grnGoodsBase + (vatBase > 0 ? vatBase : 0);
-      const totalCredit = apCredit;
-      const [vIns] = await conn.execute(
-        `INSERT INTO fin_vouchers
-          (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
-         VALUES
-          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
-        {
-          companyId,
-          branchId,
-          fiscalYearId,
-          voucherTypeId,
-          voucherNo,
-          voucherDate,
-          narration: `Purchase Bill ${billNo} posting`,
-          totalDebit,
-          totalCredit,
-          createdBy: req.user?.sub || null,
-          approvedBy: req.user?.sub || null,
-          postedBy: req.user?.sub || null,
-        },
-      );
-      const billVoucherId = Number(vIns?.insertId || 0) || 0;
-      let lineNo = 1;
-      await conn.execute(
-        `INSERT INTO fin_voucher_lines
-          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-         VALUES
-          (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
-        {
-          companyId,
-          voucherId: billVoucherId,
-          lineNo: lineNo++,
-          accountId: grnClearingAccountId,
-          description: `GRN ${grnNo} clearing`,
-          debit: grnGoodsBase,
-          referenceNo: billNo,
-        },
-      );
-      if (vatBase > 0 && vatInputAccountId) {
-        await conn.execute(
-          `INSERT INTO fin_voucher_lines
-            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-           VALUES
-            (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
-          {
-            companyId,
-            voucherId: billVoucherId,
-            lineNo: lineNo++,
-            accountId: vatInputAccountId,
-            description: `VAT input on ${billNo}`,
-            debit: vatBase,
-            referenceNo: billNo,
-          },
-        );
-      }
-      const [apRows] = await conn.execute(
-        `SELECT id
-         FROM fin_accounts
-         WHERE company_id = :companyId
-           AND is_active = 1
-           AND is_postable = 1
-           AND code = '2001'
-         LIMIT 1`,
-        { companyId },
-      );
-      const supplierAccId = Number(apRows?.[0]?.id || 0) || 0;
-      await conn.execute(
-        `INSERT INTO fin_voucher_lines
-          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-         VALUES
-          (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :referenceNo)`,
-        {
-          companyId,
-          voucherId: billVoucherId,
-          lineNo: lineNo++,
-          accountId: supplierAccId,
-          description: `AP for ${billNo}`,
-          credit: apCredit,
-          referenceNo: billNo,
-        },
-      );
+      const { voucherId: billVoucherId, voucherNo: billVoucherNo } = await postPurchaseBillVoucherTx(conn, { companyId, branchId, billId: billId, userId: req.user?.sub, isDirectPurchase: false });
       await conn.execute(
         "UPDATE pur_bills SET status = 'POSTED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
         { id: billId, companyId, branchId },

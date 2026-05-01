@@ -11,6 +11,7 @@ import {
   useParams,
   useSearchParams,
 } from "react-router-dom";
+import { toast } from "react-toastify";
 
 import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
@@ -774,7 +775,12 @@ export default function GRNImportForm() {
         });
       }
 
-      navigate("/inventory/grn-import", { state: { refresh: true } });
+      toast.success(
+        isNew
+          ? "Import GRN created successfully"
+          : "Import GRN updated successfully",
+      );
+      navigate("/purchase/direct-purchase");
     } catch (e2) {
       setError(
         e2?.response?.data?.message || e2?.message || "Failed to save GRN",
@@ -797,9 +803,9 @@ export default function GRNImportForm() {
         workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
         target_user_id: targetApproverId || null,
       });
-      const newStatus = res?.data?.status || "PENDING_APPROVAL";
       setFormData((prev) => ({ ...prev, status: newStatus }));
       setShowForwardModal(false);
+      toast.success("Import GRN submitted for approval successfully");
     } catch (e) {
       setWfError(
         e?.response?.data?.message || "Failed to forward for approval",
@@ -988,7 +994,7 @@ export default function GRNImportForm() {
               className={`space-y-6 ${isView ? "disabled-light-blue" : ""}`}
             >
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
+                <div className="hidden">
                   <label className="label">GRN No</label>
                   <input
                     type="text"
@@ -1282,8 +1288,8 @@ export default function GRNImportForm() {
                           <th>Item</th>
                           <th>Ordered Qty</th>
                           <th>Input UOM</th>
-                          <th>Received Qty</th>
                           <th></th>
+                          <th>Received Qty</th>
                           <th>Accepted Qty</th>
                           <th>Unit Price</th>
                           <th>Amount</th>
@@ -1319,7 +1325,7 @@ export default function GRNImportForm() {
                             <tr key={idx}>
                               <td>
                                 <select
-                                  className="input min-w-[320px]"
+                                  className="input min-w-[256px] w-[384px]"
                                   value={d.item_id}
                                   onChange={(e) =>
                                     updateLine(idx, { item_id: e.target.value })
@@ -1410,19 +1416,6 @@ export default function GRNImportForm() {
                                 </div>
                               </td>
                               <td>
-                                <input
-                                  type="number"
-                                  step="1"
-                                  className="input min-w-[140px]"
-                                  value={d.qty_received}
-                                  onChange={(e) =>
-                                    updateLine(idx, {
-                                      qty_received_direct: e.target.value,
-                                    })
-                                  }
-                                />
-                              </td>
-                              <td>
                                 {(() => {
                                   const defaultUom = String(
                                     d.uom || defaultUomCode || "",
@@ -1467,6 +1460,19 @@ export default function GRNImportForm() {
                                     </button>
                                   ) : null;
                                 })()}
+                              </td>
+                              <td>
+                                <input
+                                  type="number"
+                                  step="1"
+                                  className="input min-w-[140px]"
+                                  value={d.qty_received}
+                                  onChange={(e) =>
+                                    updateLine(idx, {
+                                      qty_received_direct: e.target.value,
+                                    })
+                                  }
+                                />
                               </td>
                               <td>
                                 <input
@@ -1601,11 +1607,26 @@ export default function GRNImportForm() {
                 type="button"
                 className="btn-success"
                 onClick={openForwardModal}
-                disabled={saving || isNew}
+                disabled={
+                  saving ||
+                  isNew ||
+                  String(formData.status || "").toUpperCase() === "APPROVED" ||
+                  String(formData.status || "").toUpperCase() ===
+                    "PENDING_APPROVAL"
+                }
               >
-                {String(formData.status || "").toUpperCase() === "APPROVED"
-                  ? "Approved"
-                  : "Forward for Approval"}
+                {String(formData.status || "").toUpperCase() === "APPROVED" ? (
+                  <span className="px-2 py-1 rounded bg-green-500 text-white text-sm font-medium">
+                    Approved
+                  </span>
+                ) : String(formData.status || "").toUpperCase() ===
+                  "PENDING_APPROVAL" ? (
+                  <span className="px-2 py-1 rounded bg-orange-500 text-white text-sm font-medium">
+                    Pending Approval
+                  </span>
+                ) : (
+                  "Forward for Approval"
+                )}
               </button>
             </div>
           </form>

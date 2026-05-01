@@ -1,15 +1,11 @@
-import * as dotenv from 'dotenv';
-dotenv.config({ path: './server/.env' });
 import { query } from "../db/pool.js";
-
-async function run() {
+async function check() {
   try {
     const rows = await query("DESCRIBE adm_users");
-    console.table(rows);
-    process.exit(0);
-  } catch (err) {
-    console.error(err);
-    process.exit(1);
+    console.log(JSON.stringify(rows, null, 2));
+  } catch (e) {
+    console.error(e);
   }
+  process.exit(0);
 }
-run();
+check();

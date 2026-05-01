@@ -777,8 +777,8 @@ export default function PurchaseOrdersLocalList() {
                         ) : null}
                       </div>
                     </td>
-                    <td>{u.created_by_name || "-"}</td>
-                    <td>{u.created_at ? new Date(u.created_at).toLocaleDateString() : "-"}</td>
+                    <td>{po.created_by_name || "-"}</td>
+                    <td>{po.created_at ? new Date(po.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))
               )}

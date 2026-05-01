@@ -43,16 +43,6 @@ export default function DirectPurchaseList() {
     };
   }, []);
 
-  useEffect(() => {
-    // Capture success message passed via navigation state and then clear it
-    const msg = location?.state?.success;
-    if (msg) {
-      setSuccess(String(msg));
-      // Clear state to avoid showing again on refresh/navigation
-      window.history.replaceState({}, document.title, location.pathname);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location?.state]);
 
   function fmtCurrency(n) {
     const v = Number(n || 0);
@@ -88,7 +78,6 @@ export default function DirectPurchaseList() {
           )}
         </div>
       </div>
-      {success && <div className="alert alert-success">{success}</div>}
       {error && <div className="alert alert-error">{error}</div>}
       <div className="card">
         <div className="card-body">
@@ -103,6 +92,7 @@ export default function DirectPurchaseList() {
                     <th>Date</th>
                     <th>Supplier</th>
                     <th className="text-right">Amount</th>
+                    <th>Status</th>
                     <th>Attachments</th>
                     <th>Actions</th>
                                     <th>Created By</th>
@@ -123,6 +113,17 @@ export default function DirectPurchaseList() {
                         {fmtCurrency(
                           it.grand_total ?? it.total_amount ?? it.amount ?? 0,
                         )}
+                      </td>
+                      <td>
+                        <span
+                          className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                            ["POST", "POSTED"].includes(String(it.status).toUpperCase())
+                              ? "bg-green-100 text-green-800"
+                              : "bg-gray-100 text-gray-800"
+                          }`}
+                        >
+                          {it.status || "DRAFT"}
+                        </span>
                       </td>
                       <td>
                         <button

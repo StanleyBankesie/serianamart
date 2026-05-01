@@ -58,6 +58,7 @@ export default function PurchaseOrdersImportForm() {
   const [currencies, setCurrencies] = useState([]);
   const [standardPrices, setStandardPrices] = useState([]);
   const [taxes, setTaxes] = useState([]);
+  const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
   const [unitConversions, setUnitConversions] = useState([]);
   const pdfRef = useRef(null);
   const [convModal, setConvModal] = useState({
@@ -111,6 +112,7 @@ export default function PurchaseOrdersImportForm() {
       uom: "",
       unit_price: 0,
       discount_percent: 0,
+      tax_code_id: "",
       tax_percent: 0,
       line_total: 0,
     },
@@ -413,17 +415,26 @@ export default function PurchaseOrdersImportForm() {
     let mounted = true;
     async function loadTaxCodes() {
       try {
-        const response = await api.get("/finance/tax-codes?form=PURCHASE_BILL_IMPORT");
+        const response = await api.get(
+          "/finance/tax-codes?form=PURCHASE_BILL_IMPORT",
+        );
         if (!mounted) return;
         const fetchedTaxes = Array.isArray(response.data?.items)
           ? response.data.items
           : [];
-        const mappedTaxes = fetchedTaxes.map((t) => ({
-          value: t.id,
-          label: t.name,
-          rate: Number(t.rate_percent),
-        }));
-        setTaxes(mappedTaxes);
+        setTaxes(fetchedTaxes);
+        // Auto-apply first tax to any new (empty) item rows
+        if (fetchedTaxes.length > 0) {
+          const defaultId = String(fetchedTaxes[0].id);
+          const defaultRate = Number(fetchedTaxes[0].rate_percent) || 0;
+          setItems((prev) =>
+            prev.map((it) =>
+              !it.item_id && !it.tax_code_id
+                ? { ...it, tax_code_id: defaultId, tax_percent: defaultRate }
+                : it,
+            ),
+          );
+        }
       } catch (error) {
         console.error("Error fetching tax codes:", error);
       }
@@ -433,6 +444,30 @@ export default function PurchaseOrdersImportForm() {
       mounted = false;
     };
   }, []);
+
+  const fetchTaxComponentsForCode = async (taxCodeId) => {
+    const key = String(taxCodeId || "");
+    if (!key) return;
+    try {
+      const resp = await api.get(`/finance/tax-codes/${taxCodeId}/components`);
+      const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
+      setTaxComponentsByCode((prev) => ({ ...prev, [key]: items }));
+    } catch {}
+  };
+
+  useEffect(() => {
+    const uniqueTaxIds = Array.from(
+      new Set(
+        items
+          .map((it) => it.tax_code_id)
+          .filter((id) => id && id !== "undefined"),
+      ),
+    );
+    const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
+    if (missing.length) {
+      Promise.all(missing.map((id) => fetchTaxComponentsForCode(id)));
+    }
+  }, [items, taxComponentsByCode]);
 
   const fetchExchangeRateForCode = async (selectedCode) => {
     const code = String(selectedCode || "").toUpperCase();
@@ -549,6 +584,7 @@ export default function PurchaseOrdersImportForm() {
                   uom: d.uom || "",
                   unit_price: Number(d.unit_price) || 0,
                   discount_percent: Number(d.discount_percent) || 0,
+                  tax_code_id: d.tax_code_id ? String(d.tax_code_id) : "",
                   tax_percent: Number(d.tax_percent) || 0,
                   line_total: Number(d.line_total) || 0,
                 }))
@@ -584,26 +620,65 @@ export default function PurchaseOrdersImportForm() {
     let subTotal = 0;
     let totalDiscount = 0;
     let totalTax = 0;
+    const compTotals = {};
 
-    items.forEach((item) => {
+    (items || []).forEach((item) => {
       if (!item) return;
       const qty = Number(item.qty) || 0;
       const price = Number(item.unit_price) || 0;
       const discPct = Number(item.discount_percent) || 0;
-      const taxPct = Number(item.tax_percent) || 0;
+      const taxCodeId = String(item.tax_code_id || "");
 
       const base = qty * price;
       const disc = base * (discPct / 100);
       const taxable = base - disc;
-      const tax = taxable * (taxPct / 100);
+
+      let itemTax = 0;
+      const comps = (taxComponentsByCode && taxComponentsByCode[taxCodeId]) || [];
+      if (comps.length > 0) {
+        comps.forEach((c) => {
+          if (!c) return;
+          const rate = Number(c.rate_percent) || 0;
+          const amt = (taxable * rate) / 100;
+          const name = c.component_name || "Tax";
+          if (!compTotals[name]) {
+            compTotals[name] = {
+              amount: 0,
+              rate,
+              sort_order: c.sort_order || 0,
+            };
+          }
+          compTotals[name].amount += amt;
+          itemTax += amt;
+        });
+      } else {
+        const taxPct = Number(item.tax_percent) || 0;
+        itemTax = taxable * (taxPct / 100);
+        if (itemTax > 0) {
+          const name = "Tax";
+          if (!compTotals[name]) {
+            compTotals[name] = { amount: 0, rate: taxPct, sort_order: 99 };
+          }
+          compTotals[name].amount += itemTax;
+        }
+      }
 
       subTotal += base;
       totalDiscount += disc;
-      totalTax += tax;
+      totalTax += itemTax;
     });
 
     const freight = Number(formData.freight_amount) || 0;
     const other = Number(formData.other_charges) || 0;
+
+    const components = Object.keys(compTotals)
+      .map((name) => ({
+        name,
+        amount: compTotals[name].amount,
+        rate: compTotals[name].rate,
+        sort_order: compTotals[name].sort_order,
+      }))
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
     const grandTotal = subTotal - totalDiscount + totalTax + freight + other;
 
@@ -614,8 +689,9 @@ export default function PurchaseOrdersImportForm() {
       freight,
       other,
       grandTotal,
+      components,
     };
-  }, [items, formData.freight_amount, formData.other_charges]);
+  }, [items, formData.freight_amount, formData.other_charges, taxComponentsByCode]);
 
   // Handlers
   const handleInputChange = async (e) => {
@@ -727,15 +803,19 @@ export default function PurchaseOrdersImportForm() {
           }
 
           if (q.details) {
-            const newItems = q.details.map((d) => ({
-              item_id: String(d.item_id),
-              qty: Number(d.qty) || 0,
-              uom: d.uom || defaultUomCode,
-              unit_price: Number(d.unit_price) || 0,
-              discount_percent: Number(d.discount_percent) || 0,
-              tax_percent: 0,
-              line_total: Number(d.line_total) || 0,
-            }));
+            const newItems = q.details.map((d) => {
+              const taxCode = taxes.find(t => Number(t.rate_percent) === Number(d.tax_percent)) || null;
+              return {
+                item_id: String(d.item_id),
+                qty: Number(d.qty) || 0,
+                uom: d.uom || defaultUomCode,
+                unit_price: Number(d.unit_price) || 0,
+                discount_percent: Number(d.discount_percent) || 0,
+                tax_code_id: taxCode ? String(taxCode.id) : "",
+                tax_percent: Number(d.tax_percent) || 0,
+                line_total: Number(d.line_total) || 0,
+              };
+            });
             setItems(newItems);
           }
         }
@@ -826,13 +906,30 @@ export default function PurchaseOrdersImportForm() {
     const qty = Number(updated[index].qty) || 0;
     const price = Number(updated[index].unit_price) || 0;
     const discPct = Number(updated[index].discount_percent) || 0;
-    const taxPct = Number(updated[index].tax_percent) || 0;
+    const taxCodeId = String(updated[index].tax_code_id || "");
+
+    if (field === "tax_code_id") {
+      const tc = taxes.find((t) => String(t.id) === taxCodeId);
+      updated[index].tax_percent = tc ? Number(tc.rate_percent) || 0 : 0;
+    }
 
     const base = qty * price;
     const disc = base * (discPct / 100);
     const taxable = base - disc;
-    const tax = taxable * (taxPct / 100);
-    updated[index].line_total = taxable + tax;
+
+    let itemTax = 0;
+    const comps = taxComponentsByCode[taxCodeId] || [];
+    if (comps.length > 0) {
+      comps.forEach((c) => {
+        itemTax += (taxable * (Number(c.rate_percent) || 0)) / 100;
+      });
+    } else {
+      const taxPct = Number(updated[index].tax_percent) || 0;
+      itemTax = taxable * (taxPct / 100);
+    }
+
+    updated[index].tax_amount = itemTax;
+    updated[index].line_total = taxable + itemTax;
 
     setItems(updated);
   };
@@ -846,6 +943,7 @@ export default function PurchaseOrdersImportForm() {
         uom: "",
         unit_price: 0,
         discount_percent: 0,
+        tax_code_id: taxes.length > 0 ? String(taxes[0].id) : "",
         tax_percent: 0,
         line_total: 0,
       },
@@ -922,6 +1020,7 @@ export default function PurchaseOrdersImportForm() {
           uom: r.uom || "",
           unit_price: Number(r.unit_price) || 0,
           discount_percent: Number(r.discount_percent) || 0,
+          tax_code_id: r.tax_code_id ? Number(r.tax_code_id) : null,
           tax_percent: Number(r.tax_percent) || 0,
           line_total: Number(r.line_total) || 0,
         })),
@@ -1719,9 +1818,12 @@ export default function PurchaseOrdersImportForm() {
                           Disc %
                         </th>
                         <th className="p-3 text-left text-[13px] w-[140px]">
-                          Tax %
+                          Tax Code
                         </th>
-                        <th className="p-3 text-left text-[13px] w-[150px]">
+                        <th className="p-3 text-right text-[13px] w-[100px]">
+                          Tax Amount
+                        </th>
+                        <th className="p-3 text-right text-[13px] w-[150px]">
                           Net Amount
                         </th>
                         <th className="p-3 text-left text-[13px] w-[80px]">
@@ -1888,32 +1990,32 @@ export default function PurchaseOrdersImportForm() {
                               </td>
                               <td className="p-3">
                                 <select
-                                  value={(() => {
-                                    const match = taxes.find(
-                                      (t) =>
-                                        Number(t.rate) ===
-                                        Number(row.tax_percent || 0),
-                                    );
-                                    return match ? match.value : "";
-                                  })()}
-                                  onChange={(e) => {
-                                    const selectedId = e.target.value;
-                                    const tax = taxes.find(
-                                      (t) =>
-                                        String(t.value) === String(selectedId),
-                                    );
-                                    const rate = tax ? tax.rate : 0;
-                                    handleItemChange(idx, "tax_percent", rate);
-                                  }}
-                                  className="w-full p-2 border border-[#dee2e6] rounded text-sm text-right focus:outline-none focus:border-[#0E3646]"
+                                  value={row.tax_code_id}
+                                  onChange={(e) =>
+                                    handleItemChange(
+                                      idx,
+                                      "tax_code_id",
+                                      e.target.value,
+                                    )
+                                  }
+                                  className="w-full p-2 border border-[#dee2e6] rounded text-sm text-left focus:outline-none focus:border-[#0E3646]"
                                 >
                                   <option value="">No Tax</option>
                                   {taxes.map((t) => (
-                                    <option key={t.value} value={t.value}>
-                                      {t.label}
+                                    <option key={t.id} value={t.id}>
+                                      {t.name}
                                     </option>
                                   ))}
                                 </select>
+                              </td>
+                              <td className="p-3 text-right text-sm text-slate-500">
+                                {Number(row.tax_amount || 0).toLocaleString(
+                                  undefined,
+                                  {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  },
+                                )}
                               </td>
                               <td className="p-3 text-right font-medium text-sm">
                                 {formData.currency}{" "}
@@ -1963,8 +2065,9 @@ export default function PurchaseOrdersImportForm() {
                       })}
                     </span>
                   </div>
+
                   <div className="flex justify-between py-2 border-b border-[#dee2e6] text-[#0E3646]">
-                    <span className="text-sm font-medium">Tax Amount:</span>
+                    <span className="text-sm font-medium">Tax:</span>
                     <span className="font-bold">
                       {formData.currency}{" "}
                       {summary.totalTax.toLocaleString(undefined, {
@@ -1972,6 +2075,21 @@ export default function PurchaseOrdersImportForm() {
                       })}
                     </span>
                   </div>
+
+                  {(summary?.components || []).map((c, ci) => (
+                    <div
+                      key={ci}
+                      className="flex justify-between py-2 border-b border-[#dee2e6] text-[#0E3646]"
+                    >
+                      <span className="text-sm font-medium">{c.name}:</span>
+                      <span className="font-bold">
+                        {formData.currency}{" "}
+                        {Number(c.amount || 0).toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                  ))}
                   <div className="flex justify-between py-2 border-b border-[#dee2e6] items-center">
                     <span className="text-sm font-medium">
                       Freight Charges:
@@ -2176,10 +2294,14 @@ export default function PurchaseOrdersImportForm() {
                     summary.subTotal - summary.totalDiscount || 0,
                   ).toFixed(2)}
                 </div>
-                <div className="px-2 py-1 font-medium">Tax Amount</div>
-                <div className="px-2 py-1 text-right">
-                  {Number(summary.totalTax || 0).toFixed(2)}
-                </div>
+                {(summary?.components || []).map((c, ci) => (
+                  <React.Fragment key={ci}>
+                    <div className="px-2 py-1 font-medium">{c.name}</div>
+                    <div className="px-2 py-1 text-right">
+                      {Number(c.amount || 0).toFixed(2)}
+                    </div>
+                  </React.Fragment>
+                ))}
                 <div className="px-2 py-1 font-medium">Freight Charges</div>
                 <div className="px-2 py-1 text-right">
                   {Number(summary.freight || 0).toFixed(2)}
@@ -2353,12 +2475,23 @@ export default function PurchaseOrdersImportForm() {
             row.uom = convModal.defaultUom || row.uom;
             const price = Number(row.unit_price || 0);
             const discPct = Number(row.discount_percent || 0);
-            const taxPct = Number(row.tax_percent || 0);
+            const taxCodeId = String(row.tax_code_id || "");
+
             const base = qty * price;
             const disc = base * (discPct / 100);
             const taxable = base - disc;
-            const tax = taxable * (taxPct / 100);
-            row.line_total = taxable + tax;
+
+            let itemTax = 0;
+            const comps = taxComponentsByCode[taxCodeId] || [];
+            if (comps.length > 0) {
+              comps.forEach((c) => {
+                itemTax += (taxable * (Number(c.rate_percent) || 0)) / 100;
+              });
+            } else {
+              const taxPct = Number(row.tax_percent || 0);
+              itemTax = taxable * (taxPct / 100);
+            }
+            row.line_total = taxable + itemTax;
             updated[idx] = row;
             return updated;
           });

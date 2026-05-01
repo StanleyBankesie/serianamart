@@ -13,7 +13,7 @@ import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { ensureSalesOrderColumns } from "../utils/dbUtils.js";
 import { ensureStockBalancesWarehouseInfrastructure } from "../services/stock.service.js";
-import { requireIdParam } from "../controllers/finance.controller.js";
+import { requireIdParam, ensureCustomerFinAccountIdTx } from "../controllers/finance.controller.js";
 import { isMailerConfigured, sendMail } from "../utils/mailer.js";
 import * as XLSX from "xlsx";
 
@@ -381,6 +381,16 @@ async function ensureInvoiceTables() {
       `ALTER TABLE ${table} ADD COLUMN created_by BIGINT UNSIGNED NULL`,
     ).catch(() => null);
 }
+
+// Ensure sal_customers has created_by column
+async function ensureCustomersTableColumns() {
+  if (!(await hasColumn("sal_customers", "created_by"))) {
+    await query(
+      `ALTER TABLE sal_customers ADD COLUMN created_by BIGINT UNSIGNED NULL`,
+    ).catch(() => null);
+  }
+}
+
 async function ensureSalesReturnTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS sal_returns (
@@ -682,7 +692,7 @@ async function nextVoucherNoTx(conn, { companyId, voucherTypeId }) {
   );
   const vt = rows?.[0];
   if (!vt) throw httpError(404, "NOT_FOUND", "Voucher type not found");
-  const voucherNo = `${vt.prefix}-${vt.next_number}`;
+  const voucherNo = `${vt.prefix}${String(vt.next_number).padStart(6, "0")}`;
   await conn.execute(
     "UPDATE fin_voucher_types SET next_number = next_number + 1 WHERE company_id = :companyId AND id = :voucherTypeId",
     { companyId, voucherTypeId },
@@ -944,81 +954,6 @@ async function resolveCurrencyIdByCodeOrBaseTx(conn, { companyId, code }) {
   );
   return Number(baseRows?.[0]?.id || 0) || 0;
 }
-async function ensureCustomerFinAccountIdTx(conn, { companyId, customerId }) {
-  const [custRows] = await conn.execute(
-    "SELECT id, customer_code, customer_name, currency_id FROM sal_customers WHERE company_id = :companyId AND id = :id LIMIT 1",
-    { companyId, id: customerId },
-  );
-  const cust = custRows?.[0] || null;
-  if (!cust) return 0;
-  const targetId = Number(cust.id || 0) || 0;
-  const code = await resolveUniqueAccountCodeTx(conn, {
-    companyId,
-    preferredCode: `C${String(targetId).padStart(5, "0")}`,
-    ownerAccountId: targetId,
-    fallbackPrefix: `CUST-${targetId}`,
-  });
-  const debtorsGroupId = await ensureGroupIdTx(conn, {
-    companyId,
-    code: "DEBTORS",
-    name: "Debtors",
-    nature: "ASSET",
-  });
-  const [accByIdRows] = await conn.execute(
-    "SELECT id FROM fin_accounts WHERE company_id = :companyId AND id = :id LIMIT 1",
-    { companyId, id: targetId },
-  );
-  const existingById = Number(accByIdRows?.[0]?.id || 0) || 0;
-  if (existingById) {
-    await conn.execute(
-      `UPDATE fin_accounts
-          SET group_id = :groupId,
-              code = :code,
-              name = :name,
-              currency_id = :currencyId,
-              is_active = 1,
-              is_postable = 1
-        WHERE company_id = :companyId AND id = :id`,
-      {
-        companyId,
-        id: targetId,
-        groupId: debtorsGroupId,
-        code,
-        name: cust.customer_name,
-        currencyId: Number(cust.currency_id || 0) || null,
-      },
-    );
-    return existingById;
-  }
-  const currencyId =
-    Number(cust.currency_id || 0) ||
-    (await resolveCurrencyIdByCodeOrBaseTx(conn, { companyId, code: "GHS" })) ||
-    null;
-  try {
-    const [ins] = await conn.execute(
-      `INSERT INTO fin_accounts
-        (id, company_id, group_id, code, name, currency_id, is_control_account, is_postable, is_active)
-       VALUES
-        (:id, :companyId, :groupId, :code, :name, :currencyId, 0, 1, 1)`,
-      {
-        id: targetId,
-        companyId,
-        groupId: debtorsGroupId,
-        code,
-        name: cust.customer_name,
-        currencyId,
-      },
-    );
-    return Number(ins?.insertId || 0) || targetId;
-  } catch (e) {
-    if (String(e?.code || "") !== "ER_DUP_ENTRY") throw e;
-    const [accRows] = await conn.execute(
-      "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
-      { companyId, code },
-    );
-    return Number(accRows?.[0]?.id || 0) || 0;
-  }
-}
 async function ensureSalesVoucherTypeIdTx(conn, { companyId }) {
   const existingId = await resolveVoucherTypeIdByCode(conn, {
     companyId,
@@ -1259,6 +1194,11 @@ async function createPostedSalesVoucherForInvoiceTx(
     remarks,
   },
 ) {
+  const [custRows] = await conn.execute(
+    "SELECT customer_name FROM sal_customers WHERE id = :customerId LIMIT 1",
+    { customerId },
+  );
+  const customerName = custRows?.[0]?.customer_name || "Customer";
   if (!(Number(grandTotal || 0) > 0)) return 0;
   const [existingRows] = await conn.execute(
     `SELECT v.id
@@ -1313,9 +1253,9 @@ async function createPostedSalesVoucherForInvoiceTx(
   });
   const [hdr] = await conn.execute(
     `INSERT INTO fin_vouchers
-      (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by)
+      (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, balanced_amount, status, created_by)
      VALUES
-      (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, :currencyId, :exchangeRate, :td, :tc, 'POSTED', :createdBy)`,
+      (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, :currencyId, :exchangeRate, :td, :tc, :ba, 'POSTED', :createdBy)`,
     {
       companyId,
       branchId,
@@ -1323,13 +1263,12 @@ async function createPostedSalesVoucherForInvoiceTx(
       voucherTypeId,
       voucherNo,
       voucherDate: invoiceDate || toYmd(new Date()),
-      narration: remarks
-        ? `Invoice ${invoiceNo} posted - ${remarks}`
-        : `Invoice ${invoiceNo} posted`,
+      narration: `Sales made...... Invoice ${invoiceNo} to ${customerName}${remarks ? " - " + remarks : ""}`,
       currencyId: currencyId || null,
       exchangeRate: exchangeRate || 1,
       td: grandTotal,
       tc: grandTotal,
+      ba: grandTotal,
       createdBy: createdBy || null,
     },
   );
@@ -1668,14 +1607,19 @@ router.post(
         throw httpError(400, "VALIDATION_ERROR", "Customer name is required");
       }
 
+      // Ensure created_by column exists
+      await ensureCustomersTableColumns();
+
+      const createdBy = req.user?.id || req.user?.sub || null;
+
       const result = await query(
         `INSERT INTO sal_customers 
          (company_id, branch_id, customer_code, customer_name, email, phone, mobile, 
           contact_person, address, city, state, zone, country, customer_type, 
-          price_type_id, currency_id, credit_limit, payment_terms, is_active)
+          price_type_id, currency_id, credit_limit, payment_terms, is_active, created_by)
          VALUES (:companyId, :branchId, :customer_code, :customer_name, :email, :phone, :mobile,
                  :contact_person, :address, :city, :state, :zone, :country, :customer_type,
-                 :price_type_id, :currency_id, :credit_limit, :payment_terms, :is_active)`,
+                 :price_type_id, :currency_id, :credit_limit, :payment_terms, :is_active, :createdBy)`,
         {
           companyId,
           branchId,
@@ -1696,6 +1640,7 @@ router.post(
           credit_limit: credit_limit || 0,
           payment_terms: payment_terms || "Net 30",
           is_active: is_active === false ? 0 : 1,
+          createdBy,
         },
       );
 
@@ -6207,9 +6152,9 @@ router.get(
         SELECT r.id, r.return_no, r.return_date, r.total_amount, r.status,
                COALESCE(c.customer_name, '') AS customer_name,
                r.invoice_id,
-               u.username AS forwarded_to_username,
+               fu.username AS forwarded_to_username,
           r.created_at,
-          u.username AS created_by_name
+          cu.username AS created_by_name
          FROM sal_returns r
         LEFT JOIN sal_customers c
           ON c.id = r.customer_id AND c.company_id = r.company_id
@@ -6219,14 +6164,13 @@ router.get(
           JOIN (
             SELECT document_id, MAX(id) AS max_id
             FROM adm_document_workflows
-        LEFT JOIN adm_users u ON u.id = r.created_by
-         WHERE company_id = :companyId
-              AND status = 'PENDING'
+            WHERE status = 'PENDING'
               AND (document_type = 'SALES_RETURN' OR document_type = 'Sales Return')
             GROUP BY document_id
           ) m ON m.max_id = t.id
         ) x ON x.document_id = r.id
-        LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
+        LEFT JOIN adm_users fu ON fu.id = x.assigned_to_user_id
+        LEFT JOIN adm_users cu ON cu.id = r.created_by
         WHERE r.company_id = :companyId AND r.branch_id = :branchId
         ORDER BY r.id DESC
         `,
@@ -6450,7 +6394,7 @@ router.post(
             voucherTypeId,
             voucherNo,
             voucherDate,
-            narration: `Sales Return ${return_no}`,
+            narration: `Sales Return for Invoice ${return_no}`,
             totalDebit: total_amount,
             totalCredit: total_amount,
             createdBy: created_by,

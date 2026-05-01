@@ -328,42 +328,6 @@ export default function GRNImportList() {
     if (!selectedDoc) return;
     setSubmittingForward(true);
     setWfError("");
-    // Optimistic UI update
-    let optimisticApprover = null;
-    try {
-      const first =
-        Array.isArray(workflowSteps) && workflowSteps.length
-          ? workflowSteps[0]
-          : null;
-      const opts = first
-        ? Array.isArray(first.approvers) && first.approvers.length
-          ? first.approvers.map((u) => ({ id: u.id, name: u.username }))
-          : first.approver_user_id
-            ? [
-                {
-                  id: first.approver_user_id,
-                  name: first.approver_name || String(first.approver_user_id),
-                },
-              ]
-            : []
-        : [];
-      if (targetApproverId && opts.length) {
-        const hit = opts.find((u) => Number(u.id) === Number(targetApproverId));
-        optimisticApprover = hit ? hit.name : null;
-      }
-    } catch {}
-    setGrns((prev) =>
-      prev.map((p) =>
-        p.id === selectedDoc.id
-          ? {
-              ...p,
-              status: "PENDING_APPROVAL",
-              forwarded_to_username:
-                optimisticApprover || p.forwarded_to_username || "Approver",
-            }
-          : p,
-      ),
-    );
     setShowForwardModal(false);
     setSelectedDoc(null);
     try {

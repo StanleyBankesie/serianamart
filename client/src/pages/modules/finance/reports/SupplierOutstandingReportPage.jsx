@@ -5,10 +5,18 @@ import { api } from "api/client";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 
-export default function SupplierOutstandingReportPage() {
+const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : "—";
+
+export default function SupplierOutstandingReportPage({ backPath = "/finance", backLabel = "Back to Finance" }) {
   const [asOf, setAsOf] = useState("");
   const [items, setItems] = useState([]);
+  const [summary, setSummary] = useState([]);
+  const [totals, setTotals] = useState({});
   const [loading, setLoading] = useState(false);
+  const [view, setView] = useState("aging"); // "aging" | "detail"
+  const [supplierQuery, setSupplierQuery] = useState("");
+  const [asOfDate, setAsOfDate] = useState("");
 
   async function run() {
     try {
@@ -17,8 +25,11 @@ export default function SupplierOutstandingReportPage() {
         params: { asOf: asOf || null },
       });
       setItems(res.data?.items || []);
+      setSummary(res.data?.summary || []);
+      setTotals(res.data?.totals || {});
+      setAsOfDate(res.data?.as_of || asOf);
     } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to load report");
+      toast.error(e?.response?.data?.message || "Failed to load supplier outstanding");
     } finally {
       setLoading(false);
     }
@@ -27,182 +38,308 @@ export default function SupplierOutstandingReportPage() {
   useEffect(() => {
     const today = new Date();
     setAsOf(today.toISOString().slice(0, 10));
-    run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asOf]);
 
+  const filteredSummary = summary.filter((s) =>
+    !supplierQuery || String(s.supplier_name || "").toLowerCase().includes(supplierQuery.toLowerCase())
+  );
+  const filteredDetail = items.filter((r) =>
+    !supplierQuery || String(r.supplier_name || "").toLowerCase().includes(supplierQuery.toLowerCase())
+  );
+
+  function exportExcel() {
+    const wb = XLSX.utils.book_new();
+
+    // Aging Summary Sheet
+    const agingData = [
+      ["Supplier Outstanding Analysis", "", "", "", "", "", ""],
+      [`As at: ${asOfDate}`, "", "", "", "", "", ""],
+      [],
+      ["Supplier", "Current (≤0d)", "1-30 Days", "31-60 Days", "61-90 Days", ">90 Days", "Total Outstanding"],
+      ...filteredSummary.map((s) => [
+        s.supplier_name, s.current, s["1_30"], s["31_60"], s["61_90"], s.over_90, s.total,
+      ]),
+      [],
+      ["TOTALS", totals.current || 0, totals["1_30"] || 0, totals["31_60"] || 0, totals["61_90"] || 0, totals.over_90 || 0, totals.total || 0],
+    ];
+    const ws1 = XLSX.utils.aoa_to_sheet(agingData);
+    ws1["!cols"] = [{ wch: 30 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 18 }];
+    XLSX.utils.book_append_sheet(wb, ws1, "Aging Summary");
+
+    // Detail Sheet
+    const detailData = [
+      ["Supplier", "Bill No", "Bill Date", "Due Date", "Total", "Paid", "Outstanding", "Days Overdue", "Bucket"],
+      ...filteredDetail.map((r) => [
+        r.supplier_name, r.bill_no, fmtDate(r.bill_date), fmtDate(r.due_date),
+        Number(r.total_amount || 0), Number(r.paid || 0), Number(r.outstanding || 0),
+        r.days_overdue, r.aging_bucket,
+      ]),
+    ];
+    const ws2 = XLSX.utils.aoa_to_sheet(detailData);
+    ws2["!cols"] = [{ wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws2, "Bill Detail");
+
+    XLSX.writeFile(wb, `supplier-outstanding-${asOfDate}.xlsx`);
+  }
+
+  function exportPDF() {
+    const doc = new jsPDF("l", "mm", "a4"); // landscape for aging table
+    const pageW = 297;
+    const margin = 12;
+    let y = margin;
+
+    // Header
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, pageW, 26, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(15);
+    doc.setFont("helvetica", "bold");
+    doc.text("SUPPLIER OUTSTANDING ANALYSIS", pageW / 2, 11, { align: "center" });
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.text(`As at: ${asOfDate}   |   Generated: ${new Date().toLocaleDateString()}`, pageW / 2, 20, { align: "center" });
+    y = 32;
+    doc.setTextColor(15, 23, 42);
+
+    // KPI row
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    const kpis = [
+      { label: "Total Outstanding", value: `₵${fmt(totals.total)}` },
+      { label: "Current", value: `₵${fmt(totals.current)}` },
+      { label: "1-30 Days", value: `₵${fmt(totals["1_30"])}` },
+      { label: "31-60 Days", value: `₵${fmt(totals["31_60"])}` },
+      { label: "61-90 Days", value: `₵${fmt(totals["61_90"])}` },
+      { label: ">90 Days", value: `₵${fmt(totals.over_90)}` },
+    ];
+    const kpiW = (pageW - margin * 2) / kpis.length;
+    kpis.forEach((k, i) => {
+      const x = margin + i * kpiW;
+      doc.setFillColor(248, 250, 252);
+      doc.rect(x, y, kpiW - 2, 12, "F");
+      doc.setTextColor(100, 116, 139);
+      doc.setFontSize(7);
+      doc.text(k.label, x + kpiW / 2 - 1, y + 5, { align: "center" });
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.text(k.value, x + kpiW / 2 - 1, y + 10, { align: "center" });
+    });
+    y += 18;
+
+    // Table header
+    doc.setFillColor(30, 41, 59);
+    doc.rect(margin, y, pageW - margin * 2, 7, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(8);
+    const cols = [
+      { label: "Supplier", x: margin + 1, w: 60 },
+      { label: "Current", x: margin + 63, w: 30, right: true },
+      { label: "1-30 Days", x: margin + 95, w: 30, right: true },
+      { label: "31-60 Days", x: margin + 127, w: 30, right: true },
+      { label: "61-90 Days", x: margin + 159, w: 30, right: true },
+      { label: ">90 Days", x: margin + 191, w: 30, right: true },
+      { label: "Total", x: pageW - margin - 1, w: 30, right: true },
+    ];
+    cols.forEach((c) => {
+      if (c.right) doc.text(c.label, c.x, y + 5, { align: "right" });
+      else doc.text(c.label, c.x, y + 5);
+    });
+    y += 9;
+    doc.setTextColor(15, 23, 42);
+
+    filteredSummary.forEach((s, idx) => {
+      if (y > 190) { doc.addPage(); y = margin; }
+      if (idx % 2 === 0) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(margin, y - 3, pageW - margin * 2, 6, "F");
+      }
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.text(String(s.supplier_name || "").slice(0, 38), margin + 1, y);
+      doc.text(fmt(s.current), margin + 93, y, { align: "right" });
+      doc.text(fmt(s["1_30"]), margin + 125, y, { align: "right" });
+      doc.text(fmt(s["31_60"]), margin + 157, y, { align: "right" });
+      doc.text(fmt(s["61_90"]), margin + 189, y, { align: "right" });
+      doc.text(fmt(s.over_90), margin + 221, y, { align: "right" });
+      doc.setFont("helvetica", "bold");
+      doc.text(fmt(s.total), pageW - margin - 1, y, { align: "right" });
+      doc.setFont("helvetica", "normal");
+      y += 6;
+    });
+
+    // Totals row
+    if (y > 190) { doc.addPage(); y = margin; }
+    doc.setFillColor(30, 41, 59);
+    doc.rect(margin, y - 1, pageW - margin * 2, 7, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.text("TOTALS", margin + 1, y + 4);
+    doc.text(fmt(totals.current), margin + 93, y + 4, { align: "right" });
+    doc.text(fmt(totals["1_30"]), margin + 125, y + 4, { align: "right" });
+    doc.text(fmt(totals["31_60"]), margin + 157, y + 4, { align: "right" });
+    doc.text(fmt(totals["61_90"]), margin + 189, y + 4, { align: "right" });
+    doc.text(fmt(totals.over_90), margin + 221, y + 4, { align: "right" });
+    doc.text(fmt(totals.total), pageW - margin - 1, y + 4, { align: "right" });
+
+    doc.save(`supplier-outstanding-${asOfDate}.pdf`);
+  }
+
+  const agingBadge = (bucket) => {
+    const styles = {
+      current: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+      "1_30": "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
+      "31_60": "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
+      "61_90": "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+      over_90: "bg-rose-200 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300 font-bold",
+    };
+    const labels = { current: "Current", "1_30": "1-30d", "31_60": "31-60d", "61_90": "61-90d", over_90: ">90d" };
+    return <span className={`text-xs px-2 py-0.5 rounded-full ${styles[bucket] || ""}`}>{labels[bucket] || bucket}</span>;
+  };
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 p-4">
+      {/* Header */}
+      <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
         <div>
-          <Link
-            to="/finance"
-            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
-          >
-            ← Back to Finance
+          <Link to={backPath} className="text-xs font-bold text-brand uppercase tracking-wider hover:text-brand-600 transition-colors">
+            ← {backLabel}
           </Link>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
-            Supplier Outstanding Report
+          <h1 className="text-3xl font-extrabold text-slate-900 dark:text-slate-100 mt-2 tracking-tight">
+            Supplier Outstanding Analysis
           </h1>
-          <p className="text-sm mt-1">
-            Payables outstanding per supplier as of a date
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 font-medium">
+            Payables aging analysis by supplier as at {asOfDate}
           </p>
+        </div>
+        <div className="flex gap-2">
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => window.print()}>🖨️ Print</button>
+          <button type="button" className="btn btn-outline btn-sm" onClick={exportExcel} disabled={!summary.length}>📊 Excel</button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={exportPDF} disabled={!summary.length}>📄 PDF</button>
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div>
-              <label className="label">As of Date</label>
-              <input
-                className="input"
-                type="date"
-                value={asOf}
-                onChange={(e) => setAsOf(e.target.value)}
-              />
-            </div>
-            <div className="md:col-span-2 flex items-end gap-2">
-              <button
-                type="button"
-                className="btn-success"
-                onClick={() => {
-                  setAsOf("");
-                }}
-                disabled={loading}
-              >
-                Clear
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  const rows = Array.isArray(items) ? items : [];
-                  if (!rows.length) return;
-                  const ws = XLSX.utils.json_to_sheet(rows);
-                  const wb = XLSX.utils.book_new();
-                  XLSX.utils.book_append_sheet(wb, ws, "SupplierOutstanding");
-                  XLSX.writeFile(wb, "supplier-outstanding.xlsx");
-                }}
-                disabled={!items.length}
-              >
-                Export Excel
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => {
-                  const rows = Array.isArray(items) ? items : [];
-                  if (!rows.length) return;
-                  const doc = new jsPDF("p", "mm", "a4");
-                  let y = 15;
-                  doc.setFontSize(14);
-                  doc.text("Supplier Outstanding Report", 10, y);
-                  y += 8;
-                  doc.setFontSize(10);
-                  doc.text("Supplier", 10, y);
-                  doc.text("Bill No", 75, y);
-                  doc.text("Bill Date", 110, y);
-                  doc.text("Due Date", 140, y);
-                  doc.text("Amount", 165, y);
-                  doc.text("Paid", 180, y);
-                  doc.text("Outstanding", 200, y, { align: "right" });
-                  y += 4;
-                  doc.line(10, y, 200, y);
-                  y += 5;
-                  rows.forEach((r) => {
-                    if (y > 270) {
-                      doc.addPage();
-                      y = 15;
-                    }
-                    const supp = String(r.supplier_name || "-").slice(0, 60);
-                    const bill = String(r.bill_no || "-");
-                    const billd = r.bill_date
-                      ? new Date(r.bill_date).toLocaleDateString()
-                      : "-";
-                    const dued = r.due_date
-                      ? new Date(r.due_date).toLocaleDateString()
-                      : "-";
-                    const amt = String(Number(r.amount || 0).toLocaleString());
-                    const paid = String(Number(r.paid || 0).toLocaleString());
-                    const out = String(
-                      Number(r.outstanding || 0).toLocaleString(),
-                    );
-                    doc.text(supp, 10, y);
-                    doc.text(bill, 75, y);
-                    doc.text(billd, 110, y);
-                    doc.text(dued, 140, y);
-                    doc.text(amt, 165, y);
-                    doc.text(paid, 180, y);
-                    doc.text(out, 200, y, { align: "right" });
-                    y += 5;
-                  });
-                  doc.save("supplier-outstanding.pdf");
-                }}
-                disabled={!items.length}
-              >
-                Export PDF
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => window.print()}
-              >
-                Print
-              </button>
-            </div>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+        {[
+          { label: "Total Outstanding", value: totals.total, color: "border-slate-500", text: "text-slate-800 dark:text-slate-100" },
+          { label: "Current (≤0d)", value: totals.current, color: "border-emerald-500", text: "text-emerald-700" },
+          { label: "1-30 Days", value: totals["1_30"], color: "border-yellow-400", text: "text-yellow-700" },
+          { label: "31-60 Days", value: totals["31_60"], color: "border-orange-500", text: "text-orange-700" },
+          { label: "61-90 Days", value: totals["61_90"], color: "border-red-500", text: "text-red-700" },
+          { label: ">90 Days (Critical)", value: totals.over_90, color: "border-rose-600", text: "text-rose-700 font-black" },
+        ].map((k, i) => (
+          <div key={i} className={`bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border-l-4 ${k.color} border-y border-r border-slate-200 dark:border-slate-700`}>
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{k.label}</p>
+            <h3 className={`text-lg font-black mt-1 ${k.text}`}>₵{fmt(k.value)}</h3>
           </div>
+        ))}
+      </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
-              <thead className="sticky top-0 z-10">
+      {/* Filters + Table */}
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex flex-wrap items-center gap-4 bg-slate-50 dark:bg-slate-800/50">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold text-slate-600 dark:text-slate-400">As of Date:</span>
+            <input className="input input-bordered input-sm" type="date" value={asOf}
+              onChange={(e) => setAsOf(e.target.value)} />
+          </div>
+          <input className="input input-bordered input-sm w-52" placeholder="🔍 Search supplier..."
+            value={supplierQuery} onChange={(e) => setSupplierQuery(e.target.value)} />
+          <div className="flex gap-2 ml-auto">
+            <button className={`btn btn-sm ${view === "aging" ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => setView("aging")}>Aging Summary</button>
+            <button className={`btn btn-sm ${view === "detail" ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => setView("detail")}>Bill Detail</button>
+          </div>
+          {loading && <span className="loading loading-spinner loading-sm text-brand"></span>}
+        </div>
+
+        <div className="overflow-x-auto">
+          {view === "aging" ? (
+            <table className="table table-sm w-full text-sm">
+              <thead className="bg-slate-800 text-white">
                 <tr>
-                  <th>Supplier</th>
-                  <th>Bill No</th>
-                  <th>Bill Date</th>
-                  <th>Due Date</th>
-                  <th className="text-right">Amount</th>
-                  <th className="text-right">Paid</th>
-                  <th className="text-right">Outstanding</th>
+                  <th className="py-3 text-xs uppercase tracking-wider">Supplier</th>
+                  <th className="text-right py-3 text-xs uppercase text-emerald-300">Current</th>
+                  <th className="text-right py-3 text-xs uppercase text-yellow-300">1-30 Days</th>
+                  <th className="text-right py-3 text-xs uppercase text-orange-300">31-60 Days</th>
+                  <th className="text-right py-3 text-xs uppercase text-red-300">61-90 Days</th>
+                  <th className="text-right py-3 text-xs uppercase text-rose-300">&gt;90 Days</th>
+                  <th className="text-right py-3 text-xs uppercase tracking-wider">Total</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((r) => (
-                  <tr key={r.id}>
-                    <td className="font-medium">{r.supplier_name || "-"}</td>
-                    <td>{r.bill_no || "-"}</td>
-                    <td>
-                      {r.bill_date
-                        ? new Date(r.bill_date).toLocaleDateString()
-                        : "-"}
+                {filteredSummary.length === 0 && !loading && (
+                  <tr><td colSpan={7} className="text-center py-10 text-slate-400">No outstanding payables found</td></tr>
+                )}
+                {filteredSummary.map((s, i) => (
+                  <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-700/20 border-b border-slate-100 dark:border-slate-700/50">
+                    <td className="py-2.5">
+                      <div className="font-semibold text-slate-700 dark:text-slate-200">{s.supplier_name}</div>
+                      {s.supplier_code && <div className="text-xs text-slate-400">{s.supplier_code}</div>}
                     </td>
-                    <td>
-                      {r.due_date
-                        ? new Date(r.due_date).toLocaleDateString()
-                        : "-"}
-                    </td>
-                    <td className="text-right">
-                      {Number(r.amount || 0).toLocaleString()}
-                    </td>
-                    <td className="text-right">
-                      {Number(r.paid || 0).toLocaleString()}
-                    </td>
-                    <td className="text-right">
-                      {Number(r.outstanding || 0).toLocaleString()}
-                    </td>
+                    <td className="text-right font-mono text-emerald-700 dark:text-emerald-400">{s.current > 0 ? `₵${fmt(s.current)}` : "—"}</td>
+                    <td className="text-right font-mono text-yellow-700 dark:text-yellow-400">{s["1_30"] > 0 ? `₵${fmt(s["1_30"])}` : "—"}</td>
+                    <td className="text-right font-mono text-orange-700 dark:text-orange-400">{s["31_60"] > 0 ? `₵${fmt(s["31_60"])}` : "—"}</td>
+                    <td className="text-right font-mono text-red-700 dark:text-red-400">{s["61_90"] > 0 ? `₵${fmt(s["61_90"])}` : "—"}</td>
+                    <td className="text-right font-mono text-rose-700 dark:text-rose-400 font-bold">{s.over_90 > 0 ? `₵${fmt(s.over_90)}` : "—"}</td>
+                    <td className="text-right font-black font-mono text-slate-900 dark:text-slate-100">₵{fmt(s.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {filteredSummary.length > 0 && (
+                <tfoot className="bg-slate-800 text-white">
+                  <tr>
+                    <td className="font-black py-3 text-xs uppercase">Totals</td>
+                    <td className="text-right font-black font-mono">₵{fmt(totals.current)}</td>
+                    <td className="text-right font-black font-mono">₵{fmt(totals["1_30"])}</td>
+                    <td className="text-right font-black font-mono">₵{fmt(totals["31_60"])}</td>
+                    <td className="text-right font-black font-mono">₵{fmt(totals["61_90"])}</td>
+                    <td className="text-right font-black font-mono">₵{fmt(totals.over_90)}</td>
+                    <td className="text-right font-black font-mono">₵{fmt(totals.total)}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          ) : (
+            <table className="table table-sm w-full text-sm">
+              <thead className="bg-slate-800 text-white">
+                <tr>
+                  <th className="py-3 text-xs uppercase">Supplier</th>
+                  <th className="py-3 text-xs uppercase">Bill No</th>
+                  <th className="py-3 text-xs uppercase">Bill Date</th>
+                  <th className="py-3 text-xs uppercase">Due Date</th>
+                  <th className="text-right py-3 text-xs uppercase">Total</th>
+                  <th className="text-right py-3 text-xs uppercase">Paid</th>
+                  <th className="text-right py-3 text-xs uppercase">Outstanding</th>
+                  <th className="py-3 text-xs uppercase">Aging</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredDetail.length === 0 && !loading && (
+                  <tr><td colSpan={8} className="text-center py-10 text-slate-400">No records found</td></tr>
+                )}
+                {filteredDetail.map((r, i) => (
+                  <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-700/20 border-b border-slate-100 dark:border-slate-700/50">
+                    <td className="font-medium text-slate-700 dark:text-slate-200">{r.supplier_name || "—"}</td>
+                    <td className="font-mono text-brand text-xs">{r.bill_no}</td>
+                    <td className="text-xs text-slate-500">{fmtDate(r.bill_date)}</td>
+                    <td className="text-xs text-slate-500">{fmtDate(r.due_date)}</td>
+                    <td className="text-right font-mono">₵{fmt(r.total_amount)}</td>
+                    <td className="text-right font-mono text-emerald-600">₵{fmt(r.paid)}</td>
+                    <td className="text-right font-black font-mono text-slate-900 dark:text-slate-100">₵{fmt(r.outstanding)}</td>
+                    <td>{agingBadge(r.aging_bucket)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-
-          {items.length === 0 && !loading ? (
-            <div className="text-center py-10">No rows.</div>
-          ) : null}
+          )}
         </div>
       </div>
     </div>

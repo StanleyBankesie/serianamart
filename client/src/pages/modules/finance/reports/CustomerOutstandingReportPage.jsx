@@ -1,21 +1,53 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import { filterAndSort } from "../../../../utils/searchUtils.js";
 
 export default function CustomerOutstandingReportPage() {
   const [asOf, setAsOf] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [accounts, setAccounts] = useState([]);
+  const [accountId, setAccountId] = useState("");
+  const [accountQuery, setAccountQuery] = useState("");
+
+  // Load debtors accounts (ASSET group nature)
+  async function loadAccounts() {
+    try {
+      const res = await api.get("/finance/accounts", {
+        params: { active: 1 },
+      });
+      const allAccounts = res.data?.items || [];
+      setAccounts(allAccounts);
+    } catch {
+      toast.error("Failed to load accounts");
+    }
+  }
+
+  useEffect(() => {
+    loadAccounts();
+  }, []);
+
+  const filteredAccounts = useMemo(() => {
+    // Filter for asset nature accounts (debtors)
+    const debtorsAccounts = accounts.filter(
+      (a) => String(a.nature || a.group_nature || "").toUpperCase() === "ASSET"
+    );
+    return filterAndSort(debtorsAccounts, {
+      query: accountQuery,
+      getKeys: (a) => [a.code, a.name],
+    });
+  }, [accounts, accountQuery]);
 
   async function run() {
     try {
       setLoading(true);
-      const res = await api.get("/finance/reports/customer-outstanding", {
-        params: { asOf: asOf || null },
-      });
+      const params = { asOf: asOf || null };
+      if (accountId) params.accountId = accountId;
+      const res = await api.get("/finance/reports/customer-outstanding", { params });
       setItems(res.data?.items || []);
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to load report");
@@ -33,7 +65,7 @@ export default function CustomerOutstandingReportPage() {
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [asOf]);
+  }, [asOf, accountId]);
 
   return (
     <div className="space-y-4">
@@ -56,7 +88,28 @@ export default function CustomerOutstandingReportPage() {
 
       <div className="card">
         <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div className="md:col-span-2">
+              <label className="label">Account (Debtors)</label>
+              <input
+                className="input mb-2"
+                placeholder="Search account code/name..."
+                value={accountQuery}
+                onChange={(e) => setAccountQuery(e.target.value)}
+              />
+              <select
+                className="input"
+                value={accountId}
+                onChange={(e) => setAccountId(e.target.value)}
+              >
+                <option value="">All Debtors</option>
+                {filteredAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.code} — {a.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="label">As of Date</label>
               <input
@@ -66,7 +119,7 @@ export default function CustomerOutstandingReportPage() {
                 onChange={(e) => setAsOf(e.target.value)}
               />
             </div>
-            <div className="md:col-span-2 flex items-end gap-2">
+            <div className="flex items-end gap-2">
               <button
                 type="button"
                 className="btn-success"

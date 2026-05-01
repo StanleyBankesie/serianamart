@@ -240,7 +240,10 @@ export default function BankReconciliationList() {
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="text-xs font-bold uppercase">
-                      Bank Account
+                      Bank
+                    </th>
+                    <th className="text-xs font-bold uppercase">
+                      Account No
                     </th>
                     <th className="text-xs font-bold uppercase">Period</th>
                     <th className="text-right text-xs font-bold uppercase">
@@ -254,44 +257,52 @@ export default function BankReconciliationList() {
                   {recons.length === 0 ? (
                     <tr>
                       <td
-                        colSpan="5"
+                        colSpan="6"
                         className="text-center py-8 text-slate-500 italic"
                       >
                         No reconciliations found
                       </td>
                     </tr>
                   ) : (
-                    recons.map((r) => (
-                      <tr key={r.id} className="hover">
-                        <td className="font-medium text-sm">
-                          {r.bank_account_name}
-                        </td>
-                        <td className="text-sm">
-                          {r.statement_from?.slice(0, 10)} to{" "}
-                          {r.statement_to?.slice(0, 10)}
-                        </td>
-                        <td className="text-right text-sm font-mono">
-                          {Number(
-                            r.statement_ending_balance || 0,
-                          ).toLocaleString()}
-                        </td>
-                        <td>
-                          <span
-                            className={`badge badge-sm ${r.status === "COMPLETED" ? "badge-success" : "badge-warning"}`}
-                          >
-                            {r.status}
-                          </span>
-                        </td>
-                        <td className="text-right">
-                          <Link
-                            to={`/finance/bank-reconciliation/${r.id}`}
-                            className="btn btn-xs btn-primary"
-                          >
-                            Open
-                          </Link>
-                        </td>
-                      </tr>
-                    ))
+                    recons.map((r) => {
+                      const bankAccount = bankAccounts.find(
+                        (b) => String(b.id) === String(r.bank_account_id)
+                      );
+                      return (
+                        <tr key={r.id} className="hover">
+                          <td className="font-medium text-sm">
+                            {bankAccount?.bank_name || bankAccount?.name || r.bank_account_name || "-"}
+                          </td>
+                          <td className="text-sm font-mono">
+                            {bankAccount?.account_number || "-"}
+                          </td>
+                          <td className="text-sm">
+                            {r.statement_from?.slice(0, 10)} to{" "}
+                            {r.statement_to?.slice(0, 10)}
+                          </td>
+                          <td className="text-right text-sm font-mono">
+                            {Number(
+                              r.statement_ending_balance || 0,
+                            ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </td>
+                          <td>
+                            <span
+                              className={`badge badge-sm ${r.status === "COMPLETED" ? "badge-success" : r.status === "PENDING" ? "badge-warning" : "badge-info"}`}
+                            >
+                              {r.status}
+                            </span>
+                          </td>
+                          <td className="text-right">
+                            <Link
+                              to={`/finance/bank-reconciliation/${r.id}`}
+                              className="btn btn-xs btn-primary"
+                            >
+                              Open
+                            </Link>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

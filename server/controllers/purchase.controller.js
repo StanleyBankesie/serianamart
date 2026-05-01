@@ -1924,9 +1924,9 @@ export const createServiceBill = async (req, res, next) => {
     const totalCredit = Math.round(totalAmount * 100) / 100;
     const [vIns] = await conn.execute(
       `INSERT INTO fin_vouchers
-        (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
+        (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, balanced_amount, status, created_by, approved_by, posted_by)
        VALUES
-        (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
+        (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, :ba, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
       {
         companyId,
         branchId,
@@ -1937,6 +1937,7 @@ export const createServiceBill = async (req, res, next) => {
         narration: `Service Bill ${billNo} posting`,
         totalDebit,
         totalCredit,
+        ba: totalDebit,
         createdBy,
         approvedBy: createdBy,
         postedBy: createdBy,

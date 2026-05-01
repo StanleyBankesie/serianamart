@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
@@ -15,6 +15,7 @@ import { useAfterSaveRefresh } from "../../../../hooks/useAfterSaveRefresh.js";
 
 export default function CustomerList() {
   const navigate = useNavigate();
+  const location = useLocation();
   const fileInputRef = React.useRef(null);
   const dispatch = useDispatch();
   const loading = useSelector(selectCustomersLoading) === "pending";
@@ -27,6 +28,7 @@ export default function CustomerList() {
   const [bulkForce, setBulkForce] = useState(false);
   const [bulkCascade, setBulkCascade] = useState(false);
   const [bulkCleanupFinance, setBulkCleanupFinance] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
   const { hasAccess, scope } = useAuth();
   const { canPerformAction } = usePermission();
   const [branchOnly, setBranchOnly] = useState(false);
@@ -39,6 +41,19 @@ export default function CustomerList() {
       fetchCustomers({ force: true, params: { active: !showInactive } }),
     );
   }, [dispatch, showInactive]);
+
+  // Show success message from navigation state
+  useEffect(() => {
+    const message = location.state?.afterSave?.message;
+    if (message) {
+      setSuccessMessage(message);
+      // Clear success message after 3 seconds
+      const timer = setTimeout(() => setSuccessMessage(""), 3000);
+      // Clear location state
+      window.history.replaceState({}, document.title);
+      return () => clearTimeout(timer);
+    }
+  }, [location.state]);
 
   useAfterSaveRefresh("customers", () =>
     dispatch(
@@ -144,6 +159,12 @@ export default function CustomerList() {
       {error && (
         <div className="alert alert-error">
           <span>{error}</span>
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="alert alert-success">
+          <span>{successMessage}</span>
         </div>
       )}
 

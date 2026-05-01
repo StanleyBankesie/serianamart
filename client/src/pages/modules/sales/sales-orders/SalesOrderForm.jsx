@@ -461,7 +461,11 @@ export default function SalesOrderForm() {
 
   const ensureTaxComponentsLoaded = async () => {
     const uniqueTaxIds = Array.from(
-      new Set(items.map((i) => String(i.tax_type)).filter(Boolean)),
+      new Set(
+        items
+          .map((i) => i.tax_type)
+          .filter((id) => id && id !== "undefined"),
+      ),
     );
     const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
     if (missing.length) {

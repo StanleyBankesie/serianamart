@@ -326,45 +326,6 @@ export default function GRNLocalList() {
     if (!selectedDoc) return;
     setSubmittingId(selectedDoc.id);
     setWfError("");
-    // Optimistic UI update before API
-    let optimisticApprover = null;
-    try {
-      const first =
-        Array.isArray(workflowSteps) && workflowSteps.length
-          ? workflowSteps[0]
-          : null;
-      const opts = first
-        ? Array.isArray(first.approvers) && first.approvers.length
-          ? first.approvers.map((u) => ({
-              id: u.id,
-              name: u.username,
-            }))
-          : first.approver_user_id
-            ? [
-                {
-                  id: first.approver_user_id,
-                  name: first.approver_name || String(first.approver_user_id),
-                },
-              ]
-            : []
-        : [];
-      if (targetApproverId && opts.length) {
-        const hit = opts.find((u) => Number(u.id) === Number(targetApproverId));
-        optimisticApprover = hit ? hit.name : null;
-      }
-    } catch {}
-    setGrns((prev) =>
-      prev.map((g) =>
-        g.id === selectedDoc.id
-          ? {
-              ...g,
-              status: "PENDING_APPROVAL",
-              forwarded_to_username:
-                optimisticApprover || g.forwarded_to_username || "Approver",
-            }
-          : g,
-      ),
-    );
     setShowForwardModal(false);
     try {
       await api.post(`/inventory/grn/${selectedDoc.id}/submit`, {

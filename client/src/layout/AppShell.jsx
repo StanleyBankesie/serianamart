@@ -26,6 +26,7 @@ import ProductionHome from "../pages/modules/production/ProductionHome.jsx";
 import PosHome from "../pages/modules/pos/PosHome.jsx";
 import BusinessIntelligenceHome from "../pages/modules/business-intelligence/BusinessIntelligenceHome.jsx";
 import ServiceManagementHome from "../pages/modules/service-management/ServiceManagementHome.jsx";
+import ExecutiveOverviewRoutes from "../pages/modules/executive-overview/ExecutiveOverviewRoutes.jsx";
 import NotificationsPage from "../pages/NotificationsPage.jsx";
 import SocialFeedPage from "../pages/social/SocialFeedPage.jsx";
 import RoleSetup from "../pages/admin/RoleSetup.jsx";
@@ -87,6 +88,12 @@ const modules = [
     label: "Service Management",
     path: "/service-management",
     icon: "🛎️",
+  },
+  {
+    key: "executive-overview",
+    label: "Executive Overview",
+    path: "/executive-overview",
+    icon: "🎯",
   },
 ];
 
@@ -1432,6 +1439,10 @@ export default function AppShell() {
                 <Route
                   path="/service-management/*"
                   element={<ServiceManagementHome />}
+                />
+                <Route
+                  path="/executive-overview/*"
+                  element={<ExecutiveOverviewRoutes />}
                 />
                 <Route
                   path="/administration/access/dashboard-permissions"

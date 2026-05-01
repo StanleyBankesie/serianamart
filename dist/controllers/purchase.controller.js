@@ -289,15 +289,16 @@ async function ensureServiceConfirmationTables() {
 }
 
 async function nextSequentialNo(table, column, prefix) {
-  const rows = await query(
-    `
-    SELECT ${column} AS no
-    FROM ${table}
-    WHERE ${column} REGEXP '^${prefix}-[0-9]{6}$'
+  const rows = await query(`
+    SELECT ${column} AS no,
+          created_at,
+          u.username AS created_by_name
+         FROM ${table}
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE ${column} REGEXP '^${prefix}-[0-9]{6}$'
     ORDER BY CAST(SUBSTRING(${column}, ${prefix.length + 2}) AS UNSIGNED) DESC
     LIMIT 1
-    `,
-  );
+    `);
   let nextNum = 1;
   if (rows.length > 0) {
     const prev = String(rows[0].no || "");
@@ -319,10 +320,13 @@ export const listServiceConfirmations = async (req, res, next) => {
              c.sc_date,
              c.status,
              c.total_amount,
-             s.supplier_name
-      FROM inv_service_confirmations c
+             s.supplier_name,
+          c.created_at,
+          u.username AS created_by_name
+         FROM inv_service_confirmations c
       JOIN pur_suppliers s ON s.id = c.supplier_id
-      WHERE c.company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.company_id = :companyId
         AND c.branch_id = :branchId
       ORDER BY c.sc_date DESC, c.id DESC
       `,
@@ -342,9 +346,12 @@ export const getServiceConfirmationById = async (req, res, next) => {
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const rows = await query(
       `
-      SELECT c.*
-      FROM inv_service_confirmations c
-      WHERE c.id = :id AND c.company_id = :companyId AND c.branch_id = :branchId
+      SELECT c.*,
+          c.created_at,
+          u.username AS created_by_name
+         FROM inv_service_confirmations c
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.id = :id AND c.company_id = :companyId AND c.branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -353,9 +360,12 @@ export const getServiceConfirmationById = async (req, res, next) => {
       throw httpError(404, "NOT_FOUND", "Service confirmation not found");
     const details = await query(
       `
-      SELECT d.id, d.description, d.qty, d.unit_price, d.line_total
-      FROM inv_service_confirmation_details d
-      WHERE d.confirmation_id = :id
+      SELECT d.id, d.description, d.qty, d.unit_price, d.line_total,
+          d.created_at,
+          u.username AS created_by_name
+         FROM inv_service_confirmation_details d
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.confirmation_id = :id
       ORDER BY d.id ASC
       `,
       { id },
@@ -453,13 +463,11 @@ export const createServiceConfirmation = async (req, res, next) => {
 };
 
 async function ensureShippingAdviceStatusEnum() {
-  const rows = await query(
-    `SELECT column_type, column_default
-     FROM information_schema.columns
-     WHERE table_schema = DATABASE()
+  const rows = await query(`SELECT column_type, column_default
+         FROM information_schema.columns
+         WHERE table_schema = DATABASE()
        AND table_name = 'pur_shipping_advices'
-       AND column_name = 'status'`,
-  );
+       AND column_name = 'status'`);
   const colType = String(rows?.[0]?.column_type || "").toUpperCase();
   const hasDesired =
     colType.includes("'DRAFT'") &&
@@ -493,13 +501,11 @@ async function ensureShippingAdviceETDColumn() {
 }
 
 async function ensurePortClearanceStatusEnum() {
-  const rows = await query(
-    `SELECT column_type, column_default
-     FROM information_schema.columns
-     WHERE table_schema = DATABASE()
+  const rows = await query(`SELECT column_type, column_default
+         FROM information_schema.columns
+         WHERE table_schema = DATABASE()
        AND table_name = 'pur_port_clearances'
-       AND column_name = 'status'`,
-  );
+       AND column_name = 'status'`);
   const colType = String(rows?.[0]?.column_type || "").toUpperCase();
   const hasPending = colType.includes("'PENDING'");
   const hasInProgress = colType.includes("'IN_PROGRESS'");
@@ -525,16 +531,22 @@ export const getNextSupplierCode = async (req, res, next) => {
   try {
     const { companyId } = req.scope;
     const [supRows] = await pool.query(
-      `SELECT MAX(CAST(SUBSTRING(supplier_code, 4) AS UNSIGNED)) AS maxnum
-       FROM pur_suppliers
-       WHERE company_id = :companyId
+      `SELECT MAX(CAST(SUBSTRING(supplier_code, 4) AS UNSIGNED)) AS maxnum,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_suppliers
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
          AND supplier_code REGEXP '^SU-[0-9]{6}$'`,
       { companyId },
     );
     const [accRows] = await pool.query(
-      `SELECT MAX(CAST(SUBSTRING(code, 4) AS UNSIGNED)) AS maxnum
-       FROM fin_accounts
-       WHERE company_id = :companyId
+      `SELECT MAX(CAST(SUBSTRING(code, 4) AS UNSIGNED)) AS maxnum,
+          created_at,
+          u.username AS created_by_name
+         FROM fin_accounts
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
          AND code REGEXP '^SU-[0-9]{6}$'`,
       { companyId },
     );
@@ -554,6 +566,16 @@ export const listShippingAdvices = async (req, res, next) => {
   try {
     const { companyId, branchId } = req.scope;
     const { status, po_type } = req.query;
+    if (!(await hasColumn("pur_shipping_advices", "is_active"))) {
+      await query(
+        "ALTER TABLE pur_shipping_advices ADD COLUMN is_active ENUM('Y','N') NOT NULL DEFAULT 'Y'",
+      ).catch(() => {});
+    }
+    if (!(await hasColumn("pur_shipping_advices", "deleted_at"))) {
+      await query(
+        "ALTER TABLE pur_shipping_advices ADD COLUMN deleted_at DATETIME NULL",
+      ).catch(() => {});
+    }
     let sql = `SELECT sa.*, s.supplier_name, p.po_no, p.po_type,
          EXISTS(
            SELECT 1 FROM pur_port_clearances pc
@@ -565,7 +587,8 @@ export const listShippingAdvices = async (req, res, next) => {
          FROM pur_shipping_advices sa
          JOIN pur_suppliers s ON s.id = sa.supplier_id
          JOIN pur_orders p ON p.id = sa.po_id
-         WHERE sa.company_id = :companyId AND sa.branch_id = :branchId`;
+         WHERE sa.company_id = :companyId AND sa.branch_id = :branchId
+           AND COALESCE(sa.is_active,'Y') = 'Y'`;
     if (status) sql += ` AND sa.status = :status`;
     if (po_type) sql += ` AND p.po_type = :po_type`;
     sql += ` ORDER BY sa.advice_date DESC, sa.id DESC`;
@@ -580,9 +603,12 @@ export const getNextShippingAdviceNo = async (req, res, next) => {
   try {
     const { companyId, branchId } = req.scope;
     const rows = await query(
-      `SELECT MAX(CAST(SUBSTRING(advice_no, 4) AS UNSIGNED)) AS maxnum
-       FROM pur_shipping_advices
-       WHERE company_id = :companyId
+      `SELECT MAX(CAST(SUBSTRING(advice_no, 4) AS UNSIGNED)) AS maxnum,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_shipping_advices
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
          AND branch_id = :branchId
          AND advice_no REGEXP '^SA-[0-9]{6}$'`,
       { companyId, branchId },
@@ -602,20 +628,26 @@ export const getShippingAdviceById = async (req, res, next) => {
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const rows = await query(
-      `SELECT sa.*, s.supplier_name, p.po_no
-       FROM pur_shipping_advices sa
+      `SELECT sa.*, s.supplier_name, p.po_no,
+          sa.created_at,
+          u.username AS created_by_name
+         FROM pur_shipping_advices sa
        JOIN pur_suppliers s ON s.id = sa.supplier_id
        JOIN pur_orders p ON p.id = sa.po_id
-       WHERE sa.id = :id AND sa.company_id = :companyId AND sa.branch_id = :branchId`,
+        LEFT JOIN adm_users u ON u.id = sa.created_by
+         WHERE sa.id = :id AND sa.company_id = :companyId AND sa.branch_id = :branchId`,
       { id, companyId, branchId },
     );
     if (!rows.length)
       throw httpError(404, "NOT_FOUND", "Shipping Advice not found");
     const details = await query(
-      `SELECT d.*, i.item_name, i.item_code 
-       FROM pur_shipping_advice_details d 
-       JOIN inv_items i ON i.id = d.item_id 
-       WHERE d.advice_id = :id`,
+      `SELECT d.*, i.item_name, i.item_code,
+          d.created_at,
+          u.username AS created_by_name
+         FROM pur_shipping_advice_details d 
+       JOIN inv_items i ON i.id = d.item_id
+        LEFT JOIN adm_users u ON u.id = d.created_by
+         WHERE d.advice_id = :id`,
       { id },
     );
     res.json({ item: { ...rows[0], details } });
@@ -765,6 +797,16 @@ export const listPortClearances = async (req, res, next) => {
   try {
     const { companyId, branchId } = req.scope;
     const { status } = req.query;
+    if (!(await hasColumn("pur_port_clearances", "is_active"))) {
+      await query(
+        "ALTER TABLE pur_port_clearances ADD COLUMN is_active ENUM('Y','N') NOT NULL DEFAULT 'Y'",
+      ).catch(() => {});
+    }
+    if (!(await hasColumn("pur_port_clearances", "deleted_at"))) {
+      await query(
+        "ALTER TABLE pur_port_clearances ADD COLUMN deleted_at DATETIME NULL",
+      ).catch(() => {});
+    }
     let sql = `SELECT pc.*, sa.advice_no, p.po_no, s.supplier_name,
          EXISTS(
            SELECT 1 FROM inv_goods_receipt_notes g
@@ -777,7 +819,8 @@ export const listPortClearances = async (req, res, next) => {
          LEFT JOIN pur_shipping_advices sa ON sa.id = pc.advice_id
          LEFT JOIN pur_orders p ON p.id = sa.po_id
          LEFT JOIN pur_suppliers s ON s.id = sa.supplier_id
-         WHERE pc.company_id = :companyId AND pc.branch_id = :branchId`;
+         WHERE pc.company_id = :companyId AND pc.branch_id = :branchId
+           AND COALESCE(pc.is_active,'Y') = 'Y'`;
     if (status) sql += ` AND pc.status = :status`;
     sql += ` ORDER BY pc.clearance_date DESC, pc.id DESC`;
     const rows = await query(sql, { companyId, branchId, status });
@@ -791,9 +834,12 @@ export const getNextPortClearanceNo = async (req, res, next) => {
   try {
     const { companyId, branchId } = req.scope;
     const rows = await query(
-      `SELECT MAX(CAST(SUBSTRING(clearance_no, 4) AS UNSIGNED)) AS maxnum
-       FROM pur_port_clearances
-       WHERE company_id = :companyId
+      `SELECT MAX(CAST(SUBSTRING(clearance_no, 4) AS UNSIGNED)) AS maxnum,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_port_clearances
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
          AND branch_id = :branchId
          AND clearance_no REGEXP '^CC-[0-9]{6}$'`,
       { companyId, branchId },
@@ -813,10 +859,13 @@ export const getPortClearanceById = async (req, res, next) => {
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const rows = await query(
-      `SELECT pc.*, sa.advice_no
-       FROM pur_port_clearances pc
+      `SELECT pc.*, sa.advice_no,
+          pc.created_at,
+          u.username AS created_by_name
+         FROM pur_port_clearances pc
        LEFT JOIN pur_shipping_advices sa ON sa.id = pc.advice_id
-       WHERE pc.id = :id AND pc.company_id = :companyId AND pc.branch_id = :branchId`,
+        LEFT JOIN adm_users u ON u.id = pc.created_by
+         WHERE pc.id = :id AND pc.company_id = :companyId AND pc.branch_id = :branchId`,
       { id, companyId, branchId },
     );
     if (!rows.length)
@@ -843,8 +892,11 @@ export const createPortClearance = async (req, res, next) => {
     const adviceId = toNumber(body.advice_id ?? body.shipping_advice_id);
     if (!clearanceNo) {
       const [rows] = await conn.query(
-        `SELECT MAX(CAST(SUBSTRING(clearance_no, 4) AS UNSIGNED)) AS maxnum
+        `SELECT MAX(CAST(SUBSTRING(clearance_no, 4) AS UNSIGNED)) AS maxnum,
+          created_at,
+          u.username AS created_by_name
          FROM pur_port_clearances
+        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = ? AND branch_id = ?
            AND clearance_no REGEXP '^CC-[0-9]{6}$'`,
         [companyId, branchId],
@@ -1134,8 +1186,7 @@ async function ensureServiceBillTables() {
     );
   }
   try {
-    await pool.query(
-      `
+    await pool.query(`
       UPDATE pur_service_bills sb
       JOIN pur_suppliers s
         ON s.company_id = sb.company_id
@@ -1143,16 +1194,13 @@ async function ensureServiceBillTables() {
        AND s.supplier_name = sb.client_name
       SET sb.supplier_id = s.id
       WHERE sb.supplier_id IS NULL AND sb.client_name IS NOT NULL
-      `,
-    );
+      `);
   } catch {}
-  const rows = await query(
-    `SELECT column_type
-     FROM information_schema.columns
-     WHERE table_schema = DATABASE()
+  const rows = await query(`SELECT column_type
+         FROM information_schema.columns
+         WHERE table_schema = DATABASE()
        AND table_name = 'pur_service_bills'
-       AND column_name = 'status'`,
-  );
+       AND column_name = 'status'`);
   const colType = String(rows?.[0]?.column_type || "").toUpperCase();
   const hasCompleted = colType.includes("'COMPLETED'");
   if (!hasCompleted) {
@@ -1211,15 +1259,18 @@ export const listServiceRequests = async (req, res, next) => {
     const rows = await query(
       `
       SELECT r.id, r.request_no, r.request_date, r.requester_full_name, r.service_type, r.priority, r.status,
-             u.username AS forwarded_to_username
-      FROM pur_service_requests r
+             u.username AS forwarded_to_username,
+          r.created_at,
+          u.username AS created_by_name
+         FROM pur_service_requests r
       LEFT JOIN (
         SELECT t.document_id, t.assigned_to_user_id
         FROM adm_document_workflows t
         JOIN (
           SELECT document_id, MAX(id) AS max_id
           FROM adm_document_workflows
-          WHERE company_id = :companyId
+        LEFT JOIN adm_users u ON u.id = r.created_by
+         WHERE company_id = :companyId
             AND status = 'PENDING'
             AND (document_type = 'SERVICE_REQUEST' OR document_type = 'Service Request')
           GROUP BY document_id
@@ -1245,9 +1296,12 @@ export const getServiceRequestById = async (req, res, next) => {
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const rows = await query(
       `
-      SELECT *
-      FROM pur_service_requests
-      WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+      SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_service_requests
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1653,9 +1707,12 @@ export const getServiceBillById = async (req, res, next) => {
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const rows = await query(
       `
-      SELECT *
-      FROM pur_service_bills
-      WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+      SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_service_bills
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1674,9 +1731,12 @@ export const getServiceBillById = async (req, res, next) => {
     }
     const details = await query(
       `
-      SELECT id, description, category, qty, rate, amount
-      FROM pur_service_bill_details
-      WHERE bill_id = :id
+      SELECT id, description, category, qty, rate, amount,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_service_bill_details
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE bill_id = :id
       ORDER BY id ASC
       `,
       { id },
@@ -1864,9 +1924,9 @@ export const createServiceBill = async (req, res, next) => {
     const totalCredit = Math.round(totalAmount * 100) / 100;
     const [vIns] = await conn.execute(
       `INSERT INTO fin_vouchers
-        (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
+        (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, balanced_amount, status, created_by, approved_by, posted_by)
        VALUES
-        (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
+        (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, :ba, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
       {
         companyId,
         branchId,
@@ -1877,6 +1937,7 @@ export const createServiceBill = async (req, res, next) => {
         narration: `Service Bill ${billNo} posting`,
         totalDebit,
         totalCredit,
+        ba: totalDebit,
         createdBy,
         approvedBy: createdBy,
         postedBy: createdBy,

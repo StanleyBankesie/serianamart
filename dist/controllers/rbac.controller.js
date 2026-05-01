@@ -5,10 +5,12 @@ import { ensureRoleFeaturesTable } from "../utils/dbUtils.js";
 // ROLES CONTROLLER
 export async function getRoles(req, res, next) {
   try {
-    const roles = await query(
-      `SELECT id, name, code, is_active, created_at, updated_at 
-       FROM adm_roles 
-       ORDER BY name`
+    const roles = await query(`SELECT id, name, code, is_active, created_at, updated_at,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_roles
+        LEFT JOIN adm_users u ON u.id = created_by
+         ORDER BY name`
     );
     res.json(roles);
   } catch (err) {
@@ -25,8 +27,12 @@ export async function createRole(req, res, next) {
     }
     
     // Check if role code already exists
-    const existing = await query(
-      `SELECT id FROM adm_roles WHERE code = :code`,
+    const existing = await query(`SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_roles
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE code = :code`,
       { code }
     );
     
@@ -34,15 +40,17 @@ export async function createRole(req, res, next) {
       return next(httpError(400, "Role code already exists"));
     }
     
-    const result = await query(
-      `INSERT INTO adm_roles (name, code, is_active) 
+    const result = await query(`INSERT INTO adm_roles (name, code, is_active) 
        VALUES (:name, :code, :is_active)`,
       { name, code, is_active: is_active ? 1 : 0 }
     );
     
-    const newRole = await query(
-      `SELECT id, name, code, is_active, created_at, updated_at 
-       FROM adm_roles WHERE id = :id`,
+    const newRole = await query(`SELECT id, name, code, is_active, created_at, updated_at,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_roles
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id`,
       { id: result.insertId }
     );
     
@@ -62,8 +70,12 @@ export async function updateRole(req, res, next) {
     }
     
     // Check if role exists
-    const existing = await query(
-      `SELECT id FROM adm_roles WHERE id = :id`,
+    const existing = await query(`SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_roles
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id`,
       { id }
     );
     
@@ -72,8 +84,12 @@ export async function updateRole(req, res, next) {
     }
     
     // Check if role code already exists (excluding current role)
-    const codeCheck = await query(
-      `SELECT id FROM adm_roles WHERE code = :code AND id != :id`,
+    const codeCheck = await query(`SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_roles
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE code = :code AND id != :id`,
       { code, id }
     );
     
@@ -81,16 +97,18 @@ export async function updateRole(req, res, next) {
       return next(httpError(400, "Role code already exists"));
     }
     
-    await query(
-      `UPDATE adm_roles 
+    await query(`UPDATE adm_roles 
        SET name = :name, code = :code, is_active = :is_active, updated_at = NOW()
        WHERE id = :id`,
       { name, code, is_active: is_active ? 1 : 0, id }
     );
     
-    const updatedRole = await query(
-      `SELECT id, name, code, is_active, created_at, updated_at 
-       FROM adm_roles WHERE id = :id`,
+    const updatedRole = await query(`SELECT id, name, code, is_active, created_at, updated_at,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_roles
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id`,
       { id }
     );
     
@@ -105,10 +123,12 @@ export async function getRoleModules(req, res, next) {
   try {
     const { roleId } = req.params;
     
-    const modules = await query(
-      `SELECT role_id, module_key 
-       FROM adm_role_modules 
-       WHERE role_id = :roleId`,
+    const modules = await query(`SELECT role_id, module_key,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_role_modules
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE role_id = :roleId`,
       { roleId }
     );
     
@@ -152,8 +172,7 @@ export async function saveRoleModules(req, res, next) {
         for (const mk of moduleKeys) {
           params.push(roleId, mk);
         }
-        await conn.query(
-          `INSERT INTO adm_role_modules (role_id, module_key) VALUES ${values}`,
+        await conn.query(`INSERT INTO adm_role_modules (role_id, module_key) VALUES ${values}`,
           params,
         );
       }
@@ -165,8 +184,7 @@ export async function saveRoleModules(req, res, next) {
         await conn.query(`DELETE FROM adm_role_permissions WHERE role_id = ?`, [roleId]);
       } else {
         const placeholders = moduleKeys.map(() => "?").join(",");
-        await conn.query(
-          `DELETE FROM adm_role_permissions
+        await conn.query(`DELETE FROM adm_role_permissions
            WHERE role_id = ? AND module_key NOT IN (${placeholders})`,
           [roleId, ...moduleKeys],
         );
@@ -192,11 +210,13 @@ export async function getRolePermissions(req, res, next) {
   try {
     const { roleId } = req.params;
     
-    const permissions = await query(
-      `SELECT role_id, module_key, feature_key, 
-              can_view, can_create, can_edit, can_delete
-       FROM adm_role_permissions 
-       WHERE role_id = :roleId`,
+    const permissions = await query(`SELECT role_id, module_key, feature_key, 
+              can_view, can_create, can_edit, can_delete,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_role_permissions
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE role_id = :roleId`,
       { roleId }
     );
     
@@ -221,8 +241,7 @@ export async function saveRolePermissions(req, res, next) {
     const roleId = permissions[0].role_id;
     
     // Delete existing permissions for this role
-    await query(
-      `DELETE FROM adm_role_permissions WHERE role_id = :roleId`,
+    await query(`DELETE FROM adm_role_permissions WHERE role_id = :roleId`,
       { roleId }
     );
     
@@ -242,8 +261,7 @@ export async function saveRolePermissions(req, res, next) {
       params[`delete_${index}`] = perm.can_delete ? 1 : 0;
     });
     
-    await query(
-      `INSERT INTO adm_role_permissions 
+    await query(`INSERT INTO adm_role_permissions 
        (role_id, module_key, feature_key, can_view, can_create, can_edit, can_delete) 
        VALUES ${values}`,
       params
@@ -262,8 +280,12 @@ export async function getRoleFeatures(req, res, next) {
     if (!Number.isFinite(roleId) || !roleId) {
       return next(httpError(400, "Valid roleId is required"));
     }
-    const rows = await query(
-      `SELECT feature_key FROM adm_role_features WHERE role_id = :roleId`,
+    const rows = await query(`SELECT feature_key,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_role_features
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE role_id = :roleId`,
       { roleId },
     );
     res.json(rows.map((r) => String(r.feature_key)));
@@ -296,8 +318,7 @@ export async function saveRoleFeatures(req, res, next) {
         const values = keys.map(() => "(?, ?)").join(",");
         const params = [];
         for (const fk of keys) params.push(roleId, fk);
-        await conn.query(
-          `INSERT INTO adm_role_features (role_id, feature_key) VALUES ${values}`,
+        await conn.query(`INSERT INTO adm_role_features (role_id, feature_key) VALUES ${values}`,
           params,
         );
       }

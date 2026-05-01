@@ -146,8 +146,8 @@ export default function ItemBatchesList() {
                     <td className="text-right">{Number(b.qty || 0).toLocaleString()}</td>
                     <td className="text-right text-orange-600">{Number(b.reserved_qty || 0).toLocaleString()}</td>
                     <td>{b.expiry_date ? String(b.expiry_date).slice(0,10) : "-"}</td>
-                    <td>{it.created_by_name || "-"}</td>
-                    <td>{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
+                    <td>{b.created_by_name || "-"}</td>
+                    <td>{b.created_at ? new Date(b.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
                 {items.length === 0 && (

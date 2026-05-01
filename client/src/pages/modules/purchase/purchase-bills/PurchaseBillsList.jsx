@@ -3,6 +3,8 @@ import { Link, useLocation } from "react-router-dom";
 
 import { api } from "api/client";
 import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
+import PrintPreviewModal from "@/components/PrintPreviewModal.jsx";
+import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
 import { filterAndSort } from "@/utils/searchUtils.js";
@@ -19,6 +21,59 @@ export default function PurchaseBillsList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [items, setItems] = useState([]);
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
+  const [activeDocType, setActiveDocType] = useState(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState("");
+  const [previewBill, setPreviewBill] = useState(null);
+  const [downloading, setDownloading] = useState(false);
+
+  async function fetchBillHtml(billId) {
+    const res = await api.post(
+      `/documents/purchase-bill/${billId}/render`,
+      { format: "html" },
+      { headers: { "Content-Type": "application/json" } },
+    );
+    return typeof res.data === "string" ? res.data : String(res.data || "");
+  }
+
+  async function openPreview(row, { autoDownload = false } = {}) {
+    try {
+      const html = await fetchBillHtml(row.id);
+      setPreviewBill(row);
+      setPreviewHtml(html);
+      setPreviewOpen(true);
+      if (autoDownload) {
+        setDownloading(true);
+        try {
+          await renderHtmlToPdf(
+            html,
+            `Purchase-Bill-${row.bill_no || row.id}.pdf`,
+          );
+        } finally {
+          setDownloading(false);
+        }
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.message || "Failed to render purchase bill");
+    }
+  }
+
+  async function downloadFromPreview() {
+    if (!previewBill) return;
+    try {
+      setDownloading(true);
+      await renderHtmlToPdf(
+        previewHtml,
+        `Purchase-Bill-${previewBill.bill_no || previewBill.id}.pdf`,
+      );
+    } catch (e) {
+      toast.error("Failed to download PDF");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -128,16 +183,17 @@ export default function PurchaseBillsList() {
                 <th className="text-right">Net</th>
                 <th>Payment</th>
                 <th>Status</th>
+                <th>Attachments</th>
                 <th>Actions</th>
-                            <th>Created By</th>
-              <th>Created Date</th>
+                <th>Created By</th>
+                <th>Created Date</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
                   <td
-                    colSpan="10"
+                    colSpan="14"
                     className="text-center py-8 text-slate-500 dark:text-slate-400"
                   >
                     Loading...
@@ -145,7 +201,7 @@ export default function PurchaseBillsList() {
                 </tr>
               ) : error ? (
                 <tr>
-                  <td colSpan="10" className="text-center py-8 text-red-600">
+                  <td colSpan="14" className="text-center py-8 text-red-600">
                     {error}
                   </td>
                 </tr>
@@ -154,7 +210,7 @@ export default function PurchaseBillsList() {
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan="10"
+                    colSpan="14"
                     className="text-center py-8 text-slate-500 dark:text-slate-400"
                   >
                     No records
@@ -176,7 +232,7 @@ export default function PurchaseBillsList() {
                         r.grn_no
                       ) : r.grn_id ? (
                         <Link
-                          to={`/inventory/grn-local/${r.grn_id}?mode=view`}
+                          to={`/inventory/grn-${billType.toLowerCase()}/${r.grn_id}?mode=view`}
                           className="text-brand hover:text-brand-600 text-sm font-medium"
                         >
                           {r.grn_no || String(r.grn_id)}
@@ -218,6 +274,20 @@ export default function PurchaseBillsList() {
                       </span>
                     </td>
                     <td>
+                      <button
+                        type="button"
+                        className="btn-outline text-xs py-1 px-2"
+                        onClick={() => {
+                          setActiveDocType("purchase-bill");
+                          setActiveDocId(r.id);
+                          setShowAttach(true);
+                        }}
+                      >
+                        Attachments
+                      </button>
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-2 whitespace-nowrap">
                       {canPerformAction(
                         billType === "IMPORT"
                           ? "purchase:purchase-bills-import"
@@ -231,10 +301,26 @@ export default function PurchaseBillsList() {
                           View
                         </Link>
                       )}
+                      <button
+                        type="button"
+                        className="text-slate-700 hover:text-slate-900 text-sm font-medium"
+                        title="Print"
+                        onClick={() => openPreview(r)}
+                      >
+                        Print
+                      </button>
+                      <button
+                        type="button"
+                        className="text-slate-700 hover:text-slate-900 text-sm font-medium"
+                        title="PDF"
+                        onClick={() => openPreview(r, { autoDownload: true })}
+                      >
+                        PDF
+                      </button>
                       {exceptionalPerms?.has?.("PURCHASE.BILL.CANCEL") && (
                         <button
                           type="button"
-                          className="ml-2 inline-flex items-center px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs font-semibold"
+                          className="inline-flex items-center px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs font-semibold"
                           title="Cancel"
                           onClick={async () => {
                             try {
@@ -258,52 +344,7 @@ export default function PurchaseBillsList() {
                           Cancel
                         </button>
                       )}
-                      <button
-                        type="button"
-                        className="ml-2 text-slate-700 hover:text-slate-900 text-sm"
-                        title="Print"
-                        onClick={() =>
-                          window.open(
-                            `/purchase/purchase-bills-${billType.toLowerCase()}/${r.id}?mode=view`,
-                            "_blank",
-                          )
-                        }
-                      >
-                        Print
-                      </button>
-                      <button
-                        type="button"
-                        className="ml-2 text-slate-700 hover:text-slate-900 text-sm"
-                        title="PDF"
-                        onClick={async () => {
-                          try {
-                            const res = await api.post(
-                              `/documents/invoice/${r.id}/render`,
-                              { format: "html" },
-                              { headers: { "Content-Type": "application/json" } },
-                            );
-                            const html = typeof res.data === "string" ? res.data : String(res.data || "");
-                            await renderHtmlToPdf(html, `Bill-${r.bill_no || r.id}.pdf`);
-                          } catch (e) {
-                            toast.error("Failed to download PDF");
-                          }
-                        }}
-                      >
-                        PDF
-                      </button>
-                      {canPerformAction(
-                        billType === "IMPORT"
-                          ? "purchase:purchase-bills-import"
-                          : "purchase:purchase-bills-local",
-                        "edit",
-                      ) && (
-                        <Link
-                          to={`/purchase/purchase-bills-${billType.toLowerCase()}/${r.id}?mode=edit`}
-                          className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium ml-2"
-                        >
-                          Edit
-                        </Link>
-                      )}
+                      </div>
                     </td>
                     <td>{r.created_by_name || "-"}</td>
                     <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
@@ -314,6 +355,27 @@ export default function PurchaseBillsList() {
           </table>
         </div>
       </div>
+      <DocumentAttachmentsModal
+        open={showAttach}
+        onClose={() => {
+          setShowAttach(false);
+          setActiveDocId(null);
+          setActiveDocType(null);
+        }}
+        docType={activeDocType || "purchase-bill"}
+        docId={activeDocId}
+      />
+      <PrintPreviewModal
+        open={previewOpen}
+        onClose={() => {
+          setPreviewOpen(false);
+          setPreviewHtml("");
+          setPreviewBill(null);
+        }}
+        html={previewHtml}
+        downloading={downloading}
+        onDownload={downloadFromPreview}
+      />
     </div>
   );
 }

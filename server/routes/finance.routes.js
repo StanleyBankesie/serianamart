@@ -9,7 +9,73 @@ import * as financeController from "../controllers/finance.controller.js";
 
 const router = express.Router();
 
+// Accounts & COA (Moved to top to avoid shadowing)
+router.get(
+  "/chart-of-accounts",
+  requireAuth,
+  requireCompanyScope,
+  financeController.listChartOfAccounts,
+);
+
+router.get(
+  "/accounts",
+  requireAuth,
+  requireCompanyScope,
+  financeController.listChartOfAccounts,
+);
+
+router.post(
+  "/accounts/sync",
+  requireAuth,
+  requireCompanyScope,
+  financeController.syncAccounts,
+);
+
+router.put(
+  "/accounts/force-postable",
+  requireAuth,
+  requireCompanyScope,
+  financeController.forcePostableAccounts,
+);
+
+router.post(
+  "/accounts",
+  requireAuth,
+  requireCompanyScope,
+  financeController.createAccount,
+);
+
+router.put(
+  "/accounts/:id",
+  requireAuth,
+  requireCompanyScope,
+  financeController.requireIdParam("id"),
+  financeController.updateAccount,
+);
+
+router.put(
+  "/accounts/:id/active",
+  requireAuth,
+  requireCompanyScope,
+  financeController.requireIdParam("id"),
+  financeController.updateAccountActiveStatus,
+);
+
 // Voucher types and numbers
+router.get(
+  "/voucher-types",
+  requireAuth,
+  requireCompanyScope,
+  financeController.listVoucherTypes,
+);
+
+router.post(
+  "/voucher-types",
+  requireAuth,
+  requireCompanyScope,
+  financeController.createVoucherType,
+);
+
 router.get(
   "/vouchers",
   requireAuth,
@@ -114,41 +180,13 @@ router.patch(
   financeController.setAccountGroupActive,
 );
 
-// Accounts & COA
-router.get(
-  "/chart-of-accounts",
-  requireAuth,
-  requireCompanyScope,
-  financeController.listChartOfAccounts,
-);
-
-// Accounts (alternative endpoints)
-router.get(
-  "/accounts",
-  requireAuth,
-  requireCompanyScope,
-  financeController.listChartOfAccounts,
-);
+// Tax Codes
 
 router.post(
   "/sync-accounts",
   requireAuth,
   requireCompanyScope,
   financeController.syncAccounts,
-);
-
-router.post(
-  "/accounts/sync",
-  requireAuth,
-  requireCompanyScope,
-  financeController.syncAccounts,
-);
-
-router.put(
-  "/accounts/force-postable",
-  requireAuth,
-  requireCompanyScope,
-  financeController.forcePostableAccounts,
 );
 
 // Tax Codes

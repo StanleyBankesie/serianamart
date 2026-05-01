@@ -7,7 +7,9 @@ export async function up(db) {
       branch_id BIGINT UNSIGNED,
       code VARCHAR(30) NOT NULL,
       name VARCHAR(150) NOT NULL,
+      bank_name VARCHAR(100),
       account_number VARCHAR(50),
+      gl_account_id BIGINT UNSIGNED,
       currency_id BIGINT UNSIGNED,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -16,9 +18,11 @@ export async function up(db) {
       UNIQUE KEY uq_bank_account_code (company_id, branch_id, code),
       KEY idx_bank_account_company (company_id),
       KEY idx_bank_account_branch (branch_id),
+      KEY idx_bank_account_gl (gl_account_id),
       CONSTRAINT fk_bank_account_company FOREIGN KEY (company_id) REFERENCES adm_companies(id),
       CONSTRAINT fk_bank_account_branch FOREIGN KEY (branch_id) REFERENCES adm_branches(id),
-      CONSTRAINT fk_bank_account_currency FOREIGN KEY (currency_id) REFERENCES fin_currencies(id)
+      CONSTRAINT fk_bank_account_currency FOREIGN KEY (currency_id) REFERENCES fin_currencies(id),
+      CONSTRAINT fk_bank_account_gl FOREIGN KEY (gl_account_id) REFERENCES fin_accounts(id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 

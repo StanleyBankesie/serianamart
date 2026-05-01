@@ -5,3 +5,4 @@ adopt.txt
 server.env
 server.env.production
 server.env.local
+uploads/

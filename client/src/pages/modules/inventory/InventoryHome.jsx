@@ -22,7 +22,6 @@ import StockTakeForm from "./StockTakeForm.jsx";
 import ItemGroupsList from "./ItemGroupsList.jsx";
 import ItemGroupForm from "./ItemGroupForm.jsx";
 import UnitConversionsList from "./UnitConversionsList.jsx";
-import UnitConversionForm from "./UnitConversionForm.jsx";
 import ItemBatchesList from "./ItemBatchesList.jsx";
 
 import StockUpdationList from "./StockUpdationList.jsx";
@@ -618,7 +617,6 @@ export default function InventoryHome() {
       <Route path="item-groups" element={<ItemGroupsList />} />
       <Route path="item-groups/:id" element={<ItemGroupForm />} />
       <Route path="unit-conversions" element={<UnitConversionsList />} />
-      <Route path="unit-conversions/:id" element={<UnitConversionForm />} />
       <Route path="warehouses" element={<WarehousesList />} />
       <Route path="warehouses/:id" element={<WarehouseForm />} />
 

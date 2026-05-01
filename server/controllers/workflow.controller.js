@@ -1157,6 +1157,31 @@ export const markNotificationRead = async (req, res, next) => {
   }
 };
 
+export const markNotificationsReadBulk = async (req, res, next) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.json({ message: "No notifications to mark as read" });
+    }
+    const userId = req.user.sub;
+    
+    // Create placeholders for the IN clause
+    const placeholders = ids.map((_, i) => `:id${i}`).join(", ");
+    const params = { userId };
+    ids.forEach((id, i) => {
+      params[`id${i}`] = toNumber(id);
+    });
+
+    await query(
+      `UPDATE adm_notifications SET is_read = 1 WHERE user_id = :userId AND id IN (${placeholders})`,
+      params,
+    );
+    res.json({ message: "Marked selected as read" });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const performAction = async (req, res, next) => {
   try {
     const { instanceId } = req.params;

@@ -40,6 +40,7 @@ import GeneralRequisitionList from "./general-requisitions/GeneralRequisitionLis
 import GeneralRequisitionForm from "./general-requisitions/GeneralRequisitionForm.jsx";
 import PurchaseReturnList from "../inventory/purchase-returns/PurchaseReturnList.jsx";
 import PurchaseReturnForm from "../inventory/purchase-returns/PurchaseReturnForm.jsx";
+import PurchaseSetupPage from "./setup/PurchaseSetupPage.jsx";
 
 function PurchaseFeaturePage({ title, description }) {
   return (
@@ -229,6 +230,12 @@ function PurchaseHomeIndex() {
           description: "Manage suppliers and contacts",
           path: "/purchase/suppliers",
           icon: "🏭",
+        },
+        {
+          title: "Setup",
+          description: "Configure accounts and purchase rules",
+          path: "/purchase/setup",
+          icon: "⚙️",
         },
       ],
     },
@@ -458,6 +465,7 @@ export default function PurchaseHome() {
         element={<ServiceConfirmationForm />}
       />
       <Route path="suppliers" element={<SuppliersList />} />
+      <Route path="setup" element={<PurchaseSetupPage />} />
       <Route path="suppliers/new" element={<SupplierForm />} />
       <Route path="suppliers/:id" element={<SupplierForm />} />
       <Route
@@ -705,6 +713,13 @@ export const purchaseFeatures = [
     path: "/purchase/suppliers",
     type: "feature",
     icon: "🏭",
+  },
+  {
+    module_key: "purchase",
+    label: "Purchase Setup",
+    path: "/purchase/setup",
+    type: "feature",
+    icon: "⚙️",
   },
   {
     module_key: "purchase",

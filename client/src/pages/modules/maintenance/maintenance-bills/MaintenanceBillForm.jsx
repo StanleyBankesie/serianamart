@@ -33,13 +33,28 @@ export default function MaintenanceBillForm() {
   });
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
   const [saving, setSaving] = useState(false);
+  const [suppliers, setSuppliers] = useState([]);
+  const [executions, setExecutions] = useState([]);
+  const [taxCodes, setTaxCodes] = useState([]);
   const update = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
   useEffect(() => {
     let mounted = true;
     api.get("/purchase/suppliers").then(r => { if (mounted) setSuppliers(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
     api.get("/maintenance/job-executions").then(r => { if (mounted) setExecutions(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
-    api.get("/finance/tax-codes?form=MAINTENANCE_BILL").then(r => { if (mounted) setTaxCodes(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
+    api.get("/finance/tax-codes?form=MAINTENANCE_BILL").then(r => {
+      if (!mounted) return;
+      const fetchedTaxCodes = Array.isArray(r.data?.items) ? r.data.items : [];
+      setTaxCodes(fetchedTaxCodes);
+      // Auto-select first tax code for new items
+      if (fetchedTaxCodes.length > 0) {
+        setNewItem((prev) =>
+          !prev.tax_code_id
+            ? { ...prev, tax_code_id: String(fetchedTaxCodes[0].id) }
+            : prev,
+        );
+      }
+    }).catch(() => {});
     if (!isEdit) {
       api.get("/maintenance/bills/next-no").then(r => { if (mounted && r.data?.nextNo) update("bill_no", r.data.nextNo); }).catch(() => {});
     }

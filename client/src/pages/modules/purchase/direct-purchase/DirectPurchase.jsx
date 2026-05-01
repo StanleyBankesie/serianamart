@@ -5,6 +5,7 @@ import UnitConversionModal from "../../../../components/UnitConversionModal.jsx"
 import { useUoms } from "../../../../hooks/useUoms.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { Trash2 } from "lucide-react";
+import { toast } from "react-toastify";
 
 export default function DirectPurchase() {
   const navigate = useNavigate();
@@ -42,7 +43,7 @@ export default function DirectPurchase() {
     currency_id: "",
     exchange_rate: 1,
     payment_type: "CASH",
-    payment_terms: 30,
+    payment_terms: "",
     remarks: "",
   });
   const [lines, setLines] = useState([]);
@@ -86,7 +87,7 @@ export default function DirectPurchase() {
           currency_id: hdr.currency_id || "",
           exchange_rate: Number(hdr.exchange_rate || 1),
           payment_type: hdr.payment_type || "CASH",
-          payment_terms: hdr.payment_terms || 30,
+          payment_terms: hdr.payment_terms || "",
           remarks: hdr.remarks || "",
         });
         const details = Array.isArray(hdr.details) ? hdr.details : [];
@@ -222,11 +223,11 @@ export default function DirectPurchase() {
   };
 
   useEffect(() => {
+    const ids = lines.map((l) => l.tax_code_id);
+    if (newItem.tax_code_id) ids.push(newItem.tax_code_id);
+
     const uniqueTaxIds = Array.from(
-      new Set([
-        ...lines.map((l) => String(l.tax_code_id)).filter(Boolean),
-        newItem.tax_code_id ? String(newItem.tax_code_id) : null,
-      ].filter(Boolean)),
+      new Set(ids.filter((id) => id && id !== "undefined")),
     );
     const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
     if (missing.length) {
@@ -408,13 +409,7 @@ export default function DirectPurchase() {
   function updateForm(k, v) {
     if (k === "payment_type") {
       setForm((prev) => {
-        const isCash = String(v).toUpperCase() === "CASH";
-        const nextTerms = isCash
-          ? 0
-          : (Number(prev.payment_terms || 0) || 0) === 0
-            ? 30
-            : prev.payment_terms;
-        return { ...prev, payment_type: v, payment_terms: nextTerms };
+        return { ...prev, payment_type: v };
       });
       return;
     }
@@ -424,12 +419,12 @@ export default function DirectPurchase() {
     const sid = id ? Number(id) : null;
     const sup = suppliers.find((s) => Number(s.id) === sid) || null;
     const curId = sup?.currency_id ?? baseCurrencyId ?? "";
-    const terms = sup?.payment_terms ?? 30;
+    const terms = sup?.payment_terms ?? "";
     setForm((prev) => ({
       ...prev,
       supplier_id: id,
       currency_id: curId || "",
-      payment_terms: Number(terms || 30),
+      payment_terms: terms,
     }));
   }
   function recomputeLineTotals(row) {
@@ -585,6 +580,7 @@ export default function DirectPurchase() {
             discount_percent: Number(l.discount_percent || 0),
             tax_percent: Number(l.tax_percent || 0),
             uom: String(l.uom || "PCS"),
+            tax_code_id: l.tax_code_id || null,
             batch_no: l.batch_no || null,
             mfg_date: l.mfg_date || null,
             exp_date: l.exp_date || null,
@@ -608,9 +604,8 @@ export default function DirectPurchase() {
           );
         } catch {}
       }
-      const msg = `Direct Purchase ${dp.dp_no || ""} saved`;
-      setSuccess(msg);
-      navigate("/purchase/direct-purchase", { state: { success: msg } });
+      toast.success(dpId ? "Direct Purchase updated successfully" : "Direct Purchase created successfully");
+      navigate("/purchase/direct-purchase");
     } catch (e) {
       setError(String(e?.response?.data?.message || e.message || "Error"));
     } finally {
@@ -753,18 +748,18 @@ export default function DirectPurchase() {
                 disabled={isViewMode}
               />
             </div>
-            <div className="flex flex-col gap-1">
-              <label className="label">Payment Terms</label>
-              <input
-                type="number"
-                className="input"
-                value={form.payment_terms}
-                onChange={(e) => updateForm("payment_terms", e.target.value)}
-                disabled={
-                  isViewMode || String(form.payment_type || "CASH") === "CASH"
-                }
-              />
-            </div>
+            {form.payment_type === "CREDIT" && (
+              <div className="flex flex-col gap-1">
+                <label className="label">Payment Terms</label>
+                <input
+                  type="number"
+                  className="input"
+                  value={form.payment_terms}
+                  onChange={(e) => updateForm("payment_terms", e.target.value)}
+                  disabled={isViewMode}
+                />
+              </div>
+            )}
             <div className="flex flex-col gap-1">
               <label className="label">Payment Type</label>
               <div className="flex items-center gap-6">
@@ -1080,18 +1075,11 @@ export default function DirectPurchase() {
           {!isViewMode ? (
             <div className="mt-6 flex gap-3">
               <button
-                className="btn btn-outline"
-                disabled={saving}
-                onClick={() => submit("draft")}
-              >
-                Save Draft
-              </button>
-              <button
                 className="btn btn-primary"
                 disabled={saving}
                 onClick={() => submit("post")}
               >
-                Save & Post
+                Save
               </button>
               <button
                 className="btn"

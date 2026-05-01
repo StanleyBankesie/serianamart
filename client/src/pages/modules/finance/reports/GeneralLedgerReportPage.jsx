@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
+import { filterAndSort } from "../../../../utils/searchUtils.js";
 
 export default function GeneralLedgerReportPage() {
   const [from, setFrom] = useState("");
@@ -14,7 +15,7 @@ export default function GeneralLedgerReportPage() {
   const [accounts, setAccounts] = useState([]);
   const [groups, setGroups] = useState([]);
   const [groupId, setGroupId] = useState("");
-  const [accountSearch, setAccountSearch] = useState("");
+  const [accountQuery, setAccountQuery] = useState("");
   const [opening, setOpening] = useState(0);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -149,37 +150,35 @@ export default function GeneralLedgerReportPage() {
               <label className="label">Account</label>
               <input
                 className="input mb-2"
-                placeholder="Search account code/name..."
-                value={accountSearch}
-                onChange={(e) => setAccountSearch(e.target.value)}
+                placeholder="Type to search account code/name..."
+                value={accountQuery}
+                onChange={(e) => setAccountQuery(e.target.value)}
               />
               <select
                 className="input"
                 value={accountId}
                 onChange={(e) => setAccountId(e.target.value)}
               >
-                {(groupId
-                  ? accounts.filter(
-                      (a) =>
-                        Number(a.group_id || a.groupId || 0) ===
-                          Number(groupId) ||
-                        String(a.group_name || a.groupName || "") ===
-                          (groups.find((g) => String(g.id) === String(groupId))
-                            ?.name || ""),
-                    )
-                  : accounts
-                )
-                  .filter((a) => {
-                    const q = accountSearch.trim().toLowerCase();
-                    if (!q) return true;
-                    const hay = `${a.code || ""} ${a.name || ""}`.toLowerCase();
-                    return hay.includes(q);
-                  })
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.code} — {a.name}
-                    </option>
-                  ))}
+                {useMemo(() => {
+                  const groupFiltered = groupId
+                    ? accounts.filter(
+                        (a) =>
+                          Number(a.group_id || a.groupId || 0) ===
+                            Number(groupId) ||
+                          String(a.group_name || a.groupName || "") ===
+                            (groups.find((g) => String(g.id) === String(groupId))
+                              ?.name || ""),
+                      )
+                    : accounts;
+                  return filterAndSort(groupFiltered, {
+                    query: accountQuery,
+                    getKeys: (a) => [a.code, a.name],
+                  });
+                }, [accounts, groupId, groups, accountQuery]).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.code} — {a.name}
+                  </option>
+                ))}
               </select>
             </div>
             <div>

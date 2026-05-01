@@ -1,8 +1,7 @@
 import { query } from "../db/pool.js";
 
 async function hasColumn(tableName, columnName) {
-  const rows = await query(
-    `
+  const rows = await query(`
     SELECT COUNT(*) AS c
     FROM information_schema.columns
     WHERE table_schema = DATABASE()
@@ -43,17 +42,19 @@ export const listPaymentModes = async (req, res, next) => {
   try {
     const { companyId, branchId } = req.scope;
     await ensurePosTables();
-    const items = await query(
-      `
+    const items = await query(`
       SELECT
         id,
         name,
         type,
         account,
         require_reference,
-        is_active
-      FROM pos_payment_modes
-      WHERE company_id = :companyId
+        is_active,
+          created_at,
+          u.username AS created_by_name
+         FROM pos_payment_modes
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
         AND branch_id = :branchId
       ORDER BY name
       `,

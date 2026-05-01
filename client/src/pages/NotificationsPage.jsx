@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 export default function NotificationsPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const navigate = useNavigate();
 
   const unread = useMemo(
@@ -22,6 +23,7 @@ export default function NotificationsPage() {
     try {
       const res = await api.get("/workflows/notifications");
       setItems(Array.isArray(res.data?.items) ? res.data.items : []);
+      setSelectedIds(new Set());
     } catch {
       setItems([]);
     } finally {
@@ -58,6 +60,58 @@ export default function NotificationsPage() {
     } catch {}
   }
 
+  async function markSelectedRead() {
+    if (selectedIds.size === 0) return;
+    try {
+      const idsArray = Array.from(selectedIds);
+      await api.put(`/workflows/notifications/read-bulk`, { ids: idsArray });
+      setItems((prev) =>
+        prev.map((n) => (selectedIds.has(n.id) ? { ...n, is_read: 1 } : n)),
+      );
+      try {
+        window.dispatchEvent(
+          new CustomEvent("omni:notifications:decrement", {
+            detail: { count: idsArray.length },
+          }),
+        );
+        const raw =
+          typeof localStorage !== "undefined"
+            ? localStorage.getItem("omni.unread_notification_count")
+            : null;
+        const cur = Number(raw || "0");
+        const next = Math.max(0, (Number.isFinite(cur) ? cur : 0) - idsArray.length);
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem("omni.unread_notification_count", String(next));
+        }
+      } catch {}
+      setSelectedIds(new Set());
+      toast.success(`Marked ${idsArray.length} notifications as read`);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to mark as read");
+    }
+  }
+
+  const allVisibleSelected =
+    visibleItems.length > 0 &&
+    visibleItems.every((n) => selectedIds.has(n.id));
+
+  function toggleSelectAll() {
+    if (allVisibleSelected) {
+      setSelectedIds(new Set());
+    } else {
+      const newSet = new Set(selectedIds);
+      visibleItems.forEach((n) => newSet.add(n.id));
+      setSelectedIds(newSet);
+    }
+  }
+
+  function toggleSelect(id) {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedIds(newSet);
+  }
+
   return (
     <div className="max-w-5xl mx-auto p-4 space-y-6">
       <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
@@ -71,6 +125,11 @@ export default function NotificationsPage() {
             </p>
           </div>
           <div className="flex gap-2">
+            {selectedIds.size > 0 && (
+              <button className="btn btn-primary" onClick={markSelectedRead}>
+                Mark {selectedIds.size} as Read
+              </button>
+            )}
             <Link to="/" className="btn btn-secondary">
               Home
             </Link>
@@ -90,6 +149,15 @@ export default function NotificationsPage() {
           <table className="table w-full">
             <thead className="bg-slate-50 dark:bg-slate-700">
               <tr>
+                <th className="w-12">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 text-brand-600 rounded border-slate-300 focus:ring-brand-500"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAll}
+                    disabled={visibleItems.length === 0}
+                  />
+                </th>
                 <th>Title</th>
                 <th>Message</th>
                 <th>Created</th>
@@ -114,51 +182,71 @@ export default function NotificationsPage() {
                 visibleItems.map((n) => (
                   <tr
                     key={n.id}
-                    className="hover cursor-pointer"
-                    onClick={async () => {
-                      if (!n.link) return;
-                      try {
-                        if (Number(n.is_read) !== 1) {
-                          await api.put(
-                            `/workflows/notifications/${n.id}/read`,
-                          );
-                          setItems((prev) =>
-                            prev.map((x) =>
-                              x.id === n.id ? { ...x, is_read: 1 } : x,
-                            ),
-                          );
+                    className={`hover ${selectedIds.has(n.id) ? "bg-brand-50 dark:bg-brand-900/20" : ""}`}
+                  >
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 text-brand-600 rounded border-slate-300 focus:ring-brand-500"
+                        checked={selectedIds.has(n.id)}
+                        onChange={() => toggleSelect(n.id)}
+                      />
+                    </td>
+                    <td 
+                      className="font-medium cursor-pointer"
+                      onClick={async () => {
+                        if (!n.link) return;
                         try {
-                          window.dispatchEvent(
-                            new CustomEvent("omni:notifications:decrement", {
-                              detail: { count: 1 },
-                            }),
-                          );
-                          const raw =
-                            typeof localStorage !== "undefined"
-                              ? localStorage.getItem(
-                                  "omni.unread_notification_count",
-                                )
-                              : null;
-                          const cur = Number(raw || "0");
-                          const next = Math.max(
-                            0,
-                            (Number.isFinite(cur) ? cur : 0) - 1,
-                          );
-                          if (typeof localStorage !== "undefined") {
-                            localStorage.setItem(
-                              "omni.unread_notification_count",
-                              String(next),
+                          if (Number(n.is_read) !== 1) {
+                            await api.put(
+                              `/workflows/notifications/${n.id}/read`,
                             );
+                            setItems((prev) =>
+                              prev.map((x) =>
+                                x.id === n.id ? { ...x, is_read: 1 } : x,
+                              ),
+                            );
+                            try {
+                              window.dispatchEvent(
+                                new CustomEvent("omni:notifications:decrement", {
+                                  detail: { count: 1 },
+                                }),
+                              );
+                              const raw =
+                                typeof localStorage !== "undefined"
+                                  ? localStorage.getItem(
+                                      "omni.unread_notification_count",
+                                    )
+                                  : null;
+                              const cur = Number(raw || "0");
+                              const next = Math.max(
+                                0,
+                                (Number.isFinite(cur) ? cur : 0) - 1,
+                              );
+                              if (typeof localStorage !== "undefined") {
+                                localStorage.setItem(
+                                  "omni.unread_notification_count",
+                                  String(next),
+                                );
+                              }
+                            } catch {}
                           }
                         } catch {}
-                        }
-                      } catch {}
-                      navigate(n.link);
-                    }}
-                  >
-                    <td className="font-medium">{n.title}</td>
-                    <td>{n.message}</td>
-                    <td>
+                        navigate(n.link);
+                      }}
+                    >{n.title}</td>
+                    <td
+                      className="cursor-pointer"
+                      onClick={() => {
+                        toggleSelect(n.id);
+                      }}
+                    >{n.message}</td>
+                    <td
+                      className="cursor-pointer"
+                      onClick={() => {
+                        toggleSelect(n.id);
+                      }}
+                    >
                       {n.created_at
                         ? new Date(n.created_at).toLocaleString()
                         : "-"}
