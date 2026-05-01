@@ -14,6 +14,26 @@ export default function CustomerForm() {
   const [error, setError] = useState("");
   const [priceTypes, setPriceTypes] = useState([]);
   const [currencies, setCurrencies] = useState([]);
+  const [countries, setCountries] = useState([]);
+
+  const GHANA_REGIONS = [
+    "Greater Accra",
+    "Ashanti",
+    "Central",
+    "Eastern",
+    "Western",
+    "Western North",
+    "Volta",
+    "Oti",
+    "Northern",
+    "Savannah",
+    "North East",
+    "Upper East",
+    "Upper West",
+    "Bono",
+    "Bono East",
+    "Ahafo",
+  ];
   const [form, setForm] = useState({
     customer_code: "",
     customer_name: "",
@@ -32,12 +52,28 @@ export default function CustomerForm() {
   useEffect(() => {
     fetchPriceTypes();
     fetchCurrencies();
+    fetchCountries();
     if (isEdit) {
       fetchCustomer();
     } else {
       fetchNextCode();
     }
   }, [id]);
+
+  async function fetchCountries() {
+    try {
+      const resp = await fetch(
+        "https://restcountries.com/v3.1/all?fields=name",
+      );
+      const data = await resp.json();
+      if (Array.isArray(data)) {
+        const list = data.map((c) => c.name.common).sort();
+        setCountries(list);
+      }
+    } catch (err) {
+      console.error("Failed to fetch countries", err);
+    }
+  }
 
   async function fetchNextCode() {
     try {
@@ -281,9 +317,15 @@ export default function CustomerForm() {
                     <label className="label">State</label>
                     <input
                       className="input"
+                      list="ghana-regions"
                       value={form.state || ""}
                       onChange={(e) => update("state", e.target.value)}
                     />
+                    <datalist id="ghana-regions">
+                      {GHANA_REGIONS.map((r) => (
+                        <option key={r} value={r} />
+                      ))}
+                    </datalist>
                   </div>
                   <div>
                     <label className="label">Zone</label>
@@ -297,9 +339,15 @@ export default function CustomerForm() {
                     <label className="label">Country</label>
                     <input
                       className="input"
+                      list="world-countries"
                       value={form.country || ""}
                       onChange={(e) => update("country", e.target.value)}
                     />
+                    <datalist id="world-countries">
+                      {countries.map((c) => (
+                        <option key={c} value={c} />
+                      ))}
+                    </datalist>
                   </div>
                   <div>
                     <label className="label">Price Type</label>

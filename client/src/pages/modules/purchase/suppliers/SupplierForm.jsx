@@ -18,6 +18,26 @@ export default function SupplierForm() {
   const [success, setSuccess] = useState("");
   const [activeTab, setActiveTab] = useState("basic");
   const [currencies, setCurrencies] = useState([]);
+  const [countries, setCountries] = useState([]);
+
+  const GHANA_REGIONS = [
+    "Greater Accra",
+    "Ashanti",
+    "Central",
+    "Eastern",
+    "Western",
+    "Western North",
+    "Volta",
+    "Oti",
+    "Northern",
+    "Savannah",
+    "North East",
+    "Upper East",
+    "Upper West",
+    "Bono",
+    "Bono East",
+    "Ahafo",
+  ];
 
   const [formData, setFormData] = useState({
     supplier_code: "",
@@ -36,7 +56,8 @@ export default function SupplierForm() {
     industry: "",
     website: "",
     city: "",
-    country: "GH",
+    state: "",
+    country: "Ghana",
     currency_id: "",
     credit_limit: "",
     bank_name: "",
@@ -65,9 +86,13 @@ export default function SupplierForm() {
           email: s.email || "",
           phone: s.phone || "",
           address: s.address || "",
+          city: s.city || "",
+          state: s.state || "",
+          country: s.country || "Ghana",
           payment_terms: s.payment_terms || "",
           is_active: Boolean(s.is_active),
           supplier_type: s.supplier_type || prev.supplier_type || "LOCAL",
+          currency_id: s.currency_id || "",
           service_contractor:
             String(s.service_contractor || "").toUpperCase() === "Y",
         }));
@@ -161,7 +186,23 @@ export default function SupplierForm() {
       }
     };
 
+    const fetchCountries = async () => {
+      try {
+        const resp = await fetch(
+          "https://restcountries.com/v3.1/all?fields=name",
+        );
+        const data = await resp.json();
+        if (Array.isArray(data)) {
+          const list = data.map((c) => c.name.common).sort();
+          setCountries(list);
+        }
+      } catch (err) {
+        console.error("Failed to fetch countries", err);
+      }
+    };
+
     fetchCurrencies();
+    fetchCountries();
   }, []);
 
   const handleChange = (e) => {
@@ -186,14 +227,17 @@ export default function SupplierForm() {
         contact_person: formData.contact_person || null,
         email: formData.email || null,
         phone: formData.phone || null,
-        address: formData.address || null, // In future, combine city/country
+        address: formData.address || null,
+        city: formData.city || null,
+        state: formData.state || null,
+        country: formData.country || null,
         payment_terms: formData.payment_terms || null,
         is_active: Boolean(formData.is_active),
         supplier_type: formData.supplier_type || "LOCAL",
         currency_id:
-          formData.currency_id === undefined || formData.currency_id === null
+          formData.currency_id === undefined || formData.currency_id === null || formData.currency_id === ""
             ? null
-            : String(formData.currency_id || ""),
+            : String(formData.currency_id),
         service_contractor: formData.service_contractor ? "Y" : "N",
       };
 
@@ -630,19 +674,37 @@ export default function SupplierForm() {
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    State
+                  </label>
+                  <input
+                    name="state"
+                    list="ghana-regions"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-500 outline-none"
+                    value={formData.state}
+                    onChange={handleChange}
+                  />
+                  <datalist id="ghana-regions">
+                    {GHANA_REGIONS.map((r) => (
+                      <option key={r} value={r} />
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
                     Country
                   </label>
-                  <select
+                  <input
                     name="country"
+                    list="world-countries"
                     className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-500 outline-none"
                     value={formData.country}
                     onChange={handleChange}
-                  >
-                    <option value="GH">Ghana</option>
-                    <option value="NG">Nigeria</option>
-                    <option value="CN">China</option>
-                    <option value="US">United States</option>
-                  </select>
+                  />
+                  <datalist id="world-countries">
+                    {countries.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-800 mb-1">

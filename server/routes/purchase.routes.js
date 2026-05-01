@@ -126,6 +126,19 @@ async function ensureSupplierServiceContractorColumn() {
   }
 }
 
+async function ensureSupplierLocationColumns() {
+  const cols = [
+    { name: "city", def: "VARCHAR(100) NULL" },
+    { name: "state", def: "VARCHAR(100) NULL" },
+    { name: "country", def: "VARCHAR(100) NULL" },
+  ];
+  for (const col of cols) {
+    if (!(await hasColumn("pur_suppliers", col.name))) {
+      await query(`ALTER TABLE pur_suppliers ADD COLUMN ${col.name} ${col.def}`);
+    }
+  }
+}
+
 async function ensureGrnUomConversionColumns() {
   if (!(await hasColumn("inv_goods_receipt_note_details", "input_uom"))) {
     await pool.query(
@@ -4655,6 +4668,7 @@ router.post(
       await ensureSupplierTypeColumn();
       await ensureSupplierCurrencyColumn();
       await ensureSupplierServiceContractorColumn();
+      await ensureSupplierLocationColumns();
 
       await conn.beginTransaction();
       let supplierCode =
@@ -4709,8 +4723,8 @@ router.post(
       }
 
       const [resHeader] = await conn.execute(
-        `INSERT INTO pur_suppliers (company_id, supplier_code, supplier_name, contact_person, email, phone, address, payment_terms, supplier_type, currency_id, service_contractor, is_active)
-         VALUES (:companyId, :supplierCode, :supplierName, :contactPerson, :email, :phone, :address, :paymentTerms, :supplierType, :currencyId, :serviceContractor, :isActive)`,
+        `INSERT INTO pur_suppliers (company_id, supplier_code, supplier_name, contact_person, email, phone, address, city, state, country, payment_terms, supplier_type, currency_id, service_contractor, is_active)
+         VALUES (:companyId, :supplierCode, :supplierName, :contactPerson, :email, :phone, :address, :city, :state, :country, :paymentTerms, :supplierType, :currencyId, :serviceContractor, :isActive)`,
         {
           companyId,
           supplierCode,
@@ -4719,6 +4733,9 @@ router.post(
           email: body.email || null,
           phone: body.phone || null,
           address: body.address || null,
+          city: body.city || null,
+          state: body.state || null,
+          country: body.country || null,
           paymentTerms: body.payment_terms || null,
           supplierType: body.supplier_type || "LOCAL",
           currencyId:
@@ -4804,30 +4821,36 @@ router.put(
       await ensureSupplierTypeColumn();
       await ensureSupplierCurrencyColumn();
       await ensureSupplierServiceContractorColumn();
+      await ensureSupplierLocationColumns();
 
+      await conn.beginTransaction();
       await conn.execute(
-        `UPDATE pur_suppliers SET
-         supplier_code = :supplierCode,
-         supplier_name = :supplierName,
-         contact_person = :contactPerson,
-         email = :email,
-         phone = :phone,
-         address = :address,
-         payment_terms = :paymentTerms,
-         supplier_type = :supplierType,
-         currency_id = :currencyId,
-         service_contractor = :serviceContractor,
-         is_active = :isActive
+        `UPDATE pur_suppliers 
+         SET supplier_name = :supplierName, 
+             contact_person = :contactPerson, 
+             email = :email, 
+             phone = :phone, 
+             address = :address, 
+             city = :city,
+             state = :state,
+             country = :country,
+             payment_terms = :paymentTerms, 
+             supplier_type = :supplierType, 
+             currency_id = :currencyId, 
+             service_contractor = :serviceContractor,
+             is_active = :isActive
          WHERE id = :id AND company_id = :companyId`,
         {
           id,
           companyId,
-          supplierCode: body.supplier_code || null,
           supplierName: body.supplier_name,
           contactPerson: body.contact_person || null,
           email: body.email || null,
           phone: body.phone || null,
           address: body.address || null,
+          city: body.city || null,
+          state: body.state || null,
+          country: body.country || null,
           paymentTerms: body.payment_terms || null,
           supplierType: body.supplier_type || "LOCAL",
           currencyId:

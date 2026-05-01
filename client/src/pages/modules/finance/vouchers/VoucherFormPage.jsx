@@ -3261,9 +3261,14 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                   <select
                     className={`input ${disabledClass}`}
                     value={rvForm.depositAccountId}
-                    onChange={(e) =>
-                      updateRvForm({ depositAccountId: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const accountId = e.target.value;
+                      const acc = accounts.find((a) => String(a.id) === String(accountId));
+                      updateRvForm({ 
+                        depositAccountId: accountId,
+                        currencyId: acc?.currency_id || null
+                      });
+                    }}
                     required
                     disabled={readOnly}
                   >
@@ -4488,9 +4493,14 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     <select
                       className={`input ${disabledClass}`}
                       value={pvForm.paymentAccountId}
-                      onChange={(e) =>
-                        updatePv({ paymentAccountId: e.target.value })
-                      }
+                      onChange={(e) => {
+                        const accountId = e.target.value;
+                        const acc = accounts.find((a) => String(a.id) === String(accountId));
+                        updatePv({ 
+                          paymentAccountId: accountId,
+                          currencyId: acc?.currency_id || null
+                        });
+                      }}
                       required
                     >
                       <option value="">Select account</option>
@@ -4764,22 +4774,24 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     </div>
                     <button
                       type="button"
-                      className="btn-success"
+                      className="text-green-600 hover:text-green-700 p-1"
                       onClick={addLine}
+                      title="Add Line"
                       disabled={readOnly}
                     >
-                      + Add Line
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
                     </button>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="table">
                       <thead>
                         <tr>
-                          <th>Account</th>
+                          <th className="w-64">Account</th>
                           <th>Description</th>
-                          <th className="text-right">Debit</th>
-                          <th className="text-right">Credit</th>
-                          <th />
+                          <th className="text-right w-32">Currency</th>
+                          <th className="text-right w-40">Debit</th>
+                          <th className="text-right w-40">Credit</th>
+                          <th className="w-20" />
                         </tr>
                       </thead>
                       <tbody>
@@ -4810,6 +4822,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 disabled={readOnly}
                               />
                             </td>
+                            <td className="text-right text-xs text-slate-500 font-mono">
+                              {accounts.find((a) => String(a.id) === String(l.accountId))?.currency_code || ""}
+                            </td>
                             <td>
                               <input
                                 className="input text-right"
@@ -4836,10 +4851,12 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                               {!readOnly && (
                                 <button
                                   type="button"
-                                  className="text-red-600 hover:text-red-700 text-sm font-medium"
+                                  className="text-red-600 hover:text-red-700 p-1"
                                   onClick={() => removeLine(idx)}
+                                  title="Remove Line"
+                                  disabled={lines.length <= 1}
                                 >
-                                  Remove
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
                                 </button>
                               )}
                             </td>
@@ -4852,11 +4869,11 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     <div className="w-72 space-y-1">
                       <div className="flex justify-between text-sm">
                         <span>Total Debit</span>
-                        <span>{`GH₵ ${totals.debit.toFixed(2)}`}</span>
+                        <span>{`${voucherCurrencyCode || baseCurrency || "GH₵"} ${totals.debit.toFixed(2)}`}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span>Total Credit</span>
-                        <span>{`GH₵ ${totals.credit.toFixed(2)}`}</span>
+                        <span>{`${voucherCurrencyCode || baseCurrency || "GH₵"} ${totals.credit.toFixed(2)}`}</span>
                       </div>
                       <div className={`flex justify-between text-sm font-semibold ${balanced ? "text-green-700 dark:text-green-300" : "text-red-700 dark:text-red-300"}`}>
                         <span>Status</span>

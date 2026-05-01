@@ -454,7 +454,7 @@ export default function CompanyForm() {
                 />
               </div>
               <div>
-                <label className="label">Currency</label>
+                <label className="label">Base Currency</label>
                 <select
                   className="input"
                   value={form.currency_id}
