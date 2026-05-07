@@ -24,6 +24,14 @@ router.get(
   financeController.listChartOfAccounts,
 );
 
+// Expense accounts endpoint
+router.get(
+  "/expense-accounts",
+  requireAuth,
+  requireCompanyScope,
+  financeController.listExpenseAccounts,
+);
+
 router.post(
   "/accounts/sync",
   requireAuth,
@@ -197,6 +205,20 @@ router.get(
   financeController.listTaxCodes,
 );
 
+router.get(
+  "/tax-codes/by-page/:pageId",
+  requireAuth,
+  requireCompanyScope,
+  financeController.getTaxCodesByPageId,
+);
+
+router.get(
+  "/item-tax/:itemId",
+  requireAuth,
+  requireCompanyScope,
+  financeController.getItemPurchaseTax,
+);
+
 router.post(
   "/tax-codes",
   requireAuth,
@@ -213,6 +235,13 @@ router.put(
 );
 
 router.post(
+  "/tax-codes/rectify/pages",
+  requireAuth,
+  requireCompanyScope,
+  financeController.rectifyTaxCodePages,
+);
+
+router.post(
   "/tax-codes/:id/components",
   requireAuth,
   requireCompanyScope,
@@ -226,6 +255,22 @@ router.get(
   requireCompanyScope,
   financeController.requireIdParam("id"),
   financeController.listTaxCodeComponents,
+);
+
+router.put(
+  "/tax-components/:id",
+  requireAuth,
+  requireCompanyScope,
+  financeController.requireIdParam("id"),
+  financeController.updateTaxCodeComponent,
+);
+
+router.delete(
+  "/tax-components/:id",
+  requireAuth,
+  requireCompanyScope,
+  financeController.requireIdParam("id"),
+  financeController.deleteTaxCodeComponent,
 );
 
 // Currencies
@@ -565,6 +610,54 @@ router.post(
   requireCompanyScope,
   requireBranchScope,
   financeController.createBankReconciliation,
+);
+
+router.get(
+  "/bank-reconciliations/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.getBankReconciliation,
+);
+
+router.put(
+  "/bank-reconciliations/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.updateBankReconciliation,
+);
+
+router.get(
+  "/bank-reconciliations/:id/summary",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.getBankReconciliationSummary,
+);
+
+router.get(
+  "/bank-reconciliations/:id/transactions",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.getBankReconciliationTransactions,
+);
+
+router.post(
+  "/bank-reconciliations/:id/lines",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.addBankReconciliationLine,
+);
+
+router.delete(
+  "/bank-reconciliation-lines/:lineId",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.deleteBankReconciliationLine,
 );
 
 export default router;

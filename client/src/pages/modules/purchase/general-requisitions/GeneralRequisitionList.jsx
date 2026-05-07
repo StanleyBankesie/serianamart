@@ -3,10 +3,17 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
+import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+  ListAttachmentIconButton,
+} from "@/components/list/ListDocActionIconButtons.jsx";
 
 export default function GeneralRequisitionList() {
   const navigate = useNavigate();
-  const { hasExceptional } = usePermission();
+  const { hasExceptional, canReverseApproval } = usePermission();
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -28,8 +35,9 @@ export default function GeneralRequisitionList() {
   const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
 
   const [exCancelAllowed, setExCancelAllowed] = useState(false);
-  const [exReverseAllowed, setExReverseAllowed] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(null);
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   function normalizeStatus(s) {
     return String(s || "DRAFT").toUpperCase();
@@ -72,20 +80,12 @@ export default function GeneralRequisitionList() {
           const code = String(p.permission_code || p.permissionCode || "").toUpperCase();
           return effect === "ALLOW" && active && code === "PURCHASE.GENERAL_REQUISITION.CANCEL";
         });
-        const allowedReverse = arr.some((p) => {
-          const effect = String(p.effect || "").toUpperCase();
-          const active = Number(p.is_active || p.isActive) === 1;
-          const code = String(p.permission_code || p.permissionCode || "").toUpperCase();
-          return effect === "ALLOW" && active && code === "WORKFLOW.APPROVAL.REVERSE";
-        });
         if (!cancelled) {
           setExCancelAllowed(allowedCancel);
-          setExReverseAllowed(allowedReverse);
         }
       } catch {
         if (!cancelled) {
           setExCancelAllowed(false);
-          setExReverseAllowed(false);
         }
       }
     }
@@ -485,27 +485,27 @@ export default function GeneralRequisitionList() {
                 <th className="text-center">Items</th>
                 <th className="text-right">Est. Cost</th>
                 <th>Status</th>
-                <th>Actions</th>
-                            <th>Created By</th>
-              <th>Created Date</th>
+                <th className="text-right">Actions</th>
+                <th>Created By</th>
+                <th>Created Date</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="text-center py-8 text-slate-500">
+                  <td colSpan={12} className="text-center py-8 text-slate-500">
                     Loading...
                   </td>
                 </tr>
               ) : error ? (
                 <tr>
-                  <td colSpan={10} className="text-center py-8 text-red-600">
+                  <td colSpan={12} className="text-center py-8 text-red-600">
                     {error}
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="text-center py-8 text-slate-500">
+                  <td colSpan={12} className="text-center py-8 text-slate-500">
                     No requisitions found
                   </td>
                 </tr>
@@ -542,70 +542,130 @@ export default function GeneralRequisitionList() {
                     <td>
                       <span className={`badge ${getStatusBadge(r.status)}`}>{statusLabel(r.status)}</span>
                     </td>
-                    <td>
-                      <div className="flex items-center gap-2 whitespace-nowrap">
-                        <button
-                          type="button"
-                          className="text-brand hover:text-brand-600 text-sm font-medium"
-                          onClick={() => navigate(`/purchase/general-requisitions/${r.id}`)}
-                        >
-                          View
-                        </button>
-                        {["DRAFT", "REJECTED"].includes(normalizeStatus(r.status)) ? (
-                          <Link
-                            to={`/purchase/general-requisitions/${r.id}/edit`}
-                            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="min-w-[80px]">
+                          <button
+                            type="button"
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            onClick={() => navigate(`/purchase/general-requisitions/${r.id}`)}
                           >
-                            Edit
-                          </Link>
-                        ) : null}
-                        {normalizeStatus(r.status) === "APPROVED" ? (
-                          <>
-                            <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                              Approved
-                            </span>
-                            {(hasExceptional("WORKFLOW.APPROVAL.REVERSE") || exReverseAllowed) && (
+                            View
+                          </button>
+                        </div>
+
+                        {/* Slot 2: Edit */}
+                        <div className="min-w-[80px]">
+                          {["DRAFT", "REJECTED"].includes(normalizeStatus(r.status)) ? (
+                            <Link
+                              to={`/purchase/general-requisitions/${r.id}/edit`}
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            >
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 3: Print */}
+                        <div className="min-w-[80px]">
+                          <ListPrintIconButton
+                            onClick={() =>
+                              window.open(
+                                `/purchase/general-requisitions/${r.id}`,
+                                "_blank",
+                                "noopener,noreferrer",
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Slot 4: PDF */}
+                        <div className="min-w-[80px]">
+                          <ListPdfIconButton
+                            onClick={async () => {
+                              try {
+                                const res = await api.post(`/documents/general-requisition/${r.id}/render`, { format: "html" });
+                                const html = typeof res.data === "string" ? res.data : String(res.data || "");
+                                await renderHtmlToPdf(html, `GenReq-${r.requisition_no || r.id}.pdf`);
+                              } catch (e) {
+                                toast.error("Failed to download PDF");
+                              }
+                            }}
+                          />
+                        </div>
+
+                        {/* Slot 5: Attachments */}
+                        <div className="min-w-[80px]">
+                          <ListAttachmentIconButton
+                            onClick={() => {
+                              setActiveDocId(r.id);
+                              setShowAttach(true);
+                            }}
+                          />
+                        </div>
+
+                        {/* Slot 6: Workflow */}
+                        <div className="min-w-[160px]">
+                          <div className="list-approval-slot">
+                            {normalizeStatus(r.status) === "APPROVED" ? (
+                              <div className="flex items-center gap-2">
+                                <span className="list-approval-approved-pill">
+                                  Approved
+                                </span>
+                                {/* Slot 7: Reverse Approval (Cancel) */}
+                                {normalizeStatus(r.status) === "APPROVED" && canReverseApproval() && (
+                                  <button
+                                    type="button"
+                                    className="list-approval-reverse-btn"
+                                    onClick={() => reverseApproval(r.id)}
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </div>
+                            ) : r.forwarded_to_username || normalizeStatus(r.status) === "PENDING_APPROVAL" ? (
+                              <span className="list-approval-forwarded-pill">
+                                Forwarded to {r.forwarded_to_username || "Approver"}
+                              </span>
+                            ) : ["DRAFT", "REJECTED"].includes(normalizeStatus(r.status)) ? (
                               <button
                                 type="button"
-                                className="ml-2 text-indigo-700 hover:text-indigo-800 text-sm font-medium"
-                                onClick={() => reverseApproval(r.id)}
+                                className="list-approval-forward-btn"
+                                onClick={() => openForwardModal(r)}
+                                disabled={hasInactiveWorkflow}
                               >
-                                Reverse Approval
+                                Forward for Approval
                               </button>
+                            ) : (
+                              <div className="w-full h-9" />
                             )}
-                          </>
-                        ) : r.forwarded_to_username || normalizeStatus(r.status) === "PENDING_APPROVAL" ? (
-                          <button
-                            type="button"
-                            disabled
-                            title="Assigned approver"
-                            className="ml-3 inline-flex items-center px-3 py-1.5 rounded bg-amber-500 text-white text-xs font-semibold cursor-default select-none whitespace-nowrap"
-                          >
-                            Forwarded to: {r.forwarded_to_username || "Approver"}
-                          </button>
-                        ) : ["DRAFT", "REJECTED"].includes(normalizeStatus(r.status)) ? (
-                          <button
-                            type="button"
-                            className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 transition-colors whitespace-nowrap inline-flex items-center"
-                            onClick={() => openForwardModal(r)}
-                            disabled={hasInactiveWorkflow}
-                          >
-                            Forward for Approval
-                          </button>
-                        ) : null}
-                        {(hasExceptional("PURCHASE.GENERAL_REQUISITION.CANCEL") || exCancelAllowed) &&
-                        !["CANCELLED", "FULFILLED"].includes(normalizeStatus(r.status)) ? (
-                          <button
-                            type="button"
-                            className="inline-flex items-center px-3 py-1.5 rounded bg-[#A30000] hover:bg-[#7B0000] text-white text-xs font-semibold"
-                            onClick={() => cancelDoc(r.id)}
-                          >
-                            Cancel
-                          </button>
-                        ) : null}
+                          </div>
+                        </div>
+
+                        {/* Slot 7: exceptional cancel — fixed cell */}
+                        <div className="min-w-[80px]">
+                          {(hasExceptional("PURCHASE.GENERAL_REQUISITION.CANCEL") ||
+                            exCancelAllowed) &&
+                          !["CANCELLED", "FULFILLED", "APPROVED"].includes(
+                            normalizeStatus(r.status),
+                          ) ? (
+                            <button
+                              type="button"
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-white bg-[#990000] rounded-lg hover:bg-[#770000] transition-colors h-9"
+                              onClick={() => cancelDoc(r.id)}
+                            >
+                              Cancel
+                            </button>
+                          ) : (
+                            <div className="w-full h-9" aria-hidden />
+                          )}
+                        </div>
                       </div>
                     </td>
-                    <td>{r.created_by_name || "-"}</td>
+                    <td>{r.created_by_username || r.created_by_name || "-"}</td>
                     <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))
@@ -738,6 +798,15 @@ export default function GeneralRequisitionList() {
           </div>
         </div>
       ) : null}
+      <DocumentAttachmentsModal
+        open={showAttach}
+        onClose={() => {
+          setShowAttach(false);
+          setActiveDocId(null);
+        }}
+        docType="general-requisition"
+        docId={activeDocId}
+      />
     </div>
   );
 }

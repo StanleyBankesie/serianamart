@@ -4,6 +4,7 @@ import { useNavigate, useLocation, useParams, Link } from "react-router-dom";
 import UnitConversionModal from "../../../../components/UnitConversionModal.jsx";
 import { useUoms } from "../../../../hooks/useUoms.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { useExchangeRate } from "../../../../hooks/useExchangeRate";
 import { Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
 
@@ -12,6 +13,7 @@ export default function DirectPurchase() {
   const location = useLocation();
   const params = useParams();
   const { canEditDiscount } = usePermission();
+  const { getExchangeRate } = useExchangeRate();
   const dpId = params?.id ? Number(params.id) : null;
   const isViewMode =
     location?.pathname?.endsWith(`/direct-purchase/${params?.id || ""}`) &&
@@ -23,6 +25,31 @@ export default function DirectPurchase() {
   const [selectedGeneralRequisitionId, setSelectedGeneralRequisitionId] =
     useState("");
   const [currencies, setCurrencies] = useState([]);
+  const [form, setForm] = useState({
+    supplier_id: "",
+    purchase_date: new Date().toISOString().slice(0, 10),
+    supplier_invoice_number: "",
+    supplier_invoice_date: "",
+    warehouse_id: "",
+    currency_id: "",
+    exchange_rate: 1,
+    payment_type: "CASH",
+    payment_terms: "",
+    remarks: "",
+  });
+  const baseCurrencyCode = useMemo(() => {
+    return (
+      currencies.find((c) => Number(c.is_base) === 1 || c.is_base === true)
+        ?.code || "GHS"
+    );
+  }, [currencies]);
+  const selectedCurrencyCode = useMemo(() => {
+    return (
+      currencies.find((c) => String(c.id) === String(form.currency_id))?.code ||
+      ""
+    );
+  }, [currencies, form.currency_id]);
+
   const [baseCurrencyId, setBaseCurrencyId] = useState(null);
   const [standardPrices, setStandardPrices] = useState([]);
   const [unitConversions, setUnitConversions] = useState([]);
@@ -36,16 +63,6 @@ export default function DirectPurchase() {
     if (pcs && pcs.uom_code) return pcs.uom_code;
     return "PCS";
   }, [uoms]);
-  const [form, setForm] = useState({
-    supplier_id: "",
-    purchase_date: new Date().toISOString().slice(0, 10),
-    warehouse_id: "",
-    currency_id: "",
-    exchange_rate: 1,
-    payment_type: "CASH",
-    payment_terms: "",
-    remarks: "",
-  });
   const [lines, setLines] = useState([]);
   const [newItem, setNewItem] = useState({
     item_id: "",
@@ -83,6 +100,10 @@ export default function DirectPurchase() {
         setForm({
           supplier_id: hdr.supplier_id || "",
           purchase_date: String(hdr.dp_date || "").slice(0, 10),
+          supplier_invoice_number: hdr.supplier_invoice_number || "",
+          supplier_invoice_date: hdr.supplier_invoice_date
+            ? String(hdr.supplier_invoice_date).slice(0, 10)
+            : "",
           warehouse_id: hdr.warehouse_id || "",
           currency_id: hdr.currency_id || "",
           exchange_rate: Number(hdr.exchange_rate || 1),
@@ -176,8 +197,10 @@ export default function DirectPurchase() {
           const base =
             (cur || []).find((c) => Number(c.is_base) === 1)?.id || null;
           setBaseCurrencyId(base);
-          if (!form.currency_id && base) {
-            setForm((prev) => ({ ...prev, currency_id: base }));
+          if (base) {
+            setForm((prev) =>
+              prev.currency_id ? prev : { ...prev, currency_id: base },
+            );
           }
         }
       } catch (e) {}
@@ -189,28 +212,26 @@ export default function DirectPurchase() {
   }, []);
 
   useEffect(() => {
-    let ignore = false;
-    async function updateRate() {
-      const fromId = Number(form.currency_id || 0) || null;
-      const toId = Number(baseCurrencyId || 0) || null;
-      if (!fromId || !toId) return;
-      try {
-        const res = await api.get("/finance/currency-rates", {
-          params: { fromCurrencyId: fromId, toCurrencyId: toId },
-        });
-        const arr = Array.isArray(res?.data?.items) ? res.data.items : [];
-        const latest = arr[0] || null;
-        const rate = latest ? Number(latest.rate || 1) : 1;
-        if (!ignore) {
-          setForm((prev) => ({ ...prev, exchange_rate: rate || 1 }));
-        }
-      } catch {}
+    if (!form.currency_id || currencies.length === 0) return;
+    const selected = currencies.find(
+      (c) => String(c.id) === String(form.currency_id),
+    );
+    const base = currencies.find(
+      (c) => Number(c.is_base) === 1 || c.is_base === true,
+    );
+    if (!selected || !base) return;
+
+    if (selected.code === base.code) {
+      setForm((p) => ({ ...p, exchange_rate: 1 }));
+      return;
     }
-    updateRate();
-    return () => {
-      ignore = true;
-    };
-  }, [form.currency_id, baseCurrencyId]);
+
+    getExchangeRate(selected.code, base.code).then((rate) => {
+      if (rate) {
+        setForm((p) => ({ ...p, exchange_rate: rate }));
+      }
+    });
+  }, [form.currency_id, currencies, getExchangeRate]);
 
   const fetchTaxComponentsForCode = async (taxCodeId) => {
     const key = String(taxCodeId || "");
@@ -286,9 +307,17 @@ export default function DirectPurchase() {
           const filtered = standardPrices
             .filter((p) => String(p.product_id) === String(value))
             .sort((a, b) => {
-              const ad = a.effective_date ? new Date(a.effective_date).getTime() : 0;
-              const bd = b.effective_date ? new Date(b.effective_date).getTime() : 0;
-              return bd - ad || new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+              const ad = a.effective_date
+                ? new Date(a.effective_date).getTime()
+                : 0;
+              const bd = b.effective_date
+                ? new Date(b.effective_date).getTime()
+                : 0;
+              return (
+                bd - ad ||
+                new Date(b.created_at).getTime() -
+                  new Date(a.created_at).getTime()
+              );
             });
           if (filtered.length > 0) {
             unitPrice = Number(filtered[0].cost_price) || unitPrice;
@@ -303,7 +332,15 @@ export default function DirectPurchase() {
             const res = await api.get(`/finance/item-tax/${value}`);
             const tax = res.data?.tax;
             if (tax && tax.id) {
-              setNewItem(p => (p.item_id === value ? { ...p, tax_code_id: String(tax.id), tax_percent: Number(tax.tax_rate) } : p));
+              setNewItem((p) =>
+                p.item_id === value
+                  ? {
+                      ...p,
+                      tax_code_id: String(tax.id),
+                      tax_percent: Number(tax.tax_rate),
+                    }
+                  : p,
+              );
             }
           } catch {}
         };
@@ -321,7 +358,7 @@ export default function DirectPurchase() {
     if (!newItem.item_id || !newItem.qty) return;
     const { taxTotal, taxableTotal } = calcNewItemTaxBreakdown();
     const it = items.find((x) => Number(x.id) === Number(newItem.item_id));
-    
+
     setLines((prev) => [
       ...prev,
       {
@@ -332,7 +369,7 @@ export default function DirectPurchase() {
         line_total: taxableTotal + taxTotal,
       },
     ]);
-    
+
     setNewItem({
       item_id: "",
       qty: 1,
@@ -405,6 +442,28 @@ export default function DirectPurchase() {
 
     return { subtotal, totalDiscount, totalTax, grandTotal, components };
   }, [lines, taxComponentsByCode]);
+  const totalInCurrentCurrency = useMemo(
+    () =>
+      Number(totals.subtotal || 0) +
+      (0 - Number(totals.totalDiscount || 0)) +
+      Number(totals.totalTax || 0) +
+      Number(form.freight_charges || 0) +
+      Number(form.other_charges || 0),
+    [totals, form.freight_charges, form.other_charges],
+  );
+  const totalInBaseCurrency = useMemo(
+    () =>
+      Number(totalInCurrentCurrency || 0) *
+      (Number(form.exchange_rate || 1) || 1),
+    [totalInCurrentCurrency, form.exchange_rate],
+  );
+  const showBaseTotalRow = useMemo(
+    () =>
+      Math.abs(
+        Number(totalInBaseCurrency || 0) - Number(totalInCurrentCurrency || 0),
+      ) > 0.000001,
+    [totalInBaseCurrency, totalInCurrentCurrency],
+  );
 
   function updateForm(k, v) {
     if (k === "payment_type") {
@@ -418,7 +477,14 @@ export default function DirectPurchase() {
   function onSupplierChange(id) {
     const sid = id ? Number(id) : null;
     const sup = suppliers.find((s) => Number(s.id) === sid) || null;
-    const curId = sup?.currency_id ?? baseCurrencyId ?? "";
+    const byCode = sup?.currency_code
+      ? currencies.find(
+          (c) =>
+            String(c.code || "").toUpperCase() ===
+            String(sup.currency_code || "").toUpperCase(),
+        )
+      : null;
+    const curId = sup?.currency_id ?? byCode?.id ?? baseCurrencyId ?? "";
     const terms = sup?.payment_terms ?? "";
     setForm((prev) => ({
       ...prev,
@@ -564,13 +630,17 @@ export default function DirectPurchase() {
       const payload = {
         supplier_id: Number(form.supplier_id),
         purchase_date: form.purchase_date,
+        supplier_invoice_number: form.supplier_invoice_number
+          ? String(form.supplier_invoice_number).trim()
+          : null,
+        supplier_invoice_date: form.supplier_invoice_date || null,
         warehouse_id: Number(form.warehouse_id),
         currency_id: form.currency_id ? Number(form.currency_id) : null,
         exchange_rate: Number(form.exchange_rate || 1),
         payment_type: String(form.payment_type || "CASH"),
         payment_terms: form.payment_terms ? Number(form.payment_terms) : null,
         remarks: form.remarks || null,
-        status: action === "post" ? "POST" : "DRAFT",
+        status: action === "post" ? "POSTED" : "DRAFT",
         details: lines
           .filter((l) => Number(l.item_id) && Number(l.qty))
           .map((l) => ({
@@ -586,6 +656,16 @@ export default function DirectPurchase() {
             exp_date: l.exp_date || null,
           })),
       };
+      if (!payload.supplier_id) {
+        setError("Supplier is required");
+        setSaving(false);
+        return;
+      }
+      if (!payload.warehouse_id) {
+        setError("Warehouse is required");
+        setSaving(false);
+        return;
+      }
       if (!payload.details.length) {
         setError("Add at least one item with quantity");
         setSaving(false);
@@ -604,7 +684,11 @@ export default function DirectPurchase() {
           );
         } catch {}
       }
-      toast.success(dpId ? "Direct Purchase updated successfully" : "Direct Purchase created successfully");
+      toast.success(
+        dpId
+          ? "Direct Purchase updated successfully"
+          : "Direct Purchase created successfully",
+      );
       navigate("/purchase/direct-purchase");
     } catch (e) {
       setError(String(e?.response?.data?.message || e.message || "Error"));
@@ -707,6 +791,29 @@ export default function DirectPurchase() {
               />
             </div>
             <div className="flex flex-col gap-1">
+              <label className="label">Supplier Invoice Number</label>
+              <input
+                className="input"
+                value={form.supplier_invoice_number || ""}
+                onChange={(e) =>
+                  updateForm("supplier_invoice_number", e.target.value)
+                }
+                disabled={isViewMode}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="label">Invoice Date</label>
+              <input
+                type="date"
+                className="input"
+                value={form.supplier_invoice_date || ""}
+                onChange={(e) =>
+                  updateForm("supplier_invoice_date", e.target.value)
+                }
+                disabled={isViewMode}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
               <label className="label">Warehouse</label>
               <select
                 className="input"
@@ -799,10 +906,14 @@ export default function DirectPurchase() {
             </div>
           </div>
           <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6">
-            <h3 className="text-sm font-semibold text-[#0E3646] mb-3">Add Item</h3>
+            <h3 className="text-sm font-semibold text-[#0E3646] mb-3">
+              Add Item
+            </h3>
             <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-3">
               <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Item *</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Item *
+                </label>
                 <select
                   name="item_id"
                   className="input"
@@ -819,7 +930,9 @@ export default function DirectPurchase() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Qty *</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Qty *
+                </label>
                 <input
                   type="number"
                   name="qty"
@@ -831,7 +944,9 @@ export default function DirectPurchase() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">UOM</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  UOM
+                </label>
                 <select
                   name="uom"
                   className="input"
@@ -847,7 +962,9 @@ export default function DirectPurchase() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Price</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Price
+                </label>
                 <input
                   type="number"
                   name="unit_price"
@@ -858,7 +975,9 @@ export default function DirectPurchase() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Disc %</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Disc %
+                </label>
                 <input
                   type="number"
                   name="discount_percent"
@@ -869,7 +988,9 @@ export default function DirectPurchase() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Tax Code</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Tax Code
+                </label>
                 <select
                   name="tax_code_id"
                   className="input"
@@ -886,7 +1007,9 @@ export default function DirectPurchase() {
                 </select>
               </div>
               <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Batch No</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Batch No
+                </label>
                 <input
                   type="text"
                   name="batch_no"
@@ -898,7 +1021,9 @@ export default function DirectPurchase() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Mfg Date</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Mfg Date
+                </label>
                 <input
                   type="date"
                   name="mfg_date"
@@ -909,7 +1034,9 @@ export default function DirectPurchase() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Exp Date</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Exp Date
+                </label>
                 <input
                   type="date"
                   name="exp_date"
@@ -920,18 +1047,30 @@ export default function DirectPurchase() {
                 />
               </div>
               <div className="lg:col-span-1 flex items-end">
-                {newItem.tax_code_id && calcNewItemTaxBreakdown().components.length > 0 ? (
+                {newItem.tax_code_id &&
+                calcNewItemTaxBreakdown().components.length > 0 ? (
                   <div className="w-full mt-2 border border-slate-200 rounded-md p-2 bg-slate-50 text-xs">
-                    <div className="font-semibold text-slate-700 mb-1 border-b pb-1">Tax Breakdown</div>
+                    <div className="font-semibold text-slate-700 mb-1 border-b pb-1">
+                      Tax Breakdown
+                    </div>
                     {calcNewItemTaxBreakdown().components.map((c) => (
-                      <div key={c.name} className="flex justify-between items-center py-0.5">
-                        <span className="text-gray-600">{c.name} ({c.rate}%):</span>
-                        <span className="font-medium">{c.amount.toFixed(2)}</span>
+                      <div
+                        key={c.name}
+                        className="flex justify-between items-center py-0.5"
+                      >
+                        <span className="text-gray-600">
+                          {c.name} ({c.rate}%):
+                        </span>
+                        <span className="font-medium">
+                          {c.amount.toFixed(2)}
+                        </span>
                       </div>
                     ))}
                     <div className="flex justify-between items-center border-t border-slate-200 mt-1 pt-1 font-bold">
                       <span>Total Tax:</span>
-                      <span>{calcNewItemTaxBreakdown().taxTotal.toFixed(2)}</span>
+                      <span>
+                        {calcNewItemTaxBreakdown().taxTotal.toFixed(2)}
+                      </span>
                     </div>
                   </div>
                 ) : null}
@@ -956,7 +1095,7 @@ export default function DirectPurchase() {
               <table className="table">
                 <thead className="bg-[#f8f9fa]">
                   <tr>
-                    <th style={{ width: 320 }}>Item Details</th>
+                    <th style={{ width: 960 }}>Item Details</th>
                     <th style={{ width: 100 }}>Qty</th>
                     <th style={{ width: 100 }}>UOM</th>
                     <th style={{ width: 180 }}>Batch/Mfg/Exp</th>
@@ -964,27 +1103,38 @@ export default function DirectPurchase() {
                     <th style={{ width: 100 }}>Disc%</th>
                     <th style={{ width: 120 }}>Net</th>
                     <th style={{ width: 120 }}>Tax</th>
-                    <th style={{ width: 140 }} className="text-right">Line Total</th>
+                    <th style={{ width: 140 }} className="text-right">
+                      Line Total
+                    </th>
                     <th style={{ width: 70 }}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {lines.length === 0 ? (
                     <tr>
-                      <td colSpan="10" className="text-center py-10 text-gray-500 italic bg-gray-50">
-                        No items added yet. Use the section above to add items to this purchase.
+                      <td
+                        colSpan="10"
+                        className="text-center py-10 text-gray-500 italic bg-gray-50"
+                      >
+                        No items added yet. Use the section above to add items
+                        to this purchase.
                       </td>
                     </tr>
                   ) : (
                     lines.map((l, i) => {
-                      const gross = Number(l.qty || 0) * Number(l.unit_price || 0);
-                      const disc = gross * (Number(l.discount_percent || 0) / 100);
+                      const gross =
+                        Number(l.qty || 0) * Number(l.unit_price || 0);
+                      const disc =
+                        gross * (Number(l.discount_percent || 0) / 100);
                       const net = gross - disc;
                       const tax = Number(l.line_total || 0) - net;
                       return (
-                        <tr key={l.id || i} className="hover:bg-slate-50 transition-colors border-b last:border-0 border-slate-100">
+                        <tr
+                          key={l.id || i}
+                          className="hover:bg-slate-50 transition-colors border-b last:border-0 border-slate-100"
+                        >
                           <td>
-                            <div className="font-semibold text-[#0E3646] truncate max-w-[300px]">
+                            <div className="font-semibold text-[#0E3646] truncate max-w-[900px]">
                               {l.item_name}
                             </div>
                             <div className="text-xs text-gray-500 font-mono">
@@ -994,20 +1144,45 @@ export default function DirectPurchase() {
                           <td className="text-center font-medium">{l.qty}</td>
                           <td className="text-center">{l.uom}</td>
                           <td>
-                            {l.batch_no && <div className="text-xs truncate max-w-[170px]"><b>B:</b> {l.batch_no}</div>}
-                            {l.mfg_date && <div className="text-[10px] text-gray-500"><b>M:</b> {l.mfg_date}</div>}
-                            {l.exp_date && <div className="text-[10px] text-red-500"><b>E:</b> {l.exp_date}</div>}
+                            {l.batch_no && (
+                              <div className="text-xs truncate max-w-[170px]">
+                                <b>B:</b> {l.batch_no}
+                              </div>
+                            )}
+                            {l.mfg_date && (
+                              <div className="text-[10px] text-gray-500">
+                                <b>M:</b> {l.mfg_date}
+                              </div>
+                            )}
+                            {l.exp_date && (
+                              <div className="text-[10px] text-red-500">
+                                <b>E:</b> {l.exp_date}
+                              </div>
+                            )}
                           </td>
-                          <td className="text-right">{Number(l.unit_price).toFixed(2)}</td>
+                          <td className="text-right">
+                            {Number(l.unit_price).toFixed(2)}
+                          </td>
                           <td className="text-right">{l.discount_percent}%</td>
-                          <td className="text-right font-medium">{net.toFixed(2)}</td>
-                          <td className="text-right text-gray-600">{tax.toFixed(2)}</td>
+                          <td className="text-right font-medium">
+                            {net.toFixed(2)}
+                          </td>
+                          <td className="text-right text-gray-600">
+                            {tax.toFixed(2)}
+                          </td>
                           <td className="text-right font-bold text-[#0E3646]">
-                            {Number(l.line_total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {Number(l.line_total).toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
                           </td>
                           <td>
                             {!isViewMode && (
-                              <button className="text-red-600 hover:text-red-900 transition-colors p-1" onClick={() => removeLine(i)} title="Remove item">
+                              <button
+                                className="text-red-600 hover:text-red-900 transition-colors p-1"
+                                onClick={() => removeLine(i)}
+                                title="Remove item"
+                              >
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             )}
@@ -1063,13 +1238,23 @@ export default function DirectPurchase() {
               </div>
             ))}
             <div className="flex justify-between py-3 text-lg font-bold text-[#0E3646]">
-              <span>GRAND TOTAL:</span>
+              <span>{`Total ${selectedCurrencyCode || baseCurrencyCode}:`}</span>
               <span>
-                {Number(totals.grandTotal || 0).toLocaleString(undefined, {
+                {Number(totalInCurrentCurrency || 0).toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                 })}
               </span>
             </div>
+            {showBaseTotalRow ? (
+              <div className="flex justify-between py-3 text-lg font-bold text-[#0E3646]">
+                <span>{`Total ${baseCurrencyCode}:`}</span>
+                <span>
+                  {Number(totalInBaseCurrency || 0).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                  })}
+                </span>
+              </div>
+            ) : null}
           </div>
 
           {!isViewMode ? (

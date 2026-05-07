@@ -18,9 +18,9 @@ export default function PromotionList() {
         </div>
       </div></div>
       <div className="card"><div className="card-body overflow-x-auto">
-        <table className="table"><thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50"><tr><th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Employee</th><th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Effective Date</th><th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">From</th><th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">To</th><th /></tr></thead>
+        <table className="table"><thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50"><tr><th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Employee</th><th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Effective Date</th><th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">From</th><th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">To</th><th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th><th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th><th /></tr></thead>
           <tbody>{items.map((r) => (
-            <tr key={r.id}><td className="font-medium">{r.employee}</td><td>{new Date(r.effectiveDate).toLocaleDateString()}</td><td>{r.from}</td><td>{r.to}</td>
+            <tr key={r.id}><td className="font-medium">{r.employee}</td><td>{new Date(r.effectiveDate).toLocaleDateString()}</td><td>{r.from}</td><td>{r.to}</td><td>{r.created_by_name || "-"}</td><td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
               <td>
                 {canPerformAction('human-resources:promotions', 'edit') && (
                   <Link to={`/human-resources/promotions/${r.id}`} className="text-brand hover:text-brand-600 text-sm font-medium">Edit</Link>

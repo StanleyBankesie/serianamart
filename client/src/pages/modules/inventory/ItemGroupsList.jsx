@@ -157,20 +157,22 @@ export default function ItemGroupsList() {
                     <td>{g.parent_group_name || "-"}</td>
                     <td>{g.is_active ? "Yes" : "No"}</td>
                     <td>
+                      <div className="flex items-center gap-2 whitespace-nowrap">
                       <Link
                         to={`/inventory/item-groups/${g.id}?mode=view`}
-                        className="text-brand hover:text-brand-700 text-sm font-medium"
+                        className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors"
                         data-rbac-exempt="true"
                       >
                         View
                       </Link>
                       <Link
                         to={`/inventory/item-groups/${g.id}?mode=edit`}
-                        className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
+                        className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors"
                         data-rbac-exempt="true"
                       >
                         Edit
                       </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}

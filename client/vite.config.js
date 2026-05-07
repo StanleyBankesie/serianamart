@@ -8,9 +8,10 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:4002",
+        target: process.env.VITE_API_URL || "http://localhost:4002",
         changeOrigin: true,
         secure: false,
+        rewrite: (path) => path,
       },
       "/uploads": {
         target: process.env.VITE_API_PROXY_TARGET || "http://localhost:4002",

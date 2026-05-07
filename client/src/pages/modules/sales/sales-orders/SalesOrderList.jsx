@@ -6,11 +6,17 @@ import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { toast } from "react-toastify";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import addNotification from "react-push-notification";
+import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+  ListAttachmentIconButton,
+} from "@/components/list/ListDocActionIconButtons.jsx";
 
 export default function SalesOrderList() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { canPerformAction, hasExceptional } = usePermission();
+  const { canPerformAction, hasExceptional, canReverseApproval } = usePermission();
   const [orders, setOrders] = useState([]);
   const [exceptionalAllowed, setExceptionalAllowed] = useState(false);
   const [cancelDenied, setCancelDenied] = useState(false);
@@ -29,6 +35,8 @@ export default function SalesOrderList() {
   const [submittingForward, setSubmittingForward] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [forwardedTo, setForwardedTo] = useState({});
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
   const [companyInfo, setCompanyInfo] = useState({
     name: "",
     address: "",
@@ -1031,9 +1039,9 @@ export default function SalesOrderList() {
                     <th>Priority</th>
                     <th>Status</th>
                     <th>Amount</th>
-                    <th>Actions</th>
-                                    <th>Created By</th>
-                  <th>Created Date</th>
+                    <th className="text-right">Actions</th>
+                    <th>Created By</th>
+                    <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1053,96 +1061,105 @@ export default function SalesOrderList() {
                           minimumFractionDigits: 2,
                         })}
                       </td>
-                      <td>
-                        <div className="flex gap-2 items-center whitespace-nowrap">
-                          {canPerformAction("sales:sales-orders", "view") && (
-                            <button
-                              onClick={() =>
-                                navigate(
-                                  `/sales/sales-orders/${order.id}?mode=view`,
-                                )
-                              }
-                              className="text-brand hover:text-brand-600 font-medium text-sm"
-                            >
-                              View
-                            </button>
-                          )}
-                          {!["APPROVED", "POSTED", "CONFIRMED"].includes(
-                            String(order.status || "").toUpperCase(),
-                          ) &&
-                            canPerformAction("sales:sales-orders", "edit") && (
-                              <button
-                                onClick={() =>
-                                  navigate(
-                                    `/sales/sales-orders/${order.id}?mode=edit`,
-                                  )
-                                }
-                                className="text-blue-600 hover:text-blue-700 font-medium text-sm"
-                              >
-                                Edit
-                              </button>
-                            )}
-                          {String(order.status || "").toUpperCase() ===
-                          "APPROVED" ? (
-                            <>
-                              <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                                Approved
-                              </span>
-                              <button
-                                type="button"
-                                className="ml-2 text-indigo-700 hover:text-indigo-800 text-sm font-medium"
-                                onClick={() => reverseSalesOrder(order.id)}
-                              >
-                                Reverse Approval
-                              </button>
-                            </>
-                          ) : String(order.status || "").toUpperCase() ===
-                            "POSTED" ? (
-                            <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-indigo-600 text-white">
-                              Posted
-                            </span>
-                          ) : String(order.status || "").toUpperCase() ===
-                            "PENDING_APPROVAL" ? (
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="min-w-[80px]">
+                          <button
+                            type="button"
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            onClick={() => navigate(`/sales/sales-orders/${order.id}?mode=view`)}
+                          >
+                            View
+                          </button>
+                        </div>
+
+                        {/* Slot 2: Edit */}
+                        <div className="min-w-[80px]">
+                          {!["APPROVED", "POSTED", "CONFIRMED"].includes(String(order.status || "").toUpperCase()) && canPerformAction("sales:sales-orders", "edit") ? (
                             <button
                               type="button"
-                              disabled
-                              title="Assigned approver"
-                              className="ml-3 inline-flex items-center px-3 py-1.5 rounded bg-amber-500 text-white text-xs font-semibold cursor-default select-none whitespace-nowrap"
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                              onClick={() => navigate(`/sales/sales-orders/${order.id}?mode=edit`)}
                             >
-                              Forwarded to:{" "}
-                              {(order.forwarded_to_username ||
-                                forwardedTo[order.id] ||
-                                "Approver") + ""}
+                              Edit
                             </button>
-                          ) : ["DRAFT", "REJECTED"].includes(
-                              String(order.status || "").toUpperCase(),
-                            ) ? (
-                            <span className="ml-3 inline-flex items-center gap-2">
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 3: Print */}
+                        <div className="min-w-[80px]">
+                          <ListPrintIconButton
+                            onClick={() => printSalesOrder(order.id)}
+                          />
+                        </div>
+
+                        {/* Slot 4: PDF */}
+                        <div className="min-w-[80px]">
+                          <ListPdfIconButton
+                            onClick={() => downloadSalesOrderPdf(order.id)}
+                          />
+                        </div>
+
+                        {/* Slot 5: Attachments */}
+                        <div className="min-w-[80px]">
+                          <ListAttachmentIconButton
+                            onClick={() => {
+                              setActiveDocId(order.id);
+                              setShowAttach(true);
+                            }}
+                          />
+                        </div>
+
+                        {/* Slot 6: Workflow */}
+                        <div className="min-w-[160px]">
+                          <div className="list-approval-slot">
+                            {String(order.status || "").toUpperCase() === "APPROVED" ? (
+                              <div className="flex items-center gap-2">
+                                <span className="list-approval-approved-pill">
+                                  Approved
+                                </span>
+                                {/* Slot 7: Reverse Approval (Cancel) */}
+                                {canReverseApproval() && (
+                                  <button
+                                    type="button"
+                                    className="list-approval-reverse-btn"
+                                    onClick={() => reverseSalesOrder(order.id)}
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </div>
+                            ) : String(order.status || "").toUpperCase() === "PENDING_APPROVAL" ? (
+                              <span className="list-approval-forwarded-pill">
+                                Forwarded to {order.forwarded_to_username || forwardedTo[order.id] || "Approver"}
+                              </span>
+                            ) : ["DRAFT", "REJECTED"].includes(String(order.status || "").toUpperCase()) ? (
                               <button
                                 type="button"
-                                className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 transition-colors whitespace-nowrap"
+                                className="list-approval-forward-btn"
                                 onClick={() => openForwardModal(order)}
                                 disabled={submittingForward}
                               >
                                 Forward for Approval
                               </button>
-                            </span>
-                          ) : null}
-                          <button
-                            onClick={() => printSalesOrder(order.id)}
-                            className="inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
-                          >
-                            Print
-                          </button>
-                          <button
-                            onClick={() => downloadSalesOrderPdf(order.id)}
-                            className="inline-flex items-center px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold"
-                          >
-                            PDF
-                          </button>
+                            ) : (
+                              <div className="w-full h-9" />
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Slot 8: exceptional cancel — fixed cell */}
+                        <div className="min-w-[80px]">
                           {!order.has_invoice &&
-                          hasExceptional("SALES.ORDER.CANCEL") ? (
+                          hasExceptional("SALES.ORDER.CANCEL") &&
+                          String(order.status || "").toUpperCase() !==
+                            "APPROVED" ? (
                             <button
+                              type="button"
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-white bg-[#990000] rounded-lg hover:bg-[#770000] transition-colors h-9"
                               onClick={async () => {
                                 if (
                                   !window.confirm(
@@ -1157,20 +1174,19 @@ export default function SalesOrderList() {
                                     prev.filter((x) => x.id !== order.id),
                                   );
                                 } catch (e) {
-                                  toast.error(
-                                    e?.response?.data?.message ||
-                                      "Unable to cancel sales order",
-                                  );
+                                  toast.error("Unable to cancel");
                                 }
                               }}
-                              className="inline-flex items-center px-3 py-1.5 rounded bg-[#A30000] hover:bg-[#7B0000] text-white text-xs font-semibold"
                             >
                               Cancel
                             </button>
-                          ) : null}
+                          ) : (
+                            <div className="w-full h-9" aria-hidden />
+                          )}
                         </div>
-                      </td>
-                      <td>{order.created_by_name || "-"}</td>
+                      </div>
+                    </td>
+                      <td>{order.created_by_username || order.created_by_name || "-"}</td>
                       <td>{order.created_at ? new Date(order.created_at).toLocaleDateString() : "-"}</td>
                     </tr>
                   ))}
@@ -1323,6 +1339,15 @@ export default function SalesOrderList() {
           </div>
         </div>
       ) : null}
+      <DocumentAttachmentsModal
+        open={showAttach}
+        onClose={() => {
+          setShowAttach(false);
+          setActiveDocId(null);
+        }}
+        docType="sales-order"
+        docId={activeDocId}
+      />
     </div>
   );
 }

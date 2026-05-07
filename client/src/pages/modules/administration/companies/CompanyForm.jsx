@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
+import { useGhanaCities } from "../../../../hooks/useGhanaCities";
 
 export default function CompanyForm() {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = Boolean(id);
+  const { cities: ghanaCities } = useGhanaCities();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -351,9 +353,15 @@ export default function CompanyForm() {
                 <label className="label">City</label>
                 <input
                   className="input"
+                  list="ghana-cities"
                   value={form.city}
                   onChange={(e) => update("city", e.target.value)}
                 />
+                <datalist id="ghana-cities">
+                  {ghanaCities.map((c) => (
+                    <option key={c} value={c} />
+                  ))}
+                </datalist>
               </div>
               <div>
                 <label className="label">State</label>
@@ -454,13 +462,14 @@ export default function CompanyForm() {
                 />
               </div>
               <div>
-                <label className="label">Base Currency</label>
+                <label className="label">Base/Functional Currency *</label>
                 <select
                   className="input"
                   value={form.currency_id}
                   onChange={(e) => update("currency_id", e.target.value)}
+                  required
                 >
-                  <option value="">Select Currency</option>
+                  <option value="">Select Base Currency</option>
                   {currencies.map((c) => (
                     <option key={c.id} value={c.id}>
                       {(c.code || c.currency_code) +

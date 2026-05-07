@@ -5,6 +5,11 @@ import { toast } from "react-toastify";
 import { api } from "api/client";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
 import ReverseApprovalButton from "../../../components/ReverseApprovalButton.jsx";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+  ListAttachmentIconButton,
+} from "@/components/list/ListDocActionIconButtons.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function ReturnToStoresList() {
@@ -585,6 +590,8 @@ export default function ReturnToStoresList() {
                   <th className="px-6 py-4 text-center">Items</th>
                   <th className="px-6 py-4">Status</th>
                   <th className="px-6 py-4 text-right">Actions</th>
+                  <th className="px-6 py-4">Created By</th>
+                  <th className="px-6 py-4">Created Date</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
@@ -626,79 +633,122 @@ export default function ReturnToStoresList() {
                         {d.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-3 whitespace-nowrap">
-                        <Link
-                          to={`/inventory/return-to-stores/${d.id}`}
-                          className="text-slate-400 hover:text-[#2E7D9F] transition-colors"
-                        >
-                          <svg
-                            className="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
+                                        <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="w-[80px]">
+                          <Link
+                            to={`/inventory/return-to-stores/${d.id}?mode=view`}
+                            className="w-full inline-flex items-center justify-center px-3 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors h-9"
                           >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="2"
-                              d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                            />
-                          </svg>
-                        </Link>
-                      {d.status === "APPROVED" ? (
-                        <>
-                          <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                            Approved
-                          </span>
-                          <ReverseApprovalButton
-                            docType="RETURN_TO_STORES"
-                            docId={d.id}
-                            onDone={() =>
-                              setDocs((prev) =>
-                                prev.map((x) =>
-                                  x.id === d.id
-                                    ? {
-                                        ...x,
-                                        status: "REVERSED",
-                                        forwarded_to_username: null,
-                                      }
-                                    : x,
-                                ),
+                            View
+                          </Link>
+                        </div>
+
+                        {/* Slot 2: Edit */}
+                        <div className="min-w-[80px]">
+                          {d.status !== "APPROVED" ? (
+                            <Link
+                              to={`/inventory/return-to-stores/${d.id}?mode=edit`}
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            >
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 3: Print */}
+                        <div className="min-w-[80px]">
+                          <ListPrintIconButton
+                            onClick={() =>
+                              window.open(
+                                `/inventory/return-to-stores/${d.id}?mode=view`,
+                                "_blank",
+                                "noopener,noreferrer",
                               )
                             }
                           />
-                        </>
-                      ) : d.forwarded_to_username ? (
-                        <span className="ml-3 text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white whitespace-nowrap inline-flex items-center">
-                          Forwarded to {d.forwarded_to_username}
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => openForwardModal(d)}
-                          className="ml-3 text-sm font-medium px-2 py-1 rounded bg-[#2E7D9F] text-white hover:bg-[#24637e] transition-colors whitespace-nowrap inline-flex items-center"
-                          disabled={
-                            submittingForward ||
-                            d.status === "POSTED" ||
-                            d.status === "REJECTED" ||
-                            d.status === "PENDING_APPROVAL" ||
-                            d.status === "SUBMITTED"
-                          }
-                        >
-                          {submittingForward
-                            ? "Forwarding..."
-                            : "Forward for Approval"}
-                        </button>
-                      )}
+                        </div>
+
+                        {/* Slot 4: PDF */}
+                        <div className="min-w-[80px]">
+                          <ListPdfIconButton
+                            onClick={() =>
+                              toast.info(
+                                "PDF export is not configured for return to stores.",
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Slot 5: Attachments */}
+                        <div className="w-9">
+                          <ListAttachmentIconButton
+                            onClick={() => {
+                              setActiveDocId(d.id);
+                              setShowAttach(true);
+                            }}
+                          />
+                        </div>
+
+                        {/* Slot 6: Workflow */}
+                        <div className="min-w-[160px]">
+                          <div className="list-approval-slot">
+                            {d.status === "APPROVED" ? (
+                              <div className="flex items-center gap-2">
+                                <span className="list-approval-approved-pill">
+                                  Approved
+                                </span>
+                                {d.status === "APPROVED" && (
+                                  <ReverseApprovalButton
+                                    docType="RETURN_TO_STORES"
+                                    docId={d.id}
+                                    className="list-approval-reverse-btn"
+                                    onDone={() =>
+                                      setDocs((prev) =>
+                                        prev.map((x) =>
+                                          x.id === d.id
+                                            ? {
+                                                ...x,
+                                                status: "REVERSED",
+                                                forwarded_to_username: null,
+                                              }
+                                            : x,
+                                        ),
+                                      )
+                                    }
+                                  >
+                                    Cancel
+                                  </ReverseApprovalButton>
+                                )}
+                              </div>
+                            ) : d.forwarded_to_username ? (
+                              <span className="list-approval-forwarded-pill">
+                                Forwarded to {d.forwarded_to_username}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="list-approval-forward-btn"
+                                onClick={() => openForwardModal(d)}
+                              >
+                                Forward for Approval
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </td>
+                    <td className="px-6 py-4">{d.created_by_username || d.created_by_name || "-"}</td>
+                    <td className="px-6 py-4">{d.created_at ? new Date(d.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
                 {filtered.length === 0 && !loading && (
                   <tr>
                     <td
-                      colSpan="6"
+                      colSpan="8"
                       className="px-6 py-12 text-center text-slate-400"
                     >
                       <div className="flex flex-col items-center gap-3">

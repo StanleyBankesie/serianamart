@@ -1186,6 +1186,8 @@ export default function ItemsList() {
                     Sell Price
                   </th>
                   <th onClick={() => onSort("is_active")}>Status</th>
+                  <th>Created By</th>
+                  <th>Created Date</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -1193,7 +1195,7 @@ export default function ItemsList() {
                 {loading ? (
                   <tr>
                     <td
-                      colSpan="11"
+                      colSpan="14"
                       className="text-center py-8 text-slate-500 dark:text-slate-400"
                     >
                       Loading...
@@ -1203,7 +1205,7 @@ export default function ItemsList() {
                 {!loading && !pageItems.length ? (
                   <tr>
                     <td
-                      colSpan="11"
+                      colSpan="14"
                       className="text-center py-8 text-slate-500 dark:text-slate-400"
                     >
                       No items found
@@ -1237,19 +1239,27 @@ export default function ItemsList() {
                         {it.is_active ? "ACTIVE" : "INACTIVE"}
                       </span>
                     </td>
+                    <td>{it.created_by_name || "-"}</td>
                     <td>
-                      <Link
-                        to={`/inventory/items/${it.id}?mode=view`}
-                        className="text-brand hover:text-brand-700 text-sm font-medium"
-                      >
-                        View
-                      </Link>
-                      <Link
-                        to={`/inventory/items/${it.id}?mode=edit`}
-                        className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                      >
-                        Edit
-                      </Link>
+                      {it.created_at
+                        ? new Date(it.created_at).toLocaleDateString()
+                        : "-"}
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-2 whitespace-nowrap">
+                        <Link
+                          to={`/inventory/items/${it.id}?mode=view`}
+                          className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                        >
+                          View
+                        </Link>
+                        <Link
+                          to={`/inventory/items/${it.id}?mode=edit`}
+                          className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                        >
+                          Edit
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1353,8 +1363,6 @@ export default function ItemsList() {
                         {previewHeaders.map((h) => (
                           <th key={h}>{h}</th>
                         ))}
-                                            <th>Created By</th>
-                      <th>Created Date</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1384,8 +1392,6 @@ export default function ItemsList() {
                               </span>
                             )}
                           </td>
-                          <td>{r.created_by_name || "-"}</td>
-                          <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                         </tr>
                       ))}
                     </tbody>

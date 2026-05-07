@@ -33,6 +33,7 @@ export default function CustomerList() {
   const { canPerformAction } = usePermission();
   const [branchOnly, setBranchOnly] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
   const selectBySearch = React.useMemo(makeSelectCustomersBySearch, []);
   const filteredCustomers = useSelector((s) => selectBySearch(s, searchTerm));
 
@@ -55,11 +56,11 @@ export default function CustomerList() {
     }
   }, [location.state]);
 
-  useAfterSaveRefresh("customers", () =>
-    dispatch(
-      fetchCustomers({ force: true, params: { active: !showInactive } }),
-    ),
-  );
+  const refreshThunk = React.useCallback(() => {
+    dispatch(fetchCustomers({ force: true, params: { active: !showInactive } }));
+  }, [dispatch, showInactive]);
+
+  useAfterSaveRefresh("customers", refreshThunk);
 
   const refresh = () =>
     dispatch(
@@ -92,7 +93,7 @@ export default function CustomerList() {
     formData.append("file", file);
 
     try {
-      setLoading(true);
+      setImportLoading(true);
       await api.post("/sales/customers/import", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
@@ -102,7 +103,7 @@ export default function CustomerList() {
       console.error("Error importing customers", err);
       alert(err?.response?.data?.message || "Error importing customers");
     } finally {
-      setLoading(false);
+      setImportLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
@@ -112,10 +113,6 @@ export default function CustomerList() {
         (x) => String(x.branch_id || "") === String(scope?.branchId || ""),
       )
     : filteredCustomers;
-
-  if (loading) {
-    return <div className="text-center py-8">Loading customers...</div>;
-  }
 
   return (
     <div className="space-y-4">
@@ -134,10 +131,11 @@ export default function CustomerList() {
               Template
             </button>
             <button
-              onClick={() => fileInputRef.current.click()}
-              className="btn btn-primary"
+              className={`btn btn-primary ${importLoading ? "opacity-50 cursor-not-allowed" : ""}`}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading || importLoading}
             >
-              Import
+              {importLoading ? "Importing..." : "Import"}
             </button>
             <input
               type="file"
@@ -159,6 +157,11 @@ export default function CustomerList() {
       {error && (
         <div className="alert alert-error">
           <span>{error}</span>
+        </div>
+      )}
+      {loading && (
+        <div className="alert">
+          <span>Loading customers...</span>
         </div>
       )}
 
@@ -249,15 +252,36 @@ export default function CustomerList() {
                         <span className="badge badge-error">Inactive</span>
                       )}
                     </td>
-                    <td>
-                      {canPerformAction("sales:customers", "edit") && (
-                        <button
-                          className="text-brand hover:text-brand-600 text-sm font-medium"
-                          onClick={() => navigate(`/sales/customers/${r.id}`)}
-                        >
-                          Edit
-                        </button>
-                      )}
+                    <td className="text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="min-w-[80px]">
+                          <button
+                            type="button"
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            onClick={() =>
+                              navigate(`/sales/customers/${r.id}?mode=view`)
+                            }
+                          >
+                            View
+                          </button>
+                        </div>
+                        <div className="min-w-[80px]">
+                          <button
+                            type="button"
+                            className={`w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9 ${
+                              !canPerformAction(
+                                "sales:customers",
+                                "edit",
+                              )
+                                ? "invisible pointer-events-none"
+                                : ""
+                            }`}
+                            onClick={() => navigate(`/sales/customers/${r.id}`)}
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </div>
                     </td>
                     <td>{r.created_by_name || "-"}</td>
                     <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
@@ -379,7 +403,7 @@ export default function CustomerList() {
                     alert(msg);
                     setShowBulkDelete(false);
                     setBulkDeleteRaw("");
-                    await fetchCustomers();
+                    dispatch(fetchCustomers({ force: true, params: { active: !showInactive } }));
                   } catch (err) {
                     alert(
                       err?.response?.data?.message ||

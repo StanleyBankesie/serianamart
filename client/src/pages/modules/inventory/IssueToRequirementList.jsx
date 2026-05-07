@@ -2,15 +2,26 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
+import { toast } from "react-toastify";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
+import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import { usePermission } from "@/auth/PermissionContext.jsx";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+  ListAttachmentIconButton,
+} from "@/components/list/ListDocActionIconButtons.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function IssueToRequirementList() {
+  const { canReverseApproval } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [docs, setDocs] = useState([]);
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -107,9 +118,9 @@ export default function IssueToRequirementList() {
                   <th>Warehouse</th>
                   <th>Department</th>
                   <th>Status</th>
-                  <th>Actions</th>
-                                <th>Created By</th>
-                <th>Created Date</th>
+                  <th className="text-right">Actions</th>
+                  <th>Created By</th>
+                  <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -129,21 +140,110 @@ export default function IssueToRequirementList() {
                         {d.status}
                       </span>
                     </td>
-                    <td>
-                      <Link
-                        to={`/inventory/issue-to-requirement/${d.id}?mode=view`}
-                        className="text-brand hover:text-brand-700 text-sm font-medium"
-                      >
-                        View
-                      </Link>
-                      <Link
-                        to={`/inventory/issue-to-requirement/${d.id}?mode=edit`}
-                        className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                      >
-                        Edit
-                      </Link>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="min-w-[80px]">
+                          <Link
+                            to={`/inventory/issue-to-requirement/${d.id}?mode=view`}
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                          >
+                            View
+                          </Link>
+                        </div>
+
+                        {/* Slot 2: Edit */}
+                        <div className="min-w-[80px]">
+                          {d.status !== "POSTED" ? (
+                            <Link
+                              to={`/inventory/issue-to-requirement/${d.id}?mode=edit`}
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            >
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 3: Print */}
+                        <div className="min-w-[80px]">
+                          <ListPrintIconButton
+                            onClick={() =>
+                              window.open(
+                                `/inventory/issue-to-requirement/${d.id}?mode=view`,
+                                "_blank",
+                                "noopener,noreferrer",
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Slot 4: PDF */}
+                        <div className="min-w-[80px]">
+                          <ListPdfIconButton
+                            onClick={() =>
+                              toast.info(
+                                "PDF export is not configured for issues to requirement.",
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Slot 5: Attachments */}
+                        <div className="w-9">
+                          <ListAttachmentIconButton
+                            onClick={() => {
+                              setActiveDocId(d.id);
+                              setShowAttach(true);
+                            }}
+                          />
+                        </div>
+
+                        {/* Slot 6: Workflow */}
+                        <div className="min-w-[160px]">
+                          <div className="list-approval-slot">
+                            {d.status === "POSTED" ? (
+                              <div className="flex items-center gap-2">
+                                <span className="list-approval-approved-pill">
+                                  Posted
+                                </span>
+                                {d.status === "POSTED" && canReverseApproval() && (
+                                  <button
+                                    type="button"
+                                    className="list-approval-reverse-btn"
+                                    onClick={async () => {
+                                      if (!window.confirm("Cancel this issue?")) return;
+                                      try {
+                                        await api.post(`/inventory/issue-to-requirement/${d.id}/cancel`);
+                                        setDocs((prev) =>
+                                          prev.map((x) =>
+                                            x.id === d.id
+                                              ? { ...x, status: "CANCELLED" }
+                                              : x,
+                                          ),
+                                        );
+                                        toast.success("Issue cancelled");
+                                      } catch (e) {
+                                        toast.error(
+                                          e?.response?.data?.message ||
+                                            "Failed to cancel issue",
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="w-full h-9" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </td>
-                    <td>{d.created_by_name || "-"}</td>
+                    <td>{d.created_by_username || d.created_by_name || "-"}</td>
                     <td>{d.created_at ? new Date(d.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
@@ -155,6 +255,15 @@ export default function IssueToRequirementList() {
       <FloatingCreateButton
         to="/inventory/issue-to-requirement/new"
         title="New Issue"
+      />
+      <DocumentAttachmentsModal
+        open={showAttach}
+        onClose={() => {
+          setShowAttach(false);
+          setActiveDocId(null);
+        }}
+        docType="issue-to-requirement"
+        docId={activeDocId}
       />
     </div>
   );

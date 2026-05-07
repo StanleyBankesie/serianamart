@@ -45,6 +45,8 @@ export default function CandidatesList() {
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Phone</th>
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Requisition</th>
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th>
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
             </tr>
           </thead>
@@ -62,10 +64,12 @@ export default function CandidatesList() {
                     {it.status}
                   </span>
                 </td>
+                <td className="px-3 py-2">{it.created_by_name || "-"}</td>
+                <td className="px-3 py-2">{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
                 <td className="px-3 py-2">
                   <Link
                     to={`/human-resources/candidates/${it.candidate_id || it.id}`}
-                    className="btn-outline text-xs"
+                    className="btn-outline text-xs list-attachment-btn"
                   >
                     Edit
                   </Link>
@@ -74,7 +78,7 @@ export default function CandidatesList() {
             ))}
             {!items.length && !loading ? (
               <tr>
-                <td className="px-3 py-6 text-center text-sm" colSpan={6}>
+                <td className="px-3 py-6 text-center text-sm" colSpan={8}>
                   No candidates
                 </td>
               </tr>

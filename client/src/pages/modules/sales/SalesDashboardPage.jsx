@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../api/client.js";
 import ChartPie from "@/components/charts/ChartPie.jsx";
 
@@ -222,6 +222,11 @@ function Pie({ title, data, donut }) {
 }
 
 export default function SalesDashboardPage() {
+  const location = useLocation();
+  const backTo =
+    location.state?.fromExecutiveOverview === true
+      ? "/executive-overview"
+      : "/sales";
   const [topProductsN, setTopProductsN] = useState(10);
   const [topCustomersN, setTopCustomersN] = useState(10);
   const [from, setFrom] = useState("");
@@ -358,7 +363,7 @@ export default function SalesDashboardPage() {
               onChange={(e) => setTo(e.target.value)}
               title="To"
             />
-            <Link to="/sales" className="btn btn-secondary">
+            <Link to={backTo} className="btn btn-secondary">
               Return to Sales
             </Link>
           </div>

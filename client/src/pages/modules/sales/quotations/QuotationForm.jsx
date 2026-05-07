@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { api } from "api/client";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
@@ -14,12 +14,68 @@ import {
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
+import { useExchangeRate } from "@/hooks/useExchangeRate";
+
+// Ghana Regions and Countries data
+const GHANA_REGIONS = [
+  "Ahafo",
+  "Ashanti",
+  "Bono",
+  "Bono East",
+  "Central",
+  "Eastern",
+  "Greater Accra",
+  "North East",
+  "Northern",
+  "Oti",
+  "Savannah",
+  "Upper East",
+  "Upper West",
+  "Volta",
+  "Western",
+  "Western North",
+];
+
+const COUNTRIES = [
+  "Ghana",
+  "Nigeria",
+  "Ivory Coast",
+  "Togo",
+  "Benin",
+  "Burkina Faso",
+  "Mali",
+  "Niger",
+  "Senegal",
+  "Sierra Leone",
+  "Liberia",
+  "Guinea",
+  "Guinea-Bissau",
+  "Gambia",
+  "Mauritania",
+  "Cameroon",
+  "United Kingdom",
+  "United States",
+  "Canada",
+  "Germany",
+  "France",
+  "Netherlands",
+  "Italy",
+  "Spain",
+  "China",
+  "India",
+  "Japan",
+  "South Africa",
+  "Kenya",
+  "Ethiopia",
+  "Other",
+];
 
 export default function QuotationForm() {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditMode = !!id;
   const { user } = useAuth();
+  const { getExchangeRate } = useExchangeRate();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -61,6 +117,15 @@ export default function QuotationForm() {
   const [inventoryItems, setInventoryItems] = useState([]); // Renamed to avoid confusion with form items
   const [warehouses, setWarehouses] = useState([]);
   const [currencies, setCurrencies] = useState([]);
+
+  const baseCurrencyCode = useMemo(() => {
+    return currencies.find(c => Number(c.is_base) === 1 || c.is_base === true)?.code || "GHS";
+  }, [currencies]);
+
+  const selectedCurrencyCode = useMemo(() => {
+    return currencies.find(c => String(c.id) === String(formData.currency_id))?.code || "";
+  }, [currencies, formData.currency_id]);
+
   const [taxes, setTaxes] = useState([]);
   const [priceTypes, setPriceTypes] = useState([]);
   const [customerNameInput, setCustomerNameInput] = useState("");
@@ -262,6 +327,24 @@ export default function QuotationForm() {
         });
     }
   }, [id]);
+
+  useEffect(() => {
+    if (!formData.currency_id || currencies.length === 0) return;
+    const selected = currencies.find(c => String(c.id) === String(formData.currency_id));
+    const base = currencies.find(c => Number(c.is_base) === 1 || c.is_base === true);
+    if (!selected || !base) return;
+
+    if (selected.code === base.code) {
+      setFormData(p => ({ ...p, exchange_rate: 1 }));
+      return;
+    }
+
+    getExchangeRate(selected.code, base.code).then(rate => {
+      if (rate) {
+        setFormData(p => ({ ...p, exchange_rate: rate }));
+      }
+    });
+  }, [formData.currency_id, currencies]);
 
   useEffect(() => {
     ensureTaxComponentsLoaded();
@@ -1261,27 +1344,37 @@ export default function QuotationForm() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                State
+                State/Region
               </label>
-              <input
-                type="text"
+              <select
                 value={customerStateInput}
                 onChange={(e) => setCustomerStateInput(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                placeholder="Enter state"
-              />
+              >
+                <option value="">Select Region</option>
+                {GHANA_REGIONS.map((region) => (
+                  <option key={region} value={region}>
+                    {region}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Country
               </label>
-              <input
-                type="text"
+              <select
                 value={customerCountryInput}
                 onChange={(e) => setCustomerCountryInput(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                placeholder="Enter country"
-              />
+              >
+                <option value="">Select Country</option>
+                {COUNTRIES.map((country) => (
+                  <option key={country} value={country}>
+                    {country}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1381,13 +1474,26 @@ export default function QuotationForm() {
                 onChange={handleInputChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
               >
-                {currencies.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code || c.currency_code} - {c.name || c.currency_name}
-                  </option>
-                ))}
-              </select>
-            </div>
+                  {currencies.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.code || c.currency_code} - {c.name || c.currency_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Exchange Rate {selectedCurrencyCode ? `(${baseCurrencyCode} per ${selectedCurrencyCode})` : ""}
+                </label>
+                <input
+                  type="number"
+                  step="0.000001"
+                  name="exchange_rate"
+                  value={formData.exchange_rate}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                />
+              </div>
             <div className="md:col-span-3">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Terms & Conditions

@@ -88,22 +88,18 @@ export default function ServiceExecutionsList() {
                       <td>{it.execution_date || ""}</td>
                       <td>{it.status || ""}</td>
                       <td>
-                        {canPerformAction("service-management:service-executions", "view") && (
-                          <Link
-                            to={`/service-management/service-executions/${it.id}`}
-                            className="btn-secondary btn-sm"
-                          >
-                            View
-                          </Link>
-                        )}
-                        {canPerformAction("service-management:service-executions", "edit") && (
-                          <Link
-                            to={`/service-management/service-execution?id=${it.id}&mode=edit`}
-                            className="btn-primary btn-sm ml-2"
-                          >
-                            Edit
-                          </Link>
-                        )}
+                        <Link
+                          to={`/service-management/service-executions/${it.id}`}
+                          className={`btn-secondary btn-sm ${!canPerformAction("service-management:service-executions", "view") ? 'invisible pointer-events-none' : ''}`}
+                        >
+                          View
+                        </Link>
+                        <Link
+                          to={`/service-management/service-execution?id=${it.id}&mode=edit`}
+                          className={`btn-primary btn-sm ml-2 ${!canPerformAction("service-management:service-executions", "edit") ? 'invisible pointer-events-none' : ''}`}
+                        >
+                          Edit
+                        </Link>
                       </td>
                       <td>{it.created_by_name || "-"}</td>
                       <td>{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>

@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
-import { FileText, Download } from "lucide-react";
+import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+} from "@/components/list/ListDocActionIconButtons.jsx";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 
@@ -616,36 +618,34 @@ export default function DeliveryList() {
                       <td>{new Date(r.delivery_date).toLocaleDateString()}</td>
                       <td>{r.customer_name}</td>
                       <td>{r.status}</td>
-                      <td>
-                        <div className="flex gap-2 items-center whitespace-nowrap">
-                          {canPerformAction("sales:delivery", "view") && (
+                      <td className="text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="min-w-[80px]">
                             <button
                               type="button"
-                              className="text-brand hover:text-brand-600 font-medium text-sm"
+                              className={`w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9 ${
+                                !canPerformAction("sales:delivery", "view")
+                                  ? "invisible pointer-events-none"
+                                  : ""
+                              }`}
                               onClick={() =>
                                 navigate(`/sales/delivery/${r.id}?mode=view`)
                               }
                             >
                               View
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            className="ml-2 btn-primary text-xs px-3 py-1.5 gap-1"
-                            onClick={() => printDelivery(r.id)}
-                          >
-                            <FileText className="w-4 h-4" />
-                            Print
-                          </button>
-                          <button
-                            type="button"
-                            className="ml-1 btn-outline text-xs px-3 py-1.5 gap-1"
-                            onClick={() => downloadDelivery(r.id)}
-                          >
-                            <Download className="w-4 h-4" />
-                            Download
-                          </button>
-                          {/* Edit removed by request */}
+                          </div>
+                          <div className="min-w-[80px]">
+                            <ListPrintIconButton
+                              onClick={() => printDelivery(r.id)}
+                            />
+                          </div>
+                          <div className="min-w-[80px]">
+                            <ListPdfIconButton
+                              title="PDF"
+                              onClick={() => downloadDelivery(r.id)}
+                            />
+                          </div>
                         </div>
                       </td>
                       <td>{r.created_by_name || "-"}</td>

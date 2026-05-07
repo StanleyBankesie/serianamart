@@ -222,13 +222,19 @@ export default function StockVerificationList() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
                     Actions
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
+                    Created By
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
+                    Created Date
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {loading ? (
                   <tr>
                     <td
-                      colSpan="7"
+                      colSpan="9"
                       className="px-6 py-4 text-center text-gray-500"
                     >
                       Loading...
@@ -237,7 +243,7 @@ export default function StockVerificationList() {
                 ) : filteredVerifications.length === 0 ? (
                   <tr>
                     <td
-                      colSpan="7"
+                      colSpan="9"
                       className="px-6 py-4 text-center text-gray-500"
                     >
                       No verifications found
@@ -284,70 +290,81 @@ export default function StockVerificationList() {
                           N/A
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex gap-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                        <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                           <Link
                             to={`/inventory/stock-verification/${verification.id}?mode=view`}
-                            className="text-blue-600 hover:text-blue-900"
-                            title="View Details"
+                            className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors"
                           >
                             View
                           </Link>
-                          <Link
-                            to={`/inventory/stock-verification/${verification.id}?mode=edit`}
-                            className="text-green-600 hover:text-green-900"
-                            title="Edit"
-                          >
-                            Edit
-                          </Link>
-                          {verification.status === "DRAFT" &&
-                            !isWfActive &&
-                            !checkingWf && (
-                              <button
-                                onClick={async () => {
-                                  try {
-                                    await api.post(
-                                      `/inventory/stock-verification/${verification.id}/submit`,
-                                    );
-                                    toast.success(
-                                      "Verification confirmed and approved",
-                                    );
-                                    fetchVerifications();
-                                  } catch (e) {
-                                    toast.error(
-                                      e?.response?.data?.message ||
-                                        "Confirmation failed",
-                                    );
-                                  }
-                                }}
-                                className="text-indigo-600 hover:text-indigo-900 ml-2"
-                                title="Confirm Verification"
-                              >
-                                Confirm
-                              </button>
-                            )}
-                          {verification.status === "DRAFT" && isWfActive && (
-                            <button
-                              onClick={async () => {
-                                // Original forward logic if needed, but user wants to hide forward if inactive
-                                // and implies forward should be there if active
-                                try {
-                                  await api.post(
-                                    `/inventory/stock-verification/${verification.id}/submit`,
-                                    { amount: null },
-                                  );
-                                  toast.success("Forwarded for approval");
-                                  fetchVerifications();
-                                } catch (e) {
-                                  toast.error("Forwarding failed");
-                                }
-                              }}
-                              className="text-blue-600 hover:text-blue-900 ml-2"
-                              title="Forward for Approval"
+                          {verification.status === "DRAFT" && (
+                            <Link
+                              to={`/inventory/stock-verification/${verification.id}?mode=edit`}
+                              className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors"
                             >
-                              Forward
-                            </button>
+                              Edit
+                            </Link>
                           )}
+                          
+                          <div className="list-approval-slot">
+                            {verification.status === "APPROVED" || verification.status === "POSTED" ? (
+                              <span className="list-approval-approved-pill">
+                                Approved
+                              </span>
+                            ) : verification.forwarded_to_username ? (
+                              <span
+                                className="list-approval-forwarded-pill"
+                                title="Assigned approver"
+                              >
+                                Forwarded to {verification.forwarded_to_username}
+                              </span>
+                            ) : (verification.status === "DRAFT" || verification.status === "REJECTED") ? (
+                              isWfActive ? (
+                                <button
+                                  type="button"
+                                  className="list-approval-forward-btn"
+                                  onClick={async () => {
+                                    try {
+                                      await api.post(`/inventory/stock-verification/${verification.id}/submit`, { amount: null });
+                                      toast.success("Forwarded for approval");
+                                      fetchVerifications();
+                                    } catch (e) {
+                                      toast.error("Forwarding failed");
+                                    }
+                                  }}
+                                >
+                                  Forward for Approval
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="list-approval-forward-btn"
+                                  onClick={async () => {
+                                    try {
+                                      await api.post(`/inventory/stock-verification/${verification.id}/submit`);
+                                      toast.success("Verification confirmed and approved");
+                                      fetchVerifications();
+                                    } catch (e) {
+                                      toast.error(e?.response?.data?.message || "Confirmation failed");
+                                    }
+                                  }}
+                                >
+                                  Confirm
+                                </button>
+                              )
+                            ) : null}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">
+                          {verification.created_by_username || verification.created_by_name || "-"}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">
+                          {verification.created_at ? new Date(verification.created_at).toLocaleDateString() : "-"}
                         </div>
                       </td>
                     </tr>

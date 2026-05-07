@@ -10,6 +10,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import {} from "lucide-react";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { useExchangeRate } from "../../../../hooks/useExchangeRate";
 
 export default function PurchaseOrdersLocalForm() {
   const { id } = useParams();
@@ -18,6 +19,7 @@ export default function PurchaseOrdersLocalForm() {
   const { user } = useAuth();
   const socket = useSocket();
   const { canEditDiscount } = usePermission();
+  const { getExchangeRate } = useExchangeRate();
 
   const isNew = !id || id === "new";
   const isEdit =
@@ -62,6 +64,7 @@ export default function PurchaseOrdersLocalForm() {
   const [taxes, setTaxes] = useState([]);
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
   const pdfRef = useRef(null);
+  const dataLoadedRef = useRef(false); // tracks whether existing PO data has been fetched
 
   // Form State
   const [formData, setFormData] = useState({
@@ -408,48 +411,29 @@ export default function PurchaseOrdersLocalForm() {
       arr.find((c) =>
         /ghana|cedi/i.test(String(c.name || c.currency_name || "")),
       );
-    const target = arr.find(
-      (c) => String(c.code || c.currency_code || "").toUpperCase() === code,
-    );
-    if (!base || !target || base.id === target.id) {
+
+    if (!base) return;
+    const baseCode = String(
+      base.code || base.currency_code || "",
+    ).toUpperCase();
+    if (code === baseCode) {
       setFormData((prev) => ({ ...prev, exchange_rate: 1 }));
       return;
     }
-    try {
-      const toDate = formData.po_date || new Date().toISOString().split("T")[0];
-      const res = await api.get("/finance/currency-rates", {
-        params: {
-          fromCurrencyId: target.id,
-          toCurrencyId: base.id,
-          to: toDate,
-        },
-      });
-      const list = Array.isArray(res.data?.items) ? res.data.items : [];
-      const first = list[0];
-      if (first && first.rate) {
-        setFormData((prev) => ({
-          ...prev,
-          exchange_rate: Number(first.rate) || prev.exchange_rate || 1,
-        }));
-      } else {
-        try {
-          await api.post("/finance/currency-rates", {
-            fromCurrencyId: target.id,
-            toCurrencyId: base.id,
-            rate: 1,
-            rateDate: toDate,
-          });
-          setFormData((prev) => ({ ...prev, exchange_rate: 1 }));
-        } catch {
-          setFormData((prev) => ({ ...prev, exchange_rate: 1 }));
-        }
-      }
-    } catch {}
+
+    const rate = await getExchangeRate(code, baseCode);
+    if (rate) {
+      setFormData((p) => ({ ...p, exchange_rate: rate }));
+    }
   };
 
   useEffect(() => {
+    // Only auto-fetch on currencies load (for new POs) or date change.
+    // Currency changes are handled explicitly in handleInputChange to avoid
+    // overwriting the saved exchange_rate when PO data is loaded programmatically.
+    if (!isNew && !dataLoadedRef.current) return;
     fetchExchangeRateForCode(formData.currency);
-  }, [currencies, formData.currency, formData.po_date]);
+  }, [currencies, formData.po_date]); // NOTE: formData.currency intentionally omitted
   useEffect(() => {
     if (isEdit) return;
 
@@ -561,6 +545,8 @@ export default function PurchaseOrdersLocalForm() {
           tax_amount: Number(po.tax_amount) || 0,
           terms_conditions: po.terms_conditions || formData.terms_conditions,
         });
+        // Mark data as loaded so the exchange rate effect no longer skips
+        dataLoadedRef.current = true;
         setItems(
           details.length
             ? details
@@ -676,7 +662,46 @@ export default function PurchaseOrdersLocalForm() {
       grandTotal,
       components,
     };
-  }, [items, formData.freight_amount, formData.other_charges, taxComponentsByCode]);
+  }, [
+    items,
+    formData.freight_amount,
+    formData.other_charges,
+    taxComponentsByCode,
+  ]);
+
+  const baseCurrencyCode = useMemo(() => {
+    const arr = Array.isArray(currencies) ? currencies : [];
+    const base =
+      arr.find(
+        (c) =>
+          String(c.is_base) === "1" || c.is_base === 1 || c.is_base === true,
+      ) ||
+      arr.find((c) => String(c.code || "").toUpperCase() === "GHS") ||
+      null;
+    return String(base?.code || base?.currency_code || "GHS").toUpperCase();
+  }, [currencies]);
+  const totalInBaseCurrency = useMemo(
+    () =>
+      Number(summary.grandTotal || 0) *
+      (Number(formData.exchange_rate || 1) || 1),
+    [summary.grandTotal, formData.exchange_rate],
+  );
+  const totalInCurrentCurrency = useMemo(
+    () =>
+      Number(summary.subTotal || 0) +
+      Number(summary.totalDiscount || 0) +
+      Number(summary.totalTax || 0) +
+      Number(summary.freight || 0) +
+      Number(summary.other || 0),
+    [summary],
+  );
+  const showBaseTotalRow = useMemo(
+    () =>
+      Math.abs(
+        Number(totalInBaseCurrency || 0) - Number(totalInCurrentCurrency || 0),
+      ) > 0.000001,
+    [totalInBaseCurrency, totalInCurrentCurrency],
+  );
 
   // Handlers
   const handleInputChange = async (e) => {
@@ -695,6 +720,13 @@ export default function PurchaseOrdersLocalForm() {
           payment_terms: nextTerms,
         };
       });
+      return;
+    }
+    // Handle currency change explicitly so we control when the rate is fetched
+    if (name === "currency") {
+      const newCode = String(value || "").toUpperCase();
+      setFormData((prev) => ({ ...prev, currency: newCode }));
+      await fetchExchangeRateForCode(newCode);
       return;
     }
     setFormData((prev) => ({
@@ -720,6 +752,27 @@ export default function PurchaseOrdersLocalForm() {
         });
         try {
           const sup = suppliers.find((s) => String(s.id) === supId);
+          const supCurrencyId = String(sup?.currency_id || "").trim();
+          const supCurrencyCodeRaw =
+            sup?.currency_code || sup?.currency || sup?.currencyCode || "";
+          const byId = supCurrencyId
+            ? (Array.isArray(currencies) ? currencies : []).find(
+                (c) => String(c.id) === supCurrencyId,
+              )
+            : null;
+          const supplierCurrencyCode = String(
+            byId?.code || byId?.currency_code || supCurrencyCodeRaw || "",
+          )
+            .trim()
+            .toUpperCase();
+          if (supplierCurrencyCode) {
+            setFormData((prev) => ({
+              ...prev,
+              currency: supplierCurrencyCode,
+            }));
+            await fetchExchangeRateForCode(supplierCurrencyCode);
+            return;
+          }
           const acctSearch =
             (sup && sup.supplier_code && String(sup.supplier_code).trim()) ||
             (sup ? `SU-${String(Number(sup.id || 0)).padStart(6, "0")}` : "");
@@ -793,7 +846,10 @@ export default function PurchaseOrdersLocalForm() {
 
           if (q.details) {
             const newItems = q.details.map((d) => {
-              const taxCode = taxes.find(t => Number(t.rate_percent) === Number(d.tax_percent)) || null;
+              const taxCode =
+                taxes.find(
+                  (t) => Number(t.rate_percent) === Number(d.tax_percent),
+                ) || null;
               return {
                 item_id: String(d.item_id),
                 qty: Number(d.qty) || 0,
@@ -986,50 +1042,12 @@ export default function PurchaseOrdersLocalForm() {
 
       if (submitType === "pending") {
         if (isEdit) {
+          await api.put(`/purchase/orders/${id}`, payload);
           await api.post(`/purchase/orders/${id}/submit`, {
             amount: summary.grandTotal ?? null,
             workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
             target_user_id: targetApproverId || null,
           });
-          const res = await api.get(`/purchase/orders/${id}`);
-          const po = res.data?.item;
-          const details = Array.isArray(res.data?.item?.details)
-            ? res.data.item.details
-            : [];
-          if (po) {
-            setFormData({
-              po_no: po.po_no || "",
-              po_date: po.po_date || new Date().toISOString().split("T")[0],
-              supplier_id: po.supplier_id ? String(po.supplier_id) : "",
-              po_type: po.po_type || "LOCAL",
-              status: po.status || "DRAFT",
-              warehouse_id: po.warehouse_id ? String(po.warehouse_id) : "",
-              currency: po.currency || "GHS",
-              exchange_rate: Number(po.exchange_rate) || 1,
-              delivery_date: po.delivery_date || "",
-              payment_terms: po.payment_terms || 30,
-              remarks: po.remarks || "",
-              port_loading: po.port_loading || "",
-              port_discharge: po.port_discharge || "",
-              incoterms: po.incoterms || "",
-              hs_code: po.hs_code || "",
-              shipping_date: po.shipping_date || "",
-              insurance_required: Boolean(po.insurance_required),
-              freight_amount: Number(po.freight_amount) || 0,
-              other_charges: Number(po.other_charges) || 0,
-            });
-            setItems(
-              details.map((d) => ({
-                item_id: d.item_id ? String(d.item_id) : "",
-                qty: Number(d.qty) || Number(d.qty_ordered) || 0,
-                uom: d.uom || defaultUomCode || "",
-                unit_price: Number(d.unit_price) || 0,
-                discount_percent: Number(d.discount_percent) || 0,
-                tax_percent: Number(d.tax_percent) || 0,
-                line_total: Number(d.line_total) || Number(d.amount) || 0,
-              })),
-            );
-          }
         } else {
           const resp = await api.post("/purchase/orders", payload);
           const createdId = resp?.data?.id;
@@ -1046,6 +1064,7 @@ export default function PurchaseOrdersLocalForm() {
       }
 
       if (isEdit) {
+        await api.put(`/purchase/orders/${id}`, payload);
         await api.put(`/purchase/orders/${id}/status`, {
           status: computedStatus,
         });
@@ -1056,45 +1075,6 @@ export default function PurchaseOrdersLocalForm() {
               { ref_type: "PO_LOCAL", ref_id: Number(id) },
             );
           } catch {}
-        }
-        const res = await api.get(`/purchase/orders/${id}`);
-        const po = res.data?.item;
-        const details = Array.isArray(res.data?.item?.details)
-          ? res.data.item.details
-          : [];
-        if (po) {
-          setFormData({
-            po_no: po.po_no || "",
-            po_date: po.po_date || new Date().toISOString().split("T")[0],
-            supplier_id: po.supplier_id ? String(po.supplier_id) : "",
-            po_type: po.po_type || "LOCAL",
-            status: po.status || "DRAFT",
-            warehouse_id: po.warehouse_id ? String(po.warehouse_id) : "",
-            currency: po.currency || "GHS",
-            exchange_rate: Number(po.exchange_rate) || 1,
-            delivery_date: po.delivery_date || "",
-            payment_terms: po.payment_terms || 30,
-            remarks: po.remarks || "",
-            port_loading: po.port_loading || "",
-            port_discharge: po.port_discharge || "",
-            incoterms: po.incoterms || "",
-            hs_code: po.hs_code || "",
-            shipping_date: po.shipping_date || "",
-            insurance_required: Boolean(po.insurance_required),
-            freight_amount: Number(po.freight_amount) || 0,
-            other_charges: Number(po.other_charges) || 0,
-          });
-          setItems(
-            details.map((d) => ({
-              item_id: d.item_id ? String(d.item_id) : "",
-              qty: Number(d.qty) || Number(d.qty_ordered) || 0,
-              uom: d.uom || defaultUomCode || "",
-              unit_price: Number(d.unit_price) || 0,
-              discount_percent: Number(d.discount_percent) || 0,
-              tax_percent: Number(d.tax_percent) || 0,
-              line_total: Number(d.line_total) || Number(d.amount) || 0,
-            })),
-          );
         }
       } else {
         const resp = await api.post("/purchase/orders", payload);
@@ -1739,10 +1719,12 @@ export default function PurchaseOrdersLocalForm() {
                     onChange={handleInputChange}
                     className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
                   >
-                    <option value="GHS">GHS - Ghana Cedi</option>
-                    <option value="USD">USD - US Dollar</option>
-                    <option value="EUR">EUR - Euro</option>
-                    <option value="GBP">GBP - British Pound</option>
+                    {currencies.map((c) => (
+                      <option key={c.id} value={c.code || c.currency_code}>
+                        {c.code || c.currency_code} -{" "}
+                        {c.name || c.currency_name}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="flex flex-col">
@@ -2179,14 +2161,25 @@ export default function PurchaseOrdersLocalForm() {
                     />
                   </div>
                   <div className="flex justify-between py-3 text-lg font-bold text-[#0E3646]">
-                    <span>GRAND TOTAL:</span>
+                    <span>{`Total ${formData.currency || ""}:`}</span>
                     <span>
                       {formData.currency}{" "}
-                      {summary.grandTotal.toLocaleString(undefined, {
+                      {totalInCurrentCurrency.toLocaleString(undefined, {
                         minimumFractionDigits: 2,
                       })}
                     </span>
                   </div>
+                  {showBaseTotalRow ? (
+                    <div className="flex justify-between py-3 text-lg font-bold text-[#0E3646]">
+                      <span>{`Total ${baseCurrencyCode}:`}</span>
+                      <span>
+                        {baseCurrencyCode}{" "}
+                        {totalInBaseCurrency.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>

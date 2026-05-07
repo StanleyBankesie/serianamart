@@ -557,16 +557,18 @@ export default function GeneralRequisitionForm() {
 
           {/* Actions */}
           {canEdit && (
-            <div className="mt-6 flex gap-3">
+            <div className="mt-6 flex flex-wrap gap-3 items-center">
               <button
-                className="btn btn-outline"
+                type="button"
+                className="inline-flex items-center justify-center px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-brand hover:opacity-90 shadow-sm disabled:opacity-50 disabled:pointer-events-none"
                 disabled={saving}
                 onClick={() => submit("draft")}
               >
                 Save
               </button>
               <button
-                className="btn"
+                type="button"
+                className="inline-flex items-center justify-center px-6 py-2.5 rounded-lg text-sm font-semibold border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 shadow-sm"
                 onClick={() => navigate("/purchase/general-requisitions")}
               >
                 Back

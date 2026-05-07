@@ -154,13 +154,14 @@ export default function UnitConversionsList() {
                   <th>Factor</th>
                   <th>Status</th>
                   <th>Created By</th>
+                  <th>Created Date</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && !conversions.length ? (
                   <tr>
-                    <td colSpan="7" className="text-center py-8 text-slate-500">
+                    <td colSpan="8" className="text-center py-8 text-slate-500">
                       Loading...
                     </td>
                   </tr>
@@ -168,7 +169,7 @@ export default function UnitConversionsList() {
 
                 {!loading && !filtered.length ? (
                   <tr>
-                    <td colSpan="7" className="text-center py-8 text-slate-500">
+                    <td colSpan="8" className="text-center py-8 text-slate-500">
                       No unit conversions found
                     </td>
                   </tr>
@@ -193,15 +194,11 @@ export default function UnitConversionsList() {
                         {c.is_active ? "ACTIVE" : "INACTIVE"}
                       </span>
                     </td>
+                    <td>{c.created_by_name || "-"}</td>
                     <td>
-                      <div className="text-xs">
-                        {c.created_by_name || "-"}
-                        <div className="text-slate-400">
-                          {c.created_at
-                            ? new Date(c.created_at).toLocaleDateString()
-                            : ""}
-                        </div>
-                      </div>
+                      {c.created_at
+                        ? new Date(c.created_at).toLocaleDateString()
+                        : "-"}
                     </td>
                     <td>
                       <button

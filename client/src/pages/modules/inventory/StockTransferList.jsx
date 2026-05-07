@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Eye, Edit2, Printer, FileText, Paperclip } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
@@ -179,36 +180,102 @@ export default function StockTransferList() {
                         {transfer.status}
                       </span>
                     </td>
-                    <td>
-                      <div className="flex items-center gap-3 whitespace-nowrap">
-                        <Link
-                          to={`/inventory/stock-transfers/${transfer.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                        {transfer.status === "DRAFT" ? (
-                          <>
+                                        <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="w-[80px]">
+                          <Link
+                            to={`/inventory/stock-transfers/${transfer.id}?mode=view`}
+                            className="w-full inline-flex items-center justify-center px-3 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors h-9"
+                          >
+                            View
+                          </Link>
+                        </div>
+
+                        {/* Slot 2: Edit */}
+                        <div className="w-[80px]">
+                          {transfer.status === 'DRAFT' ? (
                             <Link
                               to={`/inventory/stock-transfers/${transfer.id}?mode=edit`}
-                              className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                              className="w-full inline-flex items-center justify-center px-3 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors h-9"
                             >
                               Edit
                             </Link>
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 3: Print */}
+                        <div className="w-9">
+                          {false ? (
                             <button
-                              onClick={() =>
-                                setConfirmDialog({
-                                  open: true,
-                                  id: transfer.id,
-                                  loading: false,
-                                })
-                              }
-                              className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs font-bold transition-colors shadow-sm"
+                              type="button"
+                              className="w-9 h-9 inline-flex items-center justify-center text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                              onClick={() => null}
+                              title="Print"
                             >
-                              Confirm Transfer
+                              <Printer size={18} />
                             </button>
-                          </>
-                        ) : null}
+                          ) : (
+                            <div className="w-9 h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 4: PDF */}
+                        <div className="w-9">
+                          {false ? (
+                            <button
+                              type="button"
+                              className="w-9 h-9 inline-flex items-center justify-center text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                              onClick={async () => null}
+                              title="Download PDF"
+                            >
+                              <FileText size={18} />
+                            </button>
+                          ) : (
+                            <div className="w-9 h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 5: Attachment */}
+                        <div className="w-9">
+                          {false ? (
+                            <button
+                              type="button"
+                              className="w-9 h-9 inline-flex items-center justify-center text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                              onClick={() => null}
+                              title="Attachments"
+                            >
+                              <Paperclip size={18} />
+                            </button>
+                          ) : (
+                            <div className="w-9 h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 6: Workflow */}
+                        <div className="min-w-[160px]">
+                          <div className="list-approval-slot">
+                            {transfer.status === "DRAFT" ? (
+                              <button
+                                onClick={() => setConfirmDialog({ open: true, id: transfer.id, loading: false })}
+                                className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-[#3C3E6E] text-white hover:bg-[#2C2E5E] transition-colors whitespace-nowrap h-9"
+                              >
+                                Confirm Transfer
+                              </button>
+                            ) : transfer.status === "APPROVED" || transfer.status === "COMPLETED" ? (
+                              <span className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-green-500 text-white cursor-default h-9">
+                                Approved
+                              </span>
+                            ) : <div className="w-full h-9" />}
+                          </div>
+                        </div>
+
+                        {/* Slot 7: Reverse */}
+                        <div className="min-w-[100px]">
+                          <div className="w-full h-9" />
+                        </div>
                       </div>
                     </td>
                     <td>{transfer.created_by_name || "-"}</td>

@@ -83,6 +83,7 @@ export default function GRNLocalForm() {
     delivery_number: "",
     delivery_date: "",
     status: "DRAFT",
+    auto_create_bill: false,
     remarks: "",
     details: [],
   });
@@ -271,6 +272,7 @@ export default function GRNLocalForm() {
           delivery_number: g.delivery_number || "",
           delivery_date: toISODate(g.delivery_date),
           status: g.status || "DRAFT",
+          auto_create_bill: Boolean(g.auto_create_bill),
           remarks: g.remarks || "",
           details: details.map((d) => ({
             item_id: d.item_id ? String(d.item_id) : "",
@@ -601,6 +603,7 @@ export default function GRNLocalForm() {
         delivery_number: formData.delivery_number || null,
         delivery_date: formData.delivery_date || null,
         remarks: formData.remarks || null,
+        auto_create_bill: Boolean(formData.auto_create_bill),
         details: (formData.details || []).map((d) => ({
           item_id: d.item_id ? Number(d.item_id) : null,
           qty_ordered: d.qty_ordered === "" ? null : Number(d.qty_ordered),
@@ -1037,6 +1040,24 @@ export default function GRNLocalForm() {
                     </div>
                   </div>
                 </div>
+              </div>
+
+              <div>
+                <label className="inline-flex items-center gap-2 mb-2">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(formData.auto_create_bill)}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        auto_create_bill: Boolean(e.target.checked),
+                      })
+                    }
+                  />
+                  <span className="text-sm font-medium">
+                    Auto create Purchase Bill from this GRN
+                  </span>
+                </label>
               </div>
 
               <div>

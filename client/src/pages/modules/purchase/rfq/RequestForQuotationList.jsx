@@ -116,7 +116,7 @@ export default function RequestForQuotationList() {
                 <th>Delivery Terms</th>
                 <th>Suppliers</th>
                 <th>Status</th>
-                <th>Actions</th>
+                <th className="text-right">Actions</th>
                             <th>Created By</th>
               <th>Created Date</th>
               </tr>
@@ -125,7 +125,7 @@ export default function RequestForQuotationList() {
               {loading ? (
                 <tr>
                   <td
-                    colSpan="7"
+                    colSpan="9"
                     className="text-center py-8 text-slate-500 dark:text-slate-400"
                   >
                     Loading...
@@ -133,7 +133,7 @@ export default function RequestForQuotationList() {
                 </tr>
               ) : error ? (
                 <tr>
-                  <td colSpan="7" className="text-center py-8 text-red-600">
+                  <td colSpan="9" className="text-center py-8 text-red-600">
                     {error}
                   </td>
                 </tr>
@@ -141,7 +141,7 @@ export default function RequestForQuotationList() {
               {filteredRfqs.length === 0 ? (
                 <tr>
                   <td
-                    colSpan="7"
+                    colSpan="9"
                     className="text-center py-8 text-slate-500 dark:text-slate-400"
                   >
                     No RFQs found
@@ -168,20 +168,24 @@ export default function RequestForQuotationList() {
                         {rfq.status}
                       </span>
                     </td>
-                    <td>
-                      <div className="flex gap-2">
-                        <Link
-                          to={`/purchase/rfqs/${rfq.id}`}
-                          className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                        <Link
-                          to={`/purchase/rfqs/${rfq.id}/edit`}
-                          className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
-                        >
-                          Edit
-                        </Link>
+                    <td className="text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="min-w-[80px]">
+                          <Link
+                            to={`/purchase/rfqs/${rfq.id}`}
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                          >
+                            View
+                          </Link>
+                        </div>
+                        <div className="min-w-[80px]">
+                          <Link
+                            to={`/purchase/rfqs/${rfq.id}/edit`}
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                          >
+                            Edit
+                          </Link>
+                        </div>
                       </div>
                     </td>
                     <td>{rfq.created_by_name || "-"}</td>

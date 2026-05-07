@@ -223,12 +223,12 @@ export default function LoginPage() {
           className="card shadow-erp-lg p-8"
           style={{ backgroundColor: "rgba(255,255,255,0.7)" }}
         >
-          <div className="flex items-center gap-4 mb-8 ml-7">
-            <div>
-              <div className="items-center ml-9 mt-3 mb-4">
+          <div className="flex items-center justify-center text-center mb-8">
+            <div className="w-full">
+              <div className="flex justify-center mt-3 mb-4">
                 <img src={logoClear} alt="OmniSuite" className="h-14 w-auto" />
               </div>
-              <div className="items-center text-xl font-bold text-slate-600 dark:text-slate-400 mb-0 mt-4">
+              <div className="text-xl font-bold text-slate-600 dark:text-slate-400">
                 Enterprise Resource Planning
               </div>
             </div>

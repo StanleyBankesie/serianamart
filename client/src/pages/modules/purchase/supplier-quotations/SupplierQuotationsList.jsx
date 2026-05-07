@@ -4,6 +4,7 @@ import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import { ListAttachmentIconButton } from "@/components/list/ListDocActionIconButtons.jsx";
 
 export default function SupplierQuotationsList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -129,8 +130,7 @@ export default function SupplierQuotationsList() {
                 <th>Valid Until</th>
                 <th className="text-right">Total Amount</th>
                 <th>Status</th>
-                <th>Attachments</th>
-                <th>Actions</th>
+                <th className="text-right">Actions</th>
                             <th>Created By</th>
               <th>Created Date</th>
               </tr>
@@ -139,7 +139,7 @@ export default function SupplierQuotationsList() {
               {loading ? (
                 <tr>
                   <td
-                    colSpan="8"
+                    colSpan="10"
                     className="text-center py-8 text-slate-500 dark:text-slate-400"
                   >
                     Loading...
@@ -147,7 +147,7 @@ export default function SupplierQuotationsList() {
                 </tr>
               ) : error ? (
                 <tr>
-                  <td colSpan="8" className="text-center py-8 text-red-600">
+                  <td colSpan="10" className="text-center py-8 text-red-600">
                     {error}
                   </td>
                 </tr>
@@ -155,7 +155,7 @@ export default function SupplierQuotationsList() {
               {filteredQuotations.length === 0 ? (
                 <tr>
                   <td
-                    colSpan="8"
+                    colSpan="10"
                     className="text-center py-8 text-slate-500 dark:text-slate-400"
                   >
                     No quotations found
@@ -187,51 +187,60 @@ export default function SupplierQuotationsList() {
                         {quotation.status.replace("_", " ")}
                       </span>
                     </td>
-                    <td>
-                      {canPerformAction(
-                        "purchase:supplier-quotations",
-                        "view",
-                      ) ? (
-                        <button
-                          type="button"
-                          className="btn-outline text-xs"
-                          onClick={() => {
-                            setActiveDocId(quotation.id);
-                            setShowAttach(true);
-                          }}
-                        >
-                          Attachments
-                        </button>
-                      ) : null}
-                    </td>
-                    <td>
-                      <div className="flex gap-2">
-                        {canPerformAction(
-                          "purchase:supplier-quotations",
-                          "view",
-                        ) && (
+                    <td className="text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="min-w-[80px]">
                           <Link
                             to={`/purchase/supplier-quotations/${quotation.id}`}
-                            className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
+                            className={`w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9 ${
+                              !canPerformAction(
+                                "purchase:supplier-quotations",
+                                "view",
+                              )
+                                ? "invisible pointer-events-none"
+                                : ""
+                            }`}
                           >
                             View
                           </Link>
-                        )}
-                        {canPerformAction(
-                          "purchase:supplier-quotations",
-                          "edit",
-                        ) && (
+                        </div>
+                        <div className="min-w-[80px]">
                           <Link
                             to={`/purchase/supplier-quotations/${quotation.id}/edit`}
-                            className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
+                            className={`w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9 ${
+                              !canPerformAction(
+                                "purchase:supplier-quotations",
+                                "edit",
+                              )
+                                ? "invisible pointer-events-none"
+                                : ""
+                            }`}
                           >
                             Edit
                           </Link>
-                        )}
+                        </div>
+                        <div className="min-w-[80px]">
+                          <ListAttachmentIconButton
+                            disabled={
+                              !canPerformAction(
+                                "purchase:supplier-quotations",
+                                "view",
+                              )
+                            }
+                            onClick={() => {
+                              setActiveDocId(quotation.id);
+                              setShowAttach(true);
+                            }}
+                          />
+                        </div>
                       </div>
                     </td>
                     <td>{quotation.created_by_name || "-"}</td>
-                    <td>{quotation.created_at ? new Date(quotation.created_at).toLocaleDateString() : "-"}</td>
+                    <td>
+                      {quotation.created_at
+                        ? new Date(quotation.created_at).toLocaleDateString()
+                        : "-"}
+                    </td>
                   </tr>
                 ))
               )}

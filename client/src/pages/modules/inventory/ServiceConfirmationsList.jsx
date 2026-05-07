@@ -137,16 +137,16 @@ export default function ServiceConfirmationsList() {
                       </span>
                     </td>
                     <td>
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2 whitespace-nowrap">
                         <Link
                           to={`/purchase/service-confirmation/${c.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
+                          className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors"
                         >
                           View
                         </Link>
                         <Link
                           to={`/purchase/service-confirmation/${c.id}?mode=edit`}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                          className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors"
                         >
                           Edit
                         </Link>

@@ -106,9 +106,10 @@ export default function ServiceBillsList() {
                   <th>Payment</th>
                   <th>Total</th>
                   <th>Status</th>
-                  <th>Actions</th>
-                                <th>Created By</th>
-                <th>Created Date</th>
+                  <th className="text-right">Actions</th>
+                  <th>Created By</th>
+                  <th>Created Date</th>
+                  <th>Attachments</th>
                 </tr>
               </thead>
               <tbody>
@@ -166,35 +167,78 @@ export default function ServiceBillsList() {
                         {String(r.status || "").toUpperCase()}
                       </span>
                     </td>
-                    <td>
-                      <div className="flex gap-2">
-                        {canPerformAction("service-management:service-bills", "view") && (
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="min-w-[80px]">
                           <Link
                             to={`/purchase/service-bills/${r.id}?mode=view`}
-                            className="btn btn-xs btn-outline"
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
                           >
                             View
                           </Link>
-                        )}
-                        {canPerformAction("service-management:service-bills", "edit") && (
-                          <Link
-                            to={`/purchase/service-bills/${r.id}?mode=edit`}
-                            className={`btn btn-xs btn-primary ${
-                              String(r.payment || "").toUpperCase() === "PAID"
-                                ? "pointer-events-none opacity-50 cursor-not-allowed"
-                                : ""
-                            }`}
-                            aria-disabled={
-                              String(r.payment || "").toUpperCase() === "PAID"
-                            }
-                          >
-                            Edit
-                          </Link>
-                        )}
+                        </div>
+
+                        {/* Slot 2: Edit */}
+                        <div className="min-w-[80px]">
+                          {canPerformAction("service-management:service-bills", "edit") && String(r.payment || "").toUpperCase() !== "PAID" ? (
+                            <Link
+                              to={`/purchase/service-bills/${r.id}?mode=edit`}
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            >
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 3 & 4: Print/PDF (Blank) */}
+                        <div className="min-w-[80px]">
+                          <div className="w-full h-9" />
+                        </div>
+                        <div className="min-w-[80px]">
+                          <div className="w-full h-9" />
+                        </div>
+
+                        {/* Slot 6: Workflow (Placeholder) */}
+                        <div className="min-w-[160px]">
+                          <div className="w-full h-9" />
+                        </div>
+
+                        {/* Slot 7: Cancel */}
+                        <div className="min-w-[80px]">
+                          {canPerformAction("service-management:service-bills", "cancel") && String(r.payment || "").toUpperCase() !== "PAID" ? (
+                            <button
+                              type="button"
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-white bg-[#990000] rounded-lg hover:bg-[#770000] transition-colors h-9"
+                              onClick={() => {
+                                if (!window.confirm("Cancel this bill?")) return;
+                                // Implementation would call API here
+                                toast.info("Cancel API call goes here");
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
                       </div>
                     </td>
-                    <td>{r.created_by_name || "-"}</td>
+                    <td>{r.created_by_username || r.created_by_name || "-"}</td>
                     <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="text-brand hover:underline font-medium text-sm"
+                        onClick={() => {
+                          toast.info("Attachments functionality coming soon");
+                        }}
+                      >
+                        View
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

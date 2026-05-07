@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../api/client.js";
 import ChartPie from "@/components/charts/ChartPie.jsx";
 
@@ -150,6 +150,11 @@ function PieChart({
 }
 
 export default function InventoryDashboardPage() {
+  const location = useLocation();
+  const backTo =
+    location.state?.fromExecutiveOverview === true
+      ? "/executive-overview"
+      : "/inventory";
   const [topN, setTopN] = useState(10);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -254,7 +259,7 @@ export default function InventoryDashboardPage() {
               onChange={(e) => setTo(e.target.value)}
               title="To"
             />
-            <Link to="/inventory" className="btn btn-secondary">
+            <Link to={backTo} className="btn btn-secondary">
               Return to Inventory
             </Link>
           </div>

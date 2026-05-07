@@ -1,20 +1,26 @@
 import React, { useState, useEffect } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../api/client";
+import { useGhanaCities } from "../../../../hooks/useGhanaCities";
 import { useDispatch } from "react-redux";
 import { setRefresh } from "../../../../store/ui/refreshSlice.js";
 
 export default function CustomerForm() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const isEdit = Boolean(id);
+  const isViewOnly =
+    Boolean(isEdit) && searchParams.get("mode") === "view";
   const dispatch = useDispatch();
+  const { cities: ghanaCities } = useGhanaCities();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [priceTypes, setPriceTypes] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [countries, setCountries] = useState([]);
+  const [salesAccounts, setSalesAccounts] = useState([]);
 
   const GHANA_REGIONS = [
     "Greater Accra",
@@ -47,12 +53,14 @@ export default function CustomerForm() {
     country: "",
     price_type_id: "",
     currency_id: "",
+    sales_account_id: "",
   });
 
   useEffect(() => {
     fetchPriceTypes();
     fetchCurrencies();
     fetchCountries();
+    fetchSalesAccounts();
     if (isEdit) {
       fetchCustomer();
     } else {
@@ -113,6 +121,20 @@ export default function CustomerForm() {
     }
   }
 
+  async function fetchSalesAccounts() {
+    try {
+      const response = await api.get("/finance/accounts", {
+        params: { nature: "INCOME", search: "sales", limit: 200 },
+      });
+      const arr = Array.isArray(response.data?.items)
+        ? response.data.items
+        : [];
+      setSalesAccounts(arr);
+    } catch (err) {
+      console.error("Error fetching sales accounts", err);
+    }
+  }
+
   async function fetchCustomer() {
     try {
       setLoading(true);
@@ -132,17 +154,55 @@ export default function CustomerForm() {
     setForm((p) => ({ ...p, [name]: value }));
   }
 
+  useEffect(() => {
+    // Set default sales account for new customers when accounts are loaded
+    if (isEdit || !salesAccounts.length) return;
+    // Only set if no sales account is selected yet
+    if (form.sales_account_id) return;
+    
+    // Find account with "sales" in name, or use first account as default
+    const preferred =
+      salesAccounts.find((a) => /sales/i.test(String(a.name || ""))) ||
+      salesAccounts[0];
+    
+    if (preferred?.id) {
+      console.log("Setting default sales account:", preferred.name, preferred.id);
+      setForm((p) => ({ ...p, sales_account_id: String(preferred.id) }));
+    }
+  }, [isEdit, salesAccounts]); // Run when salesAccounts changes
+
   async function submit(e) {
     e.preventDefault();
+    if (loading || isViewOnly) return;
     setLoading(true);
     setError("");
     try {
+      const payload = {
+        customer_code: form.customer_code || null,
+        customer_name: form.customer_name || "",
+        email: form.email || null,
+        phone: form.phone || null,
+        mobile: form.mobile || null,
+        contact_person: form.contact_person || null,
+        address: form.address || null,
+        city: form.city || null,
+        state: form.state || null,
+        zone: form.zone || null,
+        country: form.country || null,
+        customer_type: form.customer_type || "Individual",
+        price_type_id: form.price_type_id || null,
+        currency_id: form.currency_id || null,
+        credit_limit: Number(form.credit_limit || 0) || 0,
+        payment_terms: form.payment_terms || "Net 30",
+        is_active: Boolean(form.is_active),
+        sales_account_id: form.sales_account_id || null,
+      };
       let createdId = null;
       if (isEdit) {
-        const res = await api.put(`/sales/customers/${id}`, form);
+        const res = await api.put(`/sales/customers/${id}`, payload);
         createdId = res?.data?.id || res?.data?.item?.id || id;
       } else {
-        const res = await api.post("/sales/customers", form);
+        const res = await api.post("/sales/customers", payload);
         createdId = res?.data?.id || res?.data?.item?.id || null;
       }
       dispatch(setRefresh({ key: "customers", id: createdId || null }));
@@ -174,7 +234,11 @@ export default function CustomerForm() {
         <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-bold dark:text-brand-300">
-              {isEdit ? "Edit Customer" : "New Customer"}
+              {isEdit
+                ? isViewOnly
+                  ? "View Customer"
+                  : "Edit Customer"
+                : "New Customer"}
             </h1>
           </div>
           <div className="flex gap-2">
@@ -197,6 +261,10 @@ export default function CustomerForm() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Form Section */}
               <div className="lg:col-span-2 space-y-4">
+                <fieldset
+                  disabled={loading || isViewOnly}
+                  className="min-w-0 border-0 p-0 m-0 space-y-4"
+                >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="label">Customer Code</label>
@@ -309,9 +377,15 @@ export default function CustomerForm() {
                     <label className="label">City</label>
                     <input
                       className="input"
+                      list="ghana-cities"
                       value={form.city || ""}
                       onChange={(e) => update("city", e.target.value)}
                     />
+                    <datalist id="ghana-cities">
+                      {ghanaCities.map((c) => (
+                        <option key={c} value={c} />
+                      ))}
+                    </datalist>
                   </div>
                   <div>
                     <label className="label">State</label>
@@ -381,7 +455,27 @@ export default function CustomerForm() {
                       ))}
                     </select>
                   </div>
+                  <div className="md:col-span-2">
+                    <label className="label">Sales Account</label>
+                    <select
+                      className="input"
+                      value={form.sales_account_id || ""}
+                      onChange={(e) => update("sales_account_id", e.target.value)}
+                    >
+                      <option value="">-- Select Sales Account --</option>
+                      {salesAccounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.code ? `${a.code} - ` : ""}{a.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Default revenue/income account for this customer's sales transactions.
+                    </p>
+                  </div>
                 </div>
+                </fieldset>
+                {!isViewOnly && (
                 <div className="flex justify-end gap-3 pt-4">
                   <Link to="/sales/customers" className="btn btn-secondary">
                     Cancel
@@ -390,6 +484,7 @@ export default function CustomerForm() {
                     {loading ? "Saving..." : "Save Customer"}
                   </button>
                 </div>
+                )}
               </div>
 
               {/* Preview Section */}

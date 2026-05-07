@@ -85,72 +85,36 @@ function ServiceManagementLanding() {
           description: "Submit and track service requests",
           path: "/service-management/service-requests",
           icon: "🔧",
-          actions: [
-            {
-              label: "New Request",
-              path: "/service-management/service-requests/new",
-              type: "primary",
-            },
-          ],
         },
         {
           title: "Service Orders",
           description: "Create internal/external service orders",
           path: "/service-management/service-orders",
           icon: "🧾",
-          actions: [
-            {
-              label: "New Order",
-              path: "/service-management/service-orders/new",
-              type: "primary",
-            },
-          ],
         },
         {
           title: "Service Execution",
           description: "Execute, verify and close service orders",
           path: "/service-management/service-executions",
           icon: "⚙️",
-          actions: [
-            {
-              label: "Start Execution",
-              path: "/service-management/service-execution",
-              type: "primary",
-            },
-          ],
         },
         {
           title: "Service Confirmation",
           description: "Confirm delivered services from suppliers",
           path: "/service-management/service-confirmation",
           icon: "✅",
-          actions: [
-            {
-              label: "New Confirmation",
-              path: "/service-management/service-confirmation/new",
-              type: "primary",
-            },
-          ],
         },
         {
           title: "Service Bills",
           description: "Prepare and issue service bills",
           path: "/service-management/service-bills",
           icon: "💵",
-          actions: [
-            {
-              label: "New Bill",
-              path: "/service-management/service-bills",
-              type: "primary",
-            },
-          ],
         },
         {
           title: "Service Setup",
           description: "Configure work locations, service types, categories",
           path: "/service-management/setup",
           icon: "⚙️",
-          actions: [],
         },
       ],
     },

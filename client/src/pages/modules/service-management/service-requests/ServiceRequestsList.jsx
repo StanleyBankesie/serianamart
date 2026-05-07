@@ -161,9 +161,10 @@ export default function ServiceRequestsList() {
                   <th>Service</th>
                   <th>Priority</th>
                   <th>Status</th>
-                  <th>Actions</th>
-                                <th>Created By</th>
-                <th>Created Date</th>
+                  <th className="text-right">Actions</th>
+                  <th>Created By</th>
+                  <th>Created Date</th>
+                  <th>Attachments</th>
                 </tr>
               </thead>
               <tbody>
@@ -195,75 +196,110 @@ export default function ServiceRequestsList() {
                       <td>{String(r.service_type || "").replace(/_/g, " ")}</td>
                       <td className="capitalize">{r.priority}</td>
                       <td>
-                        {r.status}
-                        {String(r.status || "").toUpperCase() === "APPROVED" ? (
-                          <ReverseApprovalButton
-                            docType="SERVICE_REQUEST"
-                            docId={r.id}
-                            className="ml-2 text-indigo-700 hover:text-indigo-800 text-xs font-medium"
-                            onDone={() =>
-                              setItems((prev) =>
-                                prev.map((x) =>
-                                  x.id === r.id
-                                    ? {
-                                        ...x,
-                                        status: "REVERSED",
-                                        forwarded_to_username: null,
-                                      }
-                                    : x,
-                                ),
-                              )
-                            }
-                          />
-                        ) : null}
+                        <span className={`badge ${r.status === 'APPROVED' ? 'badge-success' : r.status === 'PENDING_APPROVAL' ? 'badge-warning' : 'badge-slate'}`}>
+                          {r.status}
+                        </span>
                       </td>
-                      <td className="whitespace-nowrap">
-                        {canPerformAction(
-                          "service-management:service-requests",
-                          "view",
-                        ) && (
-                          <button
-                            type="button"
-                            className="btn-secondary btn-sm mr-2"
-                            onClick={async () => {
-                              try {
-                                const resp = await api.get(
-                                  `/purchase/service-requests/${r.id}`,
-                                );
-                                setViewItem(resp.data?.item || null);
-                              } catch (e) {
-                                toast.error(
-                                  e?.response?.data?.message ||
-                                    "Failed to load request",
-                                );
-                              }
-                            }}
-                          >
-                            View
-                          </button>
-                        )}
-                        {canPerformAction(
-                          "service-management:service-requests",
-                          "edit",
-                        ) &&
-                          !["APPROVED", "POSTED"].includes(
-                            String(r.status || "").toUpperCase(),
-                          ) && (
-                            <Link
-                              to={`/service-management/service-requests/new?id=${r.id}`}
-                              className="btn-primary btn-sm"
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {/* Slot 1: View */}
+                          <div className="min-w-[80px]">
+                            <button
+                              type="button"
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                              onClick={async () => {
+                                try {
+                                  const resp = await api.get(`/purchase/service-requests/${r.id}`);
+                                  setViewItem(resp.data?.item || null);
+                                } catch (e) {
+                                  toast.error("Failed to load request");
+                                }
+                              }}
                             >
-                              Edit
-                            </Link>
-                          )}
-                        {r.forwarded_to_username ? (
-                          <span className="inline-block ml-2 text-xs font-medium px-2 py-1 rounded bg-amber-500 text-white whitespace-nowrap inline-flex items-center">
-                            Forwarded to {r.forwarded_to_username}
-                          </span>
-                        ) : null}
+                              View
+                            </button>
+                          </div>
+
+                          {/* Slot 2: Edit */}
+                          <div className="min-w-[80px]">
+                            {canPerformAction("service-management:service-requests", "edit") && !["APPROVED", "POSTED"].includes(String(r.status || "").toUpperCase()) ? (
+                              <Link
+                                to={`/service-management/service-requests/new?id=${r.id}`}
+                                className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                              >
+                                Edit
+                              </Link>
+                            ) : (
+                              <div className="w-full h-9" />
+                            )}
+                          </div>
+
+                          {/* Slot 3 & 4: Print/PDF (Not implemented in this file) */}
+                          <div className="min-w-[80px]">
+                            <div className="w-full h-9" />
+                          </div>
+                          <div className="min-w-[80px]">
+                            <div className="w-full h-9" />
+                          </div>
+
+                          {/* Slot 6: Workflow */}
+                          <div className="min-w-[160px]">
+                            <div className="list-approval-slot">
+                              {String(r.status || "").toUpperCase() === "APPROVED" ? (
+                                <div className="flex items-center gap-2">
+                                  <span className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-[#10B981] text-white cursor-default h-9">
+                                    Approved
+                                  </span>
+                                  {/* Slot 7: Reverse Approval (Cancel) */}
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-white bg-[#990000] rounded-lg hover:bg-[#770000] transition-colors h-9"
+                                    onClick={async () => {
+                                      if (!window.confirm("Reverse approval for this request?")) return;
+                                      try {
+                                        await api.post(`/workflows/reverse-approval`, {
+                                          document_type: "SERVICE_REQUEST",
+                                          document_id: r.id
+                                        });
+                                        setItems((prev) =>
+                                          prev.map((x) =>
+                                            x.id === r.id ? { ...x, status: "REVERSED", forwarded_to_username: null } : x
+                                          )
+                                        );
+                                        toast.success("Approval reversed");
+                                      } catch (e) {
+                                        toast.error("Failed to reverse approval");
+                                      }
+                                    }}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : r.forwarded_to_username ? (
+                                <span className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-amber-500 text-white whitespace-nowrap overflow-hidden text-ellipsis h-9">
+                                  Forwarded to {r.forwarded_to_username}
+                                </span>
+                              ) : (
+                                <div className="w-full h-9" />
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </td>
-                      <td>{r.created_by_name || "-"}</td>
+                      <td>{r.created_by_username || r.created_by_name || "-"}</td>
                       <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="text-brand hover:underline font-medium text-sm"
+                          onClick={() => {
+                            // Assuming AttachmentsModal exists or just placeholder for now
+                            toast.info("Attachments functionality coming soon");
+                          }}
+                        >
+                          View
+                        </button>
+                      </td>
                     </tr>
                   ))}
               </tbody>

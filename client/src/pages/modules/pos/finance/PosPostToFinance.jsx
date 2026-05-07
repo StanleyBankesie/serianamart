@@ -5,6 +5,28 @@ import { filterAndSort } from "@/utils/searchUtils.js";
 
 const DENOMINATIONS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2];
 
+function parseDenominationCounts(input) {
+  if (!input) return DENOMINATIONS.map(() => 0);
+  let parsed = input;
+  if (typeof input === "string") {
+    try {
+      parsed = JSON.parse(input);
+    } catch {
+      return DENOMINATIONS.map(() => 0);
+    }
+  }
+  if (Array.isArray(parsed)) {
+    return DENOMINATIONS.map((_, idx) => {
+      const n = Number(parsed[idx] || 0);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    });
+  }
+  return DENOMINATIONS.map((d) => {
+    const n = Number(parsed?.[String(d)] ?? parsed?.[d] ?? 0);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  });
+}
+
 function FilterableSelect({
   value,
   onChange,
@@ -99,6 +121,27 @@ export default function PosPostToFinance() {
       setWarehouse(String(t.warehouse));
     }
   }, [tillId, terminals]);
+
+  useEffect(() => {
+    const t = terminals.find((x) => String(x.id) === String(tillId));
+    const terminalCode = String(t?.code || "").trim();
+    if (!terminalCode || !voucherDate) {
+      setDenomCounts(DENOMINATIONS.map(() => 0));
+      return;
+    }
+    api
+      .get("/pos/day/status", {
+        params: { terminal: terminalCode, date: voucherDate },
+      })
+      .then((res) => {
+        const item = res?.data?.item || null;
+        const fromClose = item?.close_denomination_counts;
+        const fromOpen = item?.open_denomination_counts;
+        const counts = parseDenominationCounts(fromClose || fromOpen || null);
+        setDenomCounts(counts);
+      })
+      .catch(() => setDenomCounts(DENOMINATIONS.map(() => 0)));
+  }, [tillId, terminals, voucherDate]);
 
   const warehouseOptions = useMemo(() => {
     const unique = new Set();
@@ -489,7 +532,6 @@ export default function PosPostToFinance() {
     setSearch("");
     setSelectedReturnsAccount("");
     setSelectedSalesAccount("");
-    setDenomCounts(DENOMINATIONS.map(() => 0));
   }
 
   function postToFinance() {
@@ -794,6 +836,9 @@ export default function PosPostToFinance() {
               <div className="text-center text-base font-semibold">
                 Denomination Cash Count
               </div>
+              <div className="text-center text-xs mt-1 text-white/80">
+                Populated from Start/Close Day
+              </div>
               <div className="mt-4 space-y-2">
                 {DENOMINATIONS.map((d, idx) => (
                   <div
@@ -803,17 +848,9 @@ export default function PosPostToFinance() {
                     <div className="text-sm">{`GHS ${Number(d).toFixed(
                       2,
                     )}`}</div>
-                    <input
-                      type="number"
-                      min="0"
-                      className="rounded px-2 py-1 text-slate-900"
-                      value={String(denomCounts[idx] ?? 0)}
-                      onChange={(e) => {
-                        const next = denomCounts.slice();
-                        next[idx] = Number(e.target.value || 0);
-                        setDenomCounts(next);
-                      }}
-                    />
+                    <div className="rounded px-2 py-1 bg-white text-slate-900 text-right text-sm">
+                      {Number(denomCounts[idx] || 0)}
+                    </div>
                     <div className="rounded px-2 py-1 bg-white/20 text-right text-sm">
                       {denomTotals[idx].toFixed(2)}
                     </div>

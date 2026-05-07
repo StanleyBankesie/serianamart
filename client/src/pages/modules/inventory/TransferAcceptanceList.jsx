@@ -143,12 +143,14 @@ export default function TransferAcceptanceList() {
                       </span>
                     </td>
                     <td>
-                      <Link
-                        to={`/inventory/transfer-acceptance/${t.id}`}
-                        className="text-brand hover:text-brand-700 text-sm font-medium"
-                      >
-                        Open
-                      </Link>
+                      <div className="flex items-center gap-2 whitespace-nowrap">
+                        <Link
+                          to={`/inventory/transfer-acceptance/${t.id}`}
+                          className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                        >
+                          Open
+                        </Link>
+                      </div>
                     </td>
                     <td>{t.created_by_name || "-"}</td>
                     <td>{t.created_at ? new Date(t.created_at).toLocaleDateString() : "-"}</td>

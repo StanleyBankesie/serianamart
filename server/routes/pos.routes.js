@@ -37,6 +37,34 @@ function toYmd(d) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+function normalizeDenominationCounts(input) {
+  if (input === undefined || input === null || input === "") return null;
+  let parsed = input;
+  if (typeof input === "string") {
+    try {
+      parsed = JSON.parse(input);
+    } catch {
+      return null;
+    }
+  }
+  if (Array.isArray(parsed)) {
+    const next = parsed.map((v) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    });
+    return JSON.stringify(next);
+  }
+  if (typeof parsed === "object") {
+    const next = {};
+    for (const [k, v] of Object.entries(parsed || {})) {
+      const n = Number(v);
+      next[k] = Number.isFinite(n) && n > 0 ? n : 0;
+    }
+    return JSON.stringify(next);
+  }
+  return null;
+}
+
 async function nextReceiptNoTx(conn, companyId) {
   const [rows] = await conn.execute(
     `
@@ -598,6 +626,21 @@ async function ensurePosTables() {
       KEY idx_pos_day_branch (branch_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  if (!(await hasColumn("pos_day_status", "open_denomination_counts"))) {
+    await query(
+      "ALTER TABLE pos_day_status ADD COLUMN open_denomination_counts JSON NULL AFTER open_notes",
+    ).catch(() => {});
+  }
+  if (!(await hasColumn("pos_day_status", "close_denomination_counts"))) {
+    await query(
+      "ALTER TABLE pos_day_status ADD COLUMN close_denomination_counts JSON NULL AFTER close_notes",
+    ).catch(() => {});
+  }
+  if (!(await hasColumn("pos_day_status", "next_opening_float"))) {
+    await query(
+      "ALTER TABLE pos_day_status ADD COLUMN next_opening_float DECIMAL(18,2) NULL AFTER close_denomination_counts",
+    ).catch(() => {});
+  }
 
   await query(`
     CREATE TABLE IF NOT EXISTS pos_sessions (
@@ -2154,6 +2197,9 @@ router.get(
     try {
       const { companyId, branchId } = req.scope;
       const terminal = String(req.query.terminal || "").trim();
+      const requestedDate = String(req.query.date || "").trim();
+      const businessDate =
+        /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : null;
       await ensurePosTables();
       const rows = await query(
         `
@@ -2165,9 +2211,12 @@ router.get(
           opening_float,
           supervisor_name,
           open_notes,
+          open_denomination_counts,
           close_datetime,
           actual_cash,
           close_notes,
+          close_denomination_counts,
+          next_opening_float,
           status,
           created_at,
           u.username AS created_by_name
@@ -2175,15 +2224,38 @@ router.get(
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
           AND branch_id = :branchId
-          AND business_date = CURDATE()
+          AND business_date = COALESCE(:businessDate, CURDATE())
           ${terminal ? "AND terminal_code = :terminal" : ""}
         ORDER BY open_datetime DESC
         LIMIT 1
         `,
-        terminal ? { companyId, branchId, terminal } : { companyId, branchId },
+        terminal
+          ? { companyId, branchId, terminal, businessDate }
+          : { companyId, branchId, businessDate },
       );
       const item = rows.length ? rows[0] : null;
-      res.json({ item });
+      let nextOpeningFloat = null;
+      if (!item) {
+        const fallbackRows = await query(
+          `
+          SELECT next_opening_float
+          FROM pos_day_status
+          WHERE company_id = :companyId
+            AND branch_id = :branchId
+            ${terminal ? "AND terminal_code = :terminal" : ""}
+            AND status = 'CLOSED'
+          ORDER BY COALESCE(close_datetime, open_datetime) DESC, id DESC
+          LIMIT 1
+          `,
+          terminal
+            ? { companyId, branchId, terminal }
+            : { companyId, branchId },
+        );
+        const fallback = fallbackRows?.[0] || null;
+        const n = Number(fallback?.next_opening_float);
+        nextOpeningFloat = Number.isFinite(n) ? n : null;
+      }
+      res.json({ item, nextOpeningFloat });
     } catch (err) {
       next(err);
     }
@@ -2508,7 +2580,8 @@ router.post(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
-      const { terminal, openingDateTime, openingFloat, notes } = req.body || {};
+      const { terminal, openingDateTime, openingFloat, notes, denominationCounts } =
+        req.body || {};
       if (!terminal || !openingDateTime) {
         throw httpError(
           400,
@@ -2547,9 +2620,9 @@ router.post(
       const result = await query(
         `
         INSERT INTO pos_day_status
-          (company_id, branch_id, terminal_code, business_date, open_datetime, opening_float, supervisor_name, open_notes, status)
+          (company_id, branch_id, terminal_code, business_date, open_datetime, opening_float, supervisor_name, open_notes, open_denomination_counts, status)
         VALUES
-          (:companyId, :branchId, :terminal, DATE(:businessDate), :open_datetime, :opening_float, :supervisor_name, :open_notes, 'OPEN')
+          (:companyId, :branchId, :terminal, DATE(:businessDate), :open_datetime, :opening_float, :supervisor_name, :open_notes, :open_denomination_counts, 'OPEN')
         `,
         {
           companyId,
@@ -2560,6 +2633,7 @@ router.post(
           opening_float: Number(openingFloat || 0),
           supervisor_name: null,
           open_notes: notes || null,
+          open_denomination_counts: normalizeDenominationCounts(denominationCounts),
         },
       );
       const [item] = await query(
@@ -2572,9 +2646,12 @@ router.post(
           opening_float,
           supervisor_name,
           open_notes,
+          open_denomination_counts,
           close_datetime,
           actual_cash,
           close_notes,
+          close_denomination_counts,
+          next_opening_float,
           status,
           created_at,
           u.username AS created_by_name
@@ -2905,7 +2982,14 @@ router.post(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
-      const { terminal, closingDateTime, actualCash, notes } = req.body || {};
+      const {
+        terminal,
+        closingDateTime,
+        actualCash,
+        nextOpeningFloat,
+        notes,
+        denominationCounts,
+      } = req.body || {};
       if (!terminal || !closingDateTime) {
         throw httpError(
           400,
@@ -2948,6 +3032,8 @@ router.post(
         SET close_datetime = :close_datetime,
             actual_cash = :actual_cash,
             close_notes = :close_notes,
+            close_denomination_counts = :close_denomination_counts,
+            next_opening_float = :next_opening_float,
             status = 'CLOSED'
         WHERE id = :id
           AND company_id = :companyId
@@ -2960,6 +3046,9 @@ router.post(
           close_datetime: closeDate,
           actual_cash: Number(actualCash || 0),
           close_notes: notes || null,
+          close_denomination_counts:
+            normalizeDenominationCounts(denominationCounts),
+          next_opening_float: Number(nextOpeningFloat || 0),
         },
       );
       const [item] = await query(
@@ -2972,9 +3061,12 @@ router.post(
           opening_float,
           supervisor_name,
           open_notes,
+          open_denomination_counts,
           close_datetime,
           actual_cash,
           close_notes,
+          close_denomination_counts,
+          next_opening_float,
           status,
           created_at,
           u.username AS created_by_name

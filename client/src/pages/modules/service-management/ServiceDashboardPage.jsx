@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../api/client.js";
 
 function Card({ title, value }) {
@@ -105,6 +105,11 @@ function SimpleBarChart({ title, data, palette = [] }) {
 }
 
 export default function ServiceDashboardPage() {
+  const location = useLocation();
+  const backTo =
+    location.state?.fromExecutiveOverview === true
+      ? "/executive-overview"
+      : "/service-management";
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [topN, setTopN] = useState(10);
@@ -158,7 +163,7 @@ export default function ServiceDashboardPage() {
               <select className="input input-sm w-24" value={topN} onChange={(e) => setTopN(Number(e.target.value))}>
                 {[1,2,3,5,10,15,20].map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
-              <Link to="/service-management" className="btn btn-secondary">Return</Link>
+              <Link to={backTo} className="btn btn-secondary">Return</Link>
             </div>
           </div>
         </div>

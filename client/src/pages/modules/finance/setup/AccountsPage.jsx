@@ -4,11 +4,13 @@ import { toast } from "react-toastify";
 
 import { api } from "api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import { useExchangeRate } from "@/hooks/useExchangeRate";
 
 export default function AccountsPage() {
   const [items, setItems] = useState([]);
   const [groups, setGroups] = useState([]);
   const [currencies, setCurrencies] = useState([]);
+  const { getExchangeRate } = useExchangeRate();
   const [loading, setLoading] = useState(true);
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -20,12 +22,14 @@ export default function AccountsPage() {
   const [groupId, setGroupId] = useState("");
   const [name, setName] = useState("");
   const [currencyId, setCurrencyId] = useState("");
+  const [exchangeRate, setExchangeRate] = useState("1");
   const [isPostable, setIsPostable] = useState(true);
   const [editId, setEditId] = useState("");
   const [editGroupId, setEditGroupId] = useState("");
   const [editCode, setEditCode] = useState("");
   const [editName, setEditName] = useState("");
   const [editCurrencyId, setEditCurrencyId] = useState("");
+  const [editExchangeRate, setEditExchangeRate] = useState("1");
   const [editIsPostable, setEditIsPostable] = useState(true);
 
   async function load() {
@@ -79,6 +83,37 @@ export default function AccountsPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm, filterGroupId, natureFilter, activeFilter]);
+
+  // Auto-fetch exchange rate for new account
+  useEffect(() => {
+    if (!currencyId || !currencies.length) {
+      setExchangeRate("1");
+      return;
+    }
+    const selected = currencies.find(c => String(c.id) === String(currencyId));
+    const base = currencies.find(c => Number(c.is_base) === 1 || c.is_base === true);
+    if (!selected || !base || selected.code === base.code) {
+      setExchangeRate("1");
+      return;
+    }
+    getExchangeRate(selected.code, base.code).then(rate => {
+      if (rate) setExchangeRate(String(rate));
+    });
+  }, [currencyId, currencies, getExchangeRate]);
+
+  // Auto-fetch exchange rate for edit account
+  useEffect(() => {
+    if (!editCurrencyId || !currencies.length || !editId) return;
+    const selected = currencies.find(c => String(c.id) === String(editCurrencyId));
+    const base = currencies.find(c => Number(c.is_base) === 1 || c.is_base === true);
+    if (!selected || !base || selected.code === base.code) {
+      setEditExchangeRate("1");
+      return;
+    }
+    getExchangeRate(selected.code, base.code).then(rate => {
+      if (rate) setEditExchangeRate(String(rate));
+    });
+  }, [editCurrencyId, currencies, getExchangeRate, editId]);
 
   async function createAccount(e) {
     e.preventDefault();
@@ -148,6 +183,7 @@ export default function AccountsPage() {
     setEditCode(a.code || "");
     setEditName(a.name || "");
     setEditCurrencyId(a.currency_id ? String(a.currency_id) : "");
+    setEditExchangeRate(a.exchange_rate ? String(a.exchange_rate) : "1");
     setEditIsPostable(Boolean(a.is_postable));
   }
   function cancelEdit() {
@@ -156,6 +192,7 @@ export default function AccountsPage() {
     setEditCode("");
     setEditName("");
     setEditCurrencyId("");
+    setEditExchangeRate("1");
     setEditIsPostable(true);
   }
   async function saveEdit() {
@@ -186,13 +223,11 @@ export default function AccountsPage() {
                 nature:
                   groups.find((g) => String(g.id) === String(editGroupId))
                     ?.nature || a.nature,
-                currency_id: editCurrencyId
-                  ? Number(editCurrencyId)
-                  : a.currency_id,
+                currency_id: editCurrencyId ? Number(editCurrencyId) : null,
                 currency_code:
                   currencies.find(
                     (c) => String(c.id) === String(editCurrencyId),
-                  )?.code || a.currency_code,
+                  )?.code || "",
                 is_postable: editIsPostable ? 1 : 0,
               }
             : a,
@@ -215,6 +250,18 @@ export default function AccountsPage() {
       getKeys: (a) => [a.code, a.name],
     });
   }, [items, searchTerm]);
+  
+  const baseCurrencyCode = useMemo(() => {
+    return currencies.find(c => Number(c.is_base) === 1 || c.is_base === true)?.code || "Base";
+  }, [currencies]);
+
+  const selectedCurrencyCode = useMemo(() => {
+    return currencies.find(c => String(c.id) === String(currencyId))?.code || "";
+  }, [currencies, currencyId]);
+
+  const editSelectedCurrencyCode = useMemo(() => {
+    return currencies.find(c => String(c.id) === String(editCurrencyId))?.code || "";
+  }, [currencies, editCurrencyId]);
 
   return (
     <div className="space-y-4">
@@ -314,13 +361,25 @@ export default function AccountsPage() {
                 value={currencyId}
                 onChange={(e) => setCurrencyId(e.target.value)}
               >
-                <option value="">Default</option>
+                <option value="">Default (Base)</option>
                 {currencies.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.code}
+                    {c.code} - {c.name}
                   </option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label className="label">
+                Exchange Rate {selectedCurrencyCode ? `(${baseCurrencyCode} per ${selectedCurrencyCode})` : ""}
+              </label>
+              <input
+                type="number"
+                step="0.000001"
+                className="input"
+                value={exchangeRate}
+                onChange={(e) => setExchangeRate(e.target.value)}
+              />
             </div>
             <div className="flex items-end justify-end">
               <button className="btn-success" type="submit">
@@ -345,6 +404,7 @@ export default function AccountsPage() {
                     <th>Group</th>
                     <th>Nature</th>
                     <th>Currency</th>
+                    <th>Rate</th>
                     <th>Postable</th>
                     <th>Active</th>
                     <th>Actions</th>
@@ -391,13 +451,26 @@ export default function AccountsPage() {
                                 setEditCurrencyId(e.target.value)
                               }
                             >
-                              <option value="">Default</option>
+                              <option value="">Default (Base)</option>
                               {currencies.map((c) => (
                                 <option key={`c-${c.id}`} value={c.id}>
-                                  {c.code}
+                                  {c.code} - {c.name}
                                 </option>
                               ))}
                             </select>
+                          </td>
+                          <td>
+                            <label className="label md:hidden">Rate</label>
+                            <label className="label hidden md:block text-[10px] text-gray-500">
+                              {editSelectedCurrencyCode ? `(${baseCurrencyCode}/${editSelectedCurrencyCode})` : ""}
+                            </label>
+                            <input
+                              type="number"
+                              step="0.000001"
+                              className="input"
+                              value={editExchangeRate}
+                              onChange={(e) => setEditExchangeRate(e.target.value)}
+                            />
                           </td>
                           <td>Yes</td>
                           <td>{a.is_active ? "Yes" : "No"}</td>
@@ -426,7 +499,8 @@ export default function AccountsPage() {
                           <td>{a.name}</td>
                           <td>{a.group_name}</td>
                           <td>{a.nature}</td>
-                          <td>{a.currency_code || "-"}</td>
+                          <td>{a.currency_code || "Base"}</td>
+                          <td>{a.exchange_rate || "1.0"}</td>
                           <td>{a.is_postable ? "Yes" : "No"}</td>
                           <td>{a.is_active ? "Yes" : "No"}</td>
                           <td>

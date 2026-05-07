@@ -192,11 +192,27 @@ export const getMe = async (req, res) => {
         }
       } catch {}
     }
+
+    const scope = { ...(req.scope || {}) };
+    if (scope.companyId) {
+      const [compRows] = await query(
+        `SELECT c.currency_id, cur.code AS base_currency_code 
+         FROM adm_companies c
+         LEFT JOIN fin_currencies cur ON cur.id = c.currency_id
+         WHERE c.id = :companyId LIMIT 1`,
+        { companyId: scope.companyId },
+      );
+      if (compRows) {
+        scope.baseCurrency = compRows.base_currency_code || null;
+        scope.baseCurrencyId = compRows.currency_id || null;
+      }
+    }
+
     const me = { ...(req.user || {}), profile_picture_url };
     return res.json({
       success: true,
       message: "Context",
-      data: { user: me, scope: req.scope },
+      data: { user: me, scope },
     });
   } catch (err) {
     return res.json({

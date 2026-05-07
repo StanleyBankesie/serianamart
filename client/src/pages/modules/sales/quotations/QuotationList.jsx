@@ -1,9 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
+import { toast } from "react-toastify";
 import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+  ListAttachmentIconButton,
+} from "@/components/list/ListDocActionIconButtons.jsx";
+import { X } from "lucide-react";
 
 export default function QuotationList() {
   const navigate = useNavigate();
@@ -14,6 +22,21 @@ export default function QuotationList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [canCancelQuotation, setCanCancelQuotation] = useState(false);
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
+
+  // Workflow states
+  const [showForwardModal, setShowForwardModal] = useState(false);
+  const [selectedQuot, setSelectedQuot] = useState(null);
+  const [wfLoading, setWfLoading] = useState(false);
+  const [wfError, setWfError] = useState("");
+  const [candidateWorkflow, setCandidateWorkflow] = useState(null);
+  const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
+  const [firstApprover, setFirstApprover] = useState(null);
+  const [workflowSteps, setWorkflowSteps] = useState([]);
+  const [submittingForward, setSubmittingForward] = useState(false);
+  const [workflowsCache, setWorkflowsCache] = useState(null);
+  const [targetApproverId, setTargetApproverId] = useState(null);
   const [companyInfo, setCompanyInfo] = useState({
     name: "",
     address: "",
@@ -31,11 +54,72 @@ export default function QuotationList() {
 
   useEffect(() => {
     fetchQuotations();
+    loadWorkflows();
   }, []);
 
   useEffect(() => {
     setCanCancelQuotation(!!exceptionalPerms?.has?.("SALES.QUOTATION.CANCEL"));
   }, [exceptionalPerms]);
+
+  // Load workflows on mount to determine if Forward button should show
+  const loadWorkflows = async () => {
+    try {
+      const res = await api.get("/workflows");
+      const items = Array.isArray(res.data?.items) ? res.data.items : [];
+      setWorkflowsCache(items);
+      // Compute if there's an active workflow for quotations
+      const route = "/sales/quotations";
+      const normalize = (s) =>
+        String(s || "")
+          .trim()
+          .toUpperCase()
+          .replace(/\s+/g, "_");
+      const chosen =
+        items.find(
+          (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
+        ) ||
+        items.find(
+          (w) =>
+            Number(w.is_active) === 1 &&
+            normalize(w.document_type) === "QUOTATION",
+        ) ||
+        null;
+      setCandidateWorkflow(chosen);
+      setHasInactiveWorkflow(
+        !chosen && items.some((w) => normalize(w.document_type) === "QUOTATION" && Number(w.is_active) === 0),
+      );
+    } catch {
+      setCandidateWorkflow(null);
+    }
+  };
+
+  // Workflow status listener
+  useEffect(() => {
+    function onWorkflowStatus(e) {
+      try {
+        const d = e.detail || {};
+        const id = Number(d.documentId || d.document_id);
+        const status = d.status;
+        if (!id || !status) return;
+        setQuotations((prev) =>
+          prev.map((r) =>
+            Number(r.id) === id
+              ? {
+                  ...r,
+                  status,
+                  ...(status === "DRAFT"
+                    ? { forwarded_to_username: null }
+                    : {}),
+                }
+              : r,
+          ),
+        );
+      } catch {}
+    }
+    window.addEventListener("omni.workflow.status", onWorkflowStatus);
+    return () =>
+      window.removeEventListener("omni.workflow.status", onWorkflowStatus);
+  }, []);
 
   const fetchQuotations = async () => {
     try {
@@ -396,6 +480,254 @@ export default function QuotationList() {
     }
   }
 
+  // Workflow functions
+  const openForwardModal = async (quot) => {
+    setSelectedQuot(quot);
+    setShowForwardModal(true);
+    setWfError("");
+    setTargetApproverId("");
+    if (!workflowsCache) {
+      try {
+        setWfLoading(true);
+        const res = await api.get("/workflows");
+        setWorkflowsCache(Array.isArray(res.data?.items) ? res.data.items : []);
+        await computeCandidateFromList(
+          Array.isArray(res.data?.items) ? res.data.items : [],
+        );
+      } catch (e) {
+        setWfError(e?.response?.data?.message || "Failed to load workflows");
+      } finally {
+        setWfLoading(false);
+      }
+    } else {
+      await computeCandidate();
+    }
+  };
+
+  const computeCandidate = async () => {
+    if (!workflowsCache || !workflowsCache.length) {
+      setCandidateWorkflow(null);
+      setFirstApprover(null);
+      setWfError("");
+      setHasInactiveWorkflow(false);
+      return;
+    }
+    const route = "/sales/quotations";
+    const normalize = (s) =>
+      String(s || "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, "_");
+    const matching = workflowsCache.filter(
+      (w) =>
+        String(w.document_route) === route ||
+        normalize(w.document_type) === "QUOTATION",
+    );
+    const hasInactive = matching.some((w) => Number(w.is_active) === 0);
+    const chosen =
+      workflowsCache.find(
+        (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
+      ) ||
+      workflowsCache.find(
+        (w) =>
+          Number(w.is_active) === 1 &&
+          normalize(w.document_type) === "QUOTATION",
+      ) ||
+      null;
+    setCandidateWorkflow(chosen || null);
+    setHasInactiveWorkflow(!chosen && hasInactive);
+    setFirstApprover(null);
+    if (!chosen) return;
+    try {
+      setWfLoading(true);
+      const res = await api.get(`/workflows/${chosen.id}`);
+      const item = res.data?.item;
+      const steps = Array.isArray(item?.steps) ? item.steps : [];
+      setWorkflowSteps(steps);
+      const first = steps[0] || null;
+      setFirstApprover(
+        first
+          ? {
+              step_id: first.id || first.step_id,
+              name: first.step_name || first.name || "First Approver",
+              approvers: Array.isArray(first.approvers) ? first.approvers : [],
+            }
+          : null,
+      );
+      const defaultApprover =
+        Array.isArray(first?.approvers) && first.approvers.length
+          ? first.approvers[0]
+          : null;
+      if (defaultApprover) {
+        setTargetApproverId(String(defaultApprover.user_id || ""));
+      }
+    } catch (e) {
+      setWfError(e?.response?.data?.message || "Failed to load workflow details");
+    } finally {
+      setWfLoading(false);
+    }
+  };
+
+  const computeCandidateFromList = async (items) => {
+    if (!items || !items.length) {
+      setCandidateWorkflow(null);
+      setFirstApprover(null);
+      setWfError("");
+      setHasInactiveWorkflow(false);
+      return;
+    }
+    const route = "/sales/quotations";
+    const normalize = (s) =>
+      String(s || "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, "_");
+    const matching = items.filter(
+      (w) =>
+        String(w.document_route) === route ||
+        normalize(w.document_type) === "QUOTATION",
+    );
+    const hasInactive = matching.some((w) => Number(w.is_active) === 0);
+    const chosen =
+      items.find(
+        (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
+      ) ||
+      items.find(
+        (w) =>
+          Number(w.is_active) === 1 &&
+          normalize(w.document_type) === "QUOTATION",
+      ) ||
+      null;
+    setCandidateWorkflow(chosen || null);
+    setHasInactiveWorkflow(!chosen && hasInactive);
+    setFirstApprover(null);
+    if (!chosen) return;
+    try {
+      setWfLoading(true);
+      const res = await api.get(`/workflows/${chosen.id}`);
+      const item = res.data?.item;
+      const steps = Array.isArray(item?.steps) ? item.steps : [];
+      setWorkflowSteps(steps);
+      const first = steps[0] || null;
+      setFirstApprover(
+        first
+          ? {
+              step_id: first.id || first.step_id,
+              name: first.step_name || first.name || "First Approver",
+              approvers: Array.isArray(first.approvers) ? first.approvers : [],
+            }
+          : null,
+      );
+      const defaultApprover =
+        Array.isArray(first?.approvers) && first.approvers.length
+          ? first.approvers[0]
+          : null;
+      if (defaultApprover) {
+        setTargetApproverId(String(defaultApprover.user_id || ""));
+      }
+    } catch (e) {
+      setWfError(e?.response?.data?.message || "Failed to load workflow details");
+    } finally {
+      setWfLoading(false);
+    }
+  };
+
+  const submitForward = async () => {
+    if (!selectedQuot || !candidateWorkflow) return;
+    setSubmittingForward(true);
+    let optimisticApprover = null;
+    try {
+      const first =
+        Array.isArray(workflowSteps) && workflowSteps.length
+          ? workflowSteps[0]
+          : null;
+      const opts = first
+        ? Array.isArray(first.approvers) && first.approvers.length
+          ? first.approvers
+          : []
+        : [];
+      if (targetApproverId) {
+        const hit = opts.find(
+          (a) => String(a.user_id) === String(targetApproverId),
+        );
+        if (hit) optimisticApprover = hit.username || hit.name || "Approver";
+      }
+      if (!optimisticApprover && opts.length) {
+        optimisticApprover = opts[0].username || opts[0].name || "Approver";
+      }
+    } catch {}
+    setQuotations((prev) =>
+      prev.map((r) =>
+        Number(r.id) === Number(selectedQuot.id)
+          ? {
+              ...r,
+              status: "PENDING_APPROVAL",
+              forwarded_to_username:
+                optimisticApprover || r.forwarded_to_username || "Approver",
+            }
+          : r,
+      ),
+    );
+    try {
+      const resp = await api.post(
+        `/sales/quotations/${selectedQuot.id}/submit`,
+        {
+          amount: null,
+          workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
+          target_user_id: targetApproverId || null,
+        },
+      );
+      toast.success(resp.data?.message || "Forwarded for approval");
+      const newStatus = resp.data?.status || "PENDING_APPROVAL";
+      let approverName = null;
+      try {
+        const first =
+          Array.isArray(workflowSteps) && workflowSteps.length
+            ? workflowSteps[0]
+            : null;
+        const opts = first
+          ? Array.isArray(first.approvers) && first.approvers.length
+            ? first.approvers
+            : []
+          : [];
+        const hit = targetApproverId
+          ? opts.find((a) => String(a.user_id) === String(targetApproverId))
+          : opts[0] || null;
+        approverName = hit?.username || hit?.name || null;
+      } catch {}
+      setQuotations((prev) =>
+        prev.map((r) =>
+          Number(r.id) === Number(selectedQuot.id)
+            ? {
+                ...r,
+                status: newStatus,
+                forwarded_to_username:
+                  approverName || r.forwarded_to_username || "Approver",
+              }
+            : r,
+        ),
+      );
+      setShowForwardModal(false);
+      setSelectedQuot(null);
+    } catch (e) {
+      setWfError(e?.response?.data?.message || "Failed to forward for approval");
+      setQuotations((prev) =>
+        prev.map((r) =>
+          Number(r.id) === Number(selectedQuot.id)
+            ? { ...r, status: selectedQuot.status }
+            : r,
+        ),
+      );
+    } finally {
+      setSubmittingForward(false);
+    }
+  };
+
+  const canForward = (status) => {
+    const s = String(status || "").toUpperCase();
+    return s === "DRAFT" || s === "SENT" || s === "REJECTED";
+  };
+
   if (loading) {
     return <div className="text-center py-8">Loading quotations...</div>;
   }
@@ -480,9 +812,9 @@ export default function QuotationList() {
                     <th>Customer</th>
                     <th>Vilidity Date</th>
                     <th>Amount</th>
-                    <th>Actions</th>
-                                    <th>Created By</th>
-                  <th>Created Date</th>
+                    <th className="text-right">Actions</th>
+                    <th>Created By</th>
+                    <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -495,56 +827,106 @@ export default function QuotationList() {
                       <td className="font-semibold">
                         {safeAmount(quot.total_amount)}
                       </td>
-                      <td>
-                        <div className="flex gap-2 items-center whitespace-nowrap">
-                          {canPerformAction("sales:quotation", "view") && (
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="min-w-[80px]">
+                          <button
+                            type="button"
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            onClick={() => navigate(`/sales/quotations/${quot.id}?mode=view`)}
+                          >
+                            View
+                          </button>
+                        </div>
+
+                        {/* Slot 2: Edit */}
+                        <div className="min-w-[80px]">
+                          {canPerformAction("sales:quotation", "edit") ? (
                             <button
-                              onClick={() =>
-                                navigate(
-                                  `/sales/quotations/${quot.id}?mode=view`,
-                                )
-                              }
-                              className="text-brand hover:text-brand-600 font-medium text-sm"
-                            >
-                              View
-                            </button>
-                          )}
-                          {canPerformAction("sales:quotation", "edit") && (
-                            <button
-                              onClick={() =>
-                                navigate(
-                                  `/sales/quotations/${quot.id}?mode=edit`,
-                                )
-                              }
-                              className="text-blue-600 hover:text-blue-700 font-medium text-sm"
+                              type="button"
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                              onClick={() => navigate(`/sales/quotations/${quot.id}?mode=edit`)}
                             >
                               Edit
                             </button>
+                          ) : (
+                            <div className="w-full h-9" />
                           )}
-                          <button
-                            onClick={() => printQuotation(quot.id)}
-                            className="inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
-                          >
-                            Print
-                          </button>
-                          <button
-                            onClick={() => downloadQuotationPdf(quot.id)}
-                            className="inline-flex items-center px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold"
-                          >
-                            PDF
-                          </button>
-                          {canCancelQuotation ? (
+                        </div>
+
+                        {/* Slot 3: Print */}
+                        <div className="min-w-[80px]">
+                          <ListPrintIconButton onClick={() => printQuotation(quot.id)} />
+                        </div>
+
+                        {/* Slot 4: PDF */}
+                        <div className="min-w-[80px]">
+                          <ListPdfIconButton onClick={() => downloadQuotationPdf(quot.id)} />
+                        </div>
+
+                        {/* Slot 5: Attachments */}
+                        <div className="w-9">
+                          <ListAttachmentIconButton
+                            onClick={() => {
+                              setActiveDocId(quot.id);
+                              setShowAttach(true);
+                            }}
+                          />
+                        </div>
+
+                        {/* Slot 6: Workflow / Status */}
+                        <div className="min-w-[160px]">
+                          <div className="list-approval-slot">
+                            {quot.status === "ACCEPTED" || quot.status === "APPROVED" ? (
+                              <div className="flex items-center gap-2">
+                                <span className="list-approval-approved-pill">
+                                  {quot.status === "APPROVED" ? "Approved" : "Accepted"}
+                                </span>
+                                {canCancelQuotation && (
+                                  <button
+                                    type="button"
+                                    className="list-approval-reverse-btn"
+                                    onClick={() => cancelQuotation(quot.id)}
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </div>
+                            ) : quot.forwarded_to_username ? (
+                              <span className="list-approval-forwarded-pill">
+                                Forwarded to {quot.forwarded_to_username}
+                              </span>
+                            ) : canForward(quot.status) && candidateWorkflow ? (
+                              <button
+                                type="button"
+                                className="list-approval-forward-btn"
+                                onClick={() => openForwardModal(quot)}
+                              >
+                                Forward for Approval
+                              </button>
+                            ) : (
+                              <div className="w-full h-9" />
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Extra Action: Force Cancel if allowed and not accepted/approved */}
+                        {canCancelQuotation && !["ACCEPTED", "APPROVED"].includes(quot.status) && (
+                          <div className="min-w-[80px]">
                             <button
+                              type="button"
+                              className="list-approval-reverse-btn"
                               onClick={() => cancelQuotation(quot.id)}
-                              className="inline-flex items-center px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs font-semibold"
                             >
                               Cancel
                             </button>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td>{quot.created_by_name || "-"}</td>
-                      <td>{quot.created_at ? new Date(quot.created_at).toLocaleDateString() : "-"}</td>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td>{quot.created_by_username || quot.created_by_name || "-"}</td>
+                    <td>{quot.created_at ? new Date(quot.created_at).toLocaleDateString() : "-"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -553,6 +935,109 @@ export default function QuotationList() {
           )}
         </div>
       </div>
+      <DocumentAttachmentsModal
+        open={showAttach}
+        onClose={() => {
+          setShowAttach(false);
+          setActiveDocId(null);
+        }}
+        docType="quotation"
+        docId={activeDocId}
+      />
+
+      {/* Forward for Approval Modal */}
+      {showForwardModal && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-erp w-full max-w-md overflow-hidden">
+            <div className="p-4 bg-brand text-white flex justify-between items-center">
+              <h2 className="text-lg font-bold">Forward for Approval</h2>
+              <button
+                onClick={() => {
+                  setShowForwardModal(false);
+                  setSelectedQuot(null);
+                  setWfError("");
+                }}
+                className="text-white/80 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              {wfLoading ? (
+                <div className="text-center py-4 text-gray-500">Loading workflows...</div>
+              ) : wfError ? (
+                <div className="text-red-600 text-sm">{wfError}</div>
+              ) : (
+                <>
+                  {hasInactiveWorkflow && !candidateWorkflow && (
+                    <div className="text-amber-600 text-sm">
+                      No active workflow found for quotations. Please configure a workflow.
+                    </div>
+                  )}
+                  {candidateWorkflow && (
+                    <div className="space-y-3">
+                      <div className="text-sm text-gray-600">
+                        Workflow: <span className="font-medium">{candidateWorkflow.name}</span>
+                      </div>
+                      {firstApprover && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Approver
+                          </label>
+                          {firstApprover.approvers && firstApprover.approvers.length > 1 ? (
+                            <select
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                              value={targetApproverId}
+                              onChange={(e) => setTargetApproverId(e.target.value)}
+                            >
+                              <option value="">Select Approver</option>
+                              {firstApprover.approvers.map((a) => (
+                                <option key={a.user_id} value={a.user_id}>
+                                  {a.username || a.name || `User ${a.user_id}`}
+                                </option>
+                              ))}
+                            </select>
+                          ) : firstApprover.approvers && firstApprover.approvers.length === 1 ? (
+                            <div className="text-sm text-gray-900 py-2">
+                              {firstApprover.approvers[0].username || firstApprover.approvers[0].name}
+                            </div>
+                          ) : (
+                            <div className="text-sm text-gray-500 py-2">
+                              No specific approver assigned
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="p-4 border-t flex justify-end gap-2">
+              <button
+                type="button"
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                onClick={() => {
+                  setShowForwardModal(false);
+                  setSelectedQuot(null);
+                  setWfError("");
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 text-white rounded-lg hover:opacity-90"
+                style={{ backgroundColor: "#0E3646" }}
+                onClick={submitForward}
+                disabled={!candidateWorkflow || submittingForward}
+              >
+                {submittingForward ? "Forwarding..." : "Forward"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

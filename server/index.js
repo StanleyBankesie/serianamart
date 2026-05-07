@@ -617,10 +617,10 @@ if (process.env.NODE_ENV !== "test") {
         }
       } catch {}
     })();
-    // Automatic low-stock email & notification scheduler
-    const intervalMin = Number(process.env.LOW_STOCK_ALERT_INTERVAL_MIN || 30);
+    // Automatic low-stock push + email scheduler (6:00 AM and 6:00 PM)
+    const scheduledHours = [6, 18];
     const throttleHours = Number(
-      process.env.LOW_STOCK_ALERT_THROTTLE_HOURS || 6,
+      process.env.LOW_STOCK_ALERT_THROTTLE_HOURS || 11,
     );
     async function runLowStockAlerts() {
       try {
@@ -766,13 +766,54 @@ if (process.env.NODE_ENV !== "test") {
                 });
               } catch {}
             }
+            try {
+              await query(
+                `INSERT INTO adm_system_logs (company_id, branch_id, user_id, module_name, action, message, url_path, event_time)
+                 VALUES (:companyId, :branchId, :userId, 'Inventory', 'low-stock-alert', :message, '/inventory/alerts/low-stock', NOW())`,
+                {
+                  companyId,
+                  branchId,
+                  userId: u.id,
+                  message: `Low stock alerts processed (${count} items)`,
+                },
+              );
+            } catch {}
           }
         }
       } catch (e) {
         console.log(`[LowStockScheduler] Error: ${e?.message || e}`);
       }
     }
-    setInterval(runLowStockAlerts, Math.max(5, intervalMin) * 60 * 1000);
+    let lowStockRunInProgress = false;
+    let lastLowStockSlotKey = "";
+    async function runLowStockAlertsOnSchedule() {
+      const now = new Date();
+      const hour = now.getHours();
+      const minute = now.getMinutes();
+      if (!scheduledHours.includes(hour) || minute !== 0) return;
+      const y = String(now.getFullYear());
+      const m = String(now.getMonth() + 1).padStart(2, "0");
+      const d = String(now.getDate()).padStart(2, "0");
+      const h = String(hour).padStart(2, "0");
+      const slotKey = `${y}-${m}-${d}-${h}`;
+      if (lastLowStockSlotKey === slotKey || lowStockRunInProgress) return;
+      lowStockRunInProgress = true;
+      try {
+        await runLowStockAlerts();
+        lastLowStockSlotKey = slotKey;
+        console.log(`[LowStockScheduler] Completed scheduled run at ${slotKey}:00`);
+      } finally {
+        lowStockRunInProgress = false;
+      }
+    }
+    setInterval(() => {
+      runLowStockAlertsOnSchedule().catch((e) =>
+        console.log(`[LowStockScheduler] Schedule check failed: ${e?.message || e}`),
+      );
+    }, 30 * 1000);
+    runLowStockAlertsOnSchedule().catch((e) =>
+      console.log(`[LowStockScheduler] Initial schedule check failed: ${e?.message || e}`),
+    );
   });
 }
 

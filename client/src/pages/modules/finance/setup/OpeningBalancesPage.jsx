@@ -49,7 +49,7 @@ export default function OpeningBalancesPage() {
       setAccounts(arr);
       const map = new Map();
       for (const r of obRes.data?.items || []) {
-        map.set(Number(r.account_id), {
+        map.set(String(r.account_id || r._id), {
           debit: Number(r.opening_debit || 0),
           credit: Number(r.opening_credit || 0),
         });
@@ -79,12 +79,13 @@ export default function OpeningBalancesPage() {
         })
       : accounts || [];
     return src.map((a) => {
-      const entry = openingMap.get(Number(a.id)) || { debit: 0, credit: 0 };
+      const aId = String(a.id || a._id);
+      const entry = openingMap.get(aId) || { debit: 0, credit: 0 };
       const net = Number(entry.debit || 0) - Number(entry.credit || 0);
       const obType = net >= 0 ? "Dr" : "Cr";
       const obAmt = Math.abs(Math.round(net * 100) / 100);
       return {
-        id: Number(a.id),
+        id: aId,
         code: a.code,
         name: a.name,
         group: a.group_name,
@@ -97,13 +98,15 @@ export default function OpeningBalancesPage() {
     });
   }, [accounts, openingMap, searchTerm]);
   function setValue(id, field, val) {
-    const n = Math.max(0, Number(val || 0));
+    const rawVal = String(val || "").replace(/,/g, "").trim();
+    const parsed = parseFloat(rawVal);
+    const n = Math.max(0, isNaN(parsed) ? 0 : parsed);
+    
     setOpeningMap((prev) => {
       const m = new Map(prev);
-      const cur = m.get(Number(id)) || { debit: 0, credit: 0 };
       const next =
         field === "debit" ? { debit: n, credit: 0 } : { debit: 0, credit: n };
-      m.set(Number(id), next);
+      m.set(String(id), next);
       return m;
     });
   }
@@ -119,7 +122,7 @@ export default function OpeningBalancesPage() {
       const items = [];
       for (const [accId, v] of openingMap.entries()) {
         items.push({
-          accountId: Number(accId),
+          accountId: accId,
           openingDebit: Number(v.debit || 0),
           openingCredit: Number(v.credit || 0),
         });
@@ -202,7 +205,7 @@ export default function OpeningBalancesPage() {
         const d = debitIdx >= 0 ? parseAmount(row[debitIdx]) : 0;
         const c = creditIdx >= 0 ? parseAmount(row[creditIdx]) : 0;
         if (!(d > 0 || c > 0)) continue;
-        next.set(Number(acc.id), {
+        next.set(String(acc.id || acc._id), {
           debit: d > 0 ? Math.round(d * 100) / 100 : 0,
           credit: c > 0 ? Math.round(c * 100) / 100 : 0,
         });
@@ -226,8 +229,8 @@ export default function OpeningBalancesPage() {
                 Update opening balances for all ledger accounts
               </p>
             </div>
-            <div className="flex gap-2">
-              <Link to="/finance" className="btn btn-secondary">
+            <div className="flex gap-2 items-center">
+              <Link to="/finance" className="btn btn-secondary py-1.5 px-3 text-sm h-auto">
                 Return to Menu
               </Link>
               <input
@@ -237,7 +240,7 @@ export default function OpeningBalancesPage() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
               <select
-                className="input"
+                className="input py-1.5 text-sm h-auto"
                 value={selectedFyId}
                 onChange={(e) => setSelectedFyId(e.target.value)}
               >
@@ -249,7 +252,7 @@ export default function OpeningBalancesPage() {
                 ))}
               </select>
               <button
-                className="btn"
+                className="btn py-1.5 px-3 text-sm h-auto"
                 onClick={() => downloadTemplate()}
                 disabled={!selectedFyId}
               >
@@ -263,14 +266,14 @@ export default function OpeningBalancesPage() {
                 onChange={onFileChange}
               />
               <button
-                className="btn"
+                className="btn py-1.5 px-3 text-sm h-auto"
                 onClick={onPickFile}
                 disabled={!rows.length}
               >
                 Import From Excel
               </button>
               <button
-                className="btn-success"
+                className="btn-success py-1.5 px-3 text-sm h-auto"
                 onClick={saveAll}
                 disabled={saving || !selectedFyId}
               >
@@ -300,7 +303,7 @@ export default function OpeningBalancesPage() {
                     <th className="text-right">
                       {`Opening Credit${baseCurrencyCode ? ` (${baseCurrencyCode})` : ""}`}
                     </th>
-                    <th className="text-right">
+                    <th className="text-left">
                       {`Opening Balance${baseCurrencyCode ? ` (${baseCurrencyCode})` : ""}`}
                     </th>
                   </tr>
@@ -318,7 +321,8 @@ export default function OpeningBalancesPage() {
                           type="number"
                           min="0"
                           step="0.01"
-                          value={Number(r.debit || 0).toFixed(2)}
+                          value={r.debit || ""}
+                          placeholder="0.00"
                           onChange={(e) =>
                             setValue(r.id, "debit", e.target.value)
                           }
@@ -330,14 +334,15 @@ export default function OpeningBalancesPage() {
                           type="number"
                           min="0"
                           step="0.01"
-                          value={Number(r.credit || 0).toFixed(2)}
+                          value={r.credit || ""}
+                          placeholder="0.00"
                           onChange={(e) =>
                             setValue(r.id, "credit", e.target.value)
                           }
                         />
                       </td>
-                      <td className="text-right">
-                        {`${r.opening_balance_amount.toFixed(2)} ${r.opening_balance_type}`}
+                      <td className="text-left font-bold text-gray-800">
+                        {Number(r.opening_balance_amount || 0).toFixed(2)} {r.opening_balance_type}
                       </td>
                     </tr>
                   ))}

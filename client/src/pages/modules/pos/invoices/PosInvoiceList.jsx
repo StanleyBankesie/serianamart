@@ -955,19 +955,17 @@ export default function PosInvoiceList() {
                     </td>
                     <td>
                       <div className="flex gap-2">
-                        {canPerformAction("pos:invoices", "view") && (
-                          <button
-                            type="button"
-                            className="text-brand hover:text-brand-600 font-medium text-sm"
-                            onClick={() => handleView(it)}
-                            disabled={actionLoadingId === it.id}
-                          >
-                            View
-                          </button>
-                        )}
                         <button
                           type="button"
-                          className="inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
+                          className={`text-brand hover:text-brand-600 font-medium text-sm ${!canPerformAction("pos:invoices", "view") ? 'invisible pointer-events-none' : ''}`}
+                          onClick={() => handleView(it)}
+                          disabled={actionLoadingId === it.id}
+                        >
+                          View
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex items-center px-3 py-1.5 rounded bg-brand hover:bg-brand-700 text-white text-xs font-semibold"
                           onClick={() => handlePrint(it)}
                           disabled={actionLoadingId === it.id}
                         >
@@ -975,7 +973,7 @@ export default function PosInvoiceList() {
                         </button>
                         <button
                           type="button"
-                          className="inline-flex items-center px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold"
+                          className="inline-flex items-center px-3 py-1.5 rounded bg-brand hover:bg-brand-700 text-white text-xs font-semibold"
                           onClick={() => handleDownload(it)}
                           disabled={actionLoadingId === it.id}
                         >

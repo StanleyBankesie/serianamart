@@ -47,6 +47,8 @@ export default function InterviewsList() {
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Requisition</th>
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scheduled</th>
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th>
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
             </tr>
           </thead>
@@ -65,6 +67,8 @@ export default function InterviewsList() {
                     {it.status}
                   </span>
                 </td>
+                <td className="px-3 py-2">{it.created_by_name || "-"}</td>
+                <td className="px-3 py-2">{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
                 <td className="px-3 py-2 text-right">
                   <Link to={`/human-resources/interviews/${it.id}`} className="text-brand hover:underline text-sm font-medium">
                     Edit
@@ -74,7 +78,7 @@ export default function InterviewsList() {
             ))}
             {!items.length && !loading ? (
               <tr>
-                <td className="px-3 py-6 text-center text-sm" colSpan={4}>
+                <td className="px-3 py-6 text-center text-sm" colSpan={7}>
                   No interviews
                 </td>
               </tr>

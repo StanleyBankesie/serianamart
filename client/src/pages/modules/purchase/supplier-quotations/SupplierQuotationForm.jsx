@@ -2,10 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "api/client";
+import { useExchangeRate } from "../../../../hooks/useExchangeRate";
 
 export default function SupplierQuotationForm() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { getExchangeRate } = useExchangeRate();
   const isEdit = Boolean(id) && id !== "new";
 
   const [formData, setFormData] = useState({
@@ -51,6 +53,14 @@ export default function SupplierQuotationForm() {
   const [uploading, setUploading] = useState(false);
   const [rfqSuppliersForSelection, setRfqSuppliersForSelection] = useState([]);
   const [currencies, setCurrencies] = useState([]);
+
+  const baseCurrencyCode = useMemo(() => {
+    return currencies.find(c => Number(c.is_base) === 1 || c.is_base === true)?.code || "GHS";
+  }, [currencies]);
+
+  const selectedCurrencyCode = useMemo(() => {
+    return formData.currency || "";
+  }, [formData.currency]);
   const [initialQuotationCurrencyId, setInitialQuotationCurrencyId] =
     useState(null);
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
@@ -270,48 +280,16 @@ export default function SupplierQuotationForm() {
       arr.find((c) =>
         /ghana|cedi/i.test(String(c.name || c.currency_name || ""))
       );
-    const target = arr.find(
-      (c) => String(c.code || c.currency_code || "").toUpperCase() === code
-    );
-    if (!base || !target || base.id === target.id) {
+    
+    if (!base) return;
+    if (code === base.code) {
       setFormData((prev) => ({ ...prev, exchange_rate: 1 }));
       return;
     }
-    try {
-      const toDate =
-        formData.quotation_date || new Date().toISOString().split("T")[0];
-      const res = await api.get("/finance/currency-rates", {
-        params: {
-          fromCurrencyId: target.id,
-          toCurrencyId: base.id,
-          to: toDate,
-        },
-      });
-      const list = Array.isArray(res.data?.items) ? res.data.items : [];
-      const first = list[0];
-      if (first && first.rate) {
-        setFormData((prev) => ({
-          ...prev,
-          exchange_rate: Number(first.rate) || prev.exchange_rate || 1,
-        }));
-      } else {
-        try {
-          await api.post("/finance/currency-rates", {
-            fromCurrencyId: target.id,
-            toCurrencyId: base.id,
-            rate: 1,
-            rateDate: toDate,
-          });
-          setFormData((prev) => ({ ...prev, exchange_rate: 1 }));
-        } catch {
-          setFormData((prev) => ({ ...prev, exchange_rate: 1 }));
-        }
-      }
-    } catch {
-      setFormData((prev) => ({
-        ...prev,
-        exchange_rate: prev.exchange_rate || 1,
-      }));
+
+    const rate = await getExchangeRate(code, base.code);
+    if (rate) {
+      setFormData(p => ({ ...p, exchange_rate: rate }));
     }
   };
 
@@ -860,14 +838,17 @@ export default function SupplierQuotationForm() {
                   value={formData.currency}
                   onChange={handleInputChange}
                 >
-                  <option value="USD">USD - US Dollar</option>
-                  <option value="GHS">GHS - Ghana Cedi</option>
-                  <option value="EUR">EUR - Euro</option>
-                  <option value="GBP">GBP - British Pound</option>
+                  {currencies.map((c) => (
+                    <option key={c.id} value={c.code || c.currency_code}>
+                      {c.code || c.currency_code} - {c.name || c.currency_name}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
-                <label className="label">Exchange Rate</label>
+                <label className="label">
+                  Exchange Rate {selectedCurrencyCode ? `(${baseCurrencyCode} per ${selectedCurrencyCode})` : ""}
+                </label>
                 <input
                   type="number"
                   name="exchange_rate"

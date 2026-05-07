@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { toast } from "react-toastify";
 import { api } from "api/client";
 import { usePermission } from "../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+} from "@/components/list/ListDocActionIconButtons.jsx";
 
 export default function JournalVoucherList() {
   const { canPerformAction } = usePermission();
@@ -52,7 +58,7 @@ export default function JournalVoucherList() {
     if (!searchTerm.trim()) return base;
     return filterAndSort(base, {
       query: searchTerm,
-      getKeys: (v) => [v.voucher_no, v.narration],
+      getKeys: (v) => [v.voucher_no, v.description, v.narration, v.remarks],
     });
   })();
 
@@ -93,7 +99,7 @@ export default function JournalVoucherList() {
             <div className="flex-1">
               <input
                 type="text"
-                placeholder="Search by voucher number or narration..."
+                placeholder="Search by voucher number or description..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="input"
@@ -118,7 +124,7 @@ export default function JournalVoucherList() {
                 <tr>
                   <th>Voucher No</th>
                   <th>Date</th>
-                  <th>Narration</th>
+                  <th>Description</th>
                   <th>Debit</th>
                   <th>Credit</th>
                   <th>Status</th>
@@ -136,7 +142,7 @@ export default function JournalVoucherList() {
                         ? new Date(voucher.voucher_date).toLocaleDateString()
                         : ""}
                     </td>
-                    <td>{voucher.narration}</td>
+                    <td>{voucher.description || voucher.narration || voucher.remarks || "-"}</td>
                     <td className="text-right">
                       {Number(voucher.total_debit || 0).toLocaleString()}
                     </td>
@@ -148,29 +154,78 @@ export default function JournalVoucherList() {
                         {voucher.status}
                       </span>
                     </td>
-                    <td>
-                      <div className="flex gap-2">
-                        {canPerformAction("finance:journal-voucher", "view") && (
-                          <Link
-                            to={`/finance/journal-voucher/${voucher.id}?mode=view`}
-                            className="text-brand hover:text-brand-700 dark:text-brand-300 dark:hover:text-brand-100"
-                          >
-                            View
-                          </Link>
-                        )}
-                        {canPerformAction("finance:journal-voucher", "edit") && (
-                          <Link
-                            to={`/finance/journal-voucher/${voucher.id}?mode=edit`}
-                            className="text-blue-600 hover:text-blue-800 dark:text-blue-400"
-                          >
-                            Edit
-                          </Link>
-                        )}
-                        {voucher.status === "DRAFT" && (
-                          <button className="text-red-600 hover:text-red-800 dark:text-red-400">
-                            Delete
-                          </button>
-                        )}
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="w-[80px]">
+                          {canPerformAction("finance:journal-voucher", "view") ? (
+                            <Link
+                              to={`/finance/journal-voucher/${voucher.id}?mode=view`}
+                              className="w-full inline-flex items-center justify-center px-3 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors h-9"
+                            >
+                              View
+                            </Link>
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 2: Edit */}
+                        <div className="w-[80px]">
+                          {canPerformAction("finance:journal-voucher", "edit") && voucher.status === "DRAFT" ? (
+                            <Link
+                              to={`/finance/journal-voucher/${voucher.id}?mode=edit`}
+                              className="w-full inline-flex items-center justify-center px-3 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors h-9"
+                            >
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 3: Print */}
+                        <div className="min-w-[80px]">
+                          <ListPrintIconButton
+                            onClick={() =>
+                              window.open(
+                                `/finance/journal-voucher/${voucher.id}?mode=view`,
+                                "_blank",
+                                "noopener,noreferrer",
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Slot 4: PDF */}
+                        <div className="min-w-[80px]">
+                          <ListPdfIconButton
+                            onClick={async () => {
+                              try {
+                                const res = await api.post(`/documents/voucher/${voucher.id}/render`, { format: "html" });
+                                const html = typeof res.data === "string" ? res.data : String(res.data || "");
+                                await renderHtmlToPdf(html, `JV-${voucher.voucher_no || voucher.id}.pdf`);
+                              } catch (e) {
+                                toast.error("Failed to download PDF");
+                              }
+                            }}
+                          />
+                        </div>
+
+                        {/* Slot 5: Attachment */}
+                        <div className="w-9">
+                          <div className="w-9 h-9" />
+                        </div>
+
+                        {/* Slot 6: Workflow */}
+                        <div className="min-w-[160px]">
+                          <div className="w-full h-9" />
+                        </div>
+
+                        {/* Slot 7: Reverse */}
+                        <div className="min-w-[100px]">
+                          <div className="w-full h-9" />
+                        </div>
                       </div>
                     </td>
                     <td>{voucher.created_by_name || "-"}</td>

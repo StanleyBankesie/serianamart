@@ -23,7 +23,50 @@ export default function ProfitAndLossReportPage() {
         params: { from: from || null, to: to || null },
       });
       setIncome(res.data?.income || { items: [], total: 0 });
-      setExpenses(res.data?.expenses || { items: [], total: 0 });
+      
+      const rawExpenses = res.data?.expenses || { items: [], total: 0 };
+      
+      // Group all "Cost of Goods Sold" items into one
+      let cogsTotal = 0;
+      let cogsAccounts = [];
+      let cogsChildren = [];
+      
+      const filterCOGS = (nodes) => {
+        if (!nodes || !Array.isArray(nodes)) return [];
+        return nodes.filter(node => {
+          const isCOGS = (node.name || node.account_name || "").toLowerCase().includes("cost of goods sold");
+          if (isCOGS) {
+            cogsTotal += Number(node.amount || 0);
+            if (node.type === "group") {
+              cogsChildren.push(node);
+            } else {
+              cogsAccounts.push(node);
+            }
+            return false; // Remove from original position
+          }
+          if (node.children) node.children = filterCOGS(node.children);
+          if (node.accounts) node.accounts = filterCOGS(node.accounts);
+          return true;
+        });
+      };
+
+      const itemsWithoutCOGS = filterCOGS(JSON.parse(JSON.stringify(rawExpenses.items)));
+      
+      const cogsGroup = {
+        id: "cogs-summary",
+        name: "COST OF GOODS SOLD",
+        type: "group",
+        amount: cogsTotal,
+        level: 1,
+        children: cogsChildren.map(c => ({...c, level: 2})),
+        accounts: cogsAccounts.map(a => ({...a, level: 2}))
+      };
+
+      setExpenses({
+        items: cogsTotal > 0 ? [cogsGroup, ...itemsWithoutCOGS] : itemsWithoutCOGS,
+        total: rawExpenses.total
+      });
+
       setNet(Number(res.data?.net_profit || 0));
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to load P&L");
@@ -145,7 +188,7 @@ export default function ProfitAndLossReportPage() {
             doc.setFont("helvetica", "normal");
             doc.setFontSize(8);
             doc.setTextColor(71, 85, 105);
-            const label = `${node.account_code}  ${node.account_name}`;
+            const label = node.account_name || "";
             doc.text(label.slice(0, 65), indent + 2, y);
             doc.text(fmt(node.amount), pageW - margin, y, { align: "right" });
             y += 4.5;
@@ -210,7 +253,6 @@ export default function ProfitAndLossReportPage() {
                 </div>
               ) : (
                 <div>
-                  <span className="font-mono text-xs text-brand mr-2">{node.account_code}</span>
                   <span className="text-sm text-slate-600 dark:text-slate-300">{node.account_name}</span>
                 </div>
               )}

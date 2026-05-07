@@ -1,13 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import { api } from "api/client";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
 import { filterAndSort } from "../../../../utils/searchUtils.js";
 
 export default function GeneralLedgerReportPage() {
+  const [searchParams] = useSearchParams();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [order, setOrder] = useState("old");
@@ -18,24 +19,30 @@ export default function GeneralLedgerReportPage() {
   const [accountQuery, setAccountQuery] = useState("");
   const [opening, setOpening] = useState(0);
   const [items, setItems] = useState([]);
+  const [accountMeta, setAccountMeta] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  function mapVoucherType(code, name) {
-    const c = String(code || "").toUpperCase();
-    const byCode = {
-      JV: "Journal Voucher",
-      PV: "Payment Voucher",
-      RV: "Receipt Voucher",
-      CV: "Contra Voucher",
-      SV: "Sales Invoice",
-      SRV: "Sales Return",
-      SR: "Sales Return",
-      PRV: "Purchase Return",
-      PR: "Purchase Return",
-      PB: "Purchase Bill",
-      SB: "Service Bill",
-    };
-    return byCode[c] || name || code || "-";
+  function getVoucherPath(row) {
+    const code = String(row?.voucher_type_code || "").toUpperCase();
+    const base =
+      code === "JV"
+        ? "journal-voucher"
+        : code === "PAYV"
+          ? "payment-voucher"
+          : code === "RV"
+            ? "receipt-voucher"
+            : code === "CV"
+              ? "contra-voucher"
+              : code === "SV"
+                ? "sales-voucher"
+                : code === "PV" || code === "PUV"
+                  ? "purchase-voucher"
+                  : code === "DN"
+                    ? "debit-note"
+                    : code === "CN"
+                      ? "credit-note"
+                      : "journal-voucher";
+    return `/finance/${base}/${row?.voucher_id}?mode=view`;
   }
 
   async function loadAccounts() {
@@ -44,9 +51,6 @@ export default function GeneralLedgerReportPage() {
         params: { postable: 1, active: 1 },
       });
       setAccounts(res.data?.items || []);
-      if (!accountId && res.data?.items?.[0]?.id) {
-        setAccountId(String(res.data.items[0].id));
-      }
     } catch {
       toast.error("Failed to load accounts");
     }
@@ -64,7 +68,12 @@ export default function GeneralLedgerReportPage() {
   }
 
   async function run() {
-    if (!accountId) return;
+    if (!accountId) {
+      setOpening(0);
+      setItems([]);
+      setAccountMeta(null);
+      return;
+    }
     try {
       setLoading(true);
       const res = await api.get("/finance/reports/general-ledger", {
@@ -75,6 +84,7 @@ export default function GeneralLedgerReportPage() {
         },
       });
       setOpening(Number(res.data?.opening_balance || 0));
+      setAccountMeta(res.data?.account || null);
       const rows = res.data?.items || [];
       setItems(order === "new" ? rows.slice().reverse() : rows);
     } catch (e) {
@@ -90,8 +100,15 @@ export default function GeneralLedgerReportPage() {
     const today = new Date();
     const year = today.getFullYear();
     const jan1 = new Date(year, 0, 1);
-    setFrom(jan1.toISOString().slice(0, 10));
-    setTo(today.toISOString().slice(0, 10));
+    // Check for query params from trial balance drill-down
+    const qpFrom = searchParams.get("from");
+    const qpTo = searchParams.get("to");
+    const qpAccountId = searchParams.get("accountId");
+    setFrom(qpFrom || jan1.toISOString().slice(0, 10));
+    setTo(qpTo || today.toISOString().slice(0, 10));
+    if (qpAccountId) {
+      setAccountId(qpAccountId);
+    }
     Promise.all([loadAccounts(), loadGroups()]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -100,7 +117,7 @@ export default function GeneralLedgerReportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, order]);
 
-  // Ensure selected account belongs to selected group; otherwise pick first in filtered list
+  // If selected account falls outside selected group, clear selection.
   useEffect(() => {
     const gid = groupId ? Number(groupId) : null;
     const filtered = gid
@@ -111,12 +128,13 @@ export default function GeneralLedgerReportPage() {
               (groups.find((g) => Number(g.id) === gid)?.name || ""),
         )
       : accounts || [];
-    if (!filtered.length) return;
-    if (
-      !accountId ||
-      !filtered.find((a) => String(a.id) === String(accountId))
-    ) {
-      setAccountId(String(filtered[0].id));
+    if (!accountId) return;
+    if (!filtered.find((a) => String(a.id) === String(accountId))) {
+      setAccountId("");
+      setAccountQuery("");
+      setOpening(0);
+      setItems([]);
+      setAccountMeta(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId, accounts]);
@@ -125,6 +143,54 @@ export default function GeneralLedgerReportPage() {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId]);
+
+  const groupFilteredAccounts = useMemo(() => {
+    if (!groupId) return accounts || [];
+    const selectedGroupName =
+      groups.find((g) => String(g.id) === String(groupId))?.name || "";
+    return (accounts || []).filter(
+      (a) =>
+        Number(a.group_id || a.groupId || 0) === Number(groupId) ||
+        String(a.group_name || a.groupName || "") === selectedGroupName,
+    );
+  }, [accounts, groupId, groups]);
+
+  const filteredAccounts = useMemo(() => {
+    return filterAndSort(groupFilteredAccounts, {
+      query: accountQuery,
+      getKeys: (a) => [a.code, a.name],
+    });
+  }, [groupFilteredAccounts, accountQuery]);
+
+  const selectedAccountLabel = useMemo(() => {
+    const hit = (accounts || []).find(
+      (a) => String(a.id) === String(accountId || ""),
+    );
+    return hit ? String(hit.name || "") : "";
+  }, [accounts, accountId]);
+
+  function handleAccountInputChange(value) {
+    setAccountQuery(value);
+    const v = String(value || "")
+      .trim()
+      .toLowerCase();
+    if (!v) {
+      setAccountId("");
+      setOpening(0);
+      setItems([]);
+      setAccountMeta(null);
+      return;
+    }
+    const hit = (groupFilteredAccounts || []).find((a) => {
+      const label = `${a.name}`.toLowerCase();
+      const code = String(a.code || "").toLowerCase();
+      return label === v || code === v;
+    });
+    if (hit?.id) {
+      setAccountId(String(hit.id));
+      setAccountQuery(String(hit.name || ""));
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -149,37 +215,41 @@ export default function GeneralLedgerReportPage() {
             <div className="md:col-span-2">
               <label className="label">Account</label>
               <input
-                className="input mb-2"
-                placeholder="Type to search account code/name..."
-                value={accountQuery}
-                onChange={(e) => setAccountQuery(e.target.value)}
-              />
-              <select
                 className="input"
-                value={accountId}
-                onChange={(e) => setAccountId(e.target.value)}
-              >
-                {useMemo(() => {
-                  const groupFiltered = groupId
-                    ? accounts.filter(
-                        (a) =>
-                          Number(a.group_id || a.groupId || 0) ===
-                            Number(groupId) ||
-                          String(a.group_name || a.groupName || "") ===
-                            (groups.find((g) => String(g.id) === String(groupId))
-                              ?.name || ""),
-                      )
-                    : accounts;
-                  return filterAndSort(groupFiltered, {
-                    query: accountQuery,
-                    getKeys: (a) => [a.code, a.name],
+                placeholder="Type to search account..."
+                value={accountQuery}
+                onChange={(e) => handleAccountInputChange(e.target.value)}
+                list="gl-account-options"
+                onBlur={() => {
+                  const v = String(accountQuery || "")
+                    .trim()
+                    .toLowerCase();
+                  if (!v) {
+                    setAccountId("");
+                    setOpening(0);
+                    setItems([]);
+                    setAccountMeta(null);
+                    return;
+                  }
+                  const hit = (groupFilteredAccounts || []).find((a) => {
+                    const label = `${a.name}`.toLowerCase();
+                    const code = String(a.code || "").toLowerCase();
+                    return label === v || code === v;
                   });
-                }, [accounts, groupId, groups, accountQuery]).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} — {a.name}
-                  </option>
+                  if (hit?.id) {
+                    setAccountId(String(hit.id));
+                    setAccountQuery(String(hit.name || ""));
+                    return;
+                  }
+                  if (selectedAccountLabel)
+                    setAccountQuery(selectedAccountLabel);
+                }}
+              />
+              <datalist id="gl-account-options">
+                {filteredAccounts.map((a) => (
+                  <option key={a.id} value={String(a.name || "")} />
                 ))}
-              </select>
+              </datalist>
             </div>
             <div>
               <label className="label">Account Group</label>
@@ -274,9 +344,7 @@ export default function GeneralLedgerReportPage() {
                   y += 8;
                   doc.text("Date", 10, y);
                   doc.text("Voucher No", 40, y);
-                  doc.text("Document", 85, y);
-                  doc.text("Line", 105, y);
-                  doc.text("Description", 125, y);
+                  doc.text("Description", 105, y);
                   doc.text("Debit", 165, y);
                   doc.text("Credit", 185, y);
                   doc.text("Balance", 205, y, { align: "right" });
@@ -292,20 +360,13 @@ export default function GeneralLedgerReportPage() {
                       ? new Date(r.voucher_date).toLocaleDateString()
                       : "-";
                     const vn = String(r.voucher_no || "-");
-                    const vt = mapVoucherType(
-                      r.voucher_type_code,
-                      r.voucher_type_name,
-                    );
-                    const ln = String(r.line_no || "-");
-                    const desc = String(r.description || "-").slice(0, 35);
+                    const desc = String(r.description || "-").slice(0, 45);
                     const dr = String(Number(r.debit || 0).toLocaleString());
                     const cr = String(Number(r.credit || 0).toLocaleString());
                     const bal = String(Number(r.balance || 0).toLocaleString());
                     doc.text(dt, 10, y);
                     doc.text(vn, 40, y);
-                    doc.text(vt, 85, y);
-                    doc.text(ln, 105, y);
-                    doc.text(desc, 125, y);
+                    doc.text(desc, 105, y);
                     doc.text(dr, 165, y);
                     doc.text(cr, 185, y);
                     doc.text(bal, 205, y, { align: "right" });
@@ -327,12 +388,26 @@ export default function GeneralLedgerReportPage() {
             </div>
           </div>
 
-          <div className="p-4 rounded-lg border border-slate-200 dark:border-slate-700 mb-4">
-            <div className="text-sm">Opening Balance</div>
-            <div className="text-xl font-semibold">
-              {Number(opening || 0).toLocaleString()}
+          {accountId ? (
+            <div className="p-4 rounded-lg border border-slate-200 dark:border-slate-700 mb-4">
+              <div className="text-sm">Opening Balance</div>
+              <div className="text-xl font-semibold">
+                {Number(opening || 0).toLocaleString()}
+              </div>
+              <div className="text-sm mt-2">
+                Balance Type:{" "}
+                {String(
+                  accountMeta?.current_balance_type ||
+                    accountMeta?.balance_type ||
+                    "-",
+                )}
+              </div>
+              <div className="text-sm">
+                Current Balance:{" "}
+                {Number(accountMeta?.current_balance || 0).toLocaleString()}
+              </div>
             </div>
-          </div>
+          ) : null}
 
           <div className="overflow-x-auto">
             <table className="table">
@@ -340,8 +415,6 @@ export default function GeneralLedgerReportPage() {
                 <tr>
                   <th>Date</th>
                   <th>Voucher No</th>
-                  <th>Document</th>
-                  <th>Line</th>
                   <th>Description</th>
                   <th className="text-right">Debit</th>
                   <th className="text-right">Credit</th>
@@ -352,11 +425,14 @@ export default function GeneralLedgerReportPage() {
                 {items.map((r, idx) => (
                   <tr key={`${r.voucher_no}-${r.line_no}-${idx}`}>
                     <td>{new Date(r.voucher_date).toLocaleDateString()}</td>
-                    <td className="font-medium">{r.voucher_no}</td>
                     <td>
-                      {mapVoucherType(r.voucher_type_code, r.voucher_type_name)}
+                      <Link
+                        to={getVoucherPath(r)}
+                        className="font-medium text-sky-400 hover:text-sky-500"
+                      >
+                        {r.voucher_no}
+                      </Link>
                     </td>
-                    <td>{r.line_no}</td>
                     <td>{r.description || "-"}</td>
                     <td className="text-right">
                       {Number(r.debit || 0).toLocaleString()}

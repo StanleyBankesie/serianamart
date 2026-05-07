@@ -3,8 +3,10 @@ import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { Search } from "lucide-react";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function PurchaseReturnList() {
+  const { canPerformAction } = usePermission();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -61,10 +63,10 @@ export default function PurchaseReturnList() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/inventory/purchase-returns/new" className="btn btn-primary">
+              <Link to="/purchase/purchase-returns/new" className="btn btn-primary">
                 New Purchase Return
               </Link>
-              <Link to="/inventory" className="btn btn-secondary">
+              <Link to="/purchase" className="btn btn-secondary">
                 Return to Menu
               </Link>
             </div>
@@ -113,8 +115,9 @@ export default function PurchaseReturnList() {
                     <th>Return Date</th>
                     <th>Supplier</th>
                     <th className="text-right">Amount</th>
-                                    <th>Created By</th>
-                  <th>Created Date</th>
+                    <th className="text-right">Actions</th>
+                    <th>Created By</th>
+                    <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -125,6 +128,36 @@ export default function PurchaseReturnList() {
                       <td>{r.supplier_name}</td>
                       <td className="text-right">
                         {(Number(r.total_amount || 0)).toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {/* Slot 1: View */}
+                          <div className="min-w-[80px]">
+                            {canPerformAction("inventory:purchase-returns", "view") ? (
+                              <Link
+                                to={`/purchase/purchase-returns/${r.id}?mode=view`}
+                                className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                              >
+                                View
+                              </Link>
+                            ) : (
+                              <div className="w-full h-9" />
+                            )}
+                          </div>
+                          {/* Slot 2: Edit */}
+                          <div className="min-w-[80px]">
+                            {canPerformAction("inventory:purchase-returns", "edit") ? (
+                              <Link
+                                to={`/purchase/purchase-returns/${r.id}?mode=edit`}
+                                className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                              >
+                                Edit
+                              </Link>
+                            ) : (
+                              <div className="w-full h-9" />
+                            )}
+                          </div>
+                        </div>
                       </td>
                       <td>{r.created_by_name || "-"}</td>
                       <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>

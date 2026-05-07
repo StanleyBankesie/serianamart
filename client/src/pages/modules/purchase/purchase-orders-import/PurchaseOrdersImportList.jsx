@@ -7,6 +7,13 @@ import { toast } from "react-toastify";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import addNotification from "react-push-notification";
+import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+  ListAttachmentIconButton,
+} from "@/components/list/ListDocActionIconButtons.jsx";
 
 export default function PurchaseOrdersImportList() {
   const location = useLocation();
@@ -28,7 +35,10 @@ export default function PurchaseOrdersImportList() {
   const [submittingForward, setSubmittingForward] = useState(false);
   const [workflowsCache, setWorkflowsCache] = useState(null);
   const [targetApproverId, setTargetApproverId] = useState(null);
-  const { canPerformAction, hasExceptional } = usePermission();
+  const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
+  const { canPerformAction, hasExceptional, canReverseApproval } = usePermission();
 
   async function reversePo(id) {
     try {
@@ -687,16 +697,16 @@ export default function PurchaseOrdersImportList() {
                 <th>Supplier</th>
                 <th className="text-right">Total Amount</th>
                 <th>Status</th>
-                <th>Actions</th>
-                            <th>Created By</th>
-              <th>Created Date</th>
+                <th className="text-right">Actions</th>
+                <th>Created By</th>
+                <th>Created Date</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
                   <td
-                    colSpan="6"
+                    colSpan="8"
                     className="text-center py-8 text-slate-500 dark:text-slate-400"
                   >
                     Loading...
@@ -704,7 +714,7 @@ export default function PurchaseOrdersImportList() {
                 </tr>
               ) : error ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-8 text-red-600">
+                  <td colSpan="8" className="text-center py-8 text-red-600">
                     {error}
                   </td>
                 </tr>
@@ -713,7 +723,7 @@ export default function PurchaseOrdersImportList() {
               {filteredOrders.length === 0 ? (
                 <tr>
                   <td
-                    colSpan="6"
+                    colSpan="8"
                     className="text-center py-8 text-slate-500 dark:text-slate-400"
                   >
                     No purchase orders found
@@ -739,87 +749,106 @@ export default function PurchaseOrdersImportList() {
                         {po.status}
                       </span>
                     </td>
-                    <td>
-                      <div className="flex items-center gap-2 whitespace-nowrap">
-                        {canPerformAction(
-                          "purchase:purchase-orders-import",
-                          "view",
-                        ) && (
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="min-w-[80px]">
                           <Link
                             to={`/purchase/purchase-orders-import/${po.id}`}
-                            className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
                           >
                             View
                           </Link>
-                        )}
-                        <Link
-                          to={`/purchase/purchase-orders-import/${po.id}?mode=edit`}
-                          className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
-                        >
-                          Edit
-                        </Link>
-                        {hasExceptional("PURCHASE.ORDER.CANCEL") &&
-                        !po.has_shipping_advice ? (
-                          <button
-                            type="button"
-                            className="inline-flex items-center px-3 py-1.5 rounded bg-[#A30000] hover:bg-[#7B0000] text-white text-xs font-semibold"
-                            onClick={async () => {
-                              if (
-                                !window.confirm(`Cancel this PO (${po.po_no})?`)
+                        </div>
+
+                        {/* Slot 2: Edit */}
+                        <div className="min-w-[80px]">
+                          {po.status !== "APPROVED" ? (
+                            <Link
+                              to={`/purchase/purchase-orders-import/${po.id}?mode=edit`}
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            >
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 3: Print */}
+                        <div className="min-w-[80px]">
+                          <ListPrintIconButton
+                            onClick={() =>
+                              window.open(
+                                `/purchase/purchase-orders-import/${po.id}`,
+                                "_blank",
+                                "noopener,noreferrer",
                               )
-                                return;
+                            }
+                          />
+                        </div>
+
+                        {/* Slot 4: PDF */}
+                        <div className="min-w-[80px]">
+                          <ListPdfIconButton
+                            onClick={async () => {
                               try {
-                                await api.delete(`/purchase/orders/${po.id}`);
-                                toast.success("Purchase order cancelled");
-                                setPurchaseOrders((prev) =>
-                                  prev.filter((x) => x.id !== po.id),
-                                );
+                                const res = await api.post(`/documents/purchase-order/${po.id}/render`, { format: "html" });
+                                const html = typeof res.data === "string" ? res.data : String(res.data || "");
+                                await renderHtmlToPdf(html, `PO-Import-${po.po_no || po.id}.pdf`);
                               } catch (e) {
-                                toast.error(
-                                  e?.response?.data?.message ||
-                                    "Unable to cancel purchase order",
-                                );
+                                toast.error("Failed to download PDF");
                               }
                             }}
-                          >
-                            Cancel
-                          </button>
-                        ) : null}
-                        {po.status === "APPROVED" ? (
-                          <>
-                            <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                              Approved
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => reversePo(po.id)}
-                              className="ml-2 text-indigo-700 hover:text-indigo-800 text-sm font-medium"
-                            >
-                              Reverse Approval
-                            </button>
-                          </>
-                        ) : po.forwarded_to_username ? (
-                          <button
-                            type="button"
-                            disabled
-                            title="Assigned approver"
-                            className="ml-3 inline-flex items-center px-3 py-1.5 rounded bg-amber-500 text-white text-xs font-semibold cursor-default select-none whitespace-nowrap"
-                          >
-                            Forwarded to: {po.forwarded_to_username}
-                          </button>
-                        ) : po.status === "DRAFT" ||
-                          po.status === "REJECTED" ? (
-                          <button
-                            type="button"
-                            onClick={() => openForwardModal(po)}
-                            className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 transition-colors whitespace-nowrap inline-flex items-center"
-                          >
-                            Forward for Approval
-                          </button>
-                        ) : null}
+                          />
+                        </div>
+
+                        {/* Slot 5: Attachments */}
+                        <div className="min-w-[80px]">
+                          <ListAttachmentIconButton
+                            onClick={() => {
+                              setActiveDocId(po.id);
+                              setShowAttach(true);
+                            }}
+                          />
+                        </div>
+
+                        {/* Slot 6: Workflow */}
+                        <div className="min-w-[160px]">
+                          <div className="list-approval-slot">
+                            {po.status === "APPROVED" ? (
+                              <div className="flex items-center gap-2">
+                                <span className="list-approval-approved-pill">
+                                  Approved
+                                </span>
+                                {po.status === "APPROVED" && canReverseApproval() && (
+                                  <button
+                                    type="button"
+                                    className="list-approval-reverse-btn"
+                                    onClick={() => reversePo(po.id)}
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </div>
+                            ) : po.forwarded_to_username ? (
+                              <span className="list-approval-forwarded-pill">
+                                Forwarded to {po.forwarded_to_username}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="list-approval-forward-btn"
+                                onClick={() => openForwardModal(po)}
+                              >
+                                Forward for Approval
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </td>
-                    <td>{po.created_by_name || "-"}</td>
+                    <td>{po.created_by_username || po.created_by_name || "-"}</td>
                     <td>{po.created_at ? new Date(po.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))
@@ -976,6 +1005,15 @@ export default function PurchaseOrdersImportList() {
           </div>
         </div>
       )}
+      <DocumentAttachmentsModal
+        open={showAttach}
+        onClose={() => {
+          setShowAttach(false);
+          setActiveDocId(null);
+        }}
+        docType="purchase-order-import"
+        docId={activeDocId}
+      />
     </div>
   );
 }

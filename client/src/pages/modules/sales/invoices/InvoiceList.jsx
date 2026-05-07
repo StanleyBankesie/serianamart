@@ -5,6 +5,12 @@ import { toast } from "react-toastify";
 import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+  ListAttachmentIconButton,
+} from "@/components/list/ListDocActionIconButtons.jsx";
 
 export default function InvoiceList() {
   const navigate = useNavigate();
@@ -17,6 +23,8 @@ export default function InvoiceList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [submittingId, setSubmittingId] = useState(null);
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
   const [companyInfo, setCompanyInfo] = useState({
     name: "",
     address: "",
@@ -479,14 +487,14 @@ export default function InvoiceList() {
                     <th>Payment</th>
                     <th>Status</th>
                     <th>Net Amount</th>
-                    <th>Actions</th>
+                    <th className="text-right">Actions</th>
+                    <th>Created By</th>
+                    <th>Created Date</th>
                     <th>Payment Type</th>
                     <th>Price Type</th>
                     <th>Warehouse</th>
                     <th className="text-right">Balance</th>
                     <th>Remarks</th>
-                                    <th>Created By</th>
-                  <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -502,76 +510,83 @@ export default function InvoiceList() {
                           minimumFractionDigits: 2,
                         })}
                       </td>
-                      <td>
-                        <div className="flex gap-2 items-center whitespace-nowrap">
-                          {canPerformAction("sales:invoices", "view") && (
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="min-w-[80px]">
+                          <button
+                            type="button"
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            onClick={() => navigate(`/sales/invoices/${inv.id}?mode=view`)}
+                          >
+                            View
+                          </button>
+                        </div>
+
+                        {/* Slot 2: Edit (Blank for Invoices) */}
+                        <div className="min-w-[80px]">
+                          <div className="w-full h-9" />
+                        </div>
+
+                        {/* Slot 3: Print */}
+                        <div className="min-w-[80px]">
+                          <ListPrintIconButton onClick={() => printInvoice(inv.id)} />
+                        </div>
+
+                        {/* Slot 4: PDF */}
+                        <div className="min-w-[80px]">
+                          <ListPdfIconButton onClick={() => downloadInvoicePdf(inv.id)} />
+                        </div>
+
+                        {/* Slot 5: Attachments */}
+                        <div className="w-9">
+                          <ListAttachmentIconButton
+                            onClick={() => {
+                              setActiveDocId(inv.id);
+                              setShowAttach(true);
+                            }}
+                          />
+                        </div>
+
+                        {/* Slot 6: reserved (workflow alignment) */}
+                        <div className="min-w-[160px]">
+                          <div className="w-full h-9" aria-hidden />
+                        </div>
+
+                        {/* Slot 7: Cancel */}
+                        <div className="min-w-[80px]">
+                          {exceptionalPerms?.has?.("SALES.INVOICE.CANCEL") ? (
                             <button
-                              onClick={() =>
-                                navigate(`/sales/invoices/${inv.id}?mode=view`)
-                              }
-                              className="text-brand hover:text-brand-600 font-medium text-sm"
-                            >
-                              View
-                            </button>
-                          )}
-                          {/* Edit removed by request */}
-                          {exceptionalPerms?.has?.("SALES.INVOICE.CANCEL") && (
-                            <button
+                              type="button"
+                              className="list-approval-reverse-btn"
                               onClick={async () => {
+                                if (!window.confirm("Cancel this invoice?")) return;
                                 try {
-                                  await api.post(
-                                    `/sales/invoices/${inv.id}/reverse-accounting`,
-                                  );
+                                  await api.post(`/sales/invoices/${inv.id}/reverse-accounting`);
                                   toast.success("Invoice cancelled");
-                                  setInvoices((prev) =>
-                                    prev.filter(
-                                      (x) => Number(x.id) !== Number(inv.id),
-                                    ),
-                                  );
+                                  setInvoices((prev) => prev.filter((x) => Number(x.id) !== Number(inv.id)));
                                 } catch (e) {
-                                  toast.error(
-                                    e?.response?.data?.message ||
-                                      "Failed to cancel invoice",
-                                  );
+                                  toast.error("Failed to cancel");
                                 }
                               }}
-                              className="inline-flex items-center px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs font-semibold"
                             >
                               Cancel
                             </button>
+                          ) : (
+                            <div className="w-full h-9" />
                           )}
-                          <button
-                            onClick={() => printInvoice(inv.id)}
-                            className="inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
-                          >
-                            Print
-                          </button>
-                          <button
-                            onClick={() => downloadInvoicePdf(inv.id)}
-                            className="inline-flex items-center px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold"
-                          >
-                            PDF
-                          </button>
                         </div>
-                      </td>
+                      </div>
+                    </td>
+                    <td>{inv.created_by_name || "-"}</td>
+                    <td>{inv.created_at ? new Date(inv.created_at).toLocaleDateString() : "-"}</td>
                       <td>{inv.payment_type || ""}</td>
                       <td>{inv.price_type || ""}</td>
-                      <td>
-                        {warehouses.find(
-                          (w) => String(w.id) === String(inv.warehouse_id),
-                        )?.warehouse_name || ""}
-                      </td>
+                      <td>{warehouses.find((w) => String(w.id) === String(inv.warehouse_id))?.warehouse_name || ""}</td>
                       <td className="text-right">
-                        {Number(inv.balance_amount || 0).toLocaleString(
-                          "en-US",
-                          {
-                            minimumFractionDigits: 2,
-                          },
-                        )}
+                        {Number(inv.balance_amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
                       </td>
                       <td>{inv.remarks || ""}</td>
-                      <td>{inv.created_by_name || "-"}</td>
-                      <td>{inv.created_at ? new Date(inv.created_at).toLocaleDateString() : "-"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -580,6 +595,15 @@ export default function InvoiceList() {
           )}
         </div>
       </div>
+      <DocumentAttachmentsModal
+        open={showAttach}
+        onClose={() => {
+          setShowAttach(false);
+          setActiveDocId(null);
+        }}
+        docType="invoice"
+        docId={activeDocId}
+      />
     </div>
   );
 }

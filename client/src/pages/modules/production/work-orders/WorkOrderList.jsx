@@ -35,22 +35,18 @@ export default function WorkOrderList() {
                 <td className="text-right">{Number(w.qty).toFixed(2)}</td>
                 <td>{w.status}</td>
                 <td>
-                  {canPerformAction('production:work-orders','view') && (
-                    <Link
-                      to={`/production/work-orders/${w.id}?mode=view`}
-                      className="text-brand hover:text-brand-600 text-sm font-medium"
-                    >
-                      View
-                    </Link>
-                  )}
-                  {canPerformAction('production:work-orders','edit') && (
-                    <Link
-                      to={`/production/work-orders/${w.id}?mode=edit`}
-                      className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                    >
-                      Edit
-                    </Link>
-                  )}
+                  <Link
+                    to={`/production/work-orders/${w.id}?mode=view`}
+                    className={`text-brand hover:text-brand-600 text-sm font-medium ${!canPerformAction('production:work-orders','view') ? 'invisible pointer-events-none' : ''}`}
+                  >
+                    View
+                  </Link>
+                  <Link
+                    to={`/production/work-orders/${w.id}?mode=edit`}
+                    className={`text-blue-600 hover:text-blue-700 text-sm font-medium ml-2 ${!canPerformAction('production:work-orders','edit') ? 'invisible pointer-events-none' : ''}`}
+                  >
+                    Edit
+                  </Link>
                 </td>
                 <td>{w.created_by_name || "-"}</td>
                 <td>{w.created_at ? new Date(w.created_at).toLocaleDateString() : "-"}</td>

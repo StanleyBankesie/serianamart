@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+  ListAttachmentIconButton,
+} from "@/components/list/ListDocActionIconButtons.jsx";
 import { toast } from "react-toastify";
 import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { filterAndSort } from "@/utils/searchUtils.js";
@@ -462,15 +467,16 @@ export default function GRNLocalList() {
                   <th>Supplier</th>
                   <th>Warehouse</th>
                   <th>Status</th>
-                  <th>Attachments</th>
-                  <th>Actions</th>
+                  <th className="text-right">Actions</th>
+                  <th>Created By</th>
+                  <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
                     <td
-                      colSpan="6"
+                      colSpan="9"
                       className="text-center py-8 text-slate-500 dark:text-slate-400"
                     >
                       Loading...
@@ -504,173 +510,135 @@ export default function GRNLocalList() {
                         {g.status || "DRAFT"}
                       </span>
                     </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="btn-outline text-xs"
-                        onClick={() => {
-                          setActiveDocId(g.id);
-                          setShowAttach(true);
-                        }}
-                      >
-                        Attachments
-                      </button>
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-2 whitespace-nowrap">
-                        <Link
-                          to={`/inventory/grn-local/${g.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                        <button
-                          type="button"
-                          className="text-slate-700 hover:text-slate-900 text-sm font-medium"
-                          title="Print"
-                          onClick={() =>
-                            window.open(
-                              `/inventory/grn-local/${g.id}?mode=view`,
-                              "_blank",
-                            )
-                          }
-                        >
-                          Print
-                        </button>
-                        <button
-                          type="button"
-                          className="text-slate-700 hover:text-slate-900 text-sm font-medium"
-                          title="PDF"
-                          onClick={async () => {
-                            try {
-                              const res = await api.post(
-                                `/documents/grn/${g.id}/render`,
-                                { format: "html" },
-                                { headers: { "Content-Type": "application/json" } },
-                              );
-                              const html = typeof res.data === "string" ? res.data : String(res.data || "");
-                              await renderHtmlToPdf(html, `GRN-${g.grn_no || g.id}.pdf`);
-                            } catch (e) {
-                              toast.error("Failed to download PDF");
+                    <td className="py-2">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="min-w-[80px]">
+                          <Link
+                            to={`/inventory/grn-local/${g.id}?mode=view`}
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                          >
+                            View
+                          </Link>
+                        </div>
+
+                        {/* Slot 2: Edit */}
+                        <div className="min-w-[80px]">
+                          {String(g.status || "").toUpperCase() !== "APPROVED" ? (
+                            <Link
+                              to={`/inventory/grn-local/${g.id}?mode=edit`}
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            >
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 3: Print */}
+                        <div className="min-w-[80px]">
+                          <ListPrintIconButton
+                            onClick={() =>
+                              window.open(
+                                `/inventory/grn-local/${g.id}?mode=view`,
+                                "_blank",
+                                "noopener,noreferrer",
+                              )
                             }
-                          }}
-                        >
-                          PDF
-                        </button>
-                        <button
-                          type="button"
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                          onClick={() => openViewDetails(g)}
-                        >
-                          Details
-                        </button>
-                        {exceptionalPerms?.has?.("PURCHASE.GRN.REVERSE") && (
-                          <button
-                            type="button"
-                            className="inline-flex items-center px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs font-semibold"
+                          />
+                        </div>
+
+                        {/* Slot 4: PDF */}
+                        <div className="min-w-[80px]">
+                          <ListPdfIconButton
                             onClick={async () => {
                               try {
-                                await api.post(
-                                  `/inventory/grn/${g.id}/cancel-accounting`,
+                                const res = await api.post(
+                                  `/documents/grn/${g.id}/render`,
+                                  { format: "html" },
+                                  {
+                                    headers: { "Content-Type": "application/json" },
+                                  },
                                 );
-                                toast.success("GRN cancelled");
-                                setGrns((prev) =>
-                                  prev.filter(
-                                    (x) => Number(x.id) !== Number(g.id),
-                                  ),
+                                const html =
+                                  typeof res.data === "string"
+                                    ? res.data
+                                    : String(res.data || "");
+                                await renderHtmlToPdf(
+                                  html,
+                                  `GRN-${g.grn_no || g.id}.pdf`,
                                 );
                               } catch (e) {
-                                toast.error(
-                                  e?.response?.data?.message ||
-                                    "Failed to cancel GRN",
-                                );
+                                toast.error("Failed to download PDF");
                               }
                             }}
-                          >
-                            Cancel
-                          </button>
-                        )}
-                        {String(g.status || "").toUpperCase() !==
-                          "APPROVED" && (
-                          <Link
-                            to={`/inventory/grn-local/${g.id}?mode=edit`}
-                            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                          >
-                            Edit
-                          </Link>
-                        )}
-                        {String(g.status || "").toUpperCase() === "APPROVED" && (
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                              Approved
-                            </span>
-                            {canReverseApproval() && (
+                          />
+                        </div>
+
+                        {/* Slot 5: Attachments */}
+                        <div className="w-9">
+                          <ListAttachmentIconButton
+                            onClick={() => {
+                              setActiveDocId(g.id);
+                              setShowAttach(true);
+                            }}
+                          />
+                        </div>
+
+                        {/* Slot 6: Workflow */}
+                        <div className="min-w-[160px]">
+                          <div className="list-approval-slot">
+                            {String(g.status || "").toUpperCase() === "APPROVED" ? (
+                              <div className="flex items-center gap-2">
+                                <span className="list-approval-approved-pill">
+                                  Approved
+                                </span>
+                                {/* Slot 7: Reverse Approval (Cancel) */}
+                                {String(g.status || "").toUpperCase() === "APPROVED" && typeof canReverseApproval !== "undefined" && canReverseApproval() && (
+                                  <button
+                                    type="button"
+                                    className="list-approval-reverse-btn"
+                                    onClick={async () => {
+                                      try {
+                                        await api.post("/workflows/reverse-by-document", { document_type: "GOODS_RECEIPT", document_id: g.id });
+                                        toast.success("Approval reversed");
+                                        setGrns((prev) => prev.map((x) => x.id === g.id ? { ...x, status: "RETURNED", forwarded_to_username: null } : x));
+                                      } catch (e) {
+                                        toast.error(e?.response?.data?.message || "Reverse approval failed");
+                                      }
+                                    }}
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </div>
+                            ) : g.forwarded_to_username ? (
+                              <span className="list-approval-forwarded-pill">
+                                Forwarded to {g.forwarded_to_username}
+                              </span>
+                            ) : (
                               <button
                                 type="button"
-                                className="text-indigo-700 hover:text-indigo-800 text-sm font-medium"
-                                onClick={async () => {
-                                  try {
-                                    await api.post(
-                                      "/workflows/reverse-by-document",
-                                      {
-                                        document_type: "GOODS_RECEIPT",
-                                        document_id: g.id,
-                                      },
-                                    );
-                                    toast.success(
-                                      "Approval reversed and document returned",
-                                    );
-                                    setGrns((prev) =>
-                                      prev.map((x) =>
-                                        x.id === g.id
-                                          ? {
-                                              ...x,
-                                              status: "RETURNED",
-                                              forwarded_to_username: null,
-                                            }
-                                          : x,
-                                      ),
-                                    );
-                                  } catch (e) {
-                                    toast.error(
-                                      e?.response?.data?.message ||
-                                        "Reverse approval failed",
-                                    );
-                                  }
-                                }}
+                                className="list-approval-forward-btn"
+                                onClick={() => openForwardModal(g)}
+                                disabled={
+                                  submittingId === g.id ||
+                                  !canForward(g.status) ||
+                                  hasInactiveWorkflow
+                                }
                               >
-                                Reverse Approval
+                                {submittingId === g.id
+                                  ? "Forwarding..."
+                                  : "Forward for Approval"}
                               </button>
                             )}
                           </div>
-                        )}
-                        {g.forwarded_to_username &&
-                          String(g.status || "").toUpperCase() !==
-                            "APPROVED" && (
-                            <span className="text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white whitespace-nowrap inline-flex items-center">
-                              Forwarded to {g.forwarded_to_username}
-                            </span>
-                          )}
-                        {!g.forwarded_to_username &&
-                          String(g.status || "").toUpperCase() !==
-                            "APPROVED" && (
-                            <button
-                              type="button"
-                              className="btn-success text-xs whitespace-nowrap inline-flex items-center"
-                              onClick={() => openForwardModal(g)}
-                              disabled={
-                                submittingId === g.id ||
-                                !canForward(g.status) ||
-                                hasInactiveWorkflow
-                              }
-                            >
-                              {submittingId === g.id
-                                ? "Forwarding..."
-                                : "Forward for Approval"}
-                            </button>
-                          )}
+                        </div>
                       </div>
                     </td>
+                    <td>{g.created_by_username || g.created_by_name || "-"}</td>
+                    <td>{g.created_at ? new Date(g.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

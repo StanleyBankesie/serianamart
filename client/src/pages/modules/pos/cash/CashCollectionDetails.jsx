@@ -873,16 +873,14 @@ export default function CashCollectionDetails() {
                       </td>
                       <td className="p-2">
                         <div className="flex gap-2">
-                          {canPerformAction("pos:cash-collection", "view") && (
-                            <button
-                              type="button"
-                              className="text-brand hover:text-brand-600 font-medium text-sm"
-                              onClick={() => handleView(it)}
-                              disabled={actionLoadingId === it.id}
-                            >
-                              View
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            className={`text-brand hover:text-brand-600 font-medium text-sm ${!canPerformAction("pos:cash-collection", "view") ? 'invisible pointer-events-none' : ''}`}
+                            onClick={() => handleView(it)}
+                            disabled={actionLoadingId === it.id}
+                          >
+                            View
+                          </button>
                           <button
                             type="button"
                             className="btn-primary text-xs px-3 py-1.5"

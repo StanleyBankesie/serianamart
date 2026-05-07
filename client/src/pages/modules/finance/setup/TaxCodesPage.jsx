@@ -3,23 +3,90 @@ import { toast } from "react-toastify";
 import { api } from "api/client";
 import { Link } from "react-router-dom";
 
+// Page ID constants (matching numeric IDs for storage in database)
+const PAGE_IDS = {
+  DIRECT_PURCHASE: 1,
+  INVOICE: 2,
+  PURCHASE_BILL_LOCAL: 3,
+  PURCHASE_BILL_IMPORT: 4,
+  LOCAL_PURCHASE_ORDER: 5,
+  IMPORT_PURCHASE_ORDER: 6,
+  MAINTENANCE_BILL: 7,
+  SERVICE_BILL: 8,
+  SALES_ORDER: 9,
+  QUOTATION: 10,
+  SUPPLIER_QUOTATION: 11,
+  PAYMENT_VOUCHER: 12,
+  RECEIPT_VOUCHER: 13,
+};
+
 const ALL_PAGES = [
-  { value: "DIRECT_PURCHASE", label: "Direct Purchase" },
-  { value: "INVOICE", label: "Invoice" },
-  { value: "PURCHASE_BILL_LOCAL", label: "Purchase Bill Local" },
-  { value: "PURCHASE_BILL_IMPORT", label: "Purchase Bill Import" },
-  { value: "LOCAL_PURCHASE_ORDER", label: "Local Purchase Orders" },
-  { value: "IMPORT_PURCHASE_ORDER", label: "Import Purchase Orders" },
-  { value: "MAINTENANCE_BILL", label: "Maintenance Bill" },
-  { value: "SERVICE_BILL", label: "Service Bill" },
-  { value: "SALES_ORDER", label: "Sales Order" },
-  { value: "QUOTATION", label: "Quotation" },
-  { value: "SUPPLIER_QUOTATION", label: "Supplier Quotation" },
+  {
+    value: PAGE_IDS.DIRECT_PURCHASE,
+    code: "DIRECT_PURCHASE",
+    label: "Direct Purchase",
+  },
+  { value: PAGE_IDS.INVOICE, code: "INVOICE", label: "Invoice" },
+  {
+    value: PAGE_IDS.PURCHASE_BILL_LOCAL,
+    code: "PURCHASE_BILL_LOCAL",
+    label: "Purchase Bill Local",
+  },
+  {
+    value: PAGE_IDS.PURCHASE_BILL_IMPORT,
+    code: "PURCHASE_BILL_IMPORT",
+    label: "Purchase Bill Import",
+  },
+  {
+    value: PAGE_IDS.LOCAL_PURCHASE_ORDER,
+    code: "LOCAL_PURCHASE_ORDER",
+    label: "Local Purchase Orders",
+  },
+  {
+    value: PAGE_IDS.IMPORT_PURCHASE_ORDER,
+    code: "IMPORT_PURCHASE_ORDER",
+    label: "Import Purchase Orders",
+  },
+  {
+    value: PAGE_IDS.MAINTENANCE_BILL,
+    code: "MAINTENANCE_BILL",
+    label: "Maintenance Bill",
+  },
+  { value: PAGE_IDS.SERVICE_BILL, code: "SERVICE_BILL", label: "Service Bill" },
+  { value: PAGE_IDS.SALES_ORDER, code: "SALES_ORDER", label: "Sales Order" },
+  { value: PAGE_IDS.QUOTATION, code: "QUOTATION", label: "Quotation" },
+  {
+    value: PAGE_IDS.SUPPLIER_QUOTATION,
+    code: "SUPPLIER_QUOTATION",
+    label: "Supplier Quotation",
+  },
+  {
+    value: PAGE_IDS.PAYMENT_VOUCHER,
+    code: "PAYMENT_VOUCHER",
+    label: "Payment Voucher",
+  },
+  {
+    value: PAGE_IDS.RECEIPT_VOUCHER,
+    code: "RECEIPT_VOUCHER",
+    label: "Receipt Voucher",
+  },
 ];
 
-const SALES_PAGES = ["INVOICE", "SALES_ORDER", "QUOTATION", "SUPPLIER_QUOTATION"];
-const PURCHASE_PAGES = ["DIRECT_PURCHASE", "PURCHASE_BILL_IMPORT", "PURCHASE_BILL_LOCAL", "LOCAL_PURCHASE_ORDER", "IMPORT_PURCHASE_ORDER"];
-const SERVICE_PAGES = ["SERVICE_BILL", "MAINTENANCE_BILL"];
+const SALES_PAGES = [
+  PAGE_IDS.INVOICE,
+  PAGE_IDS.SALES_ORDER,
+  PAGE_IDS.QUOTATION,
+  PAGE_IDS.SUPPLIER_QUOTATION,
+];
+const PURCHASE_PAGES = [
+  PAGE_IDS.DIRECT_PURCHASE,
+  PAGE_IDS.PURCHASE_BILL_IMPORT,
+  PAGE_IDS.PURCHASE_BILL_LOCAL,
+  PAGE_IDS.LOCAL_PURCHASE_ORDER,
+  PAGE_IDS.IMPORT_PURCHASE_ORDER,
+];
+const SERVICE_PAGES = [PAGE_IDS.SERVICE_BILL, PAGE_IDS.MAINTENANCE_BILL];
+const VOUCHER_PAGES = [PAGE_IDS.PAYMENT_VOUCHER, PAGE_IDS.RECEIPT_VOUCHER];
 
 export default function TaxCodesPage() {
   const [items, setItems] = useState([]);
@@ -94,7 +161,9 @@ export default function TaxCodesPage() {
         api.get("/finance/accounts", { params: { postable: 1, active: 1 } }),
       ]);
       setItems(taxesRes.data?.items || []);
-      setAccounts(Array.isArray(accountsRes.data?.items) ? accountsRes.data.items : []);
+      setAccounts(
+        Array.isArray(accountsRes.data?.items) ? accountsRes.data.items : [],
+      );
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to load tax codes");
     } finally {
@@ -251,13 +320,25 @@ export default function TaxCodesPage() {
   function handleCreateScopeChange(scope, checked) {
     if (scope === "SALES") {
       setIsSalesTax(checked);
-      setValidPages(prev => checked ? Array.from(new Set([...prev, ...SALES_PAGES])) : prev.filter(p => !SALES_PAGES.includes(p)));
+      setValidPages((prev) =>
+        checked
+          ? Array.from(new Set([...prev, ...SALES_PAGES, PAGE_IDS.RECEIPT_VOUCHER]))
+          : prev.filter((p) => !SALES_PAGES.includes(p) && p !== PAGE_IDS.RECEIPT_VOUCHER),
+      );
     } else if (scope === "PURCHASE") {
       setIsPurchaseTax(checked);
-      setValidPages(prev => checked ? Array.from(new Set([...prev, ...PURCHASE_PAGES])) : prev.filter(p => !PURCHASE_PAGES.includes(p)));
+      setValidPages((prev) =>
+        checked
+          ? Array.from(new Set([...prev, ...PURCHASE_PAGES, PAGE_IDS.PAYMENT_VOUCHER]))
+          : prev.filter((p) => !PURCHASE_PAGES.includes(p) && p !== PAGE_IDS.PAYMENT_VOUCHER),
+      );
     } else if (scope === "SERVICE") {
       setIsServiceTax(checked);
-      setValidPages(prev => checked ? Array.from(new Set([...prev, ...SERVICE_PAGES])) : prev.filter(p => !SERVICE_PAGES.includes(p)));
+      setValidPages((prev) =>
+        checked
+          ? Array.from(new Set([...prev, ...SERVICE_PAGES]))
+          : prev.filter((p) => !SERVICE_PAGES.includes(p)),
+      );
     }
   }
 
@@ -265,18 +346,36 @@ export default function TaxCodesPage() {
     setEditing((p) => {
       const draft = p[id] || {};
       let updatedPages = draft.valid_pages || [];
-      
-      const scopePages = scopeField === "is_sales_tax" ? SALES_PAGES : 
-                         scopeField === "is_purchase_tax" ? PURCHASE_PAGES : 
-                         SERVICE_PAGES;
+
+      const scopePages =
+        scopeField === "is_sales_tax"
+          ? SALES_PAGES
+          : scopeField === "is_purchase_tax"
+            ? PURCHASE_PAGES
+            : SERVICE_PAGES;
 
       if (checked) {
         updatedPages = Array.from(new Set([...updatedPages, ...scopePages]));
+        // Add corresponding voucher pages
+        if (scopeField === "is_sales_tax") {
+          updatedPages = Array.from(new Set([...updatedPages, PAGE_IDS.RECEIPT_VOUCHER]));
+        } else if (scopeField === "is_purchase_tax") {
+          updatedPages = Array.from(new Set([...updatedPages, PAGE_IDS.PAYMENT_VOUCHER]));
+        }
       } else {
-        updatedPages = updatedPages.filter(pg => !scopePages.includes(pg));
+        updatedPages = updatedPages.filter((pg) => !scopePages.includes(pg));
+        // Remove corresponding voucher pages
+        if (scopeField === "is_sales_tax") {
+          updatedPages = updatedPages.filter((pg) => pg !== PAGE_IDS.RECEIPT_VOUCHER);
+        } else if (scopeField === "is_purchase_tax") {
+          updatedPages = updatedPages.filter((pg) => pg !== PAGE_IDS.PAYMENT_VOUCHER);
+        }
       }
 
-      return { ...p, [id]: { ...draft, [scopeField]: checked, valid_pages: updatedPages } };
+      return {
+        ...p,
+        [id]: { ...draft, [scopeField]: checked, valid_pages: updatedPages },
+      };
     });
   }
 
@@ -312,9 +411,31 @@ export default function TaxCodesPage() {
   }
 
   function startEdit(r) {
-    const parsedPages = typeof r.valid_pages === 'string' && r.valid_pages.trim() !== ''
-      ? r.valid_pages.split(',').map(s => s.trim())
-      : Array.isArray(r.valid_pages) ? r.valid_pages : [];
+    // Parse valid_pages and convert old page codes to new page IDs
+    let parsedPages = [];
+    if (typeof r.valid_pages === "string" && r.valid_pages.trim() !== "") {
+      parsedPages = r.valid_pages
+        .split(",")
+        .map((s) => {
+          const trimmed = s.trim();
+          // If it's a numeric string, convert to number
+          if (/^\d+$/.test(trimmed)) {
+            return Number(trimmed);
+          }
+          // If it's a page code, look up the ID
+          const pageObj = ALL_PAGES.find((p) => p.code === trimmed);
+          return pageObj ? pageObj.value : null;
+        })
+        .filter((v) => v !== null);
+    } else if (Array.isArray(r.valid_pages)) {
+      parsedPages = r.valid_pages
+        .map((v) => {
+          if (typeof v === "number") return v;
+          const pageObj = ALL_PAGES.find((p) => p.code === v);
+          return pageObj ? pageObj.value : null;
+        })
+        .filter((v) => v !== null);
+    }
     setEditing((p) => ({
       ...p,
       [r.id]: {
@@ -511,7 +632,9 @@ export default function TaxCodesPage() {
                       <input
                         type="checkbox"
                         checked={isSalesTax}
-                        onChange={(e) => handleCreateScopeChange("SALES", e.target.checked)}
+                        onChange={(e) =>
+                          handleCreateScopeChange("SALES", e.target.checked)
+                        }
                       />
                       Sales Tax
                     </label>
@@ -519,7 +642,9 @@ export default function TaxCodesPage() {
                       <input
                         type="checkbox"
                         checked={isPurchaseTax}
-                        onChange={(e) => handleCreateScopeChange("PURCHASE", e.target.checked)}
+                        onChange={(e) =>
+                          handleCreateScopeChange("PURCHASE", e.target.checked)
+                        }
                       />
                       Purchase Tax
                     </label>
@@ -527,7 +652,9 @@ export default function TaxCodesPage() {
                       <input
                         type="checkbox"
                         checked={isServiceTax}
-                        onChange={(e) => handleCreateScopeChange("SERVICE", e.target.checked)}
+                        onChange={(e) =>
+                          handleCreateScopeChange("SERVICE", e.target.checked)
+                        }
                       />
                       Service Tax
                     </label>
@@ -648,7 +775,13 @@ export default function TaxCodesPage() {
                                 <input
                                   type="checkbox"
                                   checked={!!draft.is_sales_tax}
-                                  onChange={(e) => handleEditScopeChange(r.id, "is_sales_tax", e.target.checked)}
+                                  onChange={(e) =>
+                                    handleEditScopeChange(
+                                      r.id,
+                                      "is_sales_tax",
+                                      e.target.checked,
+                                    )
+                                  }
                                 />
                                 Sales
                               </label>
@@ -656,7 +789,13 @@ export default function TaxCodesPage() {
                                 <input
                                   type="checkbox"
                                   checked={!!draft.is_purchase_tax}
-                                  onChange={(e) => handleEditScopeChange(r.id, "is_purchase_tax", e.target.checked)}
+                                  onChange={(e) =>
+                                    handleEditScopeChange(
+                                      r.id,
+                                      "is_purchase_tax",
+                                      e.target.checked,
+                                    )
+                                  }
                                 />
                                 Purchase
                               </label>
@@ -664,7 +803,13 @@ export default function TaxCodesPage() {
                                 <input
                                   type="checkbox"
                                   checked={!!draft.is_service_tax}
-                                  onChange={(e) => handleEditScopeChange(r.id, "is_service_tax", e.target.checked)}
+                                  onChange={(e) =>
+                                    handleEditScopeChange(
+                                      r.id,
+                                      "is_service_tax",
+                                      e.target.checked,
+                                    )
+                                  }
                                 />
                                 Service
                               </label>
@@ -936,7 +1081,9 @@ export default function TaxCodesPage() {
                     {components.map((c) => {
                       const isEdit = !!compEditing[c.id];
                       const d = compEditing[c.id] || {};
-                      const acc = accounts.find(a => String(a.id) === String(c.account_id));
+                      const acc = accounts.find(
+                        (a) => String(a.id) === String(c.account_id),
+                      );
                       return (
                         <tr key={c.id}>
                           <td className="font-medium">
@@ -984,8 +1131,12 @@ export default function TaxCodesPage() {
                                   </option>
                                 ))}
                               </select>
+                            ) : acc ? (
+                              `${acc.code} - ${acc.name}`
                             ) : (
-                              acc ? `${acc.code} - ${acc.name}` : <span className="text-slate-400 italic">Auto-Resolve</span>
+                              <span className="text-slate-400 italic">
+                                Auto-Resolve
+                              </span>
                             )}
                           </td>
                           <td>

@@ -239,7 +239,7 @@ export default function PurchaseReturnForm() {
       const resp = await api.post("/purchase/returns", payload);
       const id = Number(resp.data?.id || 0);
       if (id) {
-        navigate("/inventory/purchase-returns");
+        navigate("/purchase/purchase-returns");
         return;
       }
       throw new Error("Save failed");
@@ -267,7 +267,7 @@ export default function PurchaseReturnForm() {
                 Record goods returned to supplier and auto-create a Debit Note
               </p>
             </div>
-            <Link to="/inventory/purchase-returns" className="btn-success">
+            <Link to="/purchase/purchase-returns" className="btn-success">
               Back to List
             </Link>
           </div>
@@ -530,7 +530,7 @@ export default function PurchaseReturnForm() {
 
             <div className="flex justify-end gap-3">
               <Link
-                to="/inventory/purchase-returns"
+                to="/purchase/purchase-returns"
                 className="btn btn-secondary"
               >
                 Cancel

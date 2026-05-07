@@ -48,6 +48,8 @@ export default function MedicalPolicyList() {
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Premium</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Renewal</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
               </tr>
             </thead>
@@ -74,6 +76,8 @@ export default function MedicalPolicyList() {
                       </span>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-sm">{r.created_by_name || "-"}</td>
+                  <td className="px-4 py-3 text-sm">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                   <td className="px-4 py-3 text-right text-sm font-medium">
                     <Link to={`/human-resources/medical-policies/${r.id}`} className="text-brand hover:underline">
                       Edit
@@ -83,7 +87,7 @@ export default function MedicalPolicyList() {
               ))}
               {items.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-12 text-center text-slate-500">
                     No medical policies found. Click "+ New Policy" to create one.
                   </td>
                 </tr>
@@ -95,7 +99,6 @@ export default function MedicalPolicyList() {
     </Guard>
   );
 }
-
 
 
 

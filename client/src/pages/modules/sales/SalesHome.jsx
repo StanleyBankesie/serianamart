@@ -23,8 +23,8 @@ import PotentialCustomerList from "./potential-customers/PotentialCustomerList.j
 import PotentialCustomerForm from "./potential-customers/PotentialCustomerForm.jsx";
 import ProspectConversion from "./potential-customers/ProspectConversion.jsx";
 import BulkCustomerUpload from "./bulk-upload/BulkCustomerUpload.jsx";
-import SalesReports from "./reports/SalesReports.jsx";
 import SalesReturnList from "./returns/SalesReturnList.jsx";
+import SalesReturnForm from "./returns/SalesReturnForm.jsx";
 import SalesReturnReportPage from "./reports/SalesReturnReportPage.jsx";
 import SalesRegisterReportPage from "./reports/SalesRegisterReportPage.jsx";
 import DeliveryRegisterReportPage from "./reports/DeliveryRegisterReportPage.jsx";
@@ -530,6 +530,13 @@ const SalesModuleHome = () => {
           icon: "🗂️",
         },
         {
+          title: "Customer History",
+          path: "/sales/reports/customer-history",
+          description:
+            "Complete customer transaction history including returns",
+          icon: "📋",
+        },
+        {
           title: "Cancelled / Rejected Orders",
           path: "/sales/reports/cancelled-orders",
           description: "Identify revenue loss",
@@ -762,6 +769,18 @@ export default function SalesHome() {
           </React.Suspense>
         }
       />
+      <Route
+        path="/reports/customer-history"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/CustomerHistoryReportPage.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
       <Route path="/reports/sales-return" element={<SalesReturnReportPage />} />
       <Route
         path="/reports/sales-register"
@@ -784,6 +803,8 @@ export default function SalesHome() {
         element={<SalesTrackingReportPage />}
       />
       <Route path="/returns" element={<SalesReturnList />} />
+      <Route path="/returns/new" element={<SalesReturnForm />} />
+      <Route path="/returns/:id" element={<SalesReturnForm />} />
     </Routes>
   );
 }
@@ -830,12 +851,6 @@ export const salesFeatures = [
     label: "Customer Setup",
     path: "/sales/customers",
     type: "feature",
-  },
-  {
-    module_key: "sales",
-    label: "Sales Reports",
-    path: "/sales/reports",
-    type: "dashboard",
   },
   {
     module_key: "sales",

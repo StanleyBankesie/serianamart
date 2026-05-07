@@ -47,6 +47,8 @@ export default function RequisitionList() {
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Position</th>
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Vacancies</th>
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th>
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
             </tr>
           </thead>
@@ -63,6 +65,8 @@ export default function RequisitionList() {
                     {r.status}
                   </span>
                 </td>
+                <td className="px-3 py-2">{r.created_by_name || "-"}</td>
+                <td className="px-3 py-2">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                 <td className="px-3 py-2">
                   <button
                     type="button"
@@ -93,7 +97,7 @@ export default function RequisitionList() {
             ))}
             {!items.length && !loading ? (
               <tr>
-                <td className="px-3 py-6 text-center text-sm" colSpan={7}>
+                <td className="px-3 py-6 text-center text-sm" colSpan={9}>
                   No requisitions
                 </td>
               </tr>

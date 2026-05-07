@@ -10,6 +10,7 @@ import html2canvas from "html2canvas";
 import {} from "lucide-react";
 import useSocket from "../../../../hooks/useSocket.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { useExchangeRate } from "../../../../hooks/useExchangeRate";
 
 export default function PurchaseOrdersImportForm() {
   const { id } = useParams();
@@ -18,6 +19,7 @@ export default function PurchaseOrdersImportForm() {
   const { user } = useAuth();
   const socket = useSocket();
   const { canEditDiscount } = usePermission();
+  const { getExchangeRate } = useExchangeRate();
 
   const isNew = !id || id === "new";
   const isEdit =
@@ -61,6 +63,7 @@ export default function PurchaseOrdersImportForm() {
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
   const [unitConversions, setUnitConversions] = useState([]);
   const pdfRef = useRef(null);
+  const dataLoadedRef = useRef(false); // tracks whether existing PO data has been fetched
   const [convModal, setConvModal] = useState({
     open: false,
     itemId: null,
@@ -484,48 +487,29 @@ export default function PurchaseOrdersImportForm() {
       arr.find((c) =>
         /ghana|cedi/i.test(String(c.name || c.currency_name || "")),
       );
-    const target = arr.find(
-      (c) => String(c.code || c.currency_code || "").toUpperCase() === code,
-    );
-    if (!base || !target || base.id === target.id) {
+
+    if (!base) return;
+    const baseCode = String(
+      base.code || base.currency_code || "",
+    ).toUpperCase();
+    if (code === baseCode) {
       setFormData((prev) => ({ ...prev, exchange_rate: 1 }));
       return;
     }
-    try {
-      const toDate = formData.po_date || new Date().toISOString().split("T")[0];
-      const res = await api.get("/finance/currency-rates", {
-        params: {
-          fromCurrencyId: target.id,
-          toCurrencyId: base.id,
-          to: toDate,
-        },
-      });
-      const list = Array.isArray(res.data?.items) ? res.data.items : [];
-      const first = list[0];
-      if (first && first.rate) {
-        setFormData((prev) => ({
-          ...prev,
-          exchange_rate: Number(first.rate) || prev.exchange_rate || 1,
-        }));
-      } else {
-        try {
-          await api.post("/finance/currency-rates", {
-            fromCurrencyId: target.id,
-            toCurrencyId: base.id,
-            rate: 1,
-            rateDate: toDate,
-          });
-          setFormData((prev) => ({ ...prev, exchange_rate: 1 }));
-        } catch {
-          setFormData((prev) => ({ ...prev, exchange_rate: 1 }));
-        }
-      }
-    } catch {}
+
+    const rate = await getExchangeRate(code, baseCode);
+    if (rate) {
+      setFormData((p) => ({ ...p, exchange_rate: rate }));
+    }
   };
 
   useEffect(() => {
+    // Only auto-fetch on currencies load (for new POs) or date change.
+    // Currency changes are handled explicitly in handleInputChange to avoid
+    // overwriting the saved exchange_rate when PO data is loaded programmatically.
+    if (!isNew && !dataLoadedRef.current) return;
     fetchExchangeRateForCode(formData.currency);
-  }, [currencies, formData.currency, formData.po_date]);
+  }, [currencies, formData.po_date]); // NOTE: formData.currency intentionally omitted
 
   // Load PO Data
   useEffect(() => {
@@ -573,6 +557,8 @@ export default function PurchaseOrdersImportForm() {
           tax_amount: Number(po.tax_amount) || 0,
           terms_conditions: po.terms_conditions || formData.terms_conditions,
         });
+        // Mark data as loaded so the exchange rate effect no longer skips
+        dataLoadedRef.current = true;
 
         setItems(
           details.length
@@ -634,7 +620,8 @@ export default function PurchaseOrdersImportForm() {
       const taxable = base - disc;
 
       let itemTax = 0;
-      const comps = (taxComponentsByCode && taxComponentsByCode[taxCodeId]) || [];
+      const comps =
+        (taxComponentsByCode && taxComponentsByCode[taxCodeId]) || [];
       if (comps.length > 0) {
         comps.forEach((c) => {
           if (!c) return;
@@ -691,7 +678,46 @@ export default function PurchaseOrdersImportForm() {
       grandTotal,
       components,
     };
-  }, [items, formData.freight_amount, formData.other_charges, taxComponentsByCode]);
+  }, [
+    items,
+    formData.freight_amount,
+    formData.other_charges,
+    taxComponentsByCode,
+  ]);
+
+  const baseCurrencyCode = useMemo(() => {
+    const arr = Array.isArray(currencies) ? currencies : [];
+    const base =
+      arr.find(
+        (c) =>
+          String(c.is_base) === "1" || c.is_base === 1 || c.is_base === true,
+      ) ||
+      arr.find((c) => String(c.code || "").toUpperCase() === "GHS") ||
+      null;
+    return String(base?.code || base?.currency_code || "GHS").toUpperCase();
+  }, [currencies]);
+  const totalInBaseCurrency = useMemo(
+    () =>
+      Number(summary.grandTotal || 0) *
+      (Number(formData.exchange_rate || 1) || 1),
+    [summary.grandTotal, formData.exchange_rate],
+  );
+  const totalInCurrentCurrency = useMemo(
+    () =>
+      Number(summary.subTotal || 0) +
+      Number(summary.totalDiscount || 0) +
+      Number(summary.totalTax || 0) +
+      Number(summary.freight || 0) +
+      Number(summary.other || 0),
+    [summary],
+  );
+  const showBaseTotalRow = useMemo(
+    () =>
+      Math.abs(
+        Number(totalInBaseCurrency || 0) - Number(totalInCurrentCurrency || 0),
+      ) > 0.000001,
+    [totalInBaseCurrency, totalInCurrentCurrency],
+  );
 
   // Handlers
   const handleInputChange = async (e) => {
@@ -706,6 +732,13 @@ export default function PurchaseOrdersImportForm() {
             : prev.payment_terms;
         return { ...prev, payment_type: value, payment_terms: nextTerms };
       });
+      return;
+    }
+    // Handle currency change explicitly so we control when the rate is fetched
+    if (name === "currency") {
+      const newCode = String(value || "").toUpperCase();
+      setFormData((prev) => ({ ...prev, currency: newCode }));
+      await fetchExchangeRateForCode(newCode);
       return;
     }
     setFormData((prev) => ({
@@ -731,6 +764,27 @@ export default function PurchaseOrdersImportForm() {
         });
         try {
           const sup = suppliers.find((s) => String(s.id) === supId);
+          const supCurrencyId = String(sup?.currency_id || "").trim();
+          const supCurrencyCodeRaw =
+            sup?.currency_code || sup?.currency || sup?.currencyCode || "";
+          const byId = supCurrencyId
+            ? (Array.isArray(currencies) ? currencies : []).find(
+                (c) => String(c.id) === supCurrencyId,
+              )
+            : null;
+          const supplierCurrencyCode = String(
+            byId?.code || byId?.currency_code || supCurrencyCodeRaw || "",
+          )
+            .trim()
+            .toUpperCase();
+          if (supplierCurrencyCode) {
+            setFormData((prev) => ({
+              ...prev,
+              currency: supplierCurrencyCode,
+            }));
+            await fetchExchangeRateForCode(supplierCurrencyCode);
+            return;
+          }
           const acctSearch =
             (sup && sup.supplier_code && String(sup.supplier_code).trim()) ||
             (sup ? `SU-${String(Number(sup.id || 0)).padStart(6, "0")}` : "");
@@ -804,7 +858,10 @@ export default function PurchaseOrdersImportForm() {
 
           if (q.details) {
             const newItems = q.details.map((d) => {
-              const taxCode = taxes.find(t => Number(t.rate_percent) === Number(d.tax_percent)) || null;
+              const taxCode =
+                taxes.find(
+                  (t) => Number(t.rate_percent) === Number(d.tax_percent),
+                ) || null;
               return {
                 item_id: String(d.item_id),
                 qty: Number(d.qty) || 0,
@@ -1028,6 +1085,7 @@ export default function PurchaseOrdersImportForm() {
 
       if (submitType === "pending") {
         if (isEdit) {
+          await api.put(`/purchase/orders/${id}`, payload);
           await api.post(`/purchase/orders/${id}/submit`, {
             amount: summary.grandTotal ?? null,
             workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
@@ -1067,6 +1125,7 @@ export default function PurchaseOrdersImportForm() {
       }
 
       if (isEdit) {
+        await api.put(`/purchase/orders/${id}`, payload);
         await api.put(`/purchase/orders/${id}/status`, {
           status: computedStatus,
         });
@@ -1574,10 +1633,12 @@ export default function PurchaseOrdersImportForm() {
                     onChange={handleInputChange}
                     className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
                   >
-                    <option value="GHS">GHS - Ghana Cedi</option>
-                    <option value="USD">USD - US Dollar</option>
-                    <option value="EUR">EUR - Euro</option>
-                    <option value="GBP">GBP - British Pound</option>
+                    {currencies.map((c) => (
+                      <option key={c.id} value={c.code || c.currency_code}>
+                        {c.code || c.currency_code} -{" "}
+                        {c.name || c.currency_name}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="flex flex-col">
@@ -2113,14 +2174,25 @@ export default function PurchaseOrdersImportForm() {
                     />
                   </div>
                   <div className="flex justify-between py-3 text-lg font-bold text-[#0E3646]">
-                    <span>GRAND TOTAL:</span>
+                    <span>{`Total ${formData.currency || ""}:`}</span>
                     <span>
                       {formData.currency}{" "}
-                      {summary.grandTotal.toLocaleString(undefined, {
+                      {totalInCurrentCurrency.toLocaleString(undefined, {
                         minimumFractionDigits: 2,
                       })}
                     </span>
                   </div>
+                  {showBaseTotalRow ? (
+                    <div className="flex justify-between py-3 text-lg font-bold text-[#0E3646]">
+                      <span>{`Total ${baseCurrencyCode}:`}</span>
+                      <span>
+                        {baseCurrencyCode}{" "}
+                        {totalInBaseCurrency.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>

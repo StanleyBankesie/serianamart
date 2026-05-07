@@ -7,7 +7,14 @@ import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
 function emptyLine() {
-  return { accountId: "", accountName: "", accountCode: "", description: "", debit: "", credit: "" };
+  return {
+    accountId: "",
+    accountName: "",
+    accountCode: "",
+    description: "",
+    debit: "",
+    credit: "",
+  };
 }
 
 export default function VoucherFormPage({ voucherTypeCode, title }) {
@@ -62,13 +69,15 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     notes: "",
   });
   const [paymentType, setPaymentType] = useState("AGAINST_BILL");
+  const [rvIsTaxIncluded, setRvIsTaxIncluded] = useState(false);
+  const [pvIsTaxIncluded, setPvIsTaxIncluded] = useState(false);
   const [directBill, setDirectBill] = useState({
     billNo: "",
     billDate: "",
     supplierId: "",
     supplierName: "",
     amount: "",
-    remarks: ""
+    remarks: "",
   });
   const [pvForm, setPvForm] = useState({
     payTo: "",
@@ -79,10 +88,11 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     chequeDate: "",
     paymentAccountId: "",
     taxCodeId: "",
-    items: [{ description: "", accountId: "", amount: "" }],
+    items: [{ description: "", accountId: "", amount: "", exchangeRate: "1" }],
     notes: "",
   });
   const [pvExchangeRate, setPvExchangeRate] = useState("");
+  const [pvCurrencyCodeOverride, setPvCurrencyCodeOverride] = useState("");
   const [cvExchangeRate, setCvExchangeRate] = useState("");
   const [showPayToLov, setShowPayToLov] = useState(false);
   const [payToSearch, setPayToSearch] = useState("");
@@ -642,7 +652,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     async function loadNextNoPv() {
       if (isEdit || !isPV) return;
       try {
-        const res = await api.get("/finance/vouchers/next-no?voucherTypeCode=PV");
+        const res = await api.get(
+          "/finance/vouchers/next-no?voucherTypeCode=PV",
+        );
         const raw = String(res.data?.nextNo || "");
         // Format as PV000001 (no dash)
         const m = raw.match(/^PV-?(\d+)$/i);
@@ -659,7 +671,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     async function loadNextNoSv() {
       if (isEdit || !isSV) return;
       try {
-        const res = await api.get("/finance/vouchers/next-no?voucherTypeCode=SV");
+        const res = await api.get(
+          "/finance/vouchers/next-no?voucherTypeCode=SV",
+        );
         const raw = String(res.data?.nextNo || "");
         // Format as SV000001 (no dash)
         const m = raw.match(/^SV-?(\d+)$/i);
@@ -823,6 +837,25 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   });
 
   const [rvTaxComponentsByCode, setRvTaxComponentsByCode] = useState({});
+  const [pvTaxComponentsByCode, setPvTaxComponentsByCode] = useState({});
+
+  // Account balance state for RV and PAYV
+  const [accountBalances, setAccountBalances] = useState({});
+
+  // Helper function to fetch account balance
+  async function fetchAccountBalance(accountId) {
+    if (!accountId) return null;
+    const cached = accountBalances[String(accountId)];
+    if (cached !== undefined) return cached;
+    try {
+      const res = await api.get(`/finance/accounts/${accountId}/balance`);
+      const balance = res.data?.balance ?? res.data?.item?.balance ?? null;
+      setAccountBalances((prev) => ({ ...prev, [String(accountId)]: balance }));
+      return balance;
+    } catch {
+      return null;
+    }
+  }
 
   const payeeOptions = useMemo(() => {
     const base = accounts.filter((a) =>
@@ -873,10 +906,63 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         const resp = await api.get(`/finance/tax-codes/${key}/components`);
         const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
         setRvTaxComponentsByCode((prev) => ({ ...prev, [key]: items }));
+        // Auto-populate posting lines with tax components after loading
+        setTimeout(() => autoPopulateRvTaxLines(), 0);
       } catch {}
     }
     loadRvTaxComponents();
   }, [isRV, rvForm.taxCodeId, rvTaxComponentsByCode]);
+
+  // Auto-populate RV posting lines when tax code changes (even if components already cached)
+  useEffect(() => {
+    if (
+      isRV &&
+      rvForm.taxCodeId &&
+      rvTaxComponentsByCode[String(rvForm.taxCodeId)]
+    ) {
+      autoPopulateRvTaxLines();
+    }
+  }, [isRV, rvForm.taxCodeId]);
+
+  useEffect(() => {
+    async function loadPvTaxComponents() {
+      const key = String(pvForm.taxCodeId || "");
+      if (!isPAYV || !key || pvTaxComponentsByCode[key]) return;
+      try {
+        const resp = await api.get(`/finance/tax-codes/${key}/components`);
+        const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
+        setPvTaxComponentsByCode((prev) => ({ ...prev, [key]: items }));
+        // Auto-populate posting lines with tax components after loading
+        setTimeout(() => autoPopulatePvTaxLines(), 0);
+      } catch {}
+    }
+    loadPvTaxComponents();
+  }, [isPAYV, pvForm.taxCodeId, pvTaxComponentsByCode]);
+
+  // Auto-populate PAYV posting lines when tax code changes (even if components already cached)
+  useEffect(() => {
+    if (
+      isPAYV &&
+      pvForm.taxCodeId &&
+      pvTaxComponentsByCode[String(pvForm.taxCodeId)]
+    ) {
+      autoPopulatePvTaxLines();
+    }
+  }, [isPAYV, pvForm.taxCodeId]);
+
+  // Fetch balance when RV deposit account changes
+  useEffect(() => {
+    if (isRV && rvForm.depositAccountId) {
+      fetchAccountBalance(rvForm.depositAccountId);
+    }
+  }, [isRV, rvForm.depositAccountId]);
+
+  // Fetch balance when PAYV payment account changes
+  useEffect(() => {
+    if (isPAYV && pvForm.paymentAccountId) {
+      fetchAccountBalance(pvForm.paymentAccountId);
+    }
+  }, [isPAYV, pvForm.paymentAccountId]);
 
   useEffect(() => {
     let mounted = true;
@@ -1386,7 +1472,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     let cleaned = [];
     let voucherNarration = narration;
 
-    if (isRV && paymentType !== 'DIRECT') {
+    if (isRV && paymentType !== "DIRECT") {
       if (!rvForm.depositAccountId) {
         toast.error("Select deposit account");
         return;
@@ -1436,7 +1522,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           paymentMethod: rvForm.paymentMethod || null,
         })),
       ];
-    } else if (isPAYV && paymentType !== 'DIRECT') {
+    } else if (isPAYV && paymentType !== "DIRECT") {
       if (!pvForm.paymentAccountId) {
         toast.error("Select payment account");
         return;
@@ -1733,6 +1819,1134 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     }
   }
 
+  function updateRvForm(patch) {
+    if (readOnly) return;
+    setRvForm((prev) => ({ ...prev, ...patch }));
+  }
+  function updateRvItem(idx, patch) {
+    if (readOnly) return;
+    updateRvForm({
+      items: rvForm.items.map((it, i) =>
+        i === idx ? { ...it, ...patch } : it,
+      ),
+    });
+    // Auto-populate posting lines when account, description, or amount changes
+    if (
+      patch.accountId !== undefined ||
+      patch.description !== undefined ||
+      patch.amount !== undefined
+    ) {
+      setTimeout(() => autoPopulateRvPostingLines(idx, patch), 0);
+    }
+  }
+
+  // Auto-populate posting lines for Receipt Voucher based on payment details
+  function autoPopulateRvPostingLines(changedIdx, changedPatch) {
+    if (!isRV || paymentType !== "DIRECT") return;
+
+    const currentItem = rvForm.items[changedIdx] || {};
+    const updatedItem = { ...currentItem, ...changedPatch };
+    const accountId = updatedItem.accountId || currentItem.accountId || "";
+    const description =
+      updatedItem.description || currentItem.description || "";
+    const amount = Number(updatedItem.amount || currentItem.amount || 0);
+
+    // Build base posting lines from current items
+    const baseLines = rvForm.items.map((it) => {
+      const acc = accounts.find((a) => String(a.id) === String(it.accountId));
+      return {
+        accountId: it.accountId || "",
+        accountName: acc?.name || "",
+        accountCode: acc?.code || "",
+        description: it.description || "",
+        debit: Number(it.amount || 0),
+        credit: 0,
+      };
+    });
+
+    // Add tax component lines if tax code is selected
+    const taxLines = [];
+    if (rvForm.taxCodeId && rvTaxComponentsByCode[String(rvForm.taxCodeId)]) {
+      const comps = rvTaxComponentsByCode[String(rvForm.taxCodeId)] || [];
+      const totalAmount = rvForm.items.reduce(
+        (sum, it) => sum + Number(it.amount || 0),
+        0,
+      );
+      comps.forEach((comp) => {
+        if (comp.account_id) {
+          const rate = Number(comp.rate_percent || 0);
+          const taxAmount = (totalAmount * rate) / 100;
+          taxLines.push({
+            accountId: String(comp.account_id),
+            accountName: comp.account_name || "",
+            accountCode: comp.account_code || "",
+            description: description || `Tax - ${comp.component_name || ""}`,
+            debit: 0,
+            credit: taxAmount,
+          });
+        }
+      });
+    }
+
+    // Add customer sales account line if account matches a customer
+    const customerAccountLines = [];
+    if (accountId) {
+      const acc = accounts.find((a) => String(a.id) === String(accountId));
+      const accountCode = acc?.code || "";
+      const customer = payees.find(
+        (p) => p.type === "CUSTOMER" && String(p.code) === String(accountCode),
+      );
+      if (customer) {
+        // Find customer data to get sales_account_id
+        api
+          .get(`/sales/customers/${customer.id}`)
+          .then((res) => {
+            const custData = res.data?.item || res.data || {};
+            const salesAccountId = custData.sales_account_id;
+            if (salesAccountId) {
+              const salesAcc = accounts.find(
+                (a) => String(a.id) === String(salesAccountId),
+              );
+              // Calculate net amount (total - tax)
+              const totalAmount = rvForm.items.reduce(
+                (sum, it) => sum + Number(it.amount || 0),
+                0,
+              );
+              let taxAmount = 0;
+              if (
+                rvForm.taxCodeId &&
+                rvTaxComponentsByCode[String(rvForm.taxCodeId)]
+              ) {
+                const comps =
+                  rvTaxComponentsByCode[String(rvForm.taxCodeId)] || [];
+                taxAmount = comps.reduce(
+                  (sum, c) =>
+                    sum + (totalAmount * Number(c.rate_percent || 0)) / 100,
+                  0,
+                );
+              }
+              const netAmount = totalAmount - taxAmount;
+
+              // Add or update the customer sales account line
+              setLines((prev) => {
+                const existingIdx = prev.findIndex(
+                  (l) => String(l.accountId) === String(salesAccountId),
+                );
+                if (existingIdx >= 0) {
+                  return prev.map((l, i) =>
+                    i === existingIdx
+                      ? {
+                          ...l,
+                          debit: netAmount,
+                          description: description || l.description,
+                        }
+                      : l,
+                  );
+                }
+                return [
+                  ...prev,
+                  {
+                    accountId: String(salesAccountId),
+                    accountName: salesAcc?.name || "",
+                    accountCode: salesAcc?.code || "",
+                    description: description || "",
+                    debit: netAmount,
+                    credit: 0,
+                  },
+                ];
+              });
+            }
+          })
+          .catch(() => {});
+      }
+    }
+
+    // Combine all lines
+    const allLines = [...baseLines, ...taxLines];
+    if (allLines.length > 0) {
+      setLines(allLines);
+    }
+  }
+
+  // Auto-populate posting lines when RV tax code changes
+  function autoPopulateRvTaxLines() {
+    if (!isRV || paymentType !== "DIRECT" || !rvForm.taxCodeId) return;
+
+    const comps = rvTaxComponentsByCode[String(rvForm.taxCodeId)] || [];
+    if (!comps.length) return;
+
+    const totalAmount = rvForm.items.reduce(
+      (sum, it) => sum + Number(it.amount || 0),
+      0,
+    );
+    const firstDescription = rvForm.items[0]?.description || "";
+
+    // Build tax lines
+    const taxLines = comps
+      .filter((comp) => comp.account_id)
+      .map((comp) => {
+        const rate = Number(comp.rate_percent || 0);
+        const taxAmount = (totalAmount * rate) / 100;
+        return {
+          accountId: String(comp.account_id),
+          accountName: comp.account_name || "",
+          accountCode: comp.account_code || "",
+          description: firstDescription || `Tax - ${comp.component_name || ""}`,
+          debit: 0,
+          credit: taxAmount,
+        };
+      });
+
+    // Update lines - remove old tax lines and add new ones
+    setLines((prev) => {
+      // Keep non-tax lines (lines that don't match any tax component account)
+      const taxAccountIds = new Set(comps.map((c) => String(c.account_id)));
+      const baseLines = prev.filter(
+        (l) => !taxAccountIds.has(String(l.accountId)),
+      );
+      return [...baseLines, ...taxLines];
+    });
+  }
+
+  function addRvItem() {
+    if (readOnly) return;
+    updateRvForm({
+      items: [
+        ...rvForm.items,
+        { description: "", accountId: "", amount: "", referenceNo: "" },
+      ],
+    });
+  }
+  function removeRvItem(idx) {
+    if (readOnly) return;
+    if (rvForm.items.length <= 1) return;
+    updateRvForm({
+      items: rvForm.items.filter((_, i) => i !== idx),
+    });
+  }
+  function numberToWords(amount) {
+    const ones = [
+      "",
+      "One",
+      "Two",
+      "Three",
+      "Four",
+      "Five",
+      "Six",
+      "Seven",
+      "Eight",
+      "Nine",
+    ];
+    const tens = [
+      "",
+      "",
+      "Twenty",
+      "Thirty",
+      "Forty",
+      "Fifty",
+      "Sixty",
+      "Seventy",
+      "Eighty",
+      "Ninety",
+    ];
+    const teens = [
+      "Ten",
+      "Eleven",
+      "Twelve",
+      "Thirteen",
+      "Fourteen",
+      "Fifteen",
+      "Sixteen",
+      "Seventeen",
+      "Eighteen",
+      "Nineteen",
+    ];
+    const dollars = Math.floor(amount || 0);
+    const cents = Math.round(((amount || 0) - dollars) * 100);
+    function convertToWords(num) {
+      if (num === 0) return "";
+      if (num < 10) return ones[num];
+      if (num < 20) return teens[num - 10];
+      if (num < 100)
+        return (
+          tens[Math.floor(num / 10)] +
+          (num % 10 !== 0 ? " " + ones[num % 10] : "")
+        );
+      if (num < 1000)
+        return (
+          ones[Math.floor(num / 100)] +
+          " Hundred" +
+          (num % 100 !== 0 ? " " + convertToWords(num % 100) : "")
+        );
+      if (num < 1000000)
+        return (
+          convertToWords(Math.floor(num / 1000)) +
+          " Thousand" +
+          (num % 1000 !== 0 ? " " + convertToWords(num % 1000) : "")
+        );
+      return (
+        convertToWords(Math.floor(num / 1000000)) +
+        " Million" +
+        (num % 1000000 !== 0 ? " " + convertToWords(num % 1000000) : "")
+      );
+    }
+    let result = convertToWords(dollars) + " Cedi" + (dollars !== 1 ? "s" : "");
+    if (cents > 0) {
+      result +=
+        " and " + convertToWords(cents) + " Pesewa" + (cents !== 1 ? "s" : "");
+    }
+    return result;
+  }
+
+  function numberToWordsBasic(amount) {
+    const ones = [
+      "",
+      "One",
+      "Two",
+      "Three",
+      "Four",
+      "Five",
+      "Six",
+      "Seven",
+      "Eight",
+      "Nine",
+    ];
+    const tens = [
+      "",
+      "",
+      "Twenty",
+      "Thirty",
+      "Forty",
+      "Fifty",
+      "Sixty",
+      "Seventy",
+      "Eighty",
+      "Ninety",
+    ];
+    const teens = [
+      "Ten",
+      "Eleven",
+      "Twelve",
+      "Thirteen",
+      "Fourteen",
+      "Fifteen",
+      "Sixteen",
+      "Seventeen",
+      "Eighteen",
+      "Nineteen",
+    ];
+    const dollars = Math.floor(amount || 0);
+    const cents = Math.round(((amount || 0) - dollars) * 100);
+    function convertToWords(num) {
+      if (num === 0) return "Zero";
+      if (num < 10) return ones[num];
+      if (num < 20) return teens[num - 10];
+      if (num < 100)
+        return (
+          tens[Math.floor(num / 10)] +
+          (num % 10 !== 0 ? " " + ones[num % 10] : "")
+        );
+      if (num < 1000)
+        return (
+          ones[Math.floor(num / 100)] +
+          " Hundred" +
+          (num % 100 !== 0 ? " " + convertToWords(num % 100) : "")
+        );
+      if (num < 1000000)
+        return (
+          convertToWords(Math.floor(num / 1000)) +
+          " Thousand" +
+          (num % 1000 !== 0 ? " " + convertToWords(num % 1000) : "")
+        );
+      return (
+        convertToWords(Math.floor(num / 1000000)) +
+        " Million" +
+        (num % 1000000 !== 0 ? " " + convertToWords(num % 1000000) : "")
+      );
+    }
+    const intWords = convertToWords(dollars);
+    const centsPart = String(cents).padStart(2, "0");
+    return cents > 0 ? `${intWords} and ${centsPart}/100` : `${intWords}`;
+  }
+
+  // RV-derived values placed before RV render to avoid TDZ
+  const rvIsBankLike = useMemo(
+    () =>
+      ["Cheque", "Bank Transfer", "Credit Card"].includes(
+        rvForm.paymentMethod || "",
+      ),
+    [rvForm.paymentMethod],
+  );
+
+  const depositAccountCurrencyCode = useMemo(() => {
+    const acc = accounts.find(
+      (a) => String(a.id) === String(rvForm.depositAccountId || ""),
+    );
+    return acc?.currency_code || "";
+  }, [accounts, rvForm.depositAccountId]);
+  const rvPayeeCurrencyCode = useMemo(() => {
+    const acc = accounts.find(
+      (a) => String(a.id) === String(rvForm.payerAccountId || ""),
+    );
+    return acc?.currency_code || "";
+  }, [accounts, rvForm.payerAccountId]);
+  const rvPayeeCurrencyId = useMemo(() => {
+    const acc = accounts.find(
+      (a) => String(a.id) === String(rvForm.payerAccountId || ""),
+    );
+    return acc?.currency_id || null;
+  }, [accounts, rvForm.payerAccountId]);
+  const rvDepositCurrencyId = useMemo(() => {
+    const acc = accounts.find(
+      (a) => String(a.id) === String(rvForm.depositAccountId || ""),
+    );
+    return acc?.currency_id || null;
+  }, [accounts, rvForm.depositAccountId]);
+  const cvToCurrencyCode = useMemo(() => {
+    const acc = accounts.find(
+      (a) => String(a.id) === String(cvForm.toAccountId || ""),
+    );
+    return acc?.currency_code || "";
+  }, [accounts, cvForm.toAccountId]);
+  const cvFromCurrencyCode = useMemo(() => {
+    const acc = accounts.find(
+      (a) => String(a.id) === String(cvForm.fromAccountId || ""),
+    );
+    return acc?.currency_code || "";
+  }, [accounts, cvForm.fromAccountId]);
+  const cvFromCurrencyId = useMemo(() => {
+    const acc = accounts.find(
+      (a) => String(a.id) === String(cvForm.fromAccountId || ""),
+    );
+    return acc?.currency_id || null;
+  }, [accounts, cvForm.fromAccountId]);
+  const cvToCurrencyId = useMemo(() => {
+    const acc = accounts.find(
+      (a) => String(a.id) === String(cvForm.toAccountId || ""),
+    );
+    return acc?.currency_id || null;
+  }, [accounts, cvForm.toAccountId]);
+
+  // Search options for Received From (RV) and Paid To (PAYV) - using accounts
+  const accountSearchOptions = useMemo(() => {
+    return (Array.isArray(accounts) ? accounts : []).map((a) => ({
+      value: String(a.id),
+      label: String(a.name || ""),
+      code: String(a.code || ""),
+    }));
+  }, [accounts]);
+
+  const receivedFromSearchResults = useMemo(() => {
+    const q = String(receivedFromSearch || "").trim();
+    if (!q) return [];
+    return filterAndSort(accountSearchOptions, {
+      query: q,
+      getKeys: (o) => [o.label, o.code],
+    }).slice(0, 10);
+  }, [receivedFromSearch, accountSearchOptions]);
+
+  const paidToSearchResults = useMemo(() => {
+    const q = String(paidToSearch || "").trim();
+    if (!q) return [];
+    return filterAndSort(accountSearchOptions, {
+      query: q,
+      getKeys: (o) => [o.label, o.code],
+    }).slice(0, 10);
+  }, [paidToSearch, accountSearchOptions]);
+
+  const cvSelectableAccounts = useMemo(() => {
+    const allowed = new Set(["BANK ACCOUNTS", "CASH AND CASH EQUIVALENTS"]);
+    return (accounts || []).filter((a) =>
+      allowed.has(
+        String(a.group_name || "")
+          .trim()
+          .toUpperCase(),
+      ),
+    );
+  }, [accounts]);
+  const cvHasBankAccount = useMemo(() => {
+    const fromAcc = accounts.find(
+      (a) => String(a.id) === String(cvForm.fromAccountId || ""),
+    );
+    const toAcc = accounts.find(
+      (a) => String(a.id) === String(cvForm.toAccountId || ""),
+    );
+    const fromGc = String(fromAcc?.group_code || "").toUpperCase();
+    const fromGn = String(fromAcc?.group_name || "").toUpperCase();
+    const toGc = String(toAcc?.group_code || "").toUpperCase();
+    const toGn = String(toAcc?.group_name || "").toUpperCase();
+    return (
+      fromGc === "AST_BANK" ||
+      fromGn === "BANK ACCOUNTS" ||
+      toGc === "AST_BANK" ||
+      toGn === "BANK ACCOUNTS"
+    );
+  }, [accounts, cvForm.fromAccountId, cvForm.toAccountId]);
+  const rvAmountWord = useMemo(() => {
+    const id = rvDepositCurrencyId;
+    let cur = currencies.find((c) => String(c.id) === String(id));
+    if (!cur && depositAccountCurrencyCode) {
+      cur = currencies.find(
+        (c) => String(c.code) === String(depositAccountCurrencyCode),
+      );
+    }
+    return cur ? String(cur.name || "") : "";
+  }, [currencies, rvDepositCurrencyId, depositAccountCurrencyCode]);
+  const isChequeLike = useMemo(
+    () =>
+      ["Cheque", "Bank Transfer", "Credit Card"].includes(
+        pvForm.paymentMethod || "",
+      ),
+    [pvForm.paymentMethod],
+  );
+  const paymentAccountCurrencyCode = useMemo(() => {
+    const acc = accounts.find(
+      (a) => String(a.id) === String(pvForm.paymentAccountId || ""),
+    );
+    return acc?.currency_code || "";
+  }, [accounts, pvForm.paymentAccountId]);
+  const effectivePaymentCurrencyCode = String(
+    pvCurrencyCodeOverride || paymentAccountCurrencyCode || "",
+  );
+  const payeeCurrencyCode = useMemo(() => {
+    const acc = accounts.find(
+      (a) => String(a.id) === String(pvForm.payToAccountId || ""),
+    );
+    return acc?.currency_code || "";
+  }, [accounts, pvForm.payToAccountId]);
+  const payeeCurrencyId = useMemo(() => {
+    const acc = accounts.find(
+      (a) => String(a.id) === String(pvForm.payToAccountId || ""),
+    );
+    return acc?.currency_id || null;
+  }, [accounts, pvForm.payToAccountId]);
+  const paymentAccountCurrencyId = useMemo(() => {
+    const acc = accounts.find(
+      (a) => String(a.id) === String(pvForm.paymentAccountId || ""),
+    );
+    return acc?.currency_id || null;
+  }, [accounts, pvForm.paymentAccountId]);
+  const pvAmountWord = useMemo(() => {
+    const id = paymentAccountCurrencyId;
+    const cur = currencies.find((c) => String(c.id) === String(id));
+    return cur
+      ? String(cur.name || cur.code || "")
+      : String(effectivePaymentCurrencyCode || "");
+  }, [currencies, paymentAccountCurrencyId, effectivePaymentCurrencyCode]);
+  const pvVoucherTypeName = useMemo(() => {
+    const vt = voucherTypes.find(
+      (x) =>
+        String(x.code).toUpperCase() === String(voucherTypeCode).toUpperCase(),
+    );
+    return vt?.name || "Payment Voucher";
+  }, [voucherTypes, voucherTypeCode]);
+  const rvVoucherTypeName = useMemo(() => {
+    const vt = voucherTypes.find(
+      (x) =>
+        String(x.code).toUpperCase() === String(voucherTypeCode).toUpperCase(),
+    );
+    return vt?.name || "Receive Voucher";
+  }, [voucherTypes, voucherTypeCode]);
+  useEffect(() => {
+    if (!isCV) return;
+    const fromId = cvFromCurrencyId || null;
+    const toId = cvToCurrencyId || null;
+    const fromCode = cvFromCurrencyCode || "";
+    const toCode = cvToCurrencyCode || "";
+    if (!fromId || !toId) {
+      setCvExchangeRate("");
+      return;
+    }
+    if (fromCode && toCode && fromCode === toCode) {
+      setCvExchangeRate("1");
+      return;
+    }
+    (async () => {
+      try {
+        const res = await api.get("/finance/currency-rates", {
+          params: {
+            fromCurrencyId: Number(fromId),
+            toCurrencyId: Number(toId),
+            to: voucherDate || null,
+          },
+        });
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        const sorted = items
+          .slice()
+          .sort(
+            (a, b) =>
+              new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime(),
+          );
+        const rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
+        setCvExchangeRate(rate ? String(rate) : "");
+      } catch {
+        setCvExchangeRate("");
+      }
+    })();
+  }, [
+    isCV,
+    cvFromCurrencyId,
+    cvToCurrencyId,
+    cvFromCurrencyCode,
+    cvToCurrencyCode,
+    voucherDate,
+  ]);
+
+  useEffect(() => {
+    if (!isRV) return;
+    const fromId = rvDepositCurrencyId || null;
+    const toId = baseCurrency?.id || null;
+    if (!fromId || !toId) {
+      setRvExchangeRate("1");
+      return;
+    }
+    if (String(fromId) === String(toId)) {
+      setRvExchangeRate("1");
+      return;
+    }
+    (async () => {
+      try {
+        const res = await api.get("/finance/currency-rates", {
+          params: {
+            fromCurrencyId: Number(fromId),
+            toCurrencyId: Number(toId),
+            to: voucherDate || null,
+          },
+        });
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        const sorted = items
+          .slice()
+          .sort(
+            (a, b) =>
+              new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime(),
+          );
+        const rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
+        setRvExchangeRate(rate ? String(rate) : "1");
+      } catch {
+        setRvExchangeRate("1");
+      }
+    })();
+  }, [isRV, rvDepositCurrencyId, baseCurrency, voucherDate]);
+
+  useEffect(() => {
+    if (!isPAYV) return;
+    const fromId = paymentAccountCurrencyId || null;
+    const toId = baseCurrency?.id || null;
+    if (!fromId || !toId) {
+      setPvExchangeRate("1");
+      return;
+    }
+    if (String(fromId) === String(toId)) {
+      setPvExchangeRate("1");
+      return;
+    }
+    (async () => {
+      try {
+        const res = await api.get("/finance/currency-rates", {
+          params: {
+            fromCurrencyId: Number(fromId),
+            toCurrencyId: Number(toId),
+            to: voucherDate || null,
+          },
+        });
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        const sorted = items
+          .slice()
+          .sort(
+            (a, b) =>
+              new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime(),
+          );
+        const rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
+        setPvExchangeRate(rate ? String(rate) : "1");
+      } catch {
+        setPvExchangeRate("1");
+      }
+    })();
+  }, [isPAYV, paymentAccountCurrencyId, baseCurrency, voucherDate]);
+
+  // PV UI
+  function updatePv(patch) {
+    if (readOnly) return;
+    setPvForm((prev) => ({ ...prev, ...patch }));
+  }
+  function updatePvItem(idx, patch) {
+    if (readOnly) return;
+    const nextItems = pvForm.items.map((it, i) =>
+      i === idx ? { ...it, ...patch } : it,
+    );
+    const changed = nextItems[idx];
+    if (
+      Object.prototype.hasOwnProperty.call(patch, "amount") &&
+      (!changed.referenceNo || String(changed.referenceNo).trim() === "")
+    ) {
+      const used = new Set(
+        nextItems
+          .map((x) => String(x.referenceNo || ""))
+          .filter((r) => r && r.length > 0),
+      );
+      const candidate =
+        selectedBillRefs.find((r) => !used.has(String(r))) ||
+        selectedBillRefs[0] ||
+        null;
+      if (candidate) {
+        nextItems[idx] = { ...changed, referenceNo: String(candidate) };
+      }
+    }
+    updatePv({ items: nextItems });
+    // Auto-populate posting lines when account, description, or amount changes
+    if (
+      patch.accountId !== undefined ||
+      patch.description !== undefined ||
+      patch.amount !== undefined
+    ) {
+      setTimeout(() => autoPopulatePvPostingLines(idx, patch), 0);
+    }
+  }
+
+  // Auto-populate posting lines for Payment Voucher based on payment details
+  function autoPopulatePvPostingLines(changedIdx, changedPatch) {
+    if (!isPAYV || paymentType !== "DIRECT") return;
+
+    const currentItem = pvForm.items[changedIdx] || {};
+    const updatedItem = { ...currentItem, ...changedPatch };
+    const accountId = updatedItem.accountId || currentItem.accountId || "";
+    const description =
+      updatedItem.description || currentItem.description || "";
+    const amount = Number(updatedItem.amount || currentItem.amount || 0);
+
+    // Build base posting lines from current items (credit side for payment voucher)
+    const baseLines = pvForm.items.map((it) => {
+      const acc = accounts.find((a) => String(a.id) === String(it.accountId));
+      return {
+        accountId: it.accountId || "",
+        accountName: acc?.name || "",
+        accountCode: acc?.code || "",
+        description: it.description || "",
+        debit: 0,
+        credit: Number(it.amount || 0),
+      };
+    });
+
+    // Add tax component lines if tax code is selected (debit side for tax components in PAYV)
+    const taxLines = [];
+    if (pvForm.taxCodeId && pvTaxComponentsByCode[String(pvForm.taxCodeId)]) {
+      const comps = pvTaxComponentsByCode[String(pvForm.taxCodeId)] || [];
+      const totalAmount = pvForm.items.reduce(
+        (sum, it) => sum + Number(it.amount || 0),
+        0,
+      );
+      comps.forEach((comp) => {
+        if (comp.account_id) {
+          const rate = Number(comp.rate_percent || 0);
+          const taxAmount = (totalAmount * rate) / 100;
+          taxLines.push({
+            accountId: String(comp.account_id),
+            accountName: comp.account_name || "",
+            accountCode: comp.account_code || "",
+            description: description || `Tax - ${comp.component_name || ""}`,
+            debit: taxAmount,
+            credit: 0,
+          });
+        }
+      });
+    }
+
+    // Add supplier expense account line if account matches a supplier
+    if (accountId) {
+      const acc = accounts.find((a) => String(a.id) === String(accountId));
+      const accountCode = acc?.code || "";
+      const supplier = payees.find(
+        (p) => p.type === "SUPPLIER" && String(p.code) === String(accountCode),
+      );
+      if (supplier) {
+        // Find supplier data to get expense_account_id
+        api
+          .get(`/purchase/suppliers/${supplier.id}`)
+          .then((res) => {
+            const suppData = res.data?.item || res.data || {};
+            const expenseAccountId = suppData.expense_account_id;
+            if (expenseAccountId) {
+              const expenseAcc = accounts.find(
+                (a) => String(a.id) === String(expenseAccountId),
+              );
+              // Calculate net amount (total - tax)
+              const totalAmount = pvForm.items.reduce(
+                (sum, it) => sum + Number(it.amount || 0),
+                0,
+              );
+              let taxAmount = 0;
+              if (
+                pvForm.taxCodeId &&
+                pvTaxComponentsByCode[String(pvForm.taxCodeId)]
+              ) {
+                const comps =
+                  pvTaxComponentsByCode[String(pvForm.taxCodeId)] || [];
+                taxAmount = comps.reduce(
+                  (sum, c) =>
+                    sum + (totalAmount * Number(c.rate_percent || 0)) / 100,
+                  0,
+                );
+              }
+              const netAmount = totalAmount - taxAmount;
+
+              // Add or update the supplier expense account line
+              setLines((prev) => {
+                const existingIdx = prev.findIndex(
+                  (l) => String(l.accountId) === String(expenseAccountId),
+                );
+                if (existingIdx >= 0) {
+                  return prev.map((l, i) =>
+                    i === existingIdx
+                      ? {
+                          ...l,
+                          debit: netAmount,
+                          description: description || l.description,
+                        }
+                      : l,
+                  );
+                }
+                return [
+                  ...prev,
+                  {
+                    accountId: String(expenseAccountId),
+                    accountName: expenseAcc?.name || "",
+                    accountCode: expenseAcc?.code || "",
+                    description: description || "",
+                    debit: netAmount,
+                    credit: 0,
+                  },
+                ];
+              });
+            }
+          })
+          .catch(() => {});
+      }
+    }
+
+    // Combine all lines
+    const allLines = [...baseLines, ...taxLines];
+    if (allLines.length > 0) {
+      setLines(allLines);
+    }
+  }
+
+  // Auto-populate posting lines when PAYV tax code changes
+  function autoPopulatePvTaxLines() {
+    if (!isPAYV || paymentType !== "DIRECT" || !pvForm.taxCodeId) return;
+
+    const comps = pvTaxComponentsByCode[String(pvForm.taxCodeId)] || [];
+    if (!comps.length) return;
+
+    const totalAmount = pvForm.items.reduce(
+      (sum, it) => sum + Number(it.amount || 0),
+      0,
+    );
+    const firstDescription = pvForm.items[0]?.description || "";
+
+    // Build tax lines (debit side for tax components in payment voucher)
+    const taxLines = comps
+      .filter((comp) => comp.account_id)
+      .map((comp) => {
+        const rate = Number(comp.rate_percent || 0);
+        const taxAmount = (totalAmount * rate) / 100;
+        return {
+          accountId: String(comp.account_id),
+          accountName: comp.account_name || "",
+          accountCode: comp.account_code || "",
+          description: firstDescription || `Tax - ${comp.component_name || ""}`,
+          debit: taxAmount,
+          credit: 0,
+        };
+      });
+
+    // Update lines - remove old tax lines and add new ones
+    setLines((prev) => {
+      // Keep non-tax lines (lines that don't match any tax component account)
+      const taxAccountIds = new Set(comps.map((c) => String(c.account_id)));
+      const baseLines = prev.filter(
+        (l) => !taxAccountIds.has(String(l.accountId)),
+      );
+      return [...baseLines, ...taxLines];
+    });
+  }
+
+  function addPvItem() {
+    if (readOnly) return;
+    updatePv({
+      items: [
+        ...pvForm.items,
+        { description: "", accountId: "", amount: "", exchangeRate: "1" },
+      ],
+    });
+  }
+  function removePvItem(idx) {
+    if (readOnly) return;
+    if (pvForm.items.length <= 1) return;
+    updatePv({
+      items: pvForm.items.filter((_, i) => i !== idx),
+    });
+  }
+  const [knockOffTotal, setKnockOffTotal] = useState(0);
+  function setPvAmountForRef(referenceNo, amount) {
+    if (readOnly) return;
+    const idx = pvForm.items.findIndex(
+      (it) => String(it.referenceNo || "") === String(referenceNo || ""),
+    );
+    if (idx >= 0) {
+      updatePvItem(idx, { amount: Number(amount || 0) });
+    } else {
+      updatePv({
+        items: [
+          ...pvForm.items,
+          {
+            description: `Bill ${referenceNo} payment`,
+            accountId: pvForm.payToAccountId || "",
+            amount: Number(amount || 0),
+            referenceNo: String(referenceNo || ""),
+          },
+        ],
+      });
+    }
+  }
+  function allocatePvBillsFifo(total) {
+    if (readOnly) return;
+    const refs = [...selectedBillRefs];
+    const chosen = supplierBills.filter((b) =>
+      refs.includes(String(b.bill_no)),
+    );
+    let remaining = Number(total || 0);
+    const nextItemsMap = new Map(
+      pvForm.items.map((it) => [String(it.referenceNo || ""), { ...it }]),
+    );
+    for (let i = 0; i < chosen.length; i++) {
+      const b = chosen[i];
+      const outstanding = Number(b?.outstanding || 0);
+      const alloc = Math.max(0, Math.min(outstanding, remaining));
+      remaining = Math.max(0, remaining - alloc);
+      nextItemsMap.set(String(b.bill_no), {
+        description: `Bill ${b.bill_no} payment`,
+        accountId: pvForm.payToAccountId || "",
+        amount: alloc,
+        referenceNo: String(b.bill_no),
+      });
+    }
+    updatePv({ items: Array.from(nextItemsMap.values()) });
+  }
+  async function openBillModal(entry) {
+    if (!entry) return;
+    setShowBillModal(true);
+    setBillModalLoading(true);
+    setBillModalError("");
+    setBillModalHeader(null);
+    setBillModalDetails([]);
+    try {
+      const idStr = String(entry.id || "");
+      if (idStr.startsWith("SB-")) {
+        const idNum = Number(idStr.replace(/^SB-/, ""));
+        setBillModalType("SERVICE");
+        const res = await api.get(`/purchase/service-bills/${idNum}`);
+        setBillModalHeader(res.data?.item || null);
+        setBillModalDetails(res.data?.details || []);
+      } else {
+        const idNum = Number(entry.id);
+        setBillModalType("PURCHASE");
+        const res = await api.get(`/purchase/bills/${idNum}`);
+        setBillModalHeader(res.data?.item || null);
+        setBillModalDetails(res.data?.details || []);
+      }
+    } catch (e) {
+      setBillModalError(
+        e?.response?.data?.message || "Failed to load bill details",
+      );
+    } finally {
+      setBillModalLoading(false);
+    }
+  }
+  useEffect(() => {
+    if (!isPAYV) return;
+    setPvCurrencyCodeOverride(paymentAccountCurrencyCode || "");
+  }, [isPAYV, paymentAccountCurrencyCode]);
+
+  useEffect(() => {
+    if (!isRV || paymentType !== "DIRECT") return;
+    if (!rvIsTaxIncluded && rvForm.taxCodeId) {
+      updateRvForm({ taxCodeId: "" });
+    }
+  }, [isRV, paymentType, rvIsTaxIncluded, rvForm.taxCodeId]);
+
+  useEffect(() => {
+    if (!isPAYV || paymentType !== "DIRECT") return;
+    if (!pvIsTaxIncluded && pvForm.taxCodeId) {
+      updatePv({ taxCodeId: "" });
+    }
+  }, [isPAYV, paymentType, pvIsTaxIncluded, pvForm.taxCodeId]);
+
+  useEffect(() => {
+    if (!isPAYV) return;
+    const acc = accounts.find(
+      (a) => String(a.id) === String(pvForm.paymentAccountId || ""),
+    );
+    if (!acc) return;
+    const gc = String(acc.group_code || "").toUpperCase();
+    const gn = String(acc.group_name || "").toUpperCase();
+    const wantsBank = isChequeLike;
+    const ok = wantsBank
+      ? gc === "AST_BANK" || gn === "BANK ACCOUNTS"
+      : gc === "AST_CASH" || gn === "CASH AND CASH EQUIVALENTS";
+    if (!ok) updatePv({ paymentAccountId: "" });
+  }, [isPAYV, isChequeLike, accounts, pvForm.paymentAccountId]);
+  useEffect(() => {
+    if (!isRV) return;
+    const acc = accounts.find(
+      (a) => String(a.id) === String(rvForm.depositAccountId || ""),
+    );
+    if (!acc) return;
+    const gc = String(acc.group_code || "").toUpperCase();
+    const gn = String(acc.group_name || "").toUpperCase();
+    const wantsBank = rvIsBankLike;
+    const ok = wantsBank
+      ? gc === "AST_BANK" || gn === "BANK ACCOUNTS"
+      : gc === "AST_CASH" || gn === "CASH AND CASH EQUIVALENTS";
+    if (!ok) updateRvForm({ depositAccountId: "" });
+  }, [isRV, rvIsBankLike, accounts, rvForm.depositAccountId]);
+  useEffect(() => {
+    if (!isPAYV) return;
+    const fromId = payeeCurrencyId || null;
+    const toId = paymentAccountCurrencyId || null;
+    const fromCode = payeeCurrencyCode || "";
+    const toCode = paymentAccountCurrencyCode || "";
+    if (!fromId || !toId) {
+      setPvExchangeRate("");
+      return;
+    }
+    if (fromCode && toCode && fromCode === toCode) {
+      setPvExchangeRate("1");
+      return;
+    }
+    (async () => {
+      try {
+        const res = await api.get("/finance/currency-rates", {
+          params: {
+            fromCurrencyId: Number(fromId),
+            toCurrencyId: Number(toId),
+            to: voucherDate || null,
+          },
+        });
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        const sorted = items
+          .slice()
+          .sort(
+            (a, b) =>
+              new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime(),
+          );
+        const rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
+        setPvExchangeRate(rate ? String(rate) : "");
+      } catch {
+        setPvExchangeRate("");
+      }
+    })();
+  }, [
+    isPAYV,
+    payeeCurrencyId,
+    paymentAccountCurrencyId,
+    payeeCurrencyCode,
+    paymentAccountCurrencyCode,
+    voucherDate,
+  ]);
+  useEffect(() => {
+    if (!isRV) return;
+    const fromId = rvPayeeCurrencyId || null;
+    const toId = rvDepositCurrencyId || null;
+    const fromCode = rvPayeeCurrencyCode || "";
+    const toCode = depositAccountCurrencyCode || "";
+    if (!fromId || !toId) {
+      setRvExchangeRate("1");
+      return;
+    }
+    if (fromCode && toCode && fromCode === toCode) {
+      setRvExchangeRate("1");
+      return;
+    }
+    (async () => {
+      try {
+        const res = await api.get("/finance/currency-rates", {
+          params: {
+            fromCurrencyId: Number(fromId),
+            toCurrencyId: Number(toId),
+            to: voucherDate || null,
+          },
+        });
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        const sorted = items
+          .slice()
+          .sort(
+            (a, b) =>
+              new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime(),
+          );
+        let rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
+        if (!rate) {
+          try {
+            const resRev = await api.get("/finance/currency-rates", {
+              params: {
+                fromCurrencyId: Number(toId),
+                toCurrencyId: Number(fromId),
+                to: voucherDate || null,
+              },
+            });
+            const itemsRev = Array.isArray(resRev.data?.items)
+              ? resRev.data.items
+              : [];
+            const sortedRev = itemsRev
+              .slice()
+              .sort(
+                (a, b) =>
+                  new Date(b.rate_date).getTime() -
+                  new Date(a.rate_date).getTime(),
+              );
+            const revRate = sortedRev.length
+              ? Number(sortedRev[0].rate || 0)
+              : 0;
+            rate = revRate ? 1 / revRate : 0;
+          } catch {}
+        }
+        setRvExchangeRate(rate ? String(rate) : "1");
+      } catch {
+        setRvExchangeRate("1");
+      }
+    })();
+  }, [
+    isRV,
+    rvPayeeCurrencyId,
+    rvDepositCurrencyId,
+    rvPayeeCurrencyCode,
+    depositAccountCurrencyCode,
+    voucherDate,
+  ]);
+  function updateCv(patch) {
+    if (readOnly) return;
+    setCvForm((prev) => ({ ...prev, ...patch }));
+  }
+  function updateCvItem(idx, patch) {
+    if (readOnly) return;
+    updateCv({
+      items: cvForm.items.map((it, i) =>
+        i === idx ? { ...it, ...patch } : it,
+      ),
+    });
+  }
+  function addCvItem() {
+    if (readOnly) return;
+    updateCv({
+      items: [...cvForm.items, { description: "", amount: "" }],
+    });
+  }
+  function removeCvItem(idx) {
+    if (readOnly) return;
+    if (cvForm.items.length <= 1) return;
+    updateCv({
+      items: cvForm.items.filter((_, i) => i !== idx),
+    });
+  }
   if (isJV || isCN || isDN || isSV || isPV) {
     return (
       <div className="space-y-4">
@@ -2048,31 +3262,63 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 </div>
               )}
               <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
-                {readOnly && (isSV || isPV) && (voucherHeaderAmounts.totalDebit > 0 || voucherHeaderAmounts.totalCredit > 0) && (
-                  <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4 mb-4">
-                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Voucher Summary</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="bg-white dark:bg-slate-900 rounded p-3 border border-slate-200 dark:border-slate-700">
-                        <div className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Total Debit</div>
-                        <div className="text-lg font-bold text-slate-800 dark:text-slate-200 mt-1">
-                          GH₵ {voucherHeaderAmounts.totalDebit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {readOnly &&
+                  (isSV || isPV) &&
+                  (voucherHeaderAmounts.totalDebit > 0 ||
+                    voucherHeaderAmounts.totalCredit > 0) && (
+                    <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4 mb-4">
+                      <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                        Voucher Summary
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-white dark:bg-slate-900 rounded p-3 border border-slate-200 dark:border-slate-700">
+                          <div className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                            Total Debit
+                          </div>
+                          <div className="text-lg font-bold text-slate-800 dark:text-slate-200 mt-1">
+                            GH₵{" "}
+                            {voucherHeaderAmounts.totalDebit.toLocaleString(
+                              undefined,
+                              {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              },
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      <div className="bg-white dark:bg-slate-900 rounded p-3 border border-slate-200 dark:border-slate-700">
-                        <div className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Total Credit</div>
-                        <div className="text-lg font-bold text-slate-800 dark:text-slate-200 mt-1">
-                          GH₵ {voucherHeaderAmounts.totalCredit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        <div className="bg-white dark:bg-slate-900 rounded p-3 border border-slate-200 dark:border-slate-700">
+                          <div className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                            Total Credit
+                          </div>
+                          <div className="text-lg font-bold text-slate-800 dark:text-slate-200 mt-1">
+                            GH₵{" "}
+                            {voucherHeaderAmounts.totalCredit.toLocaleString(
+                              undefined,
+                              {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              },
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      <div className="bg-white dark:bg-slate-900 rounded p-3 border border-slate-200 dark:border-slate-700">
-                        <div className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Balanced Amount</div>
-                        <div className="text-lg font-bold text-brand-600 dark:text-brand-400 mt-1">
-                          GH₵ {voucherHeaderAmounts.balancedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        <div className="bg-white dark:bg-slate-900 rounded p-3 border border-slate-200 dark:border-slate-700">
+                          <div className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                            Balanced Amount
+                          </div>
+                          <div className="text-lg font-bold text-brand-600 dark:text-brand-400 mt-1">
+                            GH₵{" "}
+                            {voucherHeaderAmounts.balancedAmount.toLocaleString(
+                              undefined,
+                              {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              },
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
                 {isCN || isDN ? (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
                     <div>
@@ -2122,11 +3368,12 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                           l.accountName || accFromList?.name || "";
                         const displayCode =
                           l.accountCode || accFromList?.code || "";
-                        const accountLabel = isSV || isPV
-                          ? displayName
-                          : displayCode
-                            ? `${displayCode} - ${displayName}`
-                            : displayName;
+                        const accountLabel =
+                          isSV || isPV
+                            ? displayName
+                            : displayCode
+                              ? `${displayCode} - ${displayName}`
+                              : displayName;
                         const isReadOnlySVorPV = readOnly && (isSV || isPV);
                         return (
                           <tr key={idx}>
@@ -2140,7 +3387,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                   className="input"
                                   value={l.accountId}
                                   onChange={(e) =>
-                                    updateLine(idx, { accountId: e.target.value })
+                                    updateLine(idx, {
+                                      accountId: e.target.value,
+                                    })
                                   }
                                   required
                                   disabled={readOnly}
@@ -2148,7 +3397,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                   <option value="">Select account</option>
                                   {accounts.map((a) => (
                                     <option key={a.id} value={a.id}>
-                                      {isSV || isPV ? a.name : `${a.code} - ${a.name}`}
+                                      {isSV || isPV
+                                        ? a.name
+                                        : `${a.code} - ${a.name}`}
                                     </option>
                                   ))}
                                 </select>
@@ -2164,7 +3415,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                   className="input"
                                   value={l.description}
                                   onChange={(e) =>
-                                    updateLine(idx, { description: e.target.value })
+                                    updateLine(idx, {
+                                      description: e.target.value,
+                                    })
                                   }
                                   placeholder="Line memo"
                                   disabled={readOnly}
@@ -2176,16 +3429,29 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 {(() => {
                                   const acc = accounts.find(
                                     (a) =>
-                                      String(a.id) === String(l.accountId || ""),
+                                      String(a.id) ===
+                                      String(l.accountId || ""),
                                   );
                                   return acc?.currency_code || "";
                                 })()}
                               </td>
                             ) : null}
-                            <td className={isReadOnlySVorPV ? "text-right font-mono" : ""}>
+                            <td
+                              className={
+                                isReadOnlySVorPV ? "text-right font-mono" : ""
+                              }
+                            >
                               {isReadOnlySVorPV ? (
-                                <span className={Number(l.debit || 0) > 0 ? "font-semibold text-slate-800 dark:text-slate-200" : "text-slate-400"}>
-                                  {Number(l.debit || 0) > 0 ? `GH₵ ${Number(l.debit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "-"}
+                                <span
+                                  className={
+                                    Number(l.debit || 0) > 0
+                                      ? "font-semibold text-slate-800 dark:text-slate-200"
+                                      : "text-slate-400"
+                                  }
+                                >
+                                  {Number(l.debit || 0) > 0
+                                    ? `GH₵ ${Number(l.debit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                    : "-"}
                                 </span>
                               ) : (
                                 <input
@@ -2196,10 +3462,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                   value={l.debit || ""}
                                   onChange={(e) =>
                                     updateLine(idx, {
-                                      debit: String(e.target.value || "").replace(
-                                        /^0+(?=\d)/,
-                                        "",
-                                      ),
+                                      debit: String(
+                                        e.target.value || "",
+                                      ).replace(/^0+(?=\d)/, ""),
                                       credit: 0,
                                     })
                                   }
@@ -2213,10 +3478,22 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 />
                               )}
                             </td>
-                            <td className={isReadOnlySVorPV ? "text-right font-mono" : ""}>
+                            <td
+                              className={
+                                isReadOnlySVorPV ? "text-right font-mono" : ""
+                              }
+                            >
                               {isReadOnlySVorPV ? (
-                                <span className={Number(l.credit || 0) > 0 ? "font-semibold text-slate-800 dark:text-slate-200" : "text-slate-400"}>
-                                  {Number(l.credit || 0) > 0 ? `GH₵ ${Number(l.credit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "-"}
+                                <span
+                                  className={
+                                    Number(l.credit || 0) > 0
+                                      ? "font-semibold text-slate-800 dark:text-slate-200"
+                                      : "text-slate-400"
+                                  }
+                                >
+                                  {Number(l.credit || 0) > 0
+                                    ? `GH₵ ${Number(l.credit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                    : "-"}
                                 </span>
                               ) : (
                                 <input
@@ -2227,10 +3504,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                   value={l.credit || ""}
                                   onChange={(e) =>
                                     updateLine(idx, {
-                                      credit: String(e.target.value || "").replace(
-                                        /^0+(?=\d)/,
-                                        "",
-                                      ),
+                                      credit: String(
+                                        e.target.value || "",
+                                      ).replace(/^0+(?=\d)/, ""),
                                       debit: 0,
                                     })
                                   }
@@ -2435,466 +3711,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       </div>
     );
   }
-
-  function updateRvForm(patch) {
-    if (readOnly) return;
-    setRvForm((prev) => ({ ...prev, ...patch }));
-  }
-  function updateRvItem(idx, patch) {
-    if (readOnly) return;
-    updateRvForm({
-      items: rvForm.items.map((it, i) =>
-        i === idx ? { ...it, ...patch } : it,
-      ),
-    });
-  }
-  function addRvItem() {
-    if (readOnly) return;
-    updateRvForm({
-      items: [
-        ...rvForm.items,
-        { description: "", accountId: "", amount: "", referenceNo: "" },
-      ],
-    });
-  }
-  function removeRvItem(idx) {
-    if (readOnly) return;
-    if (rvForm.items.length <= 1) return;
-    updateRvForm({
-      items: rvForm.items.filter((_, i) => i !== idx),
-    });
-  }
-  function numberToWords(amount) {
-    const ones = [
-      "",
-      "One",
-      "Two",
-      "Three",
-      "Four",
-      "Five",
-      "Six",
-      "Seven",
-      "Eight",
-      "Nine",
-    ];
-    const tens = [
-      "",
-      "",
-      "Twenty",
-      "Thirty",
-      "Forty",
-      "Fifty",
-      "Sixty",
-      "Seventy",
-      "Eighty",
-      "Ninety",
-    ];
-    const teens = [
-      "Ten",
-      "Eleven",
-      "Twelve",
-      "Thirteen",
-      "Fourteen",
-      "Fifteen",
-      "Sixteen",
-      "Seventeen",
-      "Eighteen",
-      "Nineteen",
-    ];
-    const dollars = Math.floor(amount || 0);
-    const cents = Math.round(((amount || 0) - dollars) * 100);
-    function convertToWords(num) {
-      if (num === 0) return "";
-      if (num < 10) return ones[num];
-      if (num < 20) return teens[num - 10];
-      if (num < 100)
-        return (
-          tens[Math.floor(num / 10)] +
-          (num % 10 !== 0 ? " " + ones[num % 10] : "")
-        );
-      if (num < 1000)
-        return (
-          ones[Math.floor(num / 100)] +
-          " Hundred" +
-          (num % 100 !== 0 ? " " + convertToWords(num % 100) : "")
-        );
-      if (num < 1000000)
-        return (
-          convertToWords(Math.floor(num / 1000)) +
-          " Thousand" +
-          (num % 1000 !== 0 ? " " + convertToWords(num % 1000) : "")
-        );
-      return (
-        convertToWords(Math.floor(num / 1000000)) +
-        " Million" +
-        (num % 1000000 !== 0 ? " " + convertToWords(num % 1000000) : "")
-      );
-    }
-    let result = convertToWords(dollars) + " Cedi" + (dollars !== 1 ? "s" : "");
-    if (cents > 0) {
-      result +=
-        " and " + convertToWords(cents) + " Pesewa" + (cents !== 1 ? "s" : "");
-    }
-    return result;
-  }
-
-  function numberToWordsBasic(amount) {
-    const ones = [
-      "",
-      "One",
-      "Two",
-      "Three",
-      "Four",
-      "Five",
-      "Six",
-      "Seven",
-      "Eight",
-      "Nine",
-    ];
-    const tens = [
-      "",
-      "",
-      "Twenty",
-      "Thirty",
-      "Forty",
-      "Fifty",
-      "Sixty",
-      "Seventy",
-      "Eighty",
-      "Ninety",
-    ];
-    const teens = [
-      "Ten",
-      "Eleven",
-      "Twelve",
-      "Thirteen",
-      "Fourteen",
-      "Fifteen",
-      "Sixteen",
-      "Seventeen",
-      "Eighteen",
-      "Nineteen",
-    ];
-    const dollars = Math.floor(amount || 0);
-    const cents = Math.round(((amount || 0) - dollars) * 100);
-    function convertToWords(num) {
-      if (num === 0) return "Zero";
-      if (num < 10) return ones[num];
-      if (num < 20) return teens[num - 10];
-      if (num < 100)
-        return (
-          tens[Math.floor(num / 10)] +
-          (num % 10 !== 0 ? " " + ones[num % 10] : "")
-        );
-      if (num < 1000)
-        return (
-          ones[Math.floor(num / 100)] +
-          " Hundred" +
-          (num % 100 !== 0 ? " " + convertToWords(num % 100) : "")
-        );
-      if (num < 1000000)
-        return (
-          convertToWords(Math.floor(num / 1000)) +
-          " Thousand" +
-          (num % 1000 !== 0 ? " " + convertToWords(num % 1000) : "")
-        );
-      return (
-        convertToWords(Math.floor(num / 1000000)) +
-        " Million" +
-        (num % 1000000 !== 0 ? " " + convertToWords(num % 1000000) : "")
-      );
-    }
-    const intWords = convertToWords(dollars);
-    const centsPart = String(cents).padStart(2, "0");
-    return cents > 0 ? `${intWords} and ${centsPart}/100` : `${intWords}`;
-  }
-
-  // RV-derived values placed before RV render to avoid TDZ
-  const rvIsBankLike = useMemo(
-    () =>
-      ["Cheque", "Bank Transfer", "Credit Card"].includes(
-        rvForm.paymentMethod || "",
-      ),
-    [rvForm.paymentMethod],
-  );
-
-  const depositAccountCurrencyCode = useMemo(() => {
-    const acc = accounts.find(
-      (a) => String(a.id) === String(rvForm.depositAccountId || ""),
-    );
-    return acc?.currency_code || "";
-  }, [accounts, rvForm.depositAccountId]);
-  const rvPayeeCurrencyCode = useMemo(() => {
-    const acc = accounts.find(
-      (a) => String(a.id) === String(rvForm.payerAccountId || ""),
-    );
-    return acc?.currency_code || "";
-  }, [accounts, rvForm.payerAccountId]);
-  const rvPayeeCurrencyId = useMemo(() => {
-    const acc = accounts.find(
-      (a) => String(a.id) === String(rvForm.payerAccountId || ""),
-    );
-    return acc?.currency_id || null;
-  }, [accounts, rvForm.payerAccountId]);
-  const rvDepositCurrencyId = useMemo(() => {
-    const acc = accounts.find(
-      (a) => String(a.id) === String(rvForm.depositAccountId || ""),
-    );
-    return acc?.currency_id || null;
-  }, [accounts, rvForm.depositAccountId]);
-  const cvToCurrencyCode = useMemo(() => {
-    const acc = accounts.find(
-      (a) => String(a.id) === String(cvForm.toAccountId || ""),
-    );
-    return acc?.currency_code || "";
-  }, [accounts, cvForm.toAccountId]);
-  const cvFromCurrencyCode = useMemo(() => {
-    const acc = accounts.find(
-      (a) => String(a.id) === String(cvForm.fromAccountId || ""),
-    );
-    return acc?.currency_code || "";
-  }, [accounts, cvForm.fromAccountId]);
-  const cvFromCurrencyId = useMemo(() => {
-    const acc = accounts.find(
-      (a) => String(a.id) === String(cvForm.fromAccountId || ""),
-    );
-    return acc?.currency_id || null;
-  }, [accounts, cvForm.fromAccountId]);
-  const cvToCurrencyId = useMemo(() => {
-    const acc = accounts.find(
-      (a) => String(a.id) === String(cvForm.toAccountId || ""),
-    );
-    return acc?.currency_id || null;
-  }, [accounts, cvForm.toAccountId]);
-
-  // Search options for Received From (RV) and Paid To (PAYV) - using accounts
-  const accountSearchOptions = useMemo(() => {
-    return (Array.isArray(accounts) ? accounts : []).map((a) => ({
-      value: String(a.id),
-      label: String(a.name || ""),
-      code: String(a.code || ""),
-    }));
-  }, [accounts]);
-
-  const receivedFromSearchResults = useMemo(() => {
-    const q = String(receivedFromSearch || "").trim();
-    if (!q) return [];
-    return filterAndSort(accountSearchOptions, {
-      query: q,
-      getKeys: (o) => [o.label, o.code],
-    }).slice(0, 10);
-  }, [receivedFromSearch, accountSearchOptions]);
-
-  const paidToSearchResults = useMemo(() => {
-    const q = String(paidToSearch || "").trim();
-    if (!q) return [];
-    return filterAndSort(accountSearchOptions, {
-      query: q,
-      getKeys: (o) => [o.label, o.code],
-    }).slice(0, 10);
-  }, [paidToSearch, accountSearchOptions]);
-
-  const cvSelectableAccounts = useMemo(() => {
-    const allowed = new Set(["BANK ACCOUNTS", "CASH AND CASH EQUIVALENTS"]);
-    return (accounts || []).filter((a) =>
-      allowed.has(
-        String(a.group_name || "")
-          .trim()
-          .toUpperCase(),
-      ),
-    );
-  }, [accounts]);
-  const cvHasBankAccount = useMemo(() => {
-    const fromAcc = accounts.find(
-      (a) => String(a.id) === String(cvForm.fromAccountId || ""),
-    );
-    const toAcc = accounts.find(
-      (a) => String(a.id) === String(cvForm.toAccountId || ""),
-    );
-    const fromGc = String(fromAcc?.group_code || "").toUpperCase();
-    const fromGn = String(fromAcc?.group_name || "").toUpperCase();
-    const toGc = String(toAcc?.group_code || "").toUpperCase();
-    const toGn = String(toAcc?.group_name || "").toUpperCase();
-    return (
-      fromGc === "AST_BANK" ||
-      fromGn === "BANK ACCOUNTS" ||
-      toGc === "AST_BANK" ||
-      toGn === "BANK ACCOUNTS"
-    );
-  }, [accounts, cvForm.fromAccountId, cvForm.toAccountId]);
-  const rvAmountWord = useMemo(() => {
-    const id = rvDepositCurrencyId;
-    let cur = currencies.find((c) => String(c.id) === String(id));
-    if (!cur && depositAccountCurrencyCode) {
-      cur = currencies.find(
-        (c) => String(c.code) === String(depositAccountCurrencyCode),
-      );
-    }
-    return cur ? String(cur.name || "") : "";
-  }, [currencies, rvDepositCurrencyId, depositAccountCurrencyCode]);
-  const isChequeLike = useMemo(
-    () =>
-      ["Cheque", "Bank Transfer", "Credit Card"].includes(
-        pvForm.paymentMethod || "",
-      ),
-    [pvForm.paymentMethod],
-  );
-  const paymentAccountCurrencyCode = useMemo(() => {
-    const acc = accounts.find(
-      (a) => String(a.id) === String(pvForm.paymentAccountId || ""),
-    );
-    return acc?.currency_code || "";
-  }, [accounts, pvForm.paymentAccountId]);
-  const payeeCurrencyCode = useMemo(() => {
-    const acc = accounts.find(
-      (a) => String(a.id) === String(pvForm.payToAccountId || ""),
-    );
-    return acc?.currency_code || "";
-  }, [accounts, pvForm.payToAccountId]);
-  const payeeCurrencyId = useMemo(() => {
-    const acc = accounts.find(
-      (a) => String(a.id) === String(pvForm.payToAccountId || ""),
-    );
-    return acc?.currency_id || null;
-  }, [accounts, pvForm.payToAccountId]);
-  const paymentAccountCurrencyId = useMemo(() => {
-    const acc = accounts.find(
-      (a) => String(a.id) === String(pvForm.paymentAccountId || ""),
-    );
-    return acc?.currency_id || null;
-  }, [accounts, pvForm.paymentAccountId]);
-  const pvAmountWord = useMemo(() => {
-    const id = paymentAccountCurrencyId;
-    const cur = currencies.find((c) => String(c.id) === String(id));
-    return cur
-      ? String(cur.name || cur.code || "")
-      : String(paymentAccountCurrencyCode || "");
-  }, [currencies, paymentAccountCurrencyId, paymentAccountCurrencyCode]);
-  const pvVoucherTypeName = useMemo(() => {
-    const vt = voucherTypes.find(
-      (x) =>
-        String(x.code).toUpperCase() === String(voucherTypeCode).toUpperCase(),
-    );
-    return vt?.name || "Payment Voucher";
-  }, [voucherTypes, voucherTypeCode]);
-  const rvVoucherTypeName = useMemo(() => {
-    const vt = voucherTypes.find(
-      (x) =>
-        String(x.code).toUpperCase() === String(voucherTypeCode).toUpperCase(),
-    );
-    return vt?.name || "Receive Voucher";
-  }, [voucherTypes, voucherTypeCode]);
-  useEffect(() => {
-    if (!isCV) return;
-    const fromId = cvFromCurrencyId || null;
-    const toId = cvToCurrencyId || null;
-    const fromCode = cvFromCurrencyCode || "";
-    const toCode = cvToCurrencyCode || "";
-    if (!fromId || !toId) {
-      setCvExchangeRate("");
-      return;
-    }
-    if (fromCode && toCode && fromCode === toCode) {
-      setCvExchangeRate("1");
-      return;
-    }
-    (async () => {
-      try {
-        const res = await api.get("/finance/currency-rates", {
-          params: {
-            fromCurrencyId: Number(fromId),
-            toCurrencyId: Number(toId),
-            to: voucherDate || null,
-          },
-        });
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
-        const sorted = items
-          .slice()
-          .sort(
-            (a, b) =>
-              new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime(),
-          );
-        const rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
-        setCvExchangeRate(rate ? String(rate) : "");
-      } catch {
-        setCvExchangeRate("");
-      }
-    })();
-  }, [
-    isCV,
-    cvFromCurrencyId,
-    cvToCurrencyId,
-    cvFromCurrencyCode,
-    cvToCurrencyCode,
-    voucherDate,
-  ]);
-
-  useEffect(() => {
-    if (!isRV) return;
-    const fromId = rvDepositCurrencyId || null;
-    const toId = baseCurrency?.id || null;
-    if (!fromId || !toId) {
-      setRvExchangeRate("1");
-      return;
-    }
-    if (String(fromId) === String(toId)) {
-      setRvExchangeRate("1");
-      return;
-    }
-    (async () => {
-      try {
-        const res = await api.get("/finance/currency-rates", {
-          params: {
-            fromCurrencyId: Number(fromId),
-            toCurrencyId: Number(toId),
-            to: voucherDate || null,
-          },
-        });
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
-        const sorted = items
-          .slice()
-          .sort((a, b) => new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime());
-        const rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
-        setRvExchangeRate(rate ? String(rate) : "1");
-      } catch {
-        setRvExchangeRate("1");
-      }
-    })();
-  }, [isRV, rvDepositCurrencyId, baseCurrency, voucherDate]);
-
-  useEffect(() => {
-    if (!isPAYV) return;
-    const fromId = paymentAccountCurrencyId || null;
-    const toId = baseCurrency?.id || null;
-    if (!fromId || !toId) {
-      setPvExchangeRate("1");
-      return;
-    }
-    if (String(fromId) === String(toId)) {
-      setPvExchangeRate("1");
-      return;
-    }
-    (async () => {
-      try {
-        const res = await api.get("/finance/currency-rates", {
-          params: {
-            fromCurrencyId: Number(fromId),
-            toCurrencyId: Number(toId),
-            to: voucherDate || null,
-          },
-        });
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
-        const sorted = items
-          .slice()
-          .sort((a, b) => new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime());
-        const rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
-        setPvExchangeRate(rate ? String(rate) : "1");
-      } catch {
-        setPvExchangeRate("1");
-      }
-    })();
-  }, [isPAYV, paymentAccountCurrencyId, baseCurrency, voucherDate]);
-
   if (isRV) {
     return (
       <div className="space-y-4">
@@ -3043,16 +3859,16 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
                   <button
                     type="button"
-                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${paymentType === 'AGAINST_BILL' ? 'bg-white dark:bg-slate-700 shadow text-brand-600 dark:text-brand-400' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'}`}
-                    onClick={() => setPaymentType('AGAINST_BILL')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${paymentType === "AGAINST_BILL" ? "bg-white dark:bg-slate-700 shadow text-brand-600 dark:text-brand-400" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"}`}
+                    onClick={() => setPaymentType("AGAINST_BILL")}
                     disabled={readOnly}
                   >
-                    Receipt Against Bill
+                    Receipt Against Invoice
                   </button>
                   <button
                     type="button"
-                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${paymentType === 'DIRECT' ? 'bg-white dark:bg-slate-700 shadow text-brand-600 dark:text-brand-400' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'}`}
-                    onClick={() => setPaymentType('DIRECT')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${paymentType === "DIRECT" ? "bg-white dark:bg-slate-700 shadow text-brand-600 dark:text-brand-400" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"}`}
+                    onClick={() => setPaymentType("DIRECT")}
                     disabled={readOnly}
                   >
                     Direct Receipt
@@ -3077,7 +3893,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 <div>
                   <label className="label">Voucher No</label>
                   <input
-                    className="input"
+                    className="input md:w-64"
                     value={voucherNoPreview || "RV-000001"}
                     disabled
                   />
@@ -3114,8 +3930,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:w-64">
                   <label className="label">Received From</label>
                   <div className="relative">
                     <input
@@ -3133,9 +3949,14 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                         }
                       }}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && receivedFromSearchResults.length) {
+                        if (
+                          e.key === "Enter" &&
+                          receivedFromSearchResults.length
+                        ) {
                           const selected = receivedFromSearchResults[0];
-                          const acc = accounts.find((a) => String(a.id) === selected.value);
+                          const acc = accounts.find(
+                            (a) => String(a.id) === selected.value,
+                          );
                           if (acc) {
                             setReceivedFromSearch("");
                             updateRvForm({
@@ -3143,7 +3964,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                               receivedFromCode: "",
                               payerAccountId: "",
                               items:
-                                rvForm.items.length === 0 || (rvForm.items.length === 1 && !rvForm.items[0].accountId)
+                                rvForm.items.length === 0 ||
+                                (rvForm.items.length === 1 &&
+                                  !rvForm.items[0].accountId)
                                   ? [
                                       {
                                         description: "",
@@ -3152,56 +3975,78 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                         referenceNo: "",
                                       },
                                     ]
-                                  : [...rvForm.items, { description: "", accountId: acc.id, amount: "", referenceNo: "" }],
+                                  : [
+                                      ...rvForm.items,
+                                      {
+                                        description: "",
+                                        accountId: acc.id,
+                                        amount: "",
+                                        referenceNo: "",
+                                      },
+                                    ],
                             });
                           }
                         }
                       }}
                       disabled={readOnly}
                     />
-                    {receivedFromSearch && receivedFromSearchResults.length > 0 && (
-                      <div className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-48 overflow-auto">
-                        {receivedFromSearchResults.map((o) => (
-                          <button
-                            type="button"
-                            key={o.value}
-                            className="block w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 text-sm"
-                            onClick={() => {
-                              const acc = accounts.find((a) => String(a.id) === o.value);
-                              if (acc) {
-                                setReceivedFromSearch("");
-                                updateRvForm({
-                                  receivedFrom: "",
-                                  receivedFromCode: "",
-                                  payerAccountId: "",
-                                  items:
-                                    rvForm.items.length === 0 || (rvForm.items.length === 1 && !rvForm.items[0].accountId)
-                                      ? [
-                                          {
-                                            description: "",
-                                            accountId: acc.id,
-                                            amount: "",
-                                            referenceNo: "",
-                                          },
-                                        ]
-                                      : [...rvForm.items, { description: "", accountId: acc.id, amount: "", referenceNo: "" }],
-                                });
-                              }
-                            }}
-                          >
-                            {o.label} {o.code ? `(${o.code})` : ""}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    {receivedFromSearch &&
+                      receivedFromSearchResults.length > 0 && (
+                        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-48 overflow-auto">
+                          {receivedFromSearchResults.map((o) => (
+                            <button
+                              type="button"
+                              key={o.value}
+                              className="block w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 text-sm"
+                              onClick={() => {
+                                const acc = accounts.find(
+                                  (a) => String(a.id) === o.value,
+                                );
+                                if (acc) {
+                                  setReceivedFromSearch("");
+                                  updateRvForm({
+                                    receivedFrom: "",
+                                    receivedFromCode: "",
+                                    payerAccountId: "",
+                                    items:
+                                      rvForm.items.length === 0 ||
+                                      (rvForm.items.length === 1 &&
+                                        !rvForm.items[0].accountId)
+                                        ? [
+                                            {
+                                              description: "",
+                                              accountId: acc.id,
+                                              amount: "",
+                                              referenceNo: "",
+                                            },
+                                          ]
+                                        : [
+                                            ...rvForm.items,
+                                            {
+                                              description: "",
+                                              accountId: acc.id,
+                                              amount: "",
+                                              referenceNo: "",
+                                            },
+                                          ],
+                                  });
+                                }
+                              }}
+                            >
+                              {o.label} {o.code ? `(${o.code})` : ""}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                   </div>
                   {rvForm.receivedFrom && (
                     <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                      Selected: <span className="font-medium">{rvForm.receivedFrom}</span>
+                      Selected:{" "}
+                      <span className="font-medium">{rvForm.receivedFrom}</span>
                     </div>
                   )}
                 </div>
-                <div>
+                <div className="md:w-64">
                   <label className="label">Payment Method</label>
                   <select
                     className={`input ${disabledClass}`}
@@ -3250,8 +4095,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 ) : null}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:w-64">
                   <div className="flex justify-between items-center">
                     <label className="label">Deposit Account *</label>
                     <span className="text-xs text-slate-500">
@@ -3259,14 +4104,16 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     </span>
                   </div>
                   <select
-                    className={`input ${disabledClass}`}
+                    className={`input md:w-64 ${disabledClass}`}
                     value={rvForm.depositAccountId}
                     onChange={(e) => {
                       const accountId = e.target.value;
-                      const acc = accounts.find((a) => String(a.id) === String(accountId));
-                      updateRvForm({ 
+                      const acc = accounts.find(
+                        (a) => String(a.id) === String(accountId),
+                      );
+                      updateRvForm({
                         depositAccountId: accountId,
-                        currencyId: acc?.currency_id || null
+                        currencyId: acc?.currency_id || null,
                       });
                     }}
                     required
@@ -3290,11 +4137,90 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                   </select>
                 </div>
                 <div>
+                  <label className="label">Balance</label>
+                  <input
+                    className="input bg-slate-50 dark:bg-slate-800"
+                    value={
+                      rvForm.depositAccountId
+                        ? accountBalances[String(rvForm.depositAccountId)] !==
+                          undefined
+                          ? Number(
+                              accountBalances[String(rvForm.depositAccountId)],
+                            ).toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })
+                          : "Loading..."
+                        : "-"
+                    }
+                    disabled
+                  />
+                </div>
+                {paymentType === "DIRECT" ? (
+                  <div className="md:w-64">
+                    <label className="label">Outstanding Invoices</label>
+                    <select
+                      className={`input md:w-64 ${disabledClass}`}
+                      value={selectedInvoiceRefs[0] || ""}
+                      onChange={(e) => {
+                        const selectedRef = String(e.target.value || "");
+                        const chosenList = customerInvoices.filter(
+                          (inv) => String(inv.invoice_no) === selectedRef,
+                        );
+                        setSelectedInvoiceRefs(
+                          selectedRef ? [selectedRef] : [],
+                        );
+                        const items =
+                          chosenList.length > 0
+                            ? chosenList.map((inv) => ({
+                                description: "",
+                                accountId: rvForm.payerAccountId || "",
+                                amount: Number(inv.balance_amount || 0),
+                                referenceNo: String(inv.invoice_no),
+                              }))
+                            : [
+                                {
+                                  description: "",
+                                  accountId: rvForm.payerAccountId || "",
+                                  amount: 0,
+                                  referenceNo: "",
+                                },
+                              ];
+                        const firstTaxCodeId =
+                          chosenList.length > 0
+                            ? chosenList[0].tax_code_id || null
+                            : null;
+                        updateRvForm({
+                          items,
+                          ...(firstTaxCodeId
+                            ? { taxCodeId: String(firstTaxCodeId) }
+                            : {}),
+                        });
+                      }}
+                      disabled={readOnly}
+                    >
+                      <option value="">Select invoice</option>
+                      {customerInvoices.map((inv) => (
+                        <option key={inv.id} value={inv.invoice_no}>
+                          {inv.invoice_no} - Outstanding{" "}
+                          {Number(inv.balance_amount || 0).toLocaleString(
+                            undefined,
+                            {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            },
+                          )}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+                <div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="label">Currency</label>
                       <input
-                        className="input bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold"
+                        className="input md:w-64 bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold"
                         value={depositAccountCurrencyCode || ""}
                         readOnly
                       />
@@ -3302,7 +4228,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     <div>
                       <label className="label">Exchange Rate</label>
                       <input
-                        className="input bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold"
+                        className="input md:w-64 bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold"
                         value={rvExchangeRate || ""}
                         readOnly
                       />
@@ -3335,19 +4261,25 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     <thead>
                       <tr>
                         <th className="w-10">#</th>
-                        <th>Description</th>
-                        <th className="w-64">Account</th>
-                        <th className="w-64">Bill</th>
+                        <th className="w-[24rem]">Description</th>
+                        <th className="w-[32rem]">Account</th>
                         <th className="text-right w-32">Currency</th>
-                        <th className="text-right w-40">Amount</th>
+                        <th className="text-right w-[16rem]">Amount</th>
                         <th className="w-20">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {rvForm.items.length === 0 ? (
                         <tr>
-                          <td className="text-center p-2" colSpan={7}>
-                            No items. <button type="button" className="text-brand hover:text-brand-700 font-medium" onClick={() => addRvItem()}>Add first item</button>
+                          <td className="text-center p-2" colSpan={6}>
+                            No items.{" "}
+                            <button
+                              type="button"
+                              className="text-brand hover:text-brand-700 font-medium"
+                              onClick={() => addRvItem()}
+                            >
+                              Add first item
+                            </button>
                           </td>
                         </tr>
                       ) : (
@@ -3378,7 +4310,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                     updateRvItem(idx, { accountId });
                                     if (idx === 0) {
                                       const acc = accounts.find(
-                                        (a) => String(a.id) === String(accountId),
+                                        (a) =>
+                                          String(a.id) === String(accountId),
                                       );
                                       const code = acc?.code
                                         ? String(acc.code)
@@ -3406,102 +4339,18 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 </select>
                                 {it.accountId && (
                                   <span className="text-xs text-slate-500 whitespace-nowrap">
-                                    {accounts.find((a) => String(a.id) === String(it.accountId))?.currency_code || ""}
+                                    {accounts.find(
+                                      (a) =>
+                                        String(a.id) === String(it.accountId),
+                                    )?.currency_code || ""}
                                   </span>
                                 )}
                               </div>
                             </td>
-                            <td>
-                              {paymentType === 'AGAINST_BILL' ? (
-                                customerInvoices.length > 0 ? (
-                                idx === 0 ? (
-                                  <select
-                                    multiple
-                                    className={`input ${disabledClass}`}
-                                    value={selectedInvoiceRefs}
-                                    onChange={(e) => {
-                                      const opts = Array.from(
-                                        e.target.selectedOptions,
-                                      ).map((o) => o.value);
-                                      setSelectedInvoiceRefs(opts);
-                                      const chosenList =
-                                        customerInvoices.filter((inv) =>
-                                          opts.includes(String(inv.invoice_no)),
-                                        );
-                                      const items =
-                                        chosenList.length > 0
-                                          ? chosenList.map((inv) => ({
-                                              description: it.description || "",
-                                              accountId:
-                                                rvForm.payerAccountId || "",
-                                              amount: Number(
-                                                inv.balance_amount || 0,
-                                              ),
-                                              referenceNo: String(
-                                                inv.invoice_no,
-                                              ),
-                                            }))
-                                          : [
-                                              {
-                                                description:
-                                                  it.description || "",
-                                                accountId:
-                                                  rvForm.payerAccountId || "",
-                                                amount: 0,
-                                                referenceNo: "",
-                                              },
-                                            ];
-                                      const firstTaxCodeId =
-                                        chosenList.length > 0
-                                          ? chosenList[0].tax_code_id || null
-                                          : null;
-                                      updateRvForm({
-                                        items,
-                                        ...(firstTaxCodeId
-                                          ? {
-                                              taxCodeId: String(firstTaxCodeId),
-                                            }
-                                          : {}),
-                                      });
-                                    }}
-                                    size={Math.min(
-                                      6,
-                                      Math.max(3, customerInvoices.length),
-                                    )}
-                                    disabled={readOnly}
-                                  >
-                                    {customerInvoices.map((inv) => (
-                                      <option
-                                        key={inv.id}
-                                        value={inv.invoice_no}
-                                      >
-                                        {inv.invoice_no} — Outstanding{" "}
-                                        {Number(
-                                          inv.balance_amount || 0,
-                                        ).toLocaleString(undefined, {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2,
-                                        })}
-                                      </option>
-                                    ))}
-                                  </select>
-                                ) : (
-                                  <div className="text-slate-500 dark:text-slate-400 text-sm">
-                                    Select invoices using first row
-                                  </div>
-                                )
-                              ) : (
-                                <div className="text-slate-500 dark:text-slate-400 text-sm">
-                                  No outstanding invoices for selected customer
-                                </div>
-                              )) : (
-                                <div className="text-slate-500 dark:text-slate-400 text-sm">
-                                  N/A (Direct Receipt)
-                                </div>
-                              )}
-                            </td>
                             <td className="text-right">
-                              {accounts.find((a) => String(a.id) === String(it.accountId))?.currency_code || ""}
+                              {accounts.find(
+                                (a) => String(a.id) === String(it.accountId),
+                              )?.currency_code || ""}
                             </td>
                             <td>
                               <input
@@ -3533,7 +4382,21 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                       onClick={() => addRvItem()}
                                       title="Add item"
                                     >
-                                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+                                      <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        width="18"
+                                        height="18"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <circle cx="12" cy="12" r="10" />
+                                        <path d="M12 8v8" />
+                                        <path d="M8 12h8" />
+                                      </svg>
                                     </button>
                                     <button
                                       type="button"
@@ -3542,7 +4405,20 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                       title="Remove item"
                                       disabled={rvForm.items.length <= 1}
                                     >
-                                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+                                      <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        width="18"
+                                        height="18"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <circle cx="12" cy="12" r="10" />
+                                        <path d="M8 12h8" />
+                                      </svg>
                                     </button>
                                   </>
                                 )}
@@ -3557,6 +4433,40 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
 
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
+                    {paymentType === "DIRECT" ? (
+                      <div className="space-y-2">
+                        <label className="inline-flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={rvIsTaxIncluded}
+                            onChange={(e) => {
+                              const checked = Boolean(e.target.checked);
+                              setRvIsTaxIncluded(checked);
+                              if (!checked) updateRvForm({ taxCodeId: "" });
+                            }}
+                            disabled={readOnly}
+                          />
+                          <span>Is Tax Included</span>
+                        </label>
+                        {rvIsTaxIncluded ? (
+                          <select
+                            className={`input ${disabledClass}`}
+                            value={rvForm.taxCodeId || ""}
+                            onChange={(e) =>
+                              updateRvForm({ taxCodeId: e.target.value })
+                            }
+                            disabled={readOnly}
+                          >
+                            <option value="">Select tax code</option>
+                            {taxCodes.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.name || t.tax_name || t.code}
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="flex justify-between">
                       <span>Subtotal</span>
                       <span className="font-semibold">
@@ -3583,6 +4493,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                   </div>
                 </div>
               </div>
+              {paymentType === "DIRECT" ? (
                 <div className="border-t border-slate-200 dark:border-slate-700 pt-4 mt-4">
                   <div className="flex justify-between items-center mb-3">
                     <div className="font-semibold text-slate-800 dark:text-slate-200">
@@ -3595,7 +4506,21 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                       title="Add Line"
                       disabled={readOnly}
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M12 8v8" />
+                        <path d="M8 12h8" />
+                      </svg>
                     </button>
                   </div>
                   <div className="overflow-x-auto">
@@ -3616,7 +4541,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                               <select
                                 className="input"
                                 value={l.accountId}
-                                onChange={(e) => updateLine(idx, { accountId: e.target.value })}
+                                onChange={(e) =>
+                                  updateLine(idx, { accountId: e.target.value })
+                                }
                                 required
                                 disabled={readOnly}
                               >
@@ -3632,7 +4559,11 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                               <input
                                 className="input"
                                 value={l.description}
-                                onChange={(e) => updateLine(idx, { description: e.target.value })}
+                                onChange={(e) =>
+                                  updateLine(idx, {
+                                    description: e.target.value,
+                                  })
+                                }
                                 placeholder="Line memo"
                                 disabled={readOnly}
                               />
@@ -3644,7 +4575,15 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 min="0"
                                 step="1"
                                 value={l.debit || ""}
-                                onChange={(e) => updateLine(idx, { debit: String(e.target.value || "").replace(/^0+(?=\d)/, ""), credit: 0 })}
+                                onChange={(e) =>
+                                  updateLine(idx, {
+                                    debit: String(e.target.value || "").replace(
+                                      /^0+(?=\d)/,
+                                      "",
+                                    ),
+                                    credit: 0,
+                                  })
+                                }
                                 disabled={readOnly}
                               />
                             </td>
@@ -3655,7 +4594,14 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 min="0"
                                 step="1"
                                 value={l.credit || ""}
-                                onChange={(e) => updateLine(idx, { credit: String(e.target.value || "").replace(/^0+(?=\d)/, ""), debit: 0 })}
+                                onChange={(e) =>
+                                  updateLine(idx, {
+                                    credit: String(
+                                      e.target.value || "",
+                                    ).replace(/^0+(?=\d)/, ""),
+                                    debit: 0,
+                                  })
+                                }
                                 disabled={readOnly}
                               />
                             </td>
@@ -3667,7 +4613,20 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                   onClick={() => removeLine(idx)}
                                   title="Remove Line"
                                 >
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    width="18"
+                                    height="18"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <circle cx="12" cy="12" r="10" />
+                                    <path d="M8 12h8" />
+                                  </svg>
                                 </button>
                               )}
                             </td>
@@ -3686,14 +4645,16 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                         <span>Total Credit</span>
                         <span>{`GH₵ ${totals.credit.toFixed(2)}`}</span>
                       </div>
-                      <div className={`flex justify-between text-sm font-semibold ${balanced ? "text-green-700 dark:text-green-300" : "text-red-700 dark:text-red-300"}`}>
+                      <div
+                        className={`flex justify-between text-sm font-semibold ${balanced ? "text-green-700 dark:text-green-300" : "text-red-700 dark:text-red-300"}`}
+                      >
                         <span>Status</span>
                         <span>{balanced ? "Balanced" : "Not Balanced"}</span>
                       </div>
                     </div>
                   </div>
                 </div>
-
+              ) : null}
 
               <div>
                 <label className="label">Notes / Remarks</label>
@@ -3859,266 +4820,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       </div>
     );
   }
-  // PV UI
-  function updatePv(patch) {
-    if (readOnly) return;
-    setPvForm((prev) => ({ ...prev, ...patch }));
-  }
-  function updatePvItem(idx, patch) {
-    if (readOnly) return;
-    const nextItems = pvForm.items.map((it, i) =>
-      i === idx ? { ...it, ...patch } : it,
-    );
-    const changed = nextItems[idx];
-    if (
-      Object.prototype.hasOwnProperty.call(patch, "amount") &&
-      (!changed.referenceNo || String(changed.referenceNo).trim() === "")
-    ) {
-      const used = new Set(
-        nextItems
-          .map((x) => String(x.referenceNo || ""))
-          .filter((r) => r && r.length > 0),
-      );
-      const candidate =
-        selectedBillRefs.find((r) => !used.has(String(r))) ||
-        selectedBillRefs[0] ||
-        null;
-      if (candidate) {
-        nextItems[idx] = { ...changed, referenceNo: String(candidate) };
-      }
-    }
-    updatePv({ items: nextItems });
-  }
-  function addPvItem() {
-    if (readOnly) return;
-    updatePv({
-      items: [...pvForm.items, { description: "", accountId: "", amount: "" }],
-    });
-  }
-  function removePvItem(idx) {
-    if (readOnly) return;
-    if (pvForm.items.length <= 1) return;
-    updatePv({
-      items: pvForm.items.filter((_, i) => i !== idx),
-    });
-  }
-  const [knockOffTotal, setKnockOffTotal] = useState(0);
-  function setPvAmountForRef(referenceNo, amount) {
-    if (readOnly) return;
-    const idx = pvForm.items.findIndex(
-      (it) => String(it.referenceNo || "") === String(referenceNo || ""),
-    );
-    if (idx >= 0) {
-      updatePvItem(idx, { amount: Number(amount || 0) });
-    } else {
-      updatePv({
-        items: [
-          ...pvForm.items,
-          {
-            description: `Bill ${referenceNo} payment`,
-            accountId: pvForm.payToAccountId || "",
-            amount: Number(amount || 0),
-            referenceNo: String(referenceNo || ""),
-          },
-        ],
-      });
-    }
-  }
-  function allocatePvBillsFifo(total) {
-    if (readOnly) return;
-    const refs = [...selectedBillRefs];
-    const chosen = supplierBills.filter((b) =>
-      refs.includes(String(b.bill_no)),
-    );
-    let remaining = Number(total || 0);
-    const nextItemsMap = new Map(
-      pvForm.items.map((it) => [String(it.referenceNo || ""), { ...it }]),
-    );
-    for (let i = 0; i < chosen.length; i++) {
-      const b = chosen[i];
-      const outstanding = Number(b?.outstanding || 0);
-      const alloc = Math.max(0, Math.min(outstanding, remaining));
-      remaining = Math.max(0, remaining - alloc);
-      nextItemsMap.set(String(b.bill_no), {
-        description: `Bill ${b.bill_no} payment`,
-        accountId: pvForm.payToAccountId || "",
-        amount: alloc,
-        referenceNo: String(b.bill_no),
-      });
-    }
-    updatePv({ items: Array.from(nextItemsMap.values()) });
-  }
-  async function openBillModal(entry) {
-    if (!entry) return;
-    setShowBillModal(true);
-    setBillModalLoading(true);
-    setBillModalError("");
-    setBillModalHeader(null);
-    setBillModalDetails([]);
-    try {
-      const idStr = String(entry.id || "");
-      if (idStr.startsWith("SB-")) {
-        const idNum = Number(idStr.replace(/^SB-/, ""));
-        setBillModalType("SERVICE");
-        const res = await api.get(`/purchase/service-bills/${idNum}`);
-        setBillModalHeader(res.data?.item || null);
-        setBillModalDetails(res.data?.details || []);
-      } else {
-        const idNum = Number(entry.id);
-        setBillModalType("PURCHASE");
-        const res = await api.get(`/purchase/bills/${idNum}`);
-        setBillModalHeader(res.data?.item || null);
-        setBillModalDetails(res.data?.details || []);
-      }
-    } catch (e) {
-      setBillModalError(
-        e?.response?.data?.message || "Failed to load bill details",
-      );
-    } finally {
-      setBillModalLoading(false);
-    }
-  }
-  useEffect(() => {
-    if (!isPAYV) return;
-    const acc = accounts.find(
-      (a) => String(a.id) === String(pvForm.paymentAccountId || ""),
-    );
-    if (!acc) return;
-    const gc = String(acc.group_code || "").toUpperCase();
-    const gn = String(acc.group_name || "").toUpperCase();
-    const wantsBank = isChequeLike;
-    const ok = wantsBank
-      ? gc === "AST_BANK" || gn === "BANK ACCOUNTS"
-      : gc === "AST_CASH" || gn === "CASH AND CASH EQUIVALENTS";
-    if (!ok) updatePv({ paymentAccountId: "" });
-  }, [isPAYV, isChequeLike, accounts, pvForm.paymentAccountId]);
-  useEffect(() => {
-    if (!isRV) return;
-    const acc = accounts.find(
-      (a) => String(a.id) === String(rvForm.depositAccountId || ""),
-    );
-    if (!acc) return;
-    const gc = String(acc.group_code || "").toUpperCase();
-    const gn = String(acc.group_name || "").toUpperCase();
-    const wantsBank = rvIsBankLike;
-    const ok = wantsBank
-      ? gc === "AST_BANK" || gn === "BANK ACCOUNTS"
-      : gc === "AST_CASH" || gn === "CASH AND CASH EQUIVALENTS";
-    if (!ok) updateRvForm({ depositAccountId: "" });
-  }, [isRV, rvIsBankLike, accounts, rvForm.depositAccountId]);
-  useEffect(() => {
-    if (!isPAYV) return;
-    const fromId = payeeCurrencyId || null;
-    const toId = paymentAccountCurrencyId || null;
-    const fromCode = payeeCurrencyCode || "";
-    const toCode = paymentAccountCurrencyCode || "";
-    if (!fromId || !toId) {
-      setPvExchangeRate("");
-      return;
-    }
-    if (fromCode && toCode && fromCode === toCode) {
-      setPvExchangeRate("1");
-      return;
-    }
-    (async () => {
-      try {
-        const res = await api.get("/finance/currency-rates", {
-          params: {
-            fromCurrencyId: Number(fromId),
-            toCurrencyId: Number(toId),
-            to: voucherDate || null,
-          },
-        });
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
-        const sorted = items
-          .slice()
-          .sort(
-            (a, b) =>
-              new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime(),
-          );
-        const rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
-        setPvExchangeRate(rate ? String(rate) : "");
-      } catch {
-        setPvExchangeRate("");
-      }
-    })();
-  }, [
-    isPAYV,
-    payeeCurrencyId,
-    paymentAccountCurrencyId,
-    payeeCurrencyCode,
-    paymentAccountCurrencyCode,
-    voucherDate,
-  ]);
-  useEffect(() => {
-    if (!isRV) return;
-    const fromId = rvPayeeCurrencyId || null;
-    const toId = rvDepositCurrencyId || null;
-    const fromCode = rvPayeeCurrencyCode || "";
-    const toCode = depositAccountCurrencyCode || "";
-    if (!fromId || !toId) {
-      setRvExchangeRate("1");
-      return;
-    }
-    if (fromCode && toCode && fromCode === toCode) {
-      setRvExchangeRate("1");
-      return;
-    }
-    (async () => {
-      try {
-        const res = await api.get("/finance/currency-rates", {
-          params: {
-            fromCurrencyId: Number(fromId),
-            toCurrencyId: Number(toId),
-            to: voucherDate || null,
-          },
-        });
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
-        const sorted = items
-          .slice()
-          .sort(
-            (a, b) =>
-              new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime(),
-          );
-        let rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
-        if (!rate) {
-          try {
-            const resRev = await api.get("/finance/currency-rates", {
-              params: {
-                fromCurrencyId: Number(toId),
-                toCurrencyId: Number(fromId),
-                to: voucherDate || null,
-              },
-            });
-            const itemsRev = Array.isArray(resRev.data?.items)
-              ? resRev.data.items
-              : [];
-            const sortedRev = itemsRev
-              .slice()
-              .sort(
-                (a, b) =>
-                  new Date(b.rate_date).getTime() -
-                  new Date(a.rate_date).getTime(),
-              );
-            const revRate = sortedRev.length
-              ? Number(sortedRev[0].rate || 0)
-              : 0;
-            rate = revRate ? 1 / revRate : 0;
-          } catch {}
-        }
-        setRvExchangeRate(rate ? String(rate) : "1");
-      } catch {
-        setRvExchangeRate("1");
-      }
-    })();
-  }, [
-    isRV,
-    rvPayeeCurrencyId,
-    rvDepositCurrencyId,
-    rvPayeeCurrencyCode,
-    depositAccountCurrencyCode,
-    voucherDate,
-  ]);
   if (isPAYV) {
     return (
       <div className="space-y-4">
@@ -4278,16 +4979,16 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
                   <button
                     type="button"
-                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${paymentType === 'AGAINST_BILL' ? 'bg-white dark:bg-slate-700 shadow text-brand-600 dark:text-brand-400' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'}`}
-                    onClick={() => setPaymentType('AGAINST_BILL')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${paymentType === "AGAINST_BILL" ? "bg-white dark:bg-slate-700 shadow text-brand-600 dark:text-brand-400" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"}`}
+                    onClick={() => setPaymentType("AGAINST_BILL")}
                     disabled={readOnly}
                   >
                     Payment Against Bill
                   </button>
                   <button
                     type="button"
-                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${paymentType === 'DIRECT' ? 'bg-white dark:bg-slate-700 shadow text-brand-600 dark:text-brand-400' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'}`}
-                    onClick={() => setPaymentType('DIRECT')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${paymentType === "DIRECT" ? "bg-white dark:bg-slate-700 shadow text-brand-600 dark:text-brand-400" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"}`}
+                    onClick={() => setPaymentType("DIRECT")}
                     disabled={readOnly}
                   >
                     Direct Payment
@@ -4312,7 +5013,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 <div>
                   <label className="label">Voucher No</label>
                   <input
-                    className="input"
+                    className="input md:w-64"
                     value={voucherNoPreview || "PV-000000"}
                     disabled
                   />
@@ -4364,8 +5065,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:w-64">
                   <label className="label">Paid To</label>
                   <div className="relative">
                     <input
@@ -4385,7 +5086,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && paidToSearchResults.length) {
                           const selected = paidToSearchResults[0];
-                          const acc = accounts.find((a) => String(a.id) === selected.value);
+                          const acc = accounts.find(
+                            (a) => String(a.id) === selected.value,
+                          );
                           if (acc) {
                             setPaidToSearch("");
                             updatePv({
@@ -4393,9 +5096,24 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                               payToCode: "",
                               payToAccountId: "",
                               items:
-                                pvForm.items.length === 0 || (pvForm.items.length === 1 && !pvForm.items[0].accountId)
-                                  ? [{ description: "", accountId: acc.id, amount: 0 }]
-                                  : [...pvForm.items, { description: "", accountId: acc.id, amount: 0 }],
+                                pvForm.items.length === 0 ||
+                                (pvForm.items.length === 1 &&
+                                  !pvForm.items[0].accountId)
+                                  ? [
+                                      {
+                                        description: "",
+                                        accountId: acc.id,
+                                        amount: 0,
+                                      },
+                                    ]
+                                  : [
+                                      ...pvForm.items,
+                                      {
+                                        description: "",
+                                        accountId: acc.id,
+                                        amount: 0,
+                                      },
+                                    ],
                             });
                           }
                         }
@@ -4410,7 +5128,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                             key={o.value}
                             className="block w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 text-sm"
                             onClick={() => {
-                              const acc = accounts.find((a) => String(a.id) === o.value);
+                              const acc = accounts.find(
+                                (a) => String(a.id) === o.value,
+                              );
                               if (acc) {
                                 setPaidToSearch("");
                                 updatePv({
@@ -4418,9 +5138,24 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                   payToCode: "",
                                   payToAccountId: "",
                                   items:
-                                    pvForm.items.length === 0 || (pvForm.items.length === 1 && !pvForm.items[0].accountId)
-                                      ? [{ description: "", accountId: acc.id, amount: 0 }]
-                                      : [...pvForm.items, { description: "", accountId: acc.id, amount: 0 }],
+                                    pvForm.items.length === 0 ||
+                                    (pvForm.items.length === 1 &&
+                                      !pvForm.items[0].accountId)
+                                      ? [
+                                          {
+                                            description: "",
+                                            accountId: acc.id,
+                                            amount: 0,
+                                          },
+                                        ]
+                                      : [
+                                          ...pvForm.items,
+                                          {
+                                            description: "",
+                                            accountId: acc.id,
+                                            amount: 0,
+                                          },
+                                        ],
                                 });
                               }
                             }}
@@ -4433,11 +5168,12 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                   </div>
                   {pvForm.payTo && (
                     <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                      Selected: <span className="font-medium">{pvForm.payTo}</span>
+                      Selected:{" "}
+                      <span className="font-medium">{pvForm.payTo}</span>
                     </div>
                   )}
                 </div>
-                <div>
+                <div className="md:w-64">
                   <label className="label">Payment Method</label>
                   <select
                     className={`input ${disabledClass}`}
@@ -4495,10 +5231,12 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                       value={pvForm.paymentAccountId}
                       onChange={(e) => {
                         const accountId = e.target.value;
-                        const acc = accounts.find((a) => String(a.id) === String(accountId));
-                        updatePv({ 
+                        const acc = accounts.find(
+                          (a) => String(a.id) === String(accountId),
+                        );
+                        updatePv({
                           paymentAccountId: accountId,
-                          currencyId: acc?.currency_id || null
+                          currencyId: acc?.currency_id || null,
                         });
                       }}
                       required
@@ -4519,100 +5257,116 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                           </option>
                         ))}
                     </select>
+                    {paymentType === "DIRECT" ? (
+                      <div className="mt-3">
+                        <label className="label">Outstanding Bills</label>
+                        {supplierBills.length > 0 ? (
+                          <select
+                            className={`input ${disabledClass}`}
+                            value={selectedBillRefs[0] || ""}
+                            onChange={(e) => {
+                              const selectedRef = String(e.target.value || "");
+                              const chosenList = supplierBills.filter(
+                                (b) => String(b.bill_no) === selectedRef,
+                              );
+                              setSelectedBillRefs(
+                                selectedRef ? [selectedRef] : [],
+                              );
+                              const defaultTotal = chosenList.reduce(
+                                (sum, b) => sum + Number(b.outstanding || 0),
+                                0,
+                              );
+                              setKnockOffTotal(defaultTotal);
+                              const items = chosenList.map((b) => ({
+                                description: `Bill ${b.bill_no} payment`,
+                                accountId: pvForm.payToAccountId || "",
+                                amount: Number(b.outstanding || 0),
+                                referenceNo: String(b.bill_no),
+                                exchangeRate: pvExchangeRate || "1",
+                              }));
+                              updatePv({
+                                items:
+                                  items.length > 0
+                                    ? items
+                                    : [
+                                        {
+                                          description: "",
+                                          accountId:
+                                            pvForm.payToAccountId || "",
+                                          amount: 0,
+                                          referenceNo: "",
+                                          exchangeRate: pvExchangeRate || "1",
+                                        },
+                                      ],
+                              });
+                            }}
+                            disabled={readOnly}
+                          >
+                            <option value="">Select bill</option>
+                            {supplierBills.map((b) => (
+                              <option key={b.id} value={b.bill_no}>
+                                {b.bill_no} - Outstanding{" "}
+                                {Number(b.outstanding || 0).toLocaleString(
+                                  undefined,
+                                  {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  },
+                                )}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div className="input bg-gray-100 text-gray-500">
+                            No bills for selected supplier
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
-                  {paymentType === 'AGAINST_BILL' ? (
                   <div>
-                    <label className="label">Outstanding Bills</label>
-                    {supplierBills.length > 0 ? (
-                      <select
-                        multiple
-                        className={`input ${disabledClass}`}
-                        value={selectedBillRefs}
-                        onChange={(e) => {
-                          const opts = Array.from(e.target.selectedOptions).map(
-                            (o) => o.value,
-                          );
-                          setSelectedBillRefs(opts);
-                          const chosenList = supplierBills.filter((b) =>
-                            opts.includes(String(b.bill_no)),
-                          );
-                          const defaultTotal = chosenList.reduce(
-                            (sum, b) => sum + Number(b.outstanding || 0),
-                            0,
-                          );
-                          setKnockOffTotal(defaultTotal);
-                          const items = chosenList.map((b) => ({
-                            description: `Bill ${b.bill_no} payment`,
-                            accountId: pvForm.payToAccountId || "",
-                            amount: Number(b.outstanding || 0),
-                            referenceNo: String(b.bill_no),
-                          }));
-                          updatePv({
-                            items:
-                              items.length > 0
-                                ? items
-                                : [
-                                    {
-                                      description: "",
-                                      accountId: pvForm.payToAccountId || "",
-                                      amount: 0,
-                                      referenceNo: "",
-                                    },
-                                  ],
-                          });
-                          allocatePvBillsFifo(defaultTotal);
-                        }}
-                        onDoubleClick={(e) => {
-                          if (readOnly) return;
-                          const i = e.target.selectedIndex;
-                          if (i == null || i < 0) return;
-                          const val = e.target.options?.[i]?.value;
-                          const entry = supplierBills.find(
-                            (b) => String(b.bill_no) === String(val),
-                          );
-                          if (entry) openBillModal(entry);
-                        }}
-                        size={Math.min(10, Math.max(3, supplierBills.length))}
-                        disabled={readOnly}
-                      >
-                        {supplierBills.map((b) => (
-                          <option key={b.id} value={b.bill_no}>
-                            {b.bill_no} — {b.payment_status} — Outstanding{" "}
-                            {Number(b.outstanding || 0).toLocaleString(
-                              undefined,
-                              {
+                    <label className="label">Balance</label>
+                    <input
+                      className="input bg-slate-50 dark:bg-slate-800"
+                      value={
+                        pvForm.paymentAccountId
+                          ? accountBalances[String(pvForm.paymentAccountId)] !==
+                            undefined
+                            ? Number(
+                                accountBalances[
+                                  String(pvForm.paymentAccountId)
+                                ],
+                              ).toLocaleString(undefined, {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
-                              },
-                            )}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <div className="input bg-gray-100 text-gray-500">
-                        No bills for selected supplier
-                      </div>
-                    )}
+                              })
+                            : "Loading..."
+                          : "-"
+                      }
+                      disabled
+                    />
                   </div>
-                  ) : null}
                   <div>
                     <label className="label">Currency</label>
                     <input
-                      className="input bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold"
-                      value={paymentAccountCurrencyCode || ""}
-                      readOnly
+                      className={`input md:w-32 ${disabledClass}`}
+                      value={effectivePaymentCurrencyCode}
+                      onChange={(e) =>
+                        setPvCurrencyCodeOverride(e.target.value)
+                      }
+                      disabled={readOnly}
                     />
                   </div>
                   <div>
                     <label className="label">Exchange Rate</label>
                     <input
-                      className="input bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold"
+                      className={`input md:w-32 ${disabledClass}`}
                       value={pvExchangeRate || ""}
-                      readOnly
+                      onChange={(e) => setPvExchangeRate(e.target.value)}
+                      disabled={readOnly}
                     />
                   </div>
                 </div>
-                <div />
               </div>
 
               <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
@@ -4627,17 +5381,18 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     <thead>
                       <tr>
                         <th className="w-10">#</th>
-                        <th>Description</th>
-                        <th className="w-64">Account</th>
+                        <th className="w-[36rem]">Description</th>
+                        <th className="w-[32rem]">Account</th>
                         <th className="text-right w-32">Currency</th>
-                        <th className="text-right w-40">Amount</th>
+                        <th className="text-right w-16">Exchange Rate</th>
+                        <th className="text-right w-[20rem]">Amount</th>
                         <th className="w-20">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {pvForm.items.length === 0 ? (
                         <tr>
-                          <td className="text-center p-2" colSpan={6}>
+                          <td className="text-center p-2" colSpan={7}>
                             No items
                           </td>
                         </tr>
@@ -4681,13 +5436,33 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 </select>
                                 {it.accountId && (
                                   <span className="text-xs text-slate-500 whitespace-nowrap">
-                                    {accounts.find((a) => String(a.id) === String(it.accountId))?.currency_code || ""}
+                                    {accounts.find(
+                                      (a) =>
+                                        String(a.id) === String(it.accountId),
+                                    )?.currency_code || ""}
                                   </span>
                                 )}
                               </div>
                             </td>
                             <td className="text-right">
-                              {accounts.find((a) => String(a.id) === String(it.accountId))?.currency_code || ""}
+                              {accounts.find(
+                                (a) => String(a.id) === String(it.accountId),
+                              )?.currency_code || ""}
+                            </td>
+                            <td>
+                              <input
+                                className={`input text-right ${disabledClass}`}
+                                type="number"
+                                min="0"
+                                step="any"
+                                value={it.exchangeRate || pvExchangeRate || "1"}
+                                onChange={(e) =>
+                                  updatePvItem(idx, {
+                                    exchangeRate: String(e.target.value || ""),
+                                  })
+                                }
+                                disabled={readOnly}
+                              />
                             </td>
                             <td>
                               <input
@@ -4719,7 +5494,21 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                       onClick={() => addPvItem()}
                                       title="Add item"
                                     >
-                                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+                                      <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        width="18"
+                                        height="18"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <circle cx="12" cy="12" r="10" />
+                                        <path d="M12 8v8" />
+                                        <path d="M8 12h8" />
+                                      </svg>
                                     </button>
                                     <button
                                       type="button"
@@ -4728,7 +5517,20 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                       title="Remove item"
                                       disabled={pvForm.items.length <= 1}
                                     >
-                                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+                                      <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        width="18"
+                                        height="18"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <circle cx="12" cy="12" r="10" />
+                                        <path d="M8 12h8" />
+                                      </svg>
                                     </button>
                                   </>
                                 )}
@@ -4743,6 +5545,40 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
 
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
+                    {paymentType === "DIRECT" ? (
+                      <div className="space-y-2">
+                        <label className="inline-flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={pvIsTaxIncluded}
+                            onChange={(e) => {
+                              const checked = Boolean(e.target.checked);
+                              setPvIsTaxIncluded(checked);
+                              if (!checked) updatePv({ taxCodeId: "" });
+                            }}
+                            disabled={readOnly}
+                          />
+                          <span>Is Tax Included</span>
+                        </label>
+                        {pvIsTaxIncluded ? (
+                          <select
+                            className={`input ${disabledClass}`}
+                            value={pvForm.taxCodeId || ""}
+                            onChange={(e) =>
+                              updatePv({ taxCodeId: e.target.value })
+                            }
+                            disabled={readOnly}
+                          >
+                            <option value="">Select tax code</option>
+                            {taxCodes.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.name || t.tax_name || t.code}
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="flex justify-between">
                       <span>Subtotal</span>
                       <span className="font-semibold">
@@ -4767,6 +5603,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                   </div>
                 </div>
               </div>
+              {paymentType === "DIRECT" ? (
                 <div className="border-t border-slate-200 dark:border-slate-700 pt-4 mt-4">
                   <div className="flex justify-between items-center mb-3">
                     <div className="font-semibold text-slate-800 dark:text-slate-200">
@@ -4779,7 +5616,21 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                       title="Add Line"
                       disabled={readOnly}
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M12 8v8" />
+                        <path d="M8 12h8" />
+                      </svg>
                     </button>
                   </div>
                   <div className="overflow-x-auto">
@@ -4801,7 +5652,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                               <select
                                 className="input"
                                 value={l.accountId}
-                                onChange={(e) => updateLine(idx, { accountId: e.target.value })}
+                                onChange={(e) =>
+                                  updateLine(idx, { accountId: e.target.value })
+                                }
                                 required
                                 disabled={readOnly}
                               >
@@ -4817,13 +5670,19 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                               <input
                                 className="input"
                                 value={l.description}
-                                onChange={(e) => updateLine(idx, { description: e.target.value })}
+                                onChange={(e) =>
+                                  updateLine(idx, {
+                                    description: e.target.value,
+                                  })
+                                }
                                 placeholder="Line memo"
                                 disabled={readOnly}
                               />
                             </td>
                             <td className="text-right text-xs text-slate-500 font-mono">
-                              {accounts.find((a) => String(a.id) === String(l.accountId))?.currency_code || ""}
+                              {accounts.find(
+                                (a) => String(a.id) === String(l.accountId),
+                              )?.currency_code || ""}
                             </td>
                             <td>
                               <input
@@ -4832,7 +5691,15 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 min="0"
                                 step="1"
                                 value={l.debit || ""}
-                                onChange={(e) => updateLine(idx, { debit: String(e.target.value || "").replace(/^0+(?=\d)/, ""), credit: 0 })}
+                                onChange={(e) =>
+                                  updateLine(idx, {
+                                    debit: String(e.target.value || "").replace(
+                                      /^0+(?=\d)/,
+                                      "",
+                                    ),
+                                    credit: 0,
+                                  })
+                                }
                                 disabled={readOnly}
                               />
                             </td>
@@ -4843,7 +5710,14 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 min="0"
                                 step="1"
                                 value={l.credit || ""}
-                                onChange={(e) => updateLine(idx, { credit: String(e.target.value || "").replace(/^0+(?=\d)/, ""), debit: 0 })}
+                                onChange={(e) =>
+                                  updateLine(idx, {
+                                    credit: String(
+                                      e.target.value || "",
+                                    ).replace(/^0+(?=\d)/, ""),
+                                    debit: 0,
+                                  })
+                                }
                                 disabled={readOnly}
                               />
                             </td>
@@ -4856,7 +5730,20 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                   title="Remove Line"
                                   disabled={lines.length <= 1}
                                 >
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    width="18"
+                                    height="18"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <circle cx="12" cy="12" r="10" />
+                                    <path d="M8 12h8" />
+                                  </svg>
                                 </button>
                               )}
                             </td>
@@ -4869,137 +5756,145 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     <div className="w-72 space-y-1">
                       <div className="flex justify-between text-sm">
                         <span>Total Debit</span>
-                        <span>{`${voucherCurrencyCode || baseCurrency || "GH₵"} ${totals.debit.toFixed(2)}`}</span>
+                        <span>{`${effectivePaymentCurrencyCode || baseCurrency?.code || "GH₵"} ${totals.debit.toFixed(2)}`}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span>Total Credit</span>
-                        <span>{`${voucherCurrencyCode || baseCurrency || "GH₵"} ${totals.credit.toFixed(2)}`}</span>
+                        <span>{`${effectivePaymentCurrencyCode || baseCurrency?.code || "GH₵"} ${totals.credit.toFixed(2)}`}</span>
                       </div>
-                      <div className={`flex justify-between text-sm font-semibold ${balanced ? "text-green-700 dark:text-green-300" : "text-red-700 dark:text-red-300"}`}>
+                      <div
+                        className={`flex justify-between text-sm font-semibold ${balanced ? "text-green-700 dark:text-green-300" : "text-red-700 dark:text-red-300"}`}
+                      >
                         <span>Status</span>
                         <span>{balanced ? "Balanced" : "Not Balanced"}</span>
                       </div>
                     </div>
                   </div>
                 </div>
-              {selectedBillRefs.length > 0 && paymentType === 'AGAINST_BILL' && (
-                <div className="mt-4">
-                  <div className="font-semibold mb-2">
-                    Knock Off Payment Against Bills
-                  </div>
-                  <div className="mb-2 flex items-center gap-2">
-                    <label className="label mb-0">Total to Allocate</label>
-                    <input
-                      type="number"
-                      className={`input w-40 text-right ${disabledClass}`}
-                      min="0"
-                      step="1"
-                      value={Number(knockOffTotal || 0)}
-                      onChange={(e) => {
-                        const v = Number(e.target.value || 0);
-                        setKnockOffTotal(v);
-                        allocatePvBillsFifo(v);
-                      }}
-                      disabled={readOnly}
-                    />
-                    <button
-                      type="button"
-                      className="btn-success"
-                      onClick={() => {
-                        let applied = selectedBillRefs.reduce((sum, ref) => {
-                          const it = pvForm.items.find(
-                            (x) => String(x.referenceNo || "") === String(ref),
-                          );
-                          return sum + Number(it?.amount || 0);
-                        }, 0);
-                        if (applied <= 0) {
-                          allocatePvBillsFifo(knockOffTotal);
-                          applied = selectedBillRefs.reduce((sum, ref) => {
+              ) : null}
+              {selectedBillRefs.length > 0 &&
+                paymentType === "AGAINST_BILL" && (
+                  <div className="mt-4">
+                    <div className="font-semibold mb-2">
+                      Knock Off Payment Against Bills
+                    </div>
+                    <div className="mb-2 flex items-center gap-2">
+                      <label className="label mb-0">Total to Allocate</label>
+                      <input
+                        type="number"
+                        className={`input w-40 text-right ${disabledClass}`}
+                        min="0"
+                        step="1"
+                        value={Number(knockOffTotal || 0)}
+                        onChange={(e) => {
+                          const v = Number(e.target.value || 0);
+                          setKnockOffTotal(v);
+                          allocatePvBillsFifo(v);
+                        }}
+                        disabled={readOnly}
+                      />
+                      <button
+                        type="button"
+                        className="btn-success"
+                        onClick={() => {
+                          let applied = selectedBillRefs.reduce((sum, ref) => {
                             const it = pvForm.items.find(
                               (x) =>
                                 String(x.referenceNo || "") === String(ref),
                             );
                             return sum + Number(it?.amount || 0);
                           }, 0);
-                        }
-                        toast.success(
-                          `Knock-off confirmed. Allocated GH₵ ${applied.toFixed(
-                            2,
-                          )} (FIFO applied)`,
-                        );
-                      }}
-                      disabled={readOnly}
-                    >
-                      Confirm Knock-off
-                    </button>
+                          if (applied <= 0) {
+                            allocatePvBillsFifo(knockOffTotal);
+                            applied = selectedBillRefs.reduce((sum, ref) => {
+                              const it = pvForm.items.find(
+                                (x) =>
+                                  String(x.referenceNo || "") === String(ref),
+                              );
+                              return sum + Number(it?.amount || 0);
+                            }, 0);
+                          }
+                          toast.success(
+                            `Knock-off confirmed. Allocated GH₵ ${applied.toFixed(
+                              2,
+                            )} (FIFO applied)`,
+                          );
+                        }}
+                        disabled={readOnly}
+                      >
+                        Confirm Knock-off
+                      </button>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th className="w-32">Bill No</th>
+                            <th className="text-right w-40">Outstanding</th>
+                            <th className="text-right w-40">
+                              Knock-off Amount
+                            </th>
+                            <th className="text-right w-40">
+                              Balance After Knock-off
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedBillRefs.map((ref) => {
+                            const b = supplierBills.find(
+                              (sb) => String(sb.bill_no) === String(ref),
+                            );
+                            const outstanding = Number(b?.outstanding || 0);
+                            const it = pvForm.items.find(
+                              (x) =>
+                                String(x.referenceNo || "") === String(ref),
+                            ) || {
+                              referenceNo: ref,
+                              amount: 0,
+                            };
+                            const balance = Math.max(
+                              0,
+                              outstanding - Number(it.amount || 0),
+                            );
+                            return (
+                              <tr key={`knock-${ref}`}>
+                                <td>{String(ref)}</td>
+                                <td className="text-right">
+                                  {outstanding.toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </td>
+                                <td>
+                                  <input
+                                    className={`input text-right ${disabledClass}`}
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    value={Number(it.amount || 0)}
+                                    onChange={(e) =>
+                                      setPvAmountForRef(
+                                        ref,
+                                        Number(e.target.value || 0),
+                                      )
+                                    }
+                                    disabled={readOnly}
+                                  />
+                                </td>
+                                <td className="text-right">
+                                  {balance.toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="table">
-                      <thead>
-                        <tr>
-                          <th className="w-32">Bill No</th>
-                          <th className="text-right w-40">Outstanding</th>
-                          <th className="text-right w-40">Knock-off Amount</th>
-                          <th className="text-right w-40">
-                            Balance After Knock-off
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedBillRefs.map((ref) => {
-                          const b = supplierBills.find(
-                            (sb) => String(sb.bill_no) === String(ref),
-                          );
-                          const outstanding = Number(b?.outstanding || 0);
-                          const it = pvForm.items.find(
-                            (x) => String(x.referenceNo || "") === String(ref),
-                          ) || {
-                            referenceNo: ref,
-                            amount: 0,
-                          };
-                          const balance = Math.max(
-                            0,
-                            outstanding - Number(it.amount || 0),
-                          );
-                          return (
-                            <tr key={`knock-${ref}`}>
-                              <td>{String(ref)}</td>
-                              <td className="text-right">
-                                {outstanding.toLocaleString(undefined, {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                })}
-                              </td>
-                              <td>
-                                <input
-                                  className={`input text-right ${disabledClass}`}
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  value={Number(it.amount || 0)}
-                                  onChange={(e) =>
-                                    setPvAmountForRef(
-                                      ref,
-                                      Number(e.target.value || 0),
-                                    )
-                                  }
-                                  disabled={readOnly}
-                                />
-                              </td>
-                              <td className="text-right">
-                                {balance.toLocaleString(undefined, {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                })}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+                )}
 
               <div>
                 <label className="label">Notes / Remarks</label>
@@ -5298,31 +6193,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         ) : null}
       </div>
     );
-  }
-  function updateCv(patch) {
-    if (readOnly) return;
-    setCvForm((prev) => ({ ...prev, ...patch }));
-  }
-  function updateCvItem(idx, patch) {
-    if (readOnly) return;
-    updateCv({
-      items: cvForm.items.map((it, i) =>
-        i === idx ? { ...it, ...patch } : it,
-      ),
-    });
-  }
-  function addCvItem() {
-    if (readOnly) return;
-    updateCv({
-      items: [...cvForm.items, { description: "", amount: "" }],
-    });
-  }
-  function removeCvItem(idx) {
-    if (readOnly) return;
-    if (cvForm.items.length <= 1) return;
-    updateCv({
-      items: cvForm.items.filter((_, i) => i !== idx),
-    });
   }
   if (isCV) {
     return (
@@ -5913,4 +6783,11 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       </div>
     );
   }
+  return (
+    <div className="card p-4">
+      <div className="text-red-600 font-medium">
+        Unsupported voucher type: {String(voucherTypeCode || "UNKNOWN")}
+      </div>
+    </div>
+  );
 }

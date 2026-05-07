@@ -1133,9 +1133,8 @@ export const getNotifications = async (req, res, next) => {
           u.username AS created_by_name
          FROM adm_notifications
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE user_id = :userId 
-         ORDER BY created_at DESC 
-         LIMIT 50`,
+        WHERE user_id = :userId 
+        ORDER BY created_at DESC`,
       { userId },
     );
     res.json({ items });

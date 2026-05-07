@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   useNavigate,
   useParams,
@@ -12,6 +12,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { toast } from "react-toastify";
 import { useUoms } from "@/hooks/useUoms";
+import { useExchangeRate } from "@/hooks/useExchangeRate";
 import PrintPreviewModal from "../../../../components/PrintPreviewModal.jsx";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import UnitConversionModal from "@/components/UnitConversionModal";
@@ -36,6 +37,7 @@ export default function SalesOrderForm() {
   const isEditMode = !!id;
   const { user } = useAuth();
   const { canEditDiscount } = usePermission();
+  const { getExchangeRate } = useExchangeRate();
   const [searchParams] = useSearchParams();
   const isViewMode =
     String(searchParams.get("mode") || "").toLowerCase() === "view";
@@ -77,6 +79,14 @@ export default function SalesOrderForm() {
   const [quotations, setQuotations] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [currencies, setCurrencies] = useState([]);
+
+  const baseCurrencyCode = useMemo(() => {
+    return currencies.find(c => Number(c.is_base) === 1 || c.is_base === true)?.code || "GHS";
+  }, [currencies]);
+
+  const selectedCurrencyCode = useMemo(() => {
+    return currencies.find(c => String(c.id) === String(formData.currency_id))?.code || "";
+  }, [currencies, formData.currency_id]);
   const [taxes, setTaxes] = useState([]);
   const pdfRef = useRef(null);
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
@@ -301,6 +311,24 @@ export default function SalesOrderForm() {
       };
     }
   }, [id]);
+
+  useEffect(() => {
+    if (!formData.currency_id || currencies.length === 0) return;
+    const selected = currencies.find(c => String(c.id) === String(formData.currency_id));
+    const base = currencies.find(c => Number(c.is_base) === 1 || c.is_base === true);
+    if (!selected || !base) return;
+
+    if (selected.code === base.code) {
+      setFormData(p => ({ ...p, exchange_rate: 1 }));
+      return;
+    }
+
+    getExchangeRate(selected.code, base.code).then(rate => {
+      if (rate) {
+        setFormData(p => ({ ...p, exchange_rate: rate }));
+      }
+    });
+  }, [formData.currency_id, currencies]);
 
   useEffect(() => {
     ensureTaxComponentsLoaded();
@@ -1429,6 +1457,20 @@ export default function SalesOrderForm() {
                         </option>
                       ))}
                     </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Exchange Rate {selectedCurrencyCode ? `(${baseCurrencyCode} per ${selectedCurrencyCode})` : ""}
+                    </label>
+                    <input
+                      type="number"
+                      step="0.000001"
+                      name="exchange_rate"
+                      value={formData.exchange_rate}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                      disabled={isViewMode}
+                    />
                   </div>
                 </div>
 

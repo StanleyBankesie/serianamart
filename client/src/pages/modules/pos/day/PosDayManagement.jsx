@@ -4,6 +4,30 @@ import { toast } from "react-toastify";
 import api from "../../../../api/client.js";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 
+const DENOMINATIONS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2];
+
+function parseDenominationCounts(input) {
+  if (!input) return DENOMINATIONS.map(() => 0);
+  let parsed = input;
+  if (typeof input === "string") {
+    try {
+      parsed = JSON.parse(input);
+    } catch {
+      return DENOMINATIONS.map(() => 0);
+    }
+  }
+  if (Array.isArray(parsed)) {
+    return DENOMINATIONS.map((_, idx) => {
+      const n = Number(parsed[idx] || 0);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    });
+  }
+  return DENOMINATIONS.map((d) => {
+    const n = Number(parsed?.[String(d)] ?? parsed?.[d] ?? 0);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  });
+}
+
 export default function PosDayManagement() {
   const navigate = useNavigate();
   const { user, scope } = useAuth();
@@ -77,12 +101,28 @@ export default function PosDayManagement() {
   const [closing, setClosing] = useState({
     dateTime: toLocalInputDateTime(new Date()),
     actualCash: "",
+    nextOpeningFloat: "",
     notes: "",
   });
+  const [closeDenomCounts, setCloseDenomCounts] = useState(
+    DENOMINATIONS.map(() => 0),
+  );
+  const [showCashConfirmModal, setShowCashConfirmModal] = useState(false);
   const cashVariance = useMemo(() => {
     const v = Number(closing.actualCash || 0) - Number(expectedCash || 0);
     return v;
   }, [closing.actualCash, expectedCash]);
+  const closeDenomTotals = useMemo(
+    () =>
+      DENOMINATIONS.map((d, idx) =>
+        Number((d * Number(closeDenomCounts[idx] || 0)).toFixed(2)),
+      ),
+    [closeDenomCounts],
+  );
+  const closeDenomTotal = useMemo(
+    () => Number(closeDenomTotals.reduce((s, n) => s + n, 0).toFixed(2)),
+    [closeDenomTotals],
+  );
 
   const [timeline, setTimeline] = useState([
     { time: new Date(), title: "Waiting", description: "No activity yet" },
@@ -280,21 +320,41 @@ export default function PosDayManagement() {
       .then((res) => {
         if (cancelled) return;
         const item = res?.data?.item;
+        const suggestedNext = Number(res?.data?.nextOpeningFloat ?? 0);
         if (!item) {
           setDayOpen(false);
+          setOpenData((prev) => ({
+            ...prev,
+            float:
+              Number.isFinite(suggestedNext) && suggestedNext > 0
+                ? String(suggestedNext)
+                : prev.float,
+          }));
           setSessionHistory([]);
           return;
         }
         const isOpen = String(item.status || "").toUpperCase() === "OPEN";
         setDayOpen(isOpen);
+        const fallbackOpenFloat =
+          item.opening_float === null || item.opening_float === undefined
+            ? ""
+            : String(item.opening_float);
+        const suggestedOpenFloat =
+          !isOpen &&
+          item.next_opening_float !== null &&
+          item.next_opening_float !== undefined
+            ? String(item.next_opening_float)
+            : !isOpen && Number.isFinite(suggestedNext)
+              ? String(suggestedNext)
+              : fallbackOpenFloat;
         setOpenData({
           dateTime: toLocalInputDateTime(item.open_datetime || ""),
-          float:
-            item.opening_float === null || item.opening_float === undefined
-              ? ""
-              : String(item.opening_float),
+          float: suggestedOpenFloat,
           notes: item.open_notes || "",
         });
+        setCloseDenomCounts(
+          parseDenominationCounts(item.close_denomination_counts),
+        );
         setClosing((prev) => ({
           ...prev,
           dateTime: isOpen
@@ -304,6 +364,11 @@ export default function PosDayManagement() {
             item.actual_cash === null || item.actual_cash === undefined
               ? ""
               : String(item.actual_cash),
+          nextOpeningFloat:
+            item.next_opening_float === null ||
+            item.next_opening_float === undefined
+              ? ""
+              : String(item.next_opening_float),
           notes: item.close_notes || "",
         }));
         const row = {
@@ -488,20 +553,27 @@ export default function PosDayManagement() {
         terminal: terminalId,
         closingDateTime: closing.dateTime,
         actualCash: Number(closing.actualCash || 0),
+        nextOpeningFloat: Number(closing.nextOpeningFloat || 0),
         notes: closing.notes,
+        denominationCounts: closeDenomCounts,
       };
       const res = await api.post("/pos/day/close", payload);
       const item = res?.data?.item;
       if (item) {
-        setClosing((prev) => ({
+        setClosing({
+          dateTime: toLocalInputDateTime(item.close_datetime || new Date()),
+          actualCash: "",
+          nextOpeningFloat: "",
+          notes: "",
+        });
+        setCloseDenomCounts(DENOMINATIONS.map(() => 0));
+        setOpenData((prev) => ({
           ...prev,
-          dateTime:
-            toLocalInputDateTime(item.close_datetime || "") || closing.dateTime,
-          actualCash:
-            item.actual_cash === null || item.actual_cash === undefined
-              ? String(closing.actualCash || "")
-              : String(item.actual_cash),
-          notes: item.close_notes || closing.notes,
+          float:
+            item.next_opening_float === null ||
+            item.next_opening_float === undefined
+              ? prev.float
+              : String(item.next_opening_float),
         }));
         setDayOpen(
           String(item.status || "").toUpperCase() === "OPEN" ? true : false,
@@ -842,15 +914,6 @@ export default function PosDayManagement() {
           <div className="card-body">
             {!dayOpen && (
               <form onSubmit={handleOpenSubmit} className="space-y-4">
-                <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm">
-                  <div className="font-semibold text-blue-900 mb-1">
-                    Day Opening Procedure
-                  </div>
-                  <div className="text-blue-800">
-                    Complete the checklist and verify opening float before
-                    starting operations.
-                  </div>
-                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="label">Opening Date & Time</label>
@@ -937,15 +1000,6 @@ export default function PosDayManagement() {
           </div>
           <div className="card-body">
             <form onSubmit={handleCloseSubmit} className="space-y-4">
-              <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm">
-                <div className="font-semibold text-blue-900 mb-1">
-                  Day Closing Procedure
-                </div>
-                <div className="text-blue-800">
-                  Complete end-of-day reconciliation and verify all transactions
-                  before closing.
-                </div>
-              </div>
               <div>
                 <label className="label">Closing Date & Time</label>
                 <input
@@ -979,14 +1033,27 @@ export default function PosDayManagement() {
                   step="1"
                   value={closing.actualCash}
                   onChange={(e) =>
-                    setClosing((p) => ({
-                      ...p,
-                      actualCash: e.target.value,
-                    }))
+                    setClosing((p) => ({ ...p, actualCash: e.target.value }))
                   }
                   required
                 />
               </div>
+              {String(closing.actualCash || "").trim() ? (
+                <div className="rounded-lg border border-brand/30 bg-brand/5 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm text-slate-700 dark:text-slate-200">
+                      Cash entered. Confirm with denomination count.
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={() => setShowCashConfirmModal(true)}
+                    >
+                      Confirm Cash
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="label">Expected Cash</label>
@@ -1010,6 +1077,21 @@ export default function PosDayManagement() {
                     }}
                   />
                 </div>
+              </div>
+              <div>
+                <label className="label">Enter float for next sales</label>
+                <input
+                  type="number"
+                  className="input"
+                  step="1"
+                  value={closing.nextOpeningFloat}
+                  onChange={(e) =>
+                    setClosing((p) => ({
+                      ...p,
+                      nextOpeningFloat: e.target.value,
+                    }))
+                  }
+                />
               </div>
               <div>
                 <label className="label">Closing Notes</label>
@@ -1631,6 +1713,74 @@ export default function PosDayManagement() {
                   onClick={closeModal}
                 >
                   Continue
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {showCashConfirmModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="rounded-xl bg-white dark:bg-slate-800 shadow-lg w-full max-w-lg">
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700 bg-brand text-white rounded-t-xl">
+              <div className="text-lg font-bold">Denomination Cash Count</div>
+              <button
+                type="button"
+                className="text-white hover:text-slate-200 text-xl font-bold"
+                onClick={() => setShowCashConfirmModal(false)}
+              >
+                &times;
+              </button>
+            </div>
+            <div className="p-4 rounded-b-xl">
+              <div className="space-y-2">
+                {DENOMINATIONS.map((d, idx) => (
+                  <div
+                    key={`close-modal-${String(d)}`}
+                    className="grid grid-cols-[1fr_90px_110px] gap-2 items-center"
+                  >
+                    <div className="text-sm">{`GHS ${Number(d).toFixed(2)}`}</div>
+                    <input
+                      type="number"
+                      min="0"
+                      className="rounded px-2 py-1 border border-slate-300"
+                      value={String(closeDenomCounts[idx] ?? 0)}
+                      onChange={(e) => {
+                        const next = closeDenomCounts.slice();
+                        next[idx] = Number(e.target.value || 0);
+                        setCloseDenomCounts(next);
+                      }}
+                    />
+                    <div className="rounded px-2 py-1 bg-slate-100 text-right text-sm">
+                      {closeDenomTotals[idx].toFixed(2)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 rounded bg-slate-100 px-3 py-3 flex items-center justify-between font-semibold">
+                <div>TOTAL:</div>
+                <div>{closeDenomTotal.toFixed(2)}</div>
+              </div>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setShowCashConfirmModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => {
+                    setClosing((p) => ({
+                      ...p,
+                      actualCash: String(closeDenomTotal.toFixed(2)),
+                    }));
+                    setShowCashConfirmModal(false);
+                  }}
+                >
+                  Apply Total
                 </button>
               </div>
             </div>

@@ -193,32 +193,55 @@ export default function PotentialCustomerList() {
                         <span className="badge badge-error">Inactive</span>
                       )}
                     </td>
-                    <td>
-                      <div className="flex gap-2">
-                        {canPerformAction(
-                          "sales:potential-customers",
-                          "edit",
-                        ) && (
+                    <td className="text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="min-w-[80px]">
                           <button
-                            className="text-brand hover:text-brand-600 text-sm font-medium"
+                            type="button"
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
                             onClick={() =>
-                              navigate(`/sales/potential-customers/${r.id}`)
+                              navigate(
+                                `/sales/prospect-customers/${r.id}?mode=view`,
+                              )
+                            }
+                          >
+                            View
+                          </button>
+                        </div>
+                        <div className="min-w-[80px]">
+                          <button
+                            type="button"
+                            className={`w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9 ${
+                              !canPerformAction(
+                                "sales:potential-customers",
+                                "edit",
+                              )
+                                ? "invisible pointer-events-none"
+                                : ""
+                            }`}
+                            onClick={() =>
+                              navigate(`/sales/prospect-customers/${r.id}`)
                             }
                           >
                             Edit
                           </button>
-                        )}
-                        {canPerformAction(
-                          "sales:potential-customers",
-                          "delete",
-                        ) && (
+                        </div>
+                        <div className="min-w-[80px]">
                           <button
-                            className="text-red-600 hover:text-red-800 text-sm font-medium"
+                            type="button"
+                            className={`w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-red-200 text-red-700 rounded-lg hover:bg-red-50 transition-colors h-9 ${
+                              !canPerformAction(
+                                "sales:potential-customers",
+                                "delete",
+                              )
+                                ? "invisible pointer-events-none"
+                                : ""
+                            }`}
                             onClick={() => handleDelete(r.id, r.customer_name)}
                           >
                             Delete
                           </button>
-                        )}
+                        </div>
                       </div>
                     </td>
                     <td>{r.created_by_name || "-"}</td>

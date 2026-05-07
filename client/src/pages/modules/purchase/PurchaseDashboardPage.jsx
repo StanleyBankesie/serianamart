@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../api/client.js";
 
 function Card({ title, value }) {
@@ -89,6 +89,11 @@ function SimpleBarChart({ title, data, palette = [] }) {
 }
 
 export default function PurchaseDashboardPage() {
+  const location = useLocation();
+  const backTo =
+    location.state?.fromExecutiveOverview === true
+      ? "/executive-overview"
+      : "/purchase";
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [topN, setTopN] = useState(10);
@@ -136,7 +141,7 @@ export default function PurchaseDashboardPage() {
               <p className="text-sm mt-1">Overview of purchases and orders</p>
             </div>
             <div className="flex gap-2">
-              <Link to="/purchase" className="btn btn-secondary">Return to Menu</Link>
+              <Link to={backTo} className="btn btn-secondary">Return to Menu</Link>
             </div>
           </div>
         </div>

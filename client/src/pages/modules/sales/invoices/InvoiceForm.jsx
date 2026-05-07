@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
+import { useExchangeRate } from "@/hooks/useExchangeRate";
 import UnitConversionModal from "@/components/UnitConversionModal";
 import { Printer, Download, Plus } from "lucide-react";
 import jsPDF from "jspdf";
@@ -15,6 +16,7 @@ export default function InvoiceForm() {
   const { canEditDiscount } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
+  const { getExchangeRate } = useExchangeRate();
   const isEdit = Boolean(id);
   const { user } = useAuth();
   const { search } = useLocation();
@@ -99,6 +101,32 @@ export default function InvoiceForm() {
   });
   const [unitConversions, setUnitConversions] = useState([]);
   const [autoDelivery, setAutoDelivery] = useState(false);
+
+  const baseCurrencyCode = React.useMemo(() => {
+    return currencies.find(c => Number(c.is_base) === 1 || c.is_base === true)?.code || "GHS";
+  }, [currencies]);
+
+  const selectedCurrencyCode = React.useMemo(() => {
+    return currencies.find(c => String(c.id) === String(form.currency_id))?.code || "";
+  }, [currencies, form.currency_id]);
+
+  useEffect(() => {
+    if (!form.currency_id || currencies.length === 0) return;
+    const selected = currencies.find(c => String(c.id) === String(form.currency_id));
+    const base = currencies.find(c => Number(c.is_base) === 1 || c.is_base === true);
+    if (!selected || !base) return;
+    
+    if (selected.code === base.code) {
+      setForm(p => ({ ...p, exchange_rate: 1 }));
+      return;
+    }
+
+    getExchangeRate(selected.code, base.code).then(rate => {
+      if (rate) {
+        setForm(p => ({ ...p, exchange_rate: rate }));
+      }
+    });
+  }, [form.currency_id, currencies]);
 
   useEffect(() => {
     api
@@ -1554,6 +1582,19 @@ export default function InvoiceForm() {
                     </option>
                   ))}
                 </select>
+              </div>
+              <div>
+                <label className="label">
+                  Exchange Rate {selectedCurrencyCode ? `(${baseCurrencyCode} per ${selectedCurrencyCode})` : ""}
+                </label>
+                <input
+                  type="number"
+                  step="0.000001"
+                  className="input"
+                  value={form.exchange_rate}
+                  onChange={(e) => update("exchange_rate", e.target.value)}
+                  disabled={readOnly}
+                />
               </div>
               <div>
                 <label className="label">City</label>

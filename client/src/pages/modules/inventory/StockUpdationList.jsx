@@ -5,6 +5,12 @@ import { toast } from "react-toastify";
 import { api } from "api/client";
 import { usePermission } from "@/auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+  ListAttachmentIconButton,
+} from "@/components/list/ListDocActionIconButtons.jsx";
 
 export default function StockUpdationList() {
   const location = useLocation();
@@ -15,6 +21,8 @@ export default function StockUpdationList() {
   const [error, setError] = useState("");
 
   const [workflowsCache, setWorkflowsCache] = useState(null);
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   const fetchAdjustments = async () => {
     setLoading(true);
@@ -177,16 +185,16 @@ export default function StockUpdationList() {
                   <th>Type</th>
                   <th>Items</th>
                   <th>Status</th>
-                  <th>Actions</th>
-                                <th>Created By</th>
-                <th>Created Date</th>
+                  <th className="text-right">Actions</th>
+                  <th>Created By</th>
+                  <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
                     <td
-                      colSpan="6"
+                      colSpan="8"
                       className="text-center py-8 text-slate-500 dark:text-slate-400"
                     >
                       Loading...
@@ -194,7 +202,7 @@ export default function StockUpdationList() {
                   </tr>
                 ) : error ? (
                   <tr>
-                    <td colSpan="6" className="text-center py-8 text-red-600">
+                    <td colSpan="8" className="text-center py-8 text-red-600">
                       {error}
                     </td>
                   </tr>
@@ -205,7 +213,7 @@ export default function StockUpdationList() {
                     <td className="font-medium text-brand-700 dark:text-brand-300">
                       {adj.updation_no}
                     </td>
-                    <td>{formatDateOnly(adj.updation_date)}</td>
+                    <td>{adj.updation_date ? String(adj.updation_date).slice(0, 10) : "-"}</td>
                     <td>
                       <span className="badge badge-success">
                         STOCK IN
@@ -217,91 +225,106 @@ export default function StockUpdationList() {
                         {adj.status}
                       </span>
                     </td>
-                    <td>
-                      <div className="flex gap-2 items-center">
-                        <Link
-                          to={`/inventory/stock-updation/${adj.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                        {!["APPROVED", "POSTED"].includes(
-                          String(adj.status || "").toUpperCase(),
-                        ) && (
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="min-w-[80px]">
                           <Link
-                            to={`/inventory/stock-updation/${adj.id}?mode=edit`}
-                            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                            to={`/inventory/stock-updation/${adj.id}?mode=view`}
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
                           >
-                            Edit
+                            View
                           </Link>
-                        )}
-                        {adj.status === "APPROVED" ? (
-                          <>
-                            <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                              Approved
-                            </span>
-                            {canReverseApproval() ? (
+                        </div>
+
+                        {/* Slot 2: Edit */}
+                        <div className="min-w-[80px]">
+                          {!["APPROVED", "POSTED"].includes(String(adj.status || "").toUpperCase()) ? (
+                            <Link
+                              to={`/inventory/stock-updation/${adj.id}?mode=edit`}
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            >
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 3: Print */}
+                        <div className="min-w-[80px]">
+                          <ListPrintIconButton
+                            onClick={() =>
+                              window.open(
+                                `/inventory/stock-updation/${adj.id}?mode=view`,
+                                "_blank",
+                                "noopener,noreferrer",
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Slot 4: PDF */}
+                        <div className="min-w-[80px]">
+                          <ListPdfIconButton
+                            onClick={() =>
+                              toast.info(
+                                "PDF export is not configured for stock updation.",
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Slot 5: Attachments */}
+                        <div className="w-9">
+                          <ListAttachmentIconButton
+                            onClick={() => {
+                              setActiveDocId(adj.id);
+                              setShowAttach(true);
+                            }}
+                          />
+                        </div>
+
+                        {/* Slot 6: Workflow */}
+                        <div className="min-w-[160px]">
+                          <div className="list-approval-slot">
+                            {String(adj.status || "").toUpperCase() === "APPROVED" ? (
+                              <div className="flex items-center gap-2">
+                                <span className="list-approval-approved-pill">
+                                  Approved
+                                </span>
+                                {String(adj.status || "").toUpperCase() === "APPROVED" && canReverseApproval() && (
+                                  <button
+                                    type="button"
+                                    className="list-approval-reverse-btn"
+                                    onClick={async () => {
+                                      try {
+                                        await api.post("/workflows/reverse-by-document", { document_type: "STOCK_UPDATION", document_id: adj.id });
+                                        toast.success("Approval reversed");
+                                        setAdjustments((prev) => prev.map((x) => x.id === adj.id ? { ...x, status: "RETURNED", forwarded_to_username: null } : x));
+                                      } catch (e) {
+                                        toast.error("Reverse approval failed");
+                                      }
+                                    }}
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </div>
+                            ) : adj.forwarded_to_username ? (
+                              <span className="list-approval-forwarded-pill">
+                                Forwarded to {adj.forwarded_to_username}
+                              </span>
+                            ) : ["DRAFT", "RETURNED", "REJECTED"].includes(String(adj.status || "").toUpperCase()) ? (
                               <button
                                 type="button"
-                                className="ml-2 text-indigo-700 hover:text-indigo-800 text-sm font-medium"
-                                onClick={async () => {
-                                  try {
-                                    await api.post(
-                                      "/workflows/reverse-by-document",
-                                      {
-                                        document_type: "STOCK_UPDATION",
-                                        document_id: adj.id,
-                                      },
-                                    );
-                                    toast.success(
-                                      "Approval reversed and document returned",
-                                    );
-                                    setAdjustments((prev) =>
-                                      prev.map((x) =>
-                                        x.id === adj.id
-                                          ? {
-                                              ...x,
-                                              status: "RETURNED",
-                                              forwarded_to_username: null,
-                                            }
-                                          : x,
-                                      ),
-                                    );
-                                  } catch (e) {
-                                    toast.error(
-                                      e?.response?.data?.message ||
-                                        "Reverse approval failed",
-                                    );
-                                  }
-                                }}
+                                className="list-approval-forward-btn"
                               >
-                                Reverse Approval
+                                Forward for Approval
                               </button>
-                            ) : null}
-                          </>
-                        ) : adj.forwarded_to_username ? (
-                          <span className="text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white whitespace-nowrap inline-flex items-center">
-                            Forwarded to {adj.forwarded_to_username}
-                          </span>
-                        ) : adj.status === "DRAFT" ||
-                        adj.status === "RETURNED" ||
-                        adj.status === "REJECTED" ? (
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                const res = await api.post(`/inventory/stock-updation/${adj.id}/submit`);
-                                toast.success("Stock updation confirmed and approved");
-                                fetchAdjustments();
-                              } catch (e) {
-                                toast.error(e?.response?.data?.message || "Confirmation failed");
-                              }
-                            }}
-                            className="text-sm font-medium px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700 transition-colors whitespace-nowrap inline-flex items-center"
-                          >
-                            Confirm Updation
-                          </button>
-                        ) : null}
+                            ) : <div className="w-full h-9" />}
+                          </div>
+                        </div>
                       </div>
                     </td>
                     <td>{adj.created_by_name || "-"}</td>
@@ -313,8 +336,15 @@ export default function StockUpdationList() {
           </div>
         </div>
       </div>
-
-
+      <DocumentAttachmentsModal
+        open={showAttach}
+        onClose={() => {
+          setShowAttach(false);
+          setActiveDocId(null);
+        }}
+        docType="stock-updation"
+        docId={activeDocId}
+      />
     </div>
   );
 }

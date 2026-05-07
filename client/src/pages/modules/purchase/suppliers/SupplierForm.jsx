@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
+import { useGhanaCities } from "../../../../hooks/useGhanaCities";
 import { toast } from "react-toastify";
 import { useDispatch } from "react-redux";
 import { setRefresh } from "../../../../store/ui/refreshSlice.js";
@@ -11,14 +12,15 @@ export default function SupplierForm() {
   const isNew = !id || id === "new";
   const fileInputRef = useRef(null);
   const dispatch = useDispatch();
+  const { cities: ghanaCities } = useGhanaCities();
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [activeTab, setActiveTab] = useState("basic");
   const [currencies, setCurrencies] = useState([]);
   const [countries, setCountries] = useState([]);
+  const [expenseAccounts, setExpenseAccounts] = useState([]);
 
   const GHANA_REGIONS = [
     "Greater Accra",
@@ -59,10 +61,8 @@ export default function SupplierForm() {
     state: "",
     country: "Ghana",
     currency_id: "",
+    expense_account_id: "",
     credit_limit: "",
-    bank_name: "",
-    bank_account: "",
-    swift_code: "",
   });
 
   useEffect(() => {
@@ -93,6 +93,7 @@ export default function SupplierForm() {
           is_active: Boolean(s.is_active),
           supplier_type: s.supplier_type || prev.supplier_type || "LOCAL",
           currency_id: s.currency_id || "",
+          expense_account_id: s.expense_account_id || "",
           service_contractor:
             String(s.service_contractor || "").toUpperCase() === "Y",
         }));
@@ -186,6 +187,18 @@ export default function SupplierForm() {
       }
     };
 
+    const fetchExpenseAccounts = async () => {
+      try {
+        const response = await api.get("/finance/expense-accounts");
+        const arr = Array.isArray(response.data?.items)
+          ? response.data.items
+          : [];
+        setExpenseAccounts(arr);
+      } catch (err) {
+        console.error("Failed to fetch expense accounts", err);
+      }
+    };
+
     const fetchCountries = async () => {
       try {
         const resp = await fetch(
@@ -202,8 +215,24 @@ export default function SupplierForm() {
     };
 
     fetchCurrencies();
+    fetchExpenseAccounts();
     fetchCountries();
   }, []);
+
+  // Set purchase account as default when expense accounts are loaded (for new suppliers only)
+  useEffect(() => {
+    if (!isNew || formData.expense_account_id || !expenseAccounts.length) return;
+    
+    // Find purchase account - look for accounts with "purchase" in the name
+    const purchaseAccount = expenseAccounts.find((a) => 
+      a.name?.toLowerCase().includes("purchase") || 
+      a.account_name?.toLowerCase().includes("purchase")
+    );
+    
+    if (purchaseAccount) {
+      setFormData((prev) => ({ ...prev, expense_account_id: purchaseAccount.id }));
+    }
+  }, [expenseAccounts, isNew, formData.expense_account_id]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -237,7 +266,11 @@ export default function SupplierForm() {
         currency_id:
           formData.currency_id === undefined || formData.currency_id === null || formData.currency_id === ""
             ? null
-            : String(formData.currency_id),
+            : Number(formData.currency_id || 0) || null,
+        expense_account_id:
+          formData.expense_account_id === undefined || formData.expense_account_id === null || formData.expense_account_id === ""
+            ? null
+            : Number(formData.expense_account_id || 0) || null,
         service_contractor: formData.service_contractor ? "Y" : "N",
       };
 
@@ -450,9 +483,6 @@ export default function SupplierForm() {
                   country: "GH",
                   currency: "GHS",
                   credit_limit: "",
-                  bank_name: "",
-                  bank_account: "",
-                  swift_code: "",
                 });
                 navigate("/purchase/suppliers/new");
               }}
@@ -484,29 +514,10 @@ export default function SupplierForm() {
 
         <form onSubmit={handleSubmit}>
           {/* Tabs */}
-          <div className="flex border-b-2 border-slate-200 mb-8 overflow-x-auto">
-            {[
-              { id: "basic", label: "📋 Basic Information" },
-              { id: "financial", label: "💰 Financial Details" },
-              { id: "documents", label: "📎 Documents" },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 -mb-[2px] ${
-                  activeTab === tab.id
-                    ? "border-[#0E3646] text-[#0E3646]"
-                    : "border-transparent text-slate-500 hover:bg-slate-50"
-                }`}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+          {/* Single section form - all fields in Basic Information */}
 
           {/* Tab Content */}
-          <div className={activeTab === "basic" ? "block" : "hidden"}>
+          <div className="block">
             <div className="mb-8">
               <h3 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b-2 border-slate-800">
                 🏢 Supplier Information
@@ -570,27 +581,6 @@ export default function SupplierForm() {
                   >
                     Service Contractor
                   </label>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-800 mb-1">
-                    Status
-                  </label>
-                  <select
-                    name="is_active"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-500 outline-none"
-                    value={formData.is_active}
-                    onChange={(e) =>
-                      handleChange({
-                        target: {
-                          name: "is_active",
-                          value: e.target.value === "true",
-                        },
-                      })
-                    }
-                  >
-                    <option value={true}>Active</option>
-                    <option value={false}>Inactive</option>
-                  </select>
                 </div>
               </div>
 
@@ -667,10 +657,16 @@ export default function SupplierForm() {
                   <input
                     type="text"
                     name="city"
+                    list="ghana-cities"
                     className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-500 outline-none"
                     value={formData.city}
                     onChange={handleChange}
                   />
+                  <datalist id="ghana-cities">
+                    {ghanaCities.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-800 mb-1">
@@ -746,35 +742,9 @@ export default function SupplierForm() {
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Financial Tab */}
-          <div className={activeTab === "financial" ? "block" : "hidden"}>
             <div className="mb-8">
-              <h3 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b-2 border-slate-800">
-                💰 Payment & Financial Terms
-              </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-800 mb-1">
-                    Default Currency
-                  </label>
-                  <select
-                    name="currency_id"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-500 outline-none"
-                    value={formData.currency_id}
-                    onChange={handleChange}
-                  >
-                    <option value="">Select currency</option>
-                    {currencies.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {(c.code || c.currency_code) +
-                          " - " +
-                          (c.name || c.currency_name || "")}
-                      </option>
-                    ))}
-                  </select>
-                </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-800 mb-1">
                     Payment Terms (Days)
@@ -799,100 +769,67 @@ export default function SupplierForm() {
                     onChange={handleChange}
                   />
                 </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                   <label className="block text-sm font-semibold text-slate-800 mb-1">
-                    Bank Name
+                    Expense Account *
                   </label>
-                  <input
-                    type="text"
-                    name="bank_name"
+                  <select
+                    name="expense_account_id"
                     className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-500 outline-none"
-                    value={formData.bank_name}
+                    value={formData.expense_account_id}
                     onChange={handleChange}
-                  />
+                    required
+                  >
+                    <option value="">Select expense account</option>
+                    {expenseAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-800 mb-1">
-                    Account Number
+                    Default Currency *
                   </label>
-                  <input
-                    type="text"
-                    name="bank_account"
+                  <select
+                    name="currency_id"
                     className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-500 outline-none"
-                    value={formData.bank_account}
+                    value={formData.currency_id}
                     onChange={handleChange}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-800 mb-1">
-                    SWIFT Code
-                  </label>
-                  <input
-                    type="text"
-                    name="swift_code"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-500 outline-none"
-                    value={formData.swift_code}
-                    onChange={handleChange}
-                  />
+                    required
+                  >
+                    <option value="">Select currency</option>
+                    {currencies.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {(c.code || c.currency_code) +
+                          " - " +
+                          (c.name || c.currency_name || "")}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>
 
+            {/* Active Status Section */}
             <div className="mb-8">
               <h3 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b-2 border-slate-800">
-                📊 Financial Statistics
+                ⚙️ Status
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div
-                  className="p-6 rounded-lg text-white text-center shadow-md"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #0E3646 0%, #1a5570 100%)",
-                  }}
-                >
-                  <div className="text-3xl font-bold mb-1">GHS 250,000</div>
-                  <div className="text-sm opacity-90">Total Purchases YTD</div>
-                </div>
-                <div
-                  className="p-6 rounded-lg text-white text-center shadow-md"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #0E3646 0%, #1a5570 100%)",
-                  }}
-                >
-                  <div className="text-3xl font-bold mb-1">15</div>
-                  <div className="text-sm opacity-90">Purchase Orders</div>
-                </div>
-                <div
-                  className="p-6 rounded-lg text-white text-center shadow-md"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #0E3646 0%, #1a5570 100%)",
-                  }}
-                >
-                  <div className="text-3xl font-bold mb-1">GHS 45,000</div>
-                  <div className="text-sm opacity-90">Outstanding Balance</div>
-                </div>
-                <div
-                  className="p-6 rounded-lg text-white text-center shadow-md"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #0E3646 0%, #1a5570 100%)",
-                  }}
-                >
-                  <div className="text-3xl font-bold mb-1">28 Days</div>
-                  <div className="text-sm opacity-90">Avg Payment Time</div>
-                </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="is_active"
+                  name="is_active"
+                  checked={formData.is_active}
+                  onChange={handleChange}
+                  className="w-5 h-5 text-[#0E3646] border-slate-300 rounded focus:ring-[#0E3646]"
+                />
+                <label htmlFor="is_active" className="text-sm font-semibold text-slate-800">
+                  Active Supplier
+                </label>
               </div>
-            </div>
-          </div>
-
-          {/* Documents Tab */}
-          <div className={activeTab === "documents" ? "block" : "hidden"}>
-            <div className="text-center py-10 text-slate-500 bg-slate-50 rounded-lg border border-dashed border-slate-300">
-              <p>Document Management coming soon.</p>
             </div>
           </div>
 
@@ -903,18 +840,6 @@ export default function SupplierForm() {
             >
               Cancel
             </Link>
-            <button
-              type="button"
-              className="px-6 py-2 text-white rounded-md transition-colors"
-              style={{ backgroundColor: "#2E8B1F" }}
-              onClick={() => {
-                if (window.confirm("Activate this supplier?")) {
-                  alert("Supplier activated successfully!");
-                }
-              }}
-            >
-              ✅ Activate
-            </button>
             <button
               type="submit"
               className="px-6 py-2 text-white rounded-md transition-colors disabled:opacity-50"

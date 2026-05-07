@@ -4,6 +4,11 @@ import { toast } from "react-toastify";
 
 import { api } from "api/client";
 import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+  ListAttachmentIconButton,
+} from "@/components/list/ListDocActionIconButtons.jsx";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
@@ -37,6 +42,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
   const isSV = String(voucherTypeCode).toUpperCase() === "SV";
   const isJV = String(voucherTypeCode).toUpperCase() === "JV";
   const isPAYV = String(voucherTypeCode).toUpperCase() === "PAYV";
+  const isPUV = String(voucherTypeCode).toUpperCase() === "PUV";
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [selectedVoucher, setSelectedVoucher] = useState(null);
   const [wfLoading, setWfLoading] = useState(false);
@@ -79,6 +85,26 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                 : String(voucherTypeCode).toUpperCase() === "DN"
                   ? "debit-note"
                   : "credit-note";
+
+  // Helper to format voucher numbers with correct prefixes
+  function formatVoucherNoDisplay(voucherNo, typeCode) {
+    const raw = String(voucherNo || "");
+    const code = String(typeCode || "").toUpperCase();
+
+    // Extract numeric part
+    const numMatch = raw.match(/(\d+)$/);
+    const num = numMatch ? numMatch[1] : raw.replace(/[^\d]/g, "");
+
+    if (!num) return raw;
+
+    // Format based on voucher type
+    if (code === "PAYV") {
+      return `PV${String(num).padStart(6, "0")}`;
+    } else if (code === "PV" || code === "PUV") {
+      return `PB${String(num).padStart(6, "0")}`;
+    }
+    return raw;
+  }
 
   function initDefaultDates() {
     const today = new Date();
@@ -261,7 +287,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
     if (!q) return base;
     return filterAndSort(base, {
       query: q,
-      getKeys: (v) => [v.voucher_no, v.narration, v.remarks],
+      getKeys: (v) => [v.voucher_no, v.description, v.narration, v.remarks],
     });
   }, [items, search, status]);
 
@@ -275,9 +301,8 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
     return m;
   }, [accounts]);
 
-  function renderNarration(v) {
-    // Backend returns narration as 'remarks' field
-    const raw = String(v.narration || v.remarks || "");
+  function renderDescription(v) {
+    const raw = String(v.description || v.narration || v.remarks || "");
     if (!raw) return "-";
     // For CV, show From → To format
     if (isCV) {
@@ -299,7 +324,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
       if (fromVal) return fromVal;
       if (toVal) return toVal;
     }
-    // For all voucher types, return the full narration
+    // For all voucher types, return the full description
     return raw;
   }
   function escapeHtml(v) {
@@ -862,7 +887,13 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
       const html =
         typeof resp.data === "string" ? resp.data : String(resp.data || "");
       const fname =
-        (isRV ? "ReceiptVoucher_" : isPV || isPAYV ? "PaymentVoucher_" : isCV ? "ContraVoucher_" : "Voucher_") +
+        (isRV
+          ? "ReceiptVoucher_"
+          : isPV || isPAYV
+            ? "PaymentVoucher_"
+            : isCV
+              ? "ContraVoucher_"
+              : "Voucher_") +
         id +
         ".pdf";
       await renderHtmlToPdf(html, fname);
@@ -921,7 +952,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
         : isCV
           ? "/finance/contra-voucher"
           : isPAYV
-            ? "/finance/payment-voucher-payv"
+            ? "/finance/payment-voucher"
             : "/finance/journal-voucher";
     const synonyms = isPV
       ? ["PAYMENT_VOUCHER", "Payment Voucher", "PV"]
@@ -930,7 +961,13 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
         : isCV
           ? ["CONTRA_VOUCHER", "Contra Voucher", "CV"]
           : isPAYV
-            ? ["PAYMENT_VOUCHER_PAYV", "Payment Voucher PAYV", "PAYV"]
+            ? [
+                "PAYMENT_VOUCHER_PAYV",
+                "Payment Voucher PAYV",
+                "PAYV",
+                "MAKE_PAYMENT",
+                "Make Payment",
+              ]
             : ["JOURNAL_VOUCHER", "Journal Voucher", "JV"];
     const normalize = (s) =>
       String(s || "")
@@ -947,7 +984,9 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
           Number(w.is_active) === 1 &&
           (normalize(w.document_type) === normalize(synonyms[0]) ||
             normalize(w.document_type) === normalize(synonyms[1]) ||
-            normalize(w.document_type) === normalize(synonyms[2])),
+            normalize(w.document_type) === normalize(synonyms[2]) ||
+            normalize(w.document_type) === normalize(synonyms[3]) ||
+            normalize(w.document_type) === normalize(synonyms[4])),
       ) ||
       null;
     setCandidateWorkflow(chosen || null);
@@ -1006,7 +1045,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
         : isCV
           ? "/finance/contra-voucher"
           : isPAYV
-            ? "/finance/payment-voucher-payv"
+            ? "/finance/payment-voucher"
             : "/finance/journal-voucher";
     const synonyms = isPV
       ? ["PAYMENT_VOUCHER", "Payment Voucher", "PV"]
@@ -1015,7 +1054,13 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
         : isCV
           ? ["CONTRA_VOUCHER", "Contra Voucher", "CV"]
           : isPAYV
-            ? ["PAYMENT_VOUCHER_PAYV", "Payment Voucher PAYV", "PAYV"]
+            ? [
+                "PAYMENT_VOUCHER_PAYV",
+                "Payment Voucher PAYV",
+                "PAYV",
+                "MAKE_PAYMENT",
+                "Make Payment",
+              ]
             : ["JOURNAL_VOUCHER", "Journal Voucher", "JV"];
     const normalize = (s) =>
       String(s || "")
@@ -1032,7 +1077,9 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
           Number(w.is_active) === 1 &&
           (normalize(w.document_type) === normalize(synonyms[0]) ||
             normalize(w.document_type) === normalize(synonyms[1]) ||
-            normalize(w.document_type) === normalize(synonyms[2])),
+            normalize(w.document_type) === normalize(synonyms[2]) ||
+            normalize(w.document_type) === normalize(synonyms[3]) ||
+            normalize(w.document_type) === normalize(synonyms[4])),
       ) ||
       null;
     setCandidateWorkflow(chosen || null);
@@ -1254,7 +1301,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
             <div className="md:col-span-3">
               <input
                 className="input"
-                placeholder="Search voucher no or narration..."
+                placeholder="Search voucher no or description..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -1291,134 +1338,142 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                   <tr>
                     <th>Voucher No</th>
                     <th>Date</th>
-                    <th>Narration</th>
-                    <th className="text-right">{(isPAYV || isRV || isCV) ? "Amount" : "Balanced Amount"}</th>
+                    <th>Description</th>
+                    <th className="text-right">Amount</th>
                     <th>Status</th>
-                    <th>Actions</th>
+                    <th className="text-right">Actions</th>
+                    {(isPAYV || isRV || isJV) && <th>Created By</th>}
+                    {(isPAYV || isRV || isJV) && <th>Created Date</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((v) => (
                     <tr key={v.id}>
-                      <td className="font-medium">{v.voucher_no}</td>
+                      <td className="font-medium">
+                        {formatVoucherNoDisplay(
+                          v.voucher_no,
+                          v.voucher_type_code,
+                        )}
+                      </td>
                       <td>{new Date(v.voucher_date).toLocaleDateString()}</td>
-                      <td>{renderNarration(v)}</td>
+                      <td>{renderDescription(v)}</td>
                       <td className="text-right">
                         {`GH₵ ${Number(v.balanced_amount || v.total_debit || 0).toLocaleString()}`}
                       </td>
                       <td>
                         <StatusBadge status={v.status} />
                       </td>
-                      <td>
-                        <div className="flex gap-3">
-                          {canPerformAction("finance:vouchers", "view") && (
-                            <Link
-                              to={`/finance/${basePath}/${v.id}?mode=view`}
-                              className="inline-flex items-center justify-center w-12 text-brand hover:text-brand-600 font-medium text-sm"
-                            >
-                              View
-                            </Link>
-                          )}
-                          {canPerformAction("finance:vouchers", "edit") &&
+                      <td className="py-2">
+                        <div className="flex items-center justify-end gap-2">
+                          {/* Slot 1: View */}
+                          <div className="min-w-[80px]">
+                            {canPerformAction("finance:vouchers", "view") ? (
+                              <Link
+                                to={`/finance/${basePath}/${v.id}?mode=view`}
+                                className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                              >
+                                View
+                              </Link>
+                            ) : (
+                              <div className="w-full h-9" />
+                            )}
+                          </div>
+
+                          {/* Slot 2: Edit */}
+                          <div className="min-w-[80px]">
+                            {canPerformAction("finance:vouchers", "edit") &&
                             !isPV &&
                             !["APPROVED", "POSTED"].includes(
                               String(v.status || "").toUpperCase(),
-                            ) && (
+                            ) ? (
                               <Link
                                 to={`/finance/${basePath}/${v.id}?mode=edit`}
-                                className="inline-flex items-center justify-center w-10 text-blue-600 hover:text-blue-700 font-medium text-sm"
+                                className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
                               >
                                 Edit
                               </Link>
-                            )}
-                          {(isRV || isJV || isPAYV || isCV) && (
-                            <>
-                              <button
-                                type="button"
-                                className="inline-flex items-center justify-center w-16 px-2 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
-                                onClick={() => printVoucher(v.id)}
-                              >
-                                Print
-                              </button>
-                              <button
-                                type="button"
-                                className="inline-flex items-center justify-center w-12 px-2 py-1.5 rounded bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold"
-                                onClick={() => downloadVoucherPdf(v.id)}
-                              >
-                                PDF
-                              </button>
-                            </>
-                          )}
-                          {(isPV || isRV || isCV || isJV || isPAYV) &&
-                            (["APPROVED", "POSTED"].includes(
-                              String(v.status || "").toUpperCase(),
-                            ) ? (
-                              <>
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center justify-center w-24 text-sm font-medium px-2 py-1.5 rounded bg-green-500 text-white cursor-default"
-                                  disabled
-                                >
-                                  Approved
-                                </button>
-                                {!isSV && !isPV && (isPAYV ? canPerformAction("finance:payment-voucher", "reverse") : true) && (
-                                  <ReverseApprovalButton
-                                    docType={
-                                      isRV
-                                        ? "RECEIPT_VOUCHER"
-                                        : isCV
-                                          ? "CONTRA_VOUCHER"
-                                          : isPAYV
-                                            ? "PAYMENT_VOUCHER"
-                                            : "JOURNAL_VOUCHER"
-                                    }
-                                    docId={v.id}
-                                    className="inline-flex items-center justify-center w-28 text-indigo-700 hover:text-indigo-800 text-xs font-medium"
-                                    onDone={() =>
-                                      setItems((prev) =>
-                                        prev.map((x) =>
-                                          x.id === v.id
-                                            ? {
-                                                ...x,
-                                                status: "REVERSED",
-                                                forwarded_to_username: null,
-                                              }
-                                            : x,
-                                        ),
-                                      )
-                                    }
-                                  >
-                                    Reverse Approval
-                                  </ReverseApprovalButton>
-                                )}
-                              </>
-                            ) : v.forwarded_to_username ? (
-                              <span className="inline-flex items-center justify-center w-48 text-sm font-medium px-2 py-1.5 rounded bg-amber-500 text-white whitespace-nowrap">
-                                Forwarded to {v.forwarded_to_username}
-                              </span>
                             ) : (
-                              <button
-                                type="button"
-                                className="inline-flex items-center justify-center w-40 text-sm font-medium px-2 py-1.5 rounded bg-brand text-white hover:bg-brand-700 transition-colors whitespace-nowrap"
-                                onClick={() => openForwardModal(v)}
-                                disabled={
-                                  submittingForward ||
-                                  v.status === "POSTED" ||
-                                  v.status === "PENDING_APPROVAL" ||
-                                  v.status === "SUBMITTED"
-                                }
-                              >
-                                {isCV
-                                  ? "Approve"
-                                  : isPAYV
-                                    ? "Forward for Approval"
-                                    : Number(v.has_future_cheque) > 0
-                                      ? "PDC"
-                                      : "Forward for Approval"}
-                              </button>
-                            ))}
+                              <div className="w-full h-9" />
+                            )}
+                          </div>
+
+                          {/* Slot 3: Print */}
+                          <div className="min-w-[80px]">
+                            {(isRV || isJV || isPAYV || isCV) ? (
+                              <ListPrintIconButton
+                                onClick={() => printVoucher(v.id)}
+                              />
+                            ) : (
+                              <div className="w-full h-9" />
+                            )}
+                          </div>
+
+                          {/* Slot 4: PDF */}
+                          <div className="min-w-[80px]">
+                            {(isRV || isJV || isPAYV || isCV) ? (
+                              <ListPdfIconButton
+                                onClick={() => downloadVoucherPdf(v.id)}
+                              />
+                            ) : (
+                              <div className="w-full h-9" />
+                            )}
+                          </div>
+
+                          {/* Slot 5: Attachments */}
+                          <div className="w-9">
+                            <ListAttachmentIconButton
+                              onClick={() => {
+                                setActiveDocId(v.id);
+                                setShowAttach(true);
+                              }}
+                            />
+                          </div>
+
+                          {/* Slot 6: Workflow/Approval */}
+                          <div className="min-w-[160px]">
+                            {(isRV || isCV || isJV || isPAYV) && (
+                              <div className="list-approval-slot">
+                                {["APPROVED", "POSTED"].includes(
+                                  String(v.status || "").toUpperCase(),
+                                ) ? (
+                                  <div className="flex items-center gap-2">
+                                    <span className="list-approval-approved-pill">
+                                      Approved
+                                    </span>
+                                    {/* Slot 7: Reverse Approval (Cancel) */}
+                                    {((isRV || isCV || isJV || isPAYV) &&
+                                      !isSV && !isPV && (isPAYV ? canPerformAction("finance:payment-voucher", "reverse") : true)) && (
+                                      <ReverseApprovalButton
+                                        docType={isRV ? "RECEIPT_VOUCHER" : isCV ? "CONTRA_VOUCHER" : isPAYV ? "PAYMENT_VOUCHER" : "JOURNAL_VOUCHER"}
+                                        docId={v.id}
+                                        className="list-approval-reverse-btn"
+                                        onDone={() => setItems((prev) => prev.map((x) => x.id === v.id ? { ...x, status: "RETURNED", forwarded_to_username: null } : x))}
+                                      >
+                                        Cancel
+                                      </ReverseApprovalButton>
+                                    )}
+                                  </div>
+                                ) : v.forwarded_to_username ? (
+                                  <span className="list-approval-forwarded-pill">
+                                    Forwarded to {v.forwarded_to_username}
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="list-approval-forward-btn"
+                                    onClick={() => openForwardModal(v)}
+                                    disabled={submittingForward || v.status === "POSTED" || v.status === "PENDING_APPROVAL" || v.status === "SUBMITTED"}
+                                  >
+                                    {isCV ? "Approve" : "Forward for Approval"}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </td>
+                      {(isPAYV || isRV || isJV) && <td className="py-2">{v.created_by_username || v.created_by_name || "-"}</td>}
+                      {(isPAYV || isRV || isJV) && <td className="py-2">{v.created_at ? new Date(v.created_at).toLocaleDateString() : "-"}</td>}
                     </tr>
                   ))}
                 </tbody>

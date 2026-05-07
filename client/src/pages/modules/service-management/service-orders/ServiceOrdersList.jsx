@@ -95,9 +95,10 @@ export default function ServiceOrdersList() {
                   <th>Service</th>
                   <th>Status</th>
                   <th>Total</th>
-                  <th>Actions</th>
-                                <th>Created By</th>
-                <th>Created Date</th>
+                  <th className="text-right">Actions</th>
+                  <th>Created By</th>
+                  <th>Created Date</th>
+                  <th>Attachments</th>
                 </tr>
               </thead>
               <tbody>
@@ -118,28 +119,59 @@ export default function ServiceOrdersList() {
                     <td className="text-right">
                       {Number(it.total_amount || 0).toFixed(2)}
                     </td>
-                    <td>
-                      <div className="flex gap-2">
-                        {canPerformAction("service-management:service-orders", "view") && (
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="min-w-[80px]">
                           <Link
                             to={`/service-management/service-orders/${it.id}`}
-                            className="btn btn-secondary btn-sm"
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
                           >
                             View
                           </Link>
-                        )}
-                        {canPerformAction("service-management:service-orders", "edit") && (
-                          <Link
-                            to={`/service-management/service-orders/${it.id}`}
-                            className="btn btn-primary btn-sm"
-                          >
-                            Edit
-                          </Link>
-                        )}
+                        </div>
+
+                        {/* Slot 2: Edit */}
+                        <div className="min-w-[80px]">
+                          {canPerformAction("service-management:service-orders", "edit") ? (
+                            <Link
+                              to={`/service-management/service-orders/${it.id}`}
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            >
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 3 & 4: Print/PDF (Blank) */}
+                        <div className="min-w-[80px]">
+                          <div className="w-full h-9" />
+                        </div>
+                        <div className="min-w-[80px]">
+                          <div className="w-full h-9" />
+                        </div>
+
+                        {/* Slot 6: Workflow (Placeholder) */}
+                        <div className="min-w-[160px]">
+                          <div className="w-full h-9" />
+                        </div>
                       </div>
                     </td>
-                    <td>{it.created_by_name || "-"}</td>
+                    <td>{it.created_by_username || it.created_by_name || "-"}</td>
                     <td>{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="text-brand hover:underline font-medium text-sm"
+                        onClick={() => {
+                          toast.info("Attachments functionality coming soon");
+                        }}
+                      >
+                        View
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

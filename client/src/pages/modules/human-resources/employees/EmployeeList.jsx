@@ -170,7 +170,10 @@ export default function EmployeeList() {
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Department</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Type</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Attachments</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -196,35 +199,64 @@ export default function EmployeeList() {
                       <td>{emp.dept_name}</td>
                       <td>{getEmploymentTypeBadge(emp.employment_type_name || emp.employment_type)}</td>
                       <td>{getStatusBadge(emp.is_active)}</td>
-                      <td>
-                        <div className="flex gap-2">
-                          {canPerformAction(
-                            "human-resources:employees",
-                            "view",
-                          ) && (
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {/* Slot 1: View */}
+                          <div className="min-w-[80px]">
                             <button
-                              onClick={() =>
-                                navigate(`/human-resources/employees/${emp.id}`)
-                              }
-                              className="text-brand hover:text-brand-600 font-medium text-sm"
+                              type="button"
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                              onClick={() => navigate(`/human-resources/employees/${emp.id}`)}
                             >
                               View
                             </button>
-                          )}
-                          {canPerformAction(
-                            "human-resources:employees",
-                            "edit",
-                          ) && (
-                            <button
-                              onClick={() =>
-                                navigate(`/human-resources/employees/${emp.id}`)
-                              }
-                              className="text-blue-600 hover:text-blue-700 font-medium text-sm"
-                            >
-                              Edit
-                            </button>
-                          )}
+                          </div>
+
+                          {/* Slot 2: Edit */}
+                          <div className="min-w-[80px]">
+                            {canPerformAction("human-resources:employees", "edit") ? (
+                              <button
+                                type="button"
+                                className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                                onClick={() => navigate(`/human-resources/employees/${emp.id}`)}
+                              >
+                                Edit
+                              </button>
+                            ) : (
+                              <div className="w-full h-9" />
+                            )}
+                          </div>
+
+                          {/* Slot 3 & 4 & 5 & 6 & 7: Blank */}
+                          <div className="min-w-[80px]">
+                            <div className="w-full h-9" />
+                          </div>
+                          <div className="min-w-[80px]">
+                            <div className="w-full h-9" />
+                          </div>
+                          <div className="min-w-[80px]">
+                            <div className="w-full h-9" />
+                          </div>
+                          <div className="min-w-[160px]">
+                            <div className="w-full h-9" />
+                          </div>
+                          <div className="min-w-[80px]">
+                            <div className="w-full h-9" />
+                          </div>
                         </div>
+                      </td>
+                      <td>{emp.created_by_username || emp.created_by_name || "-"}</td>
+                      <td>{emp.created_at ? new Date(emp.created_at).toLocaleDateString() : "-"}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="text-brand hover:underline font-medium text-sm"
+                          onClick={() => {
+                            toast.info("Attachments functionality coming soon");
+                          }}
+                        >
+                          View
+                        </button>
                       </td>
                     </tr>
                   ))}

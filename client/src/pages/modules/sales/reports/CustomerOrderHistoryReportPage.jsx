@@ -3,12 +3,31 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 
 export default function CustomerOrderHistoryReportPage() {
-  const [customer, setCustomer] = useState("");
+  const [customerId, setCustomerId] = useState("");
+  const [customers, setCustomers] = useState([]);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function loadCustomers() {
+      try {
+        const res = await api.get("/sales/customers");
+        setCustomers(
+          Array.isArray(res?.data?.items)
+            ? res.data.items
+            : Array.isArray(res?.data)
+              ? res.data
+              : [],
+        );
+      } catch (e) {
+        console.error("Failed to load customers", e);
+      }
+    }
+    loadCustomers();
+  }, []);
 
   async function run() {
     try {
@@ -16,7 +35,7 @@ export default function CustomerOrderHistoryReportPage() {
       setError("");
       const res = await api.get("/sales/reports/customer-order-history", {
         params: { 
-          customer: customer || null,
+          customerId: customerId || null,
           from: fromDate || null,
           to: toDate || null
         },
@@ -53,13 +72,19 @@ export default function CustomerOrderHistoryReportPage() {
           {error ? <div className="text-red-600 text-sm mb-3">{error}</div> : null}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
             <div>
-              <label className="label">Customer Name</label>
-              <input
+              <label className="label">Customer</label>
+              <select
                 className="input"
-                value={customer}
-                onChange={(e) => setCustomer(e.target.value)}
-                placeholder="Contains..."
-              />
+                value={customerId}
+                onChange={(e) => setCustomerId(e.target.value)}
+              >
+                <option value="">All Customers</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.customer_name}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="label">From Date</label>
@@ -128,4 +153,3 @@ export default function CustomerOrderHistoryReportPage() {
     </div>
   );
 }
-

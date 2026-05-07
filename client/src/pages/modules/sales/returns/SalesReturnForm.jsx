@@ -1,10 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 import { Plus, Trash2 } from "lucide-react";
 
 export default function SalesReturnForm() {
   const navigate = useNavigate();
+  const { id: returnRouteId } = useParams();
+  const existingId =
+    returnRouteId && /^\d+$/.test(String(returnRouteId))
+      ? Number(returnRouteId)
+      : null;
+  const readOnly = Boolean(existingId);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [customers, setCustomers] = useState([]);
@@ -54,15 +60,12 @@ export default function SalesReturnForm() {
     let mounted = true;
     async function load() {
       try {
-        const [custRes, whRes, itemsRes, taxRes, nextNoRes] = await Promise.all(
-          [
-            api.get("/sales/customers?active=true"),
-            api.get("/inventory/warehouses"),
-            api.get("/inventory/items"),
-            api.get("/finance/tax-codes"),
-            api.get("/sales/returns/next-no"),
-          ],
-        );
+        const [custRes, whRes, itemsRes, taxRes] = await Promise.all([
+          api.get("/sales/customers?active=true"),
+          api.get("/inventory/warehouses"),
+          api.get("/inventory/items"),
+          api.get("/finance/tax-codes"),
+        ]);
         if (!mounted) return;
         setCustomers(
           Array.isArray(custRes.data?.items) ? custRes.data.items : [],
@@ -79,9 +82,71 @@ export default function SalesReturnForm() {
           map[Number(t.id)] = Number(t.rate_percent || 0);
         }
         setTaxCodeRates(map);
-        const nextNo = String(nextNoRes.data?.nextNo || "").trim();
-        if (nextNo) {
-          setFormData((p) => ({ ...p, returnNo: nextNo }));
+
+        if (existingId) {
+          const detRes = await api.get(`/sales/returns/${existingId}`);
+          if (!mounted) return;
+          const h = detRes.data?.item || {};
+          const details = Array.isArray(detRes.data?.details)
+            ? detRes.data.details
+            : [];
+          setFormData({
+            returnNo: String(h.return_no || ""),
+            returnDate: h.return_date
+              ? String(h.return_date).slice(0, 10)
+              : new Date().toISOString().split("T")[0],
+            customerId:
+              h.customer_id != null && h.customer_id !== ""
+                ? String(h.customer_id)
+                : "",
+            invoiceId:
+              h.invoice_id != null && h.invoice_id !== ""
+                ? String(h.invoice_id)
+                : "",
+            warehouseId:
+              h.warehouse_id != null && h.warehouse_id !== ""
+                ? String(h.warehouse_id)
+                : "",
+            returnType: String(h.return_type || "DAMAGED"),
+            status: String(h.status || "DRAFT"),
+            remarks: h.remarks || "",
+          });
+          const mappedLines = details.map((d, idx) => ({
+            id: d.id != null ? Number(d.id) : Date.now() + idx,
+            item_id: d.item_id != null ? String(d.item_id) : "",
+            itemCode: String(d.item_code || ""),
+            itemName: String(d.item_name || ""),
+            qtyReturned: Number(d.qty_returned || 0),
+            unitPrice: Number(d.unit_price || 0),
+            reasonCode: String(d.reason_code || "DAMAGED"),
+            remarks: String(d.remarks || ""),
+            taxAmount: Number(d.tax_amount || 0),
+            uom: String(d.uom || ""),
+          }));
+          setLines(
+            mappedLines.length
+              ? mappedLines
+              : [
+                  {
+                    id: Date.now(),
+                    item_id: "",
+                    itemCode: "",
+                    itemName: "",
+                    qtyReturned: 1,
+                    unitPrice: 0,
+                    reasonCode: "DAMAGED",
+                    remarks: "",
+                    taxAmount: 0,
+                  },
+                ],
+          );
+        } else {
+          const nextNoRes = await api.get("/sales/returns/next-no");
+          if (!mounted) return;
+          const nextNo = String(nextNoRes.data?.nextNo || "").trim();
+          if (nextNo) {
+            setFormData((p) => ({ ...p, returnNo: nextNo }));
+          }
         }
       } catch (e) {
         if (!mounted) return;
@@ -92,7 +157,7 @@ export default function SalesReturnForm() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [existingId]);
   useEffect(() => {
     setFormData((p) => ({ ...p, invoiceId: "" }));
     setInvoices([]);
@@ -112,6 +177,7 @@ export default function SalesReturnForm() {
       });
   }, [formData.customerId]);
   useEffect(() => {
+    if (readOnly) return;
     const invId = formData.invoiceId;
     if (!invId) return;
     api
@@ -168,9 +234,10 @@ export default function SalesReturnForm() {
       .catch(() => {
         // ignore
       });
-  }, [formData.invoiceId, itemsMaster, taxCodeRates]);
+  }, [formData.invoiceId, itemsMaster, taxCodeRates, readOnly]);
 
   useEffect(() => {
+    if (readOnly) return;
     const wh = formData.warehouseId;
     if (!wh) {
       setLines((prev) =>
@@ -194,7 +261,7 @@ export default function SalesReturnForm() {
       setLines(updated);
     };
     refresh();
-  }, [formData.warehouseId]);
+  }, [formData.warehouseId, readOnly]);
 
   const addLine = () => {
     setLines([
@@ -321,6 +388,7 @@ export default function SalesReturnForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (readOnly) return;
     setSaving(true);
     setError("");
     try {
@@ -337,7 +405,7 @@ export default function SalesReturnForm() {
         items: normalizedItems,
       };
       await api.post("/sales/returns", payload);
-      navigate("/inventory/sales-returns", { state: { refresh: true } });
+      navigate("/sales/returns", { state: { refresh: true } });
     } catch (e2) {
       setError(e2?.response?.data?.message || "Failed to save sales return");
     } finally {
@@ -352,13 +420,13 @@ export default function SalesReturnForm() {
           <div className="flex justify-between items-center text-white">
             <div>
               <h1 className="text-2xl font-bold dark:text-brand-300">
-                New Sales Return
+                {readOnly ? "View Sales Return" : "New Sales Return"}
               </h1>
               <p className="text-sm mt-1">
                 Record returned goods and auto-create a Credit Note
               </p>
             </div>
-            <Link to="/inventory/sales-returns" className="btn-success">
+            <Link to="/sales/returns" className="btn-success">
               Back to List
             </Link>
           </div>
@@ -382,6 +450,7 @@ export default function SalesReturnForm() {
                   type="date"
                   className="input"
                   value={formData.returnDate}
+                  disabled={readOnly}
                   onChange={(e) =>
                     setFormData((p) => ({ ...p, returnDate: e.target.value }))
                   }
@@ -395,6 +464,7 @@ export default function SalesReturnForm() {
                 <select
                   className="input"
                   value={formData.customerId}
+                  disabled={readOnly}
                   onChange={(e) =>
                     setFormData((p) => ({ ...p, customerId: e.target.value }))
                   }
@@ -413,6 +483,7 @@ export default function SalesReturnForm() {
                   <select
                     className="input"
                     value={formData.invoiceId}
+                    disabled={readOnly}
                     onChange={(e) =>
                       setFormData((p) => ({ ...p, invoiceId: e.target.value }))
                     }
@@ -435,6 +506,7 @@ export default function SalesReturnForm() {
                 <select
                   className="input"
                   value={formData.warehouseId}
+                  disabled={readOnly}
                   onChange={(e) =>
                     setFormData((p) => ({ ...p, warehouseId: e.target.value }))
                   }
@@ -454,6 +526,7 @@ export default function SalesReturnForm() {
               <select
                 className="input w-full md:w-1/3"
                 value={formData.returnType}
+                disabled={readOnly}
                 onChange={(e) =>
                   setFormData((p) => ({ ...p, returnType: e.target.value }))
                 }
@@ -472,6 +545,7 @@ export default function SalesReturnForm() {
                 rows={3}
                 placeholder="Reason for rejection or return details"
                 value={formData.remarks}
+                readOnly={readOnly}
                 onChange={(e) =>
                   setFormData((p) => ({ ...p, remarks: e.target.value }))
                 }
@@ -481,13 +555,17 @@ export default function SalesReturnForm() {
             <div className="rounded-lg border bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
               <div className="p-4 flex items-center justify-between">
                 <div className="font-medium">Return Items</div>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={addLine}
-                >
-                  <Plus className="w-4 h-4 mr-1" /> Add Line
-                </button>
+                {!readOnly ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={addLine}
+                  >
+                    <Plus className="w-4 h-4 mr-1" /> Add Line
+                  </button>
+                ) : (
+                  <div className="h-9 w-28" aria-hidden />
+                )}
               </div>
               <div className="overflow-x-auto">
                 <table className="table w-full">
@@ -505,7 +583,7 @@ export default function SalesReturnForm() {
                       <th className="text-right w-32">Total</th>
                       <th className="w-40">Reason</th>
                       <th className="w-64">Remarks</th>
-                      <th className="w-16"></th>
+                      {!readOnly && <th className="w-16"></th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -515,6 +593,7 @@ export default function SalesReturnForm() {
                           <select
                             className="input w-full min-w-[18rem]"
                             value={ln.item_id}
+                            disabled={readOnly}
                             onChange={(e) =>
                               handleItemChange(ln.id, e.target.value)
                             }
@@ -541,6 +620,7 @@ export default function SalesReturnForm() {
                             min={0}
                             className="input text-right w-full min-w-[5rem]"
                             value={ln.qtyReturned}
+                            readOnly={readOnly}
                             onChange={(e) =>
                               updateLine(ln.id, "qtyReturned", e.target.value)
                             }
@@ -559,6 +639,7 @@ export default function SalesReturnForm() {
                             step="0.01"
                             className="input text-right w-full min-w-[6rem]"
                             value={ln.unitPrice}
+                            readOnly={readOnly}
                             onChange={(e) =>
                               updateLine(ln.id, "unitPrice", e.target.value)
                             }
@@ -586,6 +667,7 @@ export default function SalesReturnForm() {
                           <select
                             className="input w-full min-w-[8rem]"
                             value={ln.reasonCode}
+                            disabled={readOnly}
                             onChange={(e) =>
                               updateLine(ln.id, "reasonCode", e.target.value)
                             }
@@ -600,20 +682,23 @@ export default function SalesReturnForm() {
                           <input
                             className="input w-full min-w-[10rem]"
                             value={ln.remarks}
+                            readOnly={readOnly}
                             onChange={(e) =>
                               updateLine(ln.id, "remarks", e.target.value)
                             }
                           />
                         </td>
-                        <td className="text-center">
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-sm text-red-600"
-                            onClick={() => removeLine(ln.id)}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
+                        {!readOnly && (
+                          <td className="text-center">
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm text-red-600"
+                              onClick={() => removeLine(ln.id)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -642,16 +727,18 @@ export default function SalesReturnForm() {
             </div>
 
             <div className="flex justify-end gap-3">
-              <Link to="/inventory/sales-returns" className="btn btn-secondary">
-                Cancel
+              <Link to="/sales/returns" className="btn btn-secondary">
+                {readOnly ? "Back to List" : "Cancel"}
               </Link>
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={saving}
-              >
-                {saving ? "Saving..." : "Save Sales Return"}
-              </button>
+              {!readOnly && (
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={saving}
+                >
+                  {saving ? "Saving..." : "Save Sales Return"}
+                </button>
+              )}
             </div>
           </form>
         </div>

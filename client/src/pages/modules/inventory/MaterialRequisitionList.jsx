@@ -5,12 +5,17 @@ import { api } from "../../../api/client";
 import { toast } from "react-toastify";
 import { usePermission } from "../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+  ListAttachmentIconButton,
+} from "@/components/list/ListDocActionIconButtons.jsx";
 
 export default function MaterialRequisitionList() {
   const location = useLocation();
   const { canReverseApproval, hasExceptional } = usePermission();
   const [exCancelAllowed, setExCancelAllowed] = useState(false);
-  const [exReverseAllowed, setExReverseAllowed] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
   const [loading, setLoading] = useState(false);
@@ -27,6 +32,8 @@ export default function MaterialRequisitionList() {
   const [submittingForward, setSubmittingForward] = useState(false);
   const [workflowsCache, setWorkflowsCache] = useState(null);
   const [targetApproverId, setTargetApproverId] = useState(null);
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -146,24 +153,12 @@ export default function MaterialRequisitionList() {
             code === "INVENTORY.MATERIAL_REQUISITION.CANCEL"
           );
         });
-        const rev = items.some((p) => {
-          const effect = String(p.effect || "").toUpperCase();
-          const active = Number(p.is_active || p.isActive) === 1;
-          const code = String(
-            p.permission_code || p.permissionCode || "",
-          ).toUpperCase();
-          return (
-            effect === "ALLOW" && active && code === "WORKFLOW.APPROVAL.REVERSE"
-          );
-        });
         if (!cancelled) {
           setExCancelAllowed(allowed);
-          setExReverseAllowed(rev);
         }
       } catch {
         if (!cancelled) {
           setExCancelAllowed(false);
-          setExReverseAllowed(false);
         }
       }
     }
@@ -506,9 +501,9 @@ export default function MaterialRequisitionList() {
                   <th>Department</th>
                   <th>Warehouse</th>
                   <th>Status</th>
-                  <th>Actions</th>
-                                <th>Created By</th>
-                <th>Created Date</th>
+                  <th className="text-right">Actions</th>
+                  <th>Created By</th>
+                  <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -526,167 +521,111 @@ export default function MaterialRequisitionList() {
                         {req.status}
                       </span>
                     </td>
-                    <td>
-                      <div className="flex items-center gap-2 whitespace-nowrap">
-                        <Link
-                          to={`/inventory/material-requisitions/${req.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                        {String(req.status || "").toUpperCase() !==
-                          "APPROVED" && (
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="min-w-[80px]">
                           <Link
-                            to={`/inventory/material-requisitions/${req.id}?mode=edit`}
-                            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                            to={`/inventory/material-requisitions/${req.id}?mode=view`}
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
                           >
-                            Edit
+                            View
                           </Link>
-                        )}
-                        {(hasExceptional(
-                          "INVENTORY.MATERIAL_REQUISITION.CANCEL",
-                        ) ||
-                          exCancelAllowed) &&
-                          req.status !== "APPROVED" && (
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  const reason = window.prompt(
-                                    "Enter cancellation reason (optional):",
-                                    "",
-                                  );
-                                  if (
-                                    !window.confirm(
-                                      `Cancel this Material Requisition (${req.requisition_no})?`,
-                                    )
-                                  )
-                                    return;
-                                  const res = await api.get(
-                                    `/inventory/material-requisitions/${req.id}`,
-                                  );
-                                  const header = res?.data?.item || {};
-                                  const details = Array.isArray(
-                                    res?.data?.details,
-                                  )
-                                    ? res.data.details
-                                    : [];
-                                  const payload = {
-                                    requisition_date: header.requisition_date,
-                                    warehouse_id: header.warehouse_id || null,
-                                    department_id: header.department_id || null,
-                                    requisition_type:
-                                      header.requisition_type || "INTERNAL",
-                                    priority: header.priority || "MEDIUM",
-                                    requested_by: header.requested_by || null,
-                                    remarks:
-                                      (header.remarks
-                                        ? header.remarks + " | "
-                                        : "") +
-                                      (reason
-                                        ? `Cancelled: ${reason.trim()}`
-                                        : "Cancelled"),
-                                    status: "CANCELLED",
-                                    details: details.map((d) => ({
-                                      item_id: d.item_id,
-                                      qty_requested: Number(
-                                        d.qty_requested || 0,
-                                      ),
-                                      qty_issued: Number(d.qty_issued || 0),
-                                    })),
-                                  };
-                                  await api.put(
-                                    `/inventory/material-requisitions/${req.id}`,
-                                    payload,
-                                  );
-                                  toast.success(
-                                    "Material requisition cancelled",
-                                  );
-                                  setRequisitions((prev) =>
-                                    prev.map((x) =>
-                                      x.id === req.id
-                                        ? { ...x, status: "CANCELLED" }
-                                        : x,
-                                    ),
-                                  );
-                                } catch (e) {
-                                  toast.error(
-                                    e?.response?.data?.message ||
-                                      "Failed to cancel requisition",
-                                  );
-                                }
-                              }}
-                              className="text-red-600 hover:text-red-700 text-sm font-medium"
+                        </div>
+
+                        {/* Slot 2: Edit */}
+                        <div className="min-w-[80px]">
+                          {!['APPROVED', 'ISSUED', 'CANCELLED'].includes(req.status) ? (
+                            <Link
+                              to={`/inventory/material-requisitions/${req.id}?mode=edit`}
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
                             >
-                              Cancel
-                            </button>
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className="w-full h-9" />
                           )}
-                        {req.status === "APPROVED" ? (
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium px-2 py-1 rounded bg-green-500 text-white">
-                              Approved
-                            </span>
-                            {(canReverseApproval() || exReverseAllowed) && (
+                        </div>
+
+                        {/* Slot 3: Print */}
+                        <div className="min-w-[80px]">
+                          <ListPrintIconButton
+                            onClick={() =>
+                              window.open(
+                                `/inventory/material-requisitions/${req.id}?mode=view`,
+                                "_blank",
+                                "noopener,noreferrer",
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Slot 4: PDF */}
+                        <div className="min-w-[80px]">
+                          <ListPdfIconButton
+                            onClick={() =>
+                              toast.info(
+                                "PDF export is not configured for material requisitions.",
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Slot 5: Attachments */}
+                        <div className="w-9">
+                          <ListAttachmentIconButton
+                            onClick={() => {
+                              setActiveDocId(req.id);
+                              setShowAttach(true);
+                            }}
+                          />
+                        </div>
+
+                        {/* Slot 6: Workflow */}
+                        <div className="min-w-[160px]">
+                          <div className="list-approval-slot">
+                            {req.status === "APPROVED" ? (
+                              <div className="flex items-center gap-2">
+                                <span className="list-approval-approved-pill">
+                                  Approved
+                                </span>
+                                {/* Slot 7: Reverse Approval (Cancel) */}
+                                {req.status === "APPROVED" && canReverseApproval() && (
+                                  <button
+                                    type="button"
+                                    className="list-approval-reverse-btn"
+                                    onClick={async () => {
+                                      try {
+                                        await api.post("/workflows/reverse-by-document", { document_type: "MATERIAL_REQUISITION", document_id: req.id });
+                                        toast.success("Approval reversed");
+                                        setRequisitions((prev) => prev.map((x) => x.id === req.id ? { ...x, status: "RETURNED", forwarded_to_username: null } : x));
+                                      } catch (e) {
+                                        toast.error("Reverse approval failed");
+                                      }
+                                    }}
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </div>
+                            ) : req.forwarded_to_username ? (
+                              <span className="list-approval-forwarded-pill">
+                                Forwarded to {req.forwarded_to_username}
+                              </span>
+                            ) : (
                               <button
                                 type="button"
-                                className="text-indigo-700 hover:text-indigo-800 text-sm font-medium"
-                                onClick={async () => {
-                                  try {
-                                    await api.post(
-                                      "/workflows/reverse-by-document",
-                                      {
-                                        document_type: "MATERIAL_REQUISITION",
-                                        document_id: req.id,
-                                      },
-                                    );
-                                    toast.success(
-                                      "Approval reversed and document returned",
-                                    );
-                                    setRequisitions((prev) =>
-                                      prev.map((x) =>
-                                        x.id === req.id
-                                          ? {
-                                              ...x,
-                                              status: "RETURNED",
-                                              forwarded_to_username: null,
-                                            }
-                                          : x,
-                                      ),
-                                    );
-                                  } catch (e) {
-                                    toast.error(
-                                      e?.response?.data?.message ||
-                                        "Reverse approval failed",
-                                    );
-                                  }
-                                }}
+                                className="list-approval-forward-btn"
+                                onClick={() => openForwardModal(req)}
                               >
-                                Reverse Approval
+                                Forward for Approval
                               </button>
                             )}
                           </div>
-                        ) : req.forwarded_to_username ? (
-                          <span className="text-xs font-medium px-2 py-1 rounded bg-amber-500 text-white">
-                            Forwarded to {req.forwarded_to_username}
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => openForwardModal(req)}
-                            className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 transition-colors"
-                            disabled={
-                              submittingForward ||
-                              req.status === "ISSUED" ||
-                              req.status === "PENDING_APPROVAL" ||
-                              hasInactiveWorkflow
-                            }
-                          >
-                            Forward for Approval
-                          </button>
-                        )}
+                        </div>
                       </div>
                     </td>
-                    <td>{req.created_by_name || "-"}</td>
+                    <td>{req.created_by_username || req.created_by_name || "-"}</td>
                     <td>{req.created_at ? new Date(req.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
@@ -828,6 +767,15 @@ export default function MaterialRequisitionList() {
           </div>
         </div>
       )}
+      <DocumentAttachmentsModal
+        open={showAttach}
+        onClose={() => {
+          setShowAttach(false);
+          setActiveDocId(null);
+        }}
+        docType="material-requisition"
+        docId={activeDocId}
+      />
     </div>
   );
 }

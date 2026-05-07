@@ -6,11 +6,16 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { Link } from "react-router-dom";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+  ListAttachmentIconButton,
+} from "@/components/list/ListDocActionIconButtons.jsx";
 
 export default function DirectPurchaseList() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { canAccessPath } = usePermission();
+  const { canAccessPath, canReverseApproval } = usePermission();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -90,13 +95,12 @@ export default function DirectPurchaseList() {
                   <tr>
                     <th>No</th>
                     <th>Date</th>
-                    <th>Supplier</th>
+                    <th style={{ width: '250px' }}>Supplier</th>
                     <th className="text-right">Amount</th>
                     <th>Status</th>
-                    <th>Attachments</th>
-                    <th>Actions</th>
-                                    <th>Created By</th>
-                  <th>Created Date</th>
+                    <th className="text-right">Actions</th>
+                    <th>Created By</th>
+                    <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -106,7 +110,7 @@ export default function DirectPurchaseList() {
                       <td>
                         {String(it.purchase_date || it.date || "").slice(0, 10)}
                       </td>
-                      <td>
+                      <td style={{ width: '250px' }}>
                         {it.supplier_name || it.supplier || it.supplier_id}
                       </td>
                       <td className="text-right">
@@ -125,84 +129,113 @@ export default function DirectPurchaseList() {
                           {it.status || "DRAFT"}
                         </span>
                       </td>
-                      <td>
-                        <button
-                          type="button"
-                          className="btn-outline text-xs"
-                          onClick={() => {
-                            setActiveDocId(it.id);
-                            setShowAttach(true);
-                          }}
-                        >
-                          Attachments
-                        </button>
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-2">
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="min-w-[80px]">
                           <button
                             type="button"
-                            className="text-brand hover:text-brand-600 font-medium text-sm"
-                            onClick={() =>
-                              navigate(
-                                `/purchase/direct-purchase/${it.id}?mode=view`,
-                              )
-                            }
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            onClick={() => navigate(`/purchase/direct-purchase/${it.id}?mode=view`)}
                           >
                             View
                           </button>
-                          <button
-                            type="button"
-                            className="inline-flex items-center px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
-                            title="Print"
+                        </div>
+
+                        {/* Slot 2: Edit */}
+                        <div className="min-w-[80px]">
+                          {!["POST", "POSTED"].includes(String(it.status).toUpperCase()) ? (
+                            <button
+                              type="button"
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                              onClick={() => navigate(`/purchase/direct-purchase/${it.id}?mode=edit`)}
+                            >
+                              Edit
+                            </button>
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 3: Print */}
+                        <div className="min-w-[80px]">
+                          <ListPrintIconButton
                             onClick={() =>
                               window.open(
                                 `/purchase/direct-purchase/${it.id}?mode=view`,
                                 "_blank",
+                                "noopener,noreferrer",
                               )
                             }
-                          >
-                            Print
-                          </button>
-                          <button
-                            type="button"
-                            className="inline-flex items-center px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold"
-                            title="PDF"
+                          />
+                        </div>
+
+                        {/* Slot 4: PDF */}
+                        <div className="min-w-[80px]">
+                          <ListPdfIconButton
                             onClick={async () => {
                               try {
-                                const res = await api.post(
-                                  `/documents/direct-purchase/${it.id}/render`,
-                                  { format: "html" },
-                                  { headers: { "Content-Type": "application/json" } },
-                                );
+                                const res = await api.post(`/documents/direct-purchase/${it.id}/render`, { format: "html" });
                                 const html = typeof res.data === "string" ? res.data : String(res.data || "");
                                 await renderHtmlToPdf(html, `DirectPurchase-${it.dp_no || it.id}.pdf`);
                               } catch (e) {
                                 toast.error("Failed to download PDF");
                               }
                             }}
-                          >
-                            PDF
-                          </button>
-                          <button
-                            type="button"
-                            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                            onClick={() =>
-                              navigate(
-                                `/purchase/direct-purchase/${it.id}/edit`,
-                              )
-                            }
-                          >
-                            Edit
-                          </button>
+                          />
                         </div>
-                      </td>
-                      <td>{it.created_by_name || "-"}</td>
-                      <td>{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
+
+                        {/* Slot 5: Attachments */}
+                        <div className="w-9">
+                          <ListAttachmentIconButton
+                            onClick={() => {
+                              setActiveDocId(it.id);
+                              setShowAttach(true);
+                            }}
+                          />
+                        </div>
+
+                        {/* Slot 6: Workflow / Status */}
+                        <div className="min-w-[160px]">
+                          <div className="list-approval-slot">
+                            {["POST", "POSTED"].includes(String(it.status).toUpperCase()) ? (
+                              <div className="flex items-center gap-2">
+                                <span className="list-approval-approved-pill">
+                                  Posted
+                                </span>
+                                {canReverseApproval() && (
+                                  <button
+                                    type="button"
+                                    className="list-approval-reverse-btn"
+                                    onClick={async () => {
+                                      if (!window.confirm("Cancel this purchase?")) return;
+                                      try {
+                                        await api.post(`/purchase/direct-purchase/${it.id}/cancel`);
+                                        toast.success("Purchase cancelled");
+                                        setItems(prev => prev.map(x => x.id === it.id ? { ...x, status: 'CANCELLED' } : x));
+                                      } catch (e) {
+                                        toast.error("Failed to cancel");
+                                      }
+                                    }}
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="w-full h-9" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>{it.created_by_username || it.created_by_name || "-"}</td>
+                    <td>{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
                     </tr>
                   ))}
                   {items.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="text-center text-slate-500">
+                      <td colSpan={8} className="text-center text-slate-500">
                         No records found
                       </td>
                     </tr>

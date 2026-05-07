@@ -138,22 +138,18 @@ export default function ServiceConfirmationsList() {
                     </td>
                     <td>
                       <div className="flex gap-2">
-                        {canPerformAction("service-management:service-confirmations", "view") && (
-                          <Link
-                            to={`/service-management/service-confirmation/${c.id}?mode=view`}
-                            className="text-brand hover:text-brand-700 text-sm font-medium"
-                          >
-                            View
-                          </Link>
-                        )}
-                        {canPerformAction("service-management:service-confirmations", "edit") && (
-                          <Link
-                            to={`/service-management/service-confirmation/${c.id}?mode=edit`}
-                            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                          >
-                            Edit
-                          </Link>
-                        )}
+                        <Link
+                          to={`/service-management/service-confirmation/${c.id}?mode=view`}
+                          className={`text-brand hover:text-brand-700 text-sm font-medium ${!canPerformAction("service-management:service-confirmations", "view") ? 'invisible pointer-events-none' : ''}`}
+                        >
+                          View
+                        </Link>
+                        <Link
+                          to={`/service-management/service-confirmation/${c.id}?mode=edit`}
+                          className={`text-blue-600 hover:text-blue-700 text-sm font-medium ${!canPerformAction("service-management:service-confirmations", "edit") ? 'invisible pointer-events-none' : ''}`}
+                        >
+                          Edit
+                        </Link>
                       </div>
                     </td>
                     <td>{c.created_by_name || "-"}</td>

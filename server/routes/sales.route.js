@@ -13,7 +13,10 @@ import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { ensureSalesOrderColumns } from "../utils/dbUtils.js";
 import { ensureStockBalancesWarehouseInfrastructure } from "../services/stock.service.js";
-import { requireIdParam, ensureCustomerFinAccountIdTx } from "../controllers/finance.controller.js";
+import {
+  requireIdParam,
+  ensureCustomerFinAccountIdTx,
+} from "../controllers/finance.controller.js";
 import { isMailerConfigured, sendMail } from "../utils/mailer.js";
 import * as XLSX from "xlsx";
 
@@ -387,6 +390,11 @@ async function ensureCustomersTableColumns() {
   if (!(await hasColumn("sal_customers", "created_by"))) {
     await query(
       `ALTER TABLE sal_customers ADD COLUMN created_by BIGINT UNSIGNED NULL`,
+    ).catch(() => null);
+  }
+  if (!(await hasColumn("sal_customers", "sales_account_id"))) {
+    await query(
+      `ALTER TABLE sal_customers ADD COLUMN sales_account_id BIGINT UNSIGNED NULL`,
     ).catch(() => null);
   }
 }
@@ -1522,12 +1530,15 @@ router.get(
            c.country,
            c.payment_terms,
            c.currency_id,
+           c.sales_account_id,
+           fa.name AS sales_account_name,
           c.created_at,
           u.username AS created_by_name
          FROM sal_customers c
          LEFT JOIN sal_price_types pt
            ON pt.id = c.price_type_id AND pt.company_id = c.company_id
         LEFT JOIN adm_users u ON u.id = c.created_by
+        LEFT JOIN fin_accounts fa ON fa.id = c.sales_account_id AND fa.company_id = c.company_id
          WHERE ${where.join(" AND ")}
          ORDER BY c.customer_name ASC`,
         params,
@@ -1556,12 +1567,14 @@ router.get(
         `SELECT 
            c.*,
            pt.name AS price_type_name,
+           fa.name AS sales_account_name,
           c.created_at,
           u.username AS created_by_name
          FROM sal_customers c
          LEFT JOIN sal_price_types pt
            ON pt.id = c.price_type_id AND pt.company_id = c.company_id
         LEFT JOIN adm_users u ON u.id = c.created_by
+        LEFT JOIN fin_accounts fa ON fa.id = c.sales_account_id AND fa.company_id = c.company_id
          WHERE c.id = :id AND c.company_id = :companyId
          LIMIT 1`,
         { id, companyId },
@@ -1601,6 +1614,7 @@ router.post(
         credit_limit,
         payment_terms,
         is_active,
+        sales_account_id,
       } = req.body;
 
       if (!customer_name) {
@@ -1616,10 +1630,10 @@ router.post(
         `INSERT INTO sal_customers 
          (company_id, branch_id, customer_code, customer_name, email, phone, mobile, 
           contact_person, address, city, state, zone, country, customer_type, 
-          price_type_id, currency_id, credit_limit, payment_terms, is_active, created_by)
+          price_type_id, currency_id, credit_limit, payment_terms, is_active, sales_account_id, created_by)
          VALUES (:companyId, :branchId, :customer_code, :customer_name, :email, :phone, :mobile,
                  :contact_person, :address, :city, :state, :zone, :country, :customer_type,
-                 :price_type_id, :currency_id, :credit_limit, :payment_terms, :is_active, :createdBy)`,
+                 :price_type_id, :currency_id, :credit_limit, :payment_terms, :is_active, :sales_account_id, :createdBy)`,
         {
           companyId,
           branchId,
@@ -1640,6 +1654,7 @@ router.post(
           credit_limit: credit_limit || 0,
           payment_terms: payment_terms || "Net 30",
           is_active: is_active === false ? 0 : 1,
+          sales_account_id: sales_account_id || null,
           createdBy,
         },
       );
@@ -1662,8 +1677,11 @@ router.put(
   requirePermission("SAL.CUSTOMER.UPDATE"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
-      const id = req.params.id;
+      const { companyId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      }
       const {
         customer_code,
         customer_name,
@@ -1682,9 +1700,20 @@ router.put(
         credit_limit,
         payment_terms,
         is_active,
+        sales_account_id,
       } = req.body;
 
-      await query(
+      const isActive =
+        is_active === false ||
+        is_active === 0 ||
+        String(is_active || "")
+          .trim()
+          .toLowerCase() === "false" ||
+        String(is_active || "").trim() === "0"
+          ? 0
+          : 1;
+
+      const result = await query(
         `UPDATE sal_customers 
          SET customer_code = :customer_code, 
              customer_name = :customer_name, 
@@ -1702,7 +1731,8 @@ router.put(
              currency_id = :currency_id, 
              credit_limit = :credit_limit, 
              payment_terms = :payment_terms, 
-             is_active = :is_active
+             is_active = :is_active,
+             sales_account_id = :sales_account_id
          WHERE id = :id AND company_id = :companyId`,
         {
           id,
@@ -1721,13 +1751,37 @@ router.put(
           customer_type: customer_type || "Individual",
           price_type_id: price_type_id || null,
           currency_id: currency_id || null,
-          credit_limit: credit_limit || 0,
+          credit_limit: Number(credit_limit || 0) || 0,
           payment_terms: payment_terms || "Net 30",
-          is_active: is_active === false ? 0 : 1,
+          is_active: isActive,
+          sales_account_id: sales_account_id || null,
         },
       );
 
-      res.json({ message: "Customer updated successfully" });
+      if (!result?.affectedRows) {
+        throw httpError(404, "NOT_FOUND", "Customer not found");
+      }
+
+      const rows = await query(
+        `SELECT 
+           c.*,
+           pt.name AS price_type_name,
+           fa.name AS sales_account_name
+         FROM sal_customers c
+         LEFT JOIN sal_price_types pt
+           ON pt.id = c.price_type_id AND pt.company_id = c.company_id
+         LEFT JOIN fin_accounts fa
+           ON fa.id = c.sales_account_id AND fa.company_id = c.company_id
+         WHERE c.id = :id AND c.company_id = :companyId
+         LIMIT 1`,
+        { id, companyId },
+      ).catch(() => []);
+
+      res.json({
+        message: "Customer updated successfully",
+        id,
+        item: rows?.[0] || null,
+      });
     } catch (e) {
       next(e);
     }
@@ -6047,41 +6101,60 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
+      const customerId = req.query.customerId
+        ? String(req.query.customerId)
+        : null;
       const customer = req.query.customer ? String(req.query.customer) : null;
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
       const items = await query(
         `
-        SELECT stage, ref_no, txn_date, amount, notes, customer_name,
-          q.created_at,
-          u.username AS created_by_name
+        SELECT stage, ref_no, txn_date, amount, notes, customer_name, customer_id,
+          created_at,
+          created_by_name
          FROM (
           SELECT 'QUOTATION' AS stage, q.quotation_no AS ref_no, q.quotation_date AS txn_date, q.total_amount AS amount, q.status AS notes,
-                 COALESCE(NULLIF(q.customer_name,''), c.customer_name, '') AS customer_name
+                 COALESCE(c.customer_name, NULLIF(q.customer_name,''), '') AS customer_name,
+                 c.id AS customer_id,
+                 q.created_at,
+                 u.username AS created_by_name
             FROM sal_quotations q
             LEFT JOIN sal_customers c ON c.id = q.customer_id AND c.company_id = q.company_id
-        LEFT JOIN adm_users u ON u.id = q.created_by
-         WHERE q.company_id = :companyId AND q.branch_id = :branchId
+            LEFT JOIN adm_users u ON u.id = q.created_by
+           WHERE q.company_id = :companyId AND q.branch_id = :branchId
           UNION ALL
           SELECT 'ORDER' AS stage, o.order_no AS ref_no, o.order_date AS txn_date, o.total_amount AS amount, o.status AS notes,
-                 COALESCE(c.customer_name,'') AS customer_name
+                 COALESCE(c.customer_name,'') AS customer_name,
+                 c.id AS customer_id,
+                 o.created_at,
+                 u.username AS created_by_name
             FROM sal_orders o
             LEFT JOIN sal_customers c ON c.id = o.customer_id AND c.company_id = o.company_id
+            LEFT JOIN adm_users u ON u.id = o.created_by
            WHERE o.company_id = :companyId AND o.branch_id = :branchId
           UNION ALL
           SELECT 'INVOICE' AS stage, i.invoice_no AS ref_no, i.invoice_date AS txn_date, COALESCE(i.net_amount, i.total_amount,0) AS amount, i.status AS notes,
-                 COALESCE(c.customer_name,'') AS customer_name
+                 COALESCE(c.customer_name,'') AS customer_name,
+                 c.id AS customer_id,
+                 i.created_at,
+                 u.username AS created_by_name
             FROM sal_invoices i
             LEFT JOIN sal_customers c ON c.id = i.customer_id AND c.company_id = i.company_id
+            LEFT JOIN adm_users u ON u.id = i.created_by
            WHERE i.company_id = :companyId AND i.branch_id = :branchId
           UNION ALL
           SELECT 'DELIVERY' AS stage, d.delivery_no AS ref_no, d.delivery_date AS txn_date, 0 AS amount, d.status AS notes,
-                 COALESCE(c.customer_name,'') AS customer_name
+                 COALESCE(c.customer_name,'') AS customer_name,
+                 c.id AS customer_id,
+                 d.created_at,
+                 u.username AS created_by_name
             FROM sal_deliveries d
             LEFT JOIN sal_customers c ON c.id = d.customer_id AND c.company_id = d.company_id
+            LEFT JOIN adm_users u ON u.id = d.created_by
            WHERE d.company_id = :companyId AND d.branch_id = :branchId
         ) t
-        WHERE (:customer IS NULL OR t.customer_name LIKE :customerLike)
+        WHERE (:customerId IS NULL OR t.customer_id = :customerId)
+          AND (:customer IS NULL OR t.customer_name LIKE :customerLike)
           AND (:from IS NULL OR t.txn_date >= :from)
           AND (:to IS NULL OR t.txn_date <= :to)
         ORDER BY t.txn_date DESC
@@ -6089,6 +6162,7 @@ router.get(
         {
           companyId,
           branchId,
+          customerId,
           customer,
           from,
           to,
@@ -6096,6 +6170,129 @@ router.get(
         },
       ).catch(() => []);
       res.json({ items: items || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// Customer History Report - includes all transactions including returns
+router.get(
+  "/reports/customer-history",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "SAL.QUOTATION.VIEW",
+    "SAL.ORDER.VIEW",
+    "SAL.INVOICE.VIEW",
+    "SAL.RETURN.VIEW",
+  ]),
+  async (req, res, next) => {
+    try {
+      await ensureSalesReturnTables();
+      const { companyId, branchId } = req.scope;
+      const customerId = req.query.customerId
+        ? String(req.query.customerId)
+        : null;
+      const customer = req.query.customer ? String(req.query.customer) : null;
+      const from = req.query.from ? String(req.query.from) : null;
+      const to = req.query.to ? String(req.query.to) : null;
+
+      const items = await query(
+        `
+        SELECT stage, ref_no, txn_date, amount, notes, customer_name, customer_id,
+          created_at,
+          created_by_name
+         FROM (
+          SELECT 'QUOTATION' AS stage, q.quotation_no AS ref_no, q.quotation_date AS txn_date, q.total_amount AS amount, q.status AS notes,
+                 COALESCE(c.customer_name, NULLIF(q.customer_name,''), '') AS customer_name,
+                 c.id AS customer_id,
+                 q.created_at,
+                 u.username AS created_by_name
+            FROM sal_quotations q
+            LEFT JOIN sal_customers c ON c.id = q.customer_id AND c.company_id = q.company_id
+            LEFT JOIN adm_users u ON u.id = q.created_by
+           WHERE q.company_id = :companyId AND q.branch_id = :branchId
+          UNION ALL
+          SELECT 'ORDER' AS stage, o.order_no AS ref_no, o.order_date AS txn_date, o.total_amount AS amount, o.status AS notes,
+                 COALESCE(c.customer_name,'') AS customer_name,
+                 c.id AS customer_id,
+                 o.created_at,
+                 u.username AS created_by_name
+            FROM sal_orders o
+            LEFT JOIN sal_customers c ON c.id = o.customer_id AND c.company_id = o.company_id
+            LEFT JOIN adm_users u ON u.id = o.created_by
+           WHERE o.company_id = :companyId AND o.branch_id = :branchId
+          UNION ALL
+          SELECT 'INVOICE' AS stage, i.invoice_no AS ref_no, i.invoice_date AS txn_date, COALESCE(i.net_amount, i.total_amount,0) AS amount, i.status AS notes,
+                 COALESCE(c.customer_name,'') AS customer_name,
+                 c.id AS customer_id,
+                 i.created_at,
+                 u.username AS created_by_name
+            FROM sal_invoices i
+            LEFT JOIN sal_customers c ON c.id = i.customer_id AND c.company_id = i.company_id
+            LEFT JOIN adm_users u ON u.id = i.created_by
+           WHERE i.company_id = :companyId AND i.branch_id = :branchId
+          UNION ALL
+          SELECT 'DELIVERY' AS stage, d.delivery_no AS ref_no, d.delivery_date AS txn_date, 0 AS amount, d.status AS notes,
+                 COALESCE(c.customer_name,'') AS customer_name,
+                 c.id AS customer_id,
+                 d.created_at,
+                 u.username AS created_by_name
+            FROM sal_deliveries d
+            LEFT JOIN sal_customers c ON c.id = d.customer_id AND c.company_id = d.company_id
+            LEFT JOIN adm_users u ON u.id = d.created_by
+           WHERE d.company_id = :companyId AND d.branch_id = :branchId
+          UNION ALL
+          SELECT 'RETURN' AS stage, r.return_no AS ref_no, r.return_date AS txn_date, COALESCE(r.total_amount, 0) AS amount, r.status AS notes,
+                 COALESCE(c.customer_name,'') AS customer_name,
+                 c.id AS customer_id,
+                 r.created_at,
+                 u.username AS created_by_name
+            FROM sal_returns r
+            LEFT JOIN sal_customers c ON c.id = r.customer_id AND c.company_id = r.company_id
+            LEFT JOIN adm_users u ON u.id = r.created_by
+           WHERE r.company_id = :companyId AND r.branch_id = :branchId
+        ) t
+        WHERE (:customerId IS NULL OR t.customer_id = :customerId)
+          AND (:customer IS NULL OR t.customer_name LIKE :customerLike)
+          AND (:from IS NULL OR t.txn_date >= :from)
+          AND (:to IS NULL OR t.txn_date <= :to)
+        ORDER BY t.txn_date DESC, t.created_at DESC
+        `,
+        {
+          companyId,
+          branchId,
+          customerId,
+          customer,
+          from,
+          to,
+          customerLike: customer ? `%${customer}%` : null,
+        },
+      ).catch(() => []);
+
+      // Calculate summary totals
+      const summary = items.reduce(
+        (acc, item) => {
+          const stage = item.stage?.toUpperCase();
+          const amount = Number(item.amount || 0);
+          if (stage === "RETURN") {
+            acc.totalReturns += amount;
+          } else if (stage === "INVOICE") {
+            acc.totalSales += amount;
+          }
+          return acc;
+        },
+        { totalSales: 0, totalReturns: 0 },
+      );
+      summary.netAmount = summary.totalSales - summary.totalReturns;
+
+      res.json({
+        items: items || [],
+        summary,
+        count: items?.length || 0,
+      });
     } catch (e) {
       next(e);
     }
@@ -6199,6 +6396,64 @@ router.get(
     }
   },
 );
+
+router.get(
+  "/returns/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
+  async (req, res, next) => {
+    try {
+      await ensureSalesReturnTables();
+      const { companyId, branchId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      }
+      const hdrRows = await query(
+        `
+        SELECT r.*,
+               COALESCE(c.customer_name, '') AS customer_name
+          FROM sal_returns r
+          LEFT JOIN sal_customers c
+            ON c.id = r.customer_id AND c.company_id = r.company_id
+         WHERE r.id = :id AND r.company_id = :companyId AND r.branch_id = :branchId
+         LIMIT 1
+        `,
+        { id, companyId, branchId },
+      ).catch(() => []);
+      const hdr = hdrRows?.[0];
+      if (!hdr) throw httpError(404, "NOT_FOUND", "Sales return not found");
+      const details = await query(
+        `
+        SELECT d.id,
+               d.return_id,
+               d.item_id,
+               d.qty_returned,
+               d.unit_price,
+               d.total_amount,
+               d.tax_amount,
+               d.reason_code,
+               d.remarks,
+               COALESCE(i.item_code, '') AS item_code,
+               COALESCE(i.item_name, '') AS item_name,
+               COALESCE(i.uom, '') AS uom
+          FROM sal_return_details d
+          LEFT JOIN inv_items i
+            ON i.id = d.item_id AND i.company_id = :companyId
+         WHERE d.return_id = :id
+         ORDER BY d.id
+        `,
+        { id, companyId },
+      ).catch(() => []);
+      res.json({ item: hdr, details: Array.isArray(details) ? details : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 router.post(
   "/returns",
   requireAuth,

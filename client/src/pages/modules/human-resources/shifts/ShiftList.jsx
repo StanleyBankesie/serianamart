@@ -48,6 +48,8 @@ export default function ShiftList() {
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">End Time</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Break (min)</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
               </tr>
             </thead>
@@ -66,6 +68,8 @@ export default function ShiftList() {
                       <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">Inactive</span>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-sm">{s.created_by_name || "-"}</td>
+                  <td className="px-4 py-3 text-sm">{s.created_at ? new Date(s.created_at).toLocaleDateString() : "-"}</td>
                   <td className="px-4 py-3 text-right">
                     <Link to={`/human-resources/shifts/${s.id}`} className="text-brand hover:underline text-sm font-medium">Edit</Link>
                   </td>
@@ -73,7 +77,7 @@ export default function ShiftList() {
               ))}
               {items.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-slate-500">No shifts defined</td>
+                  <td colSpan={9} className="text-center py-10 text-slate-500">No shifts defined</td>
                 </tr>
               )}
             </tbody>
@@ -83,7 +87,6 @@ export default function ShiftList() {
     </div>
   );
 }
-
 
 
 

@@ -50,6 +50,8 @@ export default function OffersList() {
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Gross Salary</th>
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Net Salary</th>
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th>
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
             </tr>
           </thead>
@@ -78,6 +80,8 @@ export default function OffersList() {
                     {it.status}
                   </span>
                 </td>
+                <td className="px-3 py-2">{it.created_by_name || "-"}</td>
+                <td className="px-3 py-2">{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
                 <td className="px-3 py-2 text-right">
                   <Link to={`/human-resources/offers/${it.id}`} className="text-brand hover:underline text-sm font-medium">
                     Edit
@@ -87,7 +91,7 @@ export default function OffersList() {
             ))}
             {!items.length && !loading ? (
               <tr>
-                <td className="px-3 py-10 text-center text-slate-500" colSpan={7}>
+                <td className="px-3 py-10 text-center text-slate-500" colSpan={10}>
                   No offers found
                 </td>
               </tr>

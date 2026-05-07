@@ -45,14 +45,12 @@ export async function listEmployees(req, res, next) {
               d.dept_name, p.pos_name, m.first_name as manager_first_name, m.last_name as manager_last_name,
               CONCAT(e.first_name, ' ', COALESCE(e.middle_name, ''), ' ', e.last_name) as full_name,
               CASE WHEN e.status = 'ACTIVE' THEN 1 ELSE 0 END as is_active,
-          e.created_at,
-          u.username AS created_by_name
-         FROM hr_employees e
+          e.created_at
+          FROM hr_employees e
        LEFT JOIN hr_departments d ON d.id = e.dept_id
        LEFT JOIN hr_positions p ON p.id = e.pos_id
        LEFT JOIN hr_employees m ON m.id = e.manager_id
        ${where}
-        LEFT JOIN adm_users u ON u.id = e.created_by
          ORDER BY e.emp_code ASC`,
       params,
     );
@@ -70,10 +68,7 @@ export async function listKPIs(req, res, next) {
   try {
     const { companyId } = req.scope;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_kpis
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_kpis
          WHERE company_id = :companyId AND is_active = 1 ORDER BY name ASC`,
       { companyId },
     );
@@ -126,10 +121,7 @@ async function listTrainingProgramsDup(req, res, next) {
   try {
     const { companyId } = req.scope;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_training_programs
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_training_programs
          WHERE company_id = :companyId AND is_active = 1 ORDER BY start_date DESC`,
       { companyId },
     );
@@ -166,10 +158,7 @@ async function ensureMedicalPolicyAttachmentColumns() {
 
 async function getNextPolicyCode(companyId) {
   const rows = await query(`SELECT code,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_policies
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_policies
          WHERE company_id = :companyId
        AND code REGEXP '^CP[0-9]{6}$'
      ORDER BY CAST(SUBSTRING(code, 3) AS UNSIGNED) DESC
@@ -183,10 +172,7 @@ async function getNextPolicyCode(companyId) {
 
 async function getNextMedicalPolicyCode(companyId) {
   const rows = await query(`SELECT policy_code,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_medical_policies
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_medical_policies
          WHERE company_id = :companyId
        AND policy_code REGEXP '^MP[0-9]{6}$'
      ORDER BY CAST(SUBSTRING(policy_code, 3) AS UNSIGNED) DESC
@@ -206,10 +192,7 @@ export async function listPolicies(req, res, next) {
     await ensurePolicyAttachmentColumns();
     const { companyId } = req.scope;
     const items = await query(`SELECT id, company_id, code, title, content, attachment_url, attachment_name, is_active, created_at, updated_at,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_policies
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_policies
          WHERE company_id = :companyId AND is_active = 1
        ORDER BY title ASC`,
       { companyId },
@@ -355,12 +338,9 @@ export async function listExits(req, res, next) {
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const items = await query(`SELECT e.*, emp.first_name, emp.last_name,
-          e.created_at,
-          u.username AS created_by_name
-         FROM hr_exits e
+          e.created_at FROM hr_exits e
        LEFT JOIN hr_employees emp ON emp.id = e.employee_id
        ${where}
-        LEFT JOIN adm_users u ON u.id = e.created_by
          ORDER BY e.id DESC`,
       params,
     );
@@ -374,10 +354,7 @@ export async function listClearance(req, res, next) {
   try {
     const { exit_id } = req.query;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_clearance
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_clearance
          WHERE exit_id = :exit_id ORDER BY department ASC`,
       { exit_id },
     );
@@ -403,10 +380,7 @@ export async function listKpis(req, res, next) {
   try {
     const { companyId } = req.scope;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_kpis
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_kpis
          WHERE company_id = :companyId ORDER BY name ASC`,
       { companyId },
     );
@@ -455,10 +429,7 @@ export async function listPerformanceReviews(req, res, next) {
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const items = await query(`SELECT r.*, e.first_name, e.last_name,
-          r.created_at,
-          u.username AS created_by_name
-         FROM hr_performance_reviews r LEFT JOIN hr_employees e ON e.id = r.employee_id ${where}
-        LEFT JOIN adm_users u ON u.id = r.created_by
+          r.created_at FROM hr_performance_reviews r LEFT JOIN hr_employees e ON e.id = r.employee_id ${where}
          ORDER BY r.created_at DESC`,
       params,
     );
@@ -516,10 +487,7 @@ export async function listTrainingPrograms(req, res, next) {
   try {
     const { companyId } = req.scope;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_training_programs
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_training_programs
          WHERE company_id = :companyId ORDER BY start_date DESC`,
       { companyId },
     );
@@ -570,10 +538,7 @@ export async function listTrainingRecords(req, res, next) {
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const items = await query(`SELECT r.*, p.title AS program_title,
-          r.created_at,
-          u.username AS created_by_name
-         FROM hr_training_records r LEFT JOIN hr_training_programs p ON p.id = r.program_id ${where}
-        LEFT JOIN adm_users u ON u.id = r.created_by
+          r.created_at FROM hr_training_records r LEFT JOIN hr_training_programs p ON p.id = r.program_id ${where}
          ORDER BY r.completion_date DESC`,
       params,
     );
@@ -629,13 +594,10 @@ export async function getEmployeeById(req, res, next) {
 
     const rows = await query(`SELECT e.*, d.dept_name, p.pos_name, m.first_name as manager_first_name, m.last_name as manager_last_name,
               CONCAT(e.first_name, ' ', COALESCE(e.middle_name, ''), ' ', e.last_name) as full_name,
-          e.created_at,
-          u.username AS created_by_name
-         FROM hr_employees e
+          e.created_at FROM hr_employees e
        LEFT JOIN hr_departments d ON d.id = e.dept_id
        LEFT JOIN hr_positions p ON p.id = e.pos_id
        LEFT JOIN hr_employees m ON m.id = e.manager_id
-        LEFT JOIN adm_users u ON u.id = e.created_by
          WHERE e.id = :id AND e.company_id = :companyId AND e.deleted_at IS NULL`,
       { id, companyId },
     );
@@ -653,10 +615,7 @@ export async function getEmployeeById(req, res, next) {
     } catch {}
 
     const documents = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_employee_documents
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_employee_documents
          WHERE employee_id = :id`,
       { id },
     );
@@ -856,10 +815,7 @@ export async function saveEmployeesBulk(req, res, next) {
     let updated = 0;
     for (const b of items) {
       const [rows] = await conn.query(`SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_employees
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_employees
          WHERE company_id = ? AND emp_code = ? LIMIT 1`,
         [companyId, b.emp_code],
       );
@@ -991,10 +947,7 @@ export async function listDepartments(req, res, next) {
     await ensureHRTables();
     const { companyId } = req.scope;
     const items = await query(`SELECT id, dept_code, dept_name,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_departments
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_departments
          WHERE company_id = :companyId AND deleted_at IS NULL ORDER BY dept_name ASC`,
       { companyId },
     );
@@ -1012,10 +965,7 @@ export async function listPositions(req, res, next) {
     await ensureHRTables();
     const { companyId } = req.scope;
     const items = await query(`SELECT id, pos_code, pos_name,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_positions
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_positions
          WHERE company_id = :companyId AND deleted_at IS NULL ORDER BY pos_name ASC`,
       { companyId },
     );
@@ -1110,11 +1060,7 @@ export async function savePosition(req, res, next) {
 export async function getNextRequisitionNo(req, res, next) {
   try {
     const { companyId } = req.scope;
-    const rows = await query(`SELECT MAX(id) as max_id,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_job_requisitions
-        LEFT JOIN adm_users u ON u.id = created_by
+    const rows = await query(`SELECT MAX(id) as max_id FROM hr_job_requisitions
          WHERE company_id = :companyId`,
       { companyId },
     );
@@ -1130,12 +1076,9 @@ export async function listRequisitions(req, res, next) {
   try {
     const { companyId } = req.scope;
     const items = await query(`SELECT r.*, d.dept_name, p.pos_name,
-          r.created_at,
-          u.username AS created_by_name
-         FROM hr_job_requisitions r
+          r.created_at FROM hr_job_requisitions r
        LEFT JOIN hr_departments d ON d.id = r.dept_id
        LEFT JOIN hr_positions p ON p.id = r.pos_id
-        LEFT JOIN adm_users u ON u.id = r.created_by
          WHERE r.company_id = :companyId
        ORDER BY r.created_at DESC`,
       { companyId },
@@ -1151,12 +1094,9 @@ export async function getRequisitionById(req, res, next) {
     const { companyId } = req.scope;
     const { id } = req.params;
     const rows = await query(`SELECT r.*, d.dept_name, p.pos_name,
-          r.created_at,
-          u.username AS created_by_name
-         FROM hr_job_requisitions r
+          r.created_at FROM hr_job_requisitions r
        LEFT JOIN hr_departments d ON d.id = r.dept_id
        LEFT JOIN hr_positions p ON p.id = r.pos_id
-        LEFT JOIN adm_users u ON u.id = r.created_by
          WHERE r.id = :id AND r.company_id = :companyId`,
       { id, companyId },
     );
@@ -1254,20 +1194,14 @@ export async function submitRequisition(req, res, next) {
     if (!id) throw httpError(400, "BAD_REQUEST", "Invalid requisition ID");
 
     const [reqRow] = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_job_requisitions
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_job_requisitions
          WHERE id = :id AND company_id = :companyId`,
       { id, companyId },
     ).catch(() => []);
     if (!reqRow) throw httpError(404, "NOT_FOUND", "Requisition not found");
 
     const [workflow] = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM adm_workflows
          WHERE company_id = :companyId 
          AND (document_type = 'Job Requisition' OR document_type = 'JOB_REQUISITION')
          AND is_active = 1 
@@ -1282,10 +1216,7 @@ export async function submitRequisition(req, res, next) {
       );
 
     const [firstStep] = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflow_steps
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM adm_workflow_steps
          WHERE workflow_id = :wfId ORDER BY step_order ASC LIMIT 1`,
       { wfId: workflow.id },
     ).catch(() => []);
@@ -1293,10 +1224,7 @@ export async function submitRequisition(req, res, next) {
       throw httpError(400, "BAD_REQUEST", "Workflow has no steps");
 
     const [firstAssignedRow] = await query(`SELECT approver_user_id,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflow_step_approvers
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM adm_workflow_step_approvers
          WHERE workflow_id = :wfId AND step_order = :step 
        ORDER BY approver_user_id ASC LIMIT 1`,
       { wfId: workflow.id, step: firstStep.step_order },
@@ -1379,12 +1307,9 @@ export async function listCandidates(req, res, next) {
   try {
     const { companyId } = req.scope;
     const items = await query(`SELECT c.*, r.title as requisition_title, r.recruitment_type, p.pos_name,
-          c.created_at,
-          u.username AS created_by_name
-         FROM hr_candidates c
+          c.created_at FROM hr_candidates c
        LEFT JOIN hr_job_requisitions r ON r.id = c.requisition_id
        LEFT JOIN hr_positions p ON p.id = r.pos_id
-        LEFT JOIN adm_users u ON u.id = c.created_by
          WHERE c.company_id = :companyId
        ORDER BY c.created_at DESC`,
       { companyId },
@@ -1400,12 +1325,9 @@ export async function getCandidate(req, res, next) {
     const { companyId } = req.scope;
     const { id } = req.params;
     const rows = await query(`SELECT c.*, r.title as requisition_title, r.recruitment_type, p.pos_name,
-          c.created_at,
-          u.username AS created_by_name
-         FROM hr_candidates c
+          c.created_at FROM hr_candidates c
        LEFT JOIN hr_job_requisitions r ON r.id = c.requisition_id
        LEFT JOIN hr_positions p ON p.id = r.pos_id
-        LEFT JOIN adm_users u ON u.id = c.created_by
          WHERE c.id = :id AND c.company_id = :companyId`,
       { id, companyId },
     );
@@ -1529,13 +1451,10 @@ export async function listPromotions(req, res, next) {
   try {
     const { companyId } = req.scope;
     const items = await query(`SELECT pr.*, e.first_name, e.last_name, e.emp_code, p1.pos_name as previous_pos, p2.pos_name as new_pos,
-          pr.created_at,
-          u.username AS created_by_name
-         FROM hr_promotions pr
+          pr.created_at FROM hr_promotions pr
        JOIN hr_employees e ON e.id = pr.employee_id
        LEFT JOIN hr_positions p1 ON p1.id = pr.previous_pos_id
        LEFT JOIN hr_positions p2 ON p2.id = pr.new_pos_id
-        LEFT JOIN adm_users u ON u.id = pr.created_by
          WHERE pr.company_id = :companyId
        ORDER BY pr.promotion_date DESC`,
       { companyId },
@@ -1599,13 +1518,10 @@ export async function listInterviews(req, res, next) {
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const items = await query(`SELECT i.*, c.first_name, c.last_name, r.title AS requisition_title,
-          i.created_at,
-          u.username AS created_by_name
-         FROM hr_interviews i
+          i.created_at FROM hr_interviews i
        LEFT JOIN hr_candidates c ON c.id = i.candidate_id
        LEFT JOIN hr_job_requisitions r ON r.id = i.requisition_id
        ${where}
-        LEFT JOIN adm_users u ON u.id = i.created_by
          ORDER BY i.scheduled_at DESC`,
       params,
     );
@@ -1696,13 +1612,10 @@ export async function listOffers(req, res, next) {
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const items = await query(`SELECT o.*, c.first_name, c.last_name, r.title AS requisition_title,
-          o.created_at,
-          u.username AS created_by_name
-         FROM hr_offers o
+          o.created_at FROM hr_offers o
        LEFT JOIN hr_candidates c ON c.id = o.candidate_id
        LEFT JOIN hr_job_requisitions r ON r.id = o.requisition_id
        ${where}
-        LEFT JOIN adm_users u ON u.id = o.created_by
          ORDER BY o.offer_date DESC`,
       params,
     );
@@ -1720,10 +1633,7 @@ export async function listShifts(req, res, next) {
     await ensureHRTables();
     const { companyId } = req.scope;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_shifts
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_shifts
          WHERE company_id = :companyId AND is_active = 1 ORDER BY start_time ASC`,
       { companyId },
     );
@@ -1785,10 +1695,7 @@ export async function clockIn(req, res, next) {
       throw httpError(400, "BAD_REQUEST", "employee_id required");
 
     const existing = await query(`SELECT id, clock_in,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_attendance
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_attendance
          WHERE employee_id = :employee_id AND attendance_date = :attendance_date`,
       { employee_id, attendance_date },
     );
@@ -1819,10 +1726,7 @@ export async function clockOut(req, res, next) {
     if (!employee_id)
       throw httpError(400, "BAD_REQUEST", "employee_id required");
     const rows = await query(`SELECT id, clock_in,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_attendance
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_attendance
          WHERE employee_id = :employee_id AND attendance_date = :attendance_date`,
       { employee_id, attendance_date },
     );
@@ -1856,12 +1760,9 @@ export async function listAttendance(req, res, next) {
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const items = await query(`SELECT a.*, e.first_name, e.last_name,
-          a.created_at,
-          u.username AS created_by_name
-         FROM hr_attendance a
+          a.created_at FROM hr_attendance a
        LEFT JOIN hr_employees e ON e.id = a.employee_id
        ${where}
-        LEFT JOIN adm_users u ON u.id = a.created_by
          ORDER BY a.attendance_date DESC`,
       params,
     );
@@ -1908,10 +1809,7 @@ export async function saveTimesheet(req, res, next) {
     const { employee_id, work_date, hours_worked, overtime_hours, remarks } =
       req.body;
     const existing = await query(`SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_timesheets
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_timesheets
          WHERE employee_id = :employee_id AND work_date = :work_date`,
       { employee_id, work_date },
     );
@@ -1966,12 +1864,9 @@ export async function listTimesheets(req, res, next) {
 
     const where = `WHERE ${clauses.join(" AND ")}`;
     const items = await query(`SELECT t.*, e.first_name, e.last_name, e.emp_code,
-          t.created_at,
-          u.username AS created_by_name
-         FROM hr_timesheets t
+          t.created_at FROM hr_timesheets t
        JOIN hr_employees e ON e.id = t.employee_id
        ${where}
-        LEFT JOIN adm_users u ON u.id = t.created_by
          ORDER BY t.work_date DESC, e.last_name ASC`,
       params,
     );
@@ -1985,10 +1880,7 @@ export async function biometricWebhook(req, res, next) {
   try {
     const { employee_code, event_type, event_time } = req.body;
     const rows = await query(`SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_employees
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_employees
          WHERE emp_code = :code LIMIT 1`,
       { code: employee_code },
     );
@@ -1996,10 +1888,7 @@ export async function biometricWebhook(req, res, next) {
     const employee_id = rows[0].id;
     const dateStr = (event_time || new Date().toISOString()).slice(0, 10);
     const exist = await query(`SELECT id, clock_in, clock_out,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_attendance
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_attendance
          WHERE employee_id = :eid AND attendance_date = :d`,
       { eid: employee_id, d: dateStr },
     );
@@ -2050,10 +1939,7 @@ export async function listPayrollPeriods(req, res, next) {
     await ensureHRTables();
     const { companyId } = req.scope;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_payroll_periods
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_payroll_periods
          WHERE company_id = :companyId ORDER BY start_date DESC`,
       { companyId },
     );
@@ -2256,10 +2142,7 @@ export async function generatePayroll(req, res, next) {
     const { period_id } = req.body;
     if (!period_id) throw httpError(400, "BAD_REQUEST", "period_id required");
     const [period] = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_payroll_periods
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_payroll_periods
          WHERE id = :id AND company_id = :companyId`,
       { id: period_id, companyId },
     );
@@ -2269,10 +2152,7 @@ export async function generatePayroll(req, res, next) {
     await seedFixedSalaryComponents(companyId);
 
     const existing = await query(`SELECT id, status,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_payroll
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_payroll
          WHERE company_id = :companyId AND period_id = :period_id`,
       { companyId, period_id },
     );
@@ -2294,19 +2174,13 @@ export async function generatePayroll(req, res, next) {
     }
 
     const taxConfigs = await query(`SELECT id, tax_name, tax_type, min_amount, max_amount, tax_rate, fixed_amount, employee_contribution_rate, employer_contribution_rate, taxable_components,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_tax_config
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_tax_config
          WHERE company_id = :companyId AND is_active = 1
        ORDER BY min_amount ASC`,
       { companyId },
     );
     const structRows = await query(`SELECT components,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_salary_structures
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_salary_structures
          WHERE company_id = :companyId AND is_active = 1 ORDER BY id DESC LIMIT 1`,
       { companyId },
     );
@@ -2322,10 +2196,7 @@ export async function generatePayroll(req, res, next) {
     const activeTokens = new Set(formula.map((f) => String(f.token || "")));
 
     const employees = await query(`SELECT id, base_salary, has_paye, has_ssnit, has_tier3,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_employees
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_employees
          WHERE company_id = :companyId AND status = 'ACTIVE' AND deleted_at IS NULL`,
       { companyId },
     );
@@ -2414,10 +2285,7 @@ export async function generatePayroll(req, res, next) {
     for (const e of employees) {
       console.log(`Processing employee ${e.id}...`);
       const overrides = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_employee_salaries
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_employee_salaries
          WHERE employee_id = :eid AND status = 'ACTIVE' ORDER BY effective_from DESC LIMIT 1`,
         { eid: e.id },
       ).catch(() => []);
@@ -2428,11 +2296,8 @@ export async function generatePayroll(req, res, next) {
         ? Number(overrides[0].allowances || 0)
         : 0;
       const alRows = await query(`SELECT a.id, a.amount, a.allowance_name,
-          m.created_at,
-          u.username AS created_by_name
-         FROM hr_employee_allowance_mappings m 
+          m.created_at FROM hr_employee_allowance_mappings m 
          JOIN hr_allowances a ON a.id = m.allowance_id
-        LEFT JOIN adm_users u ON u.id = m.created_by
          WHERE m.employee_id = :eid AND a.is_active = 1`,
         { eid: e.id },
       ).catch(() => []);
@@ -2620,10 +2485,7 @@ export async function generatePayroll(req, res, next) {
           subtotalB = gross - incomeTax;
         } else if (token === "LOANS" || token === "DEDUCTIONS") {
           const activeLoans = await query(`SELECT id, loan_type, monthly_installment, amount_due, status,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_loans
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_loans
          WHERE employee_id = :eid AND company_id = :companyId AND status = 'ACTIVE' AND amount_due > 0 AND affect_payslip = 1 AND start_date <= CURDATE()`,
             { eid: e.id, companyId },
           );
@@ -2893,12 +2755,9 @@ export async function listSalaryComponents(req, res, next) {
     const items = await query(`SELECT c.id, c.column_name, c.label, c.component_type, c.display_order,
               c.is_earning, c.is_fixed, c.source_type, c.source_id, c.is_active,
               m.account_id, a.code AS account_code, a.name AS account_name,
-          c.created_at,
-          u.username AS created_by_name
-         FROM hr_salary_components c
+          c.created_at FROM hr_salary_components c
        LEFT JOIN hr_salary_component_accounts m ON m.component_id = c.id AND m.company_id = c.company_id
        LEFT JOIN fin_accounts a ON a.id = m.account_id AND a.company_id = c.company_id
-        LEFT JOIN adm_users u ON u.id = c.created_by
          WHERE c.company_id = :companyId AND c.is_active = 1
        ORDER BY c.display_order ASC, c.component_type ASC, c.column_name ASC`,
       { companyId },
@@ -3024,10 +2883,7 @@ export async function mapSalaryComponentAccount(req, res, next) {
       });
 
       const [comp] = await query(`SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_salary_components
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_salary_components
          WHERE company_id = :companyId AND column_name = :columnName LIMIT 1`,
         { companyId, columnName },
       );
@@ -3077,10 +2933,7 @@ export async function listPayslips(req, res, next) {
 
     // Dynamic columns for loans
     const loanColRows = await query(`SELECT COLUMN_NAME AS name,
-          created_at,
-          u.username AS created_by_name
-         FROM INFORMATION_SCHEMA.COLUMNS
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM INFORMATION_SCHEMA.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE()
          AND TABLE_NAME = 'hr_payslips'
          AND COLUMN_NAME LIKE 'loan\\_%' ESCAPE '\\'
@@ -3094,13 +2947,10 @@ export async function listPayslips(req, res, next) {
     const selectCols = ["p.*"].concat(loanCols.map((c) => `p.${c}`)).join(", ");
 
     const itemsRaw = await query(`SELECT ${selectCols}, e.first_name, e.last_name, e.emp_code, e.email, pr.period_name,
-          p.created_at,
-          u.username AS created_by_name
-         FROM hr_payslips p
+          p.created_at FROM hr_payslips p
        JOIN hr_employees e ON e.id = p.employee_id
        JOIN hr_payroll_periods pr ON pr.id = p.period_id
        ${where}
-        LEFT JOIN adm_users u ON u.id = p.created_by
          ORDER BY pr.start_date DESC`,
       params,
     );
@@ -3110,12 +2960,9 @@ export async function listPayslips(req, res, next) {
     const uniquePids = [...new Set(pids)];
 
     const repayRows = await query(`SELECT lr.employee_id, lr.loan_id, lr.amount_paid, l.loan_type, lr.payroll_id, pr.period_id,
-          lr.created_at,
-          u.username AS created_by_name
-         FROM hr_loan_repayments lr 
+          lr.created_at FROM hr_loan_repayments lr 
        LEFT JOIN hr_loans l ON l.id = lr.loan_id
        JOIN hr_payroll pr ON pr.id = lr.payroll_id
-        LEFT JOIN adm_users u ON u.id = lr.created_by
          WHERE pr.period_id IN (:uniquePids)`,
       { uniquePids: uniquePids.length ? uniquePids : [0] },
     ).catch(() => []);
@@ -3171,12 +3018,9 @@ export async function sendPayslipEmail(req, res, next) {
     const { companyId } = req.scope;
     const { payslipId } = req.body;
     const rows = await query(`SELECT p.*, e.first_name, e.last_name, e.email, pr.period_name,
-          p.created_at,
-          u.username AS created_by_name
-         FROM hr_payslips p
+          p.created_at FROM hr_payslips p
        JOIN hr_employees e ON e.id = p.employee_id
        JOIN hr_payroll_periods pr ON pr.id = p.period_id
-        LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.id = :id AND e.company_id = :companyId`,
       { id: payslipId, companyId },
     );
@@ -3300,10 +3144,7 @@ export async function getPayrollBreakdown(req, res, next) {
     let pid = payroll_id ? Number(payroll_id) : null;
     if (!pid && period_id) {
       const r = await query(`SELECT id, period_id,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_payroll
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_payroll
          WHERE company_id = :companyId AND period_id = :period_id ORDER BY id DESC LIMIT 1`,
         { companyId, period_id },
       );
@@ -3311,10 +3152,7 @@ export async function getPayrollBreakdown(req, res, next) {
     }
     if (!pid) {
       const r = await query(`SELECT id, period_id,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_payroll
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_payroll
          WHERE company_id = :companyId ORDER BY id DESC LIMIT 1`,
         { companyId },
       );
@@ -3325,10 +3163,7 @@ export async function getPayrollBreakdown(req, res, next) {
       pid = Number(r[0].id);
     }
     const colRows = await query(`SELECT COLUMN_NAME AS name,
-          created_at,
-          u.username AS created_by_name
-         FROM INFORMATION_SCHEMA.COLUMNS
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM INFORMATION_SCHEMA.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE()
          AND TABLE_NAME = 'hr_payroll_items'
          AND COLUMN_NAME LIKE 'allowance\\_%' ESCAPE '\\'
@@ -3339,10 +3174,7 @@ export async function getPayrollBreakdown(req, res, next) {
       ? colRows.map((r) => String(r.name))
       : [];
     const loanColRows = await query(`SELECT COLUMN_NAME AS name,
-          created_at,
-          u.username AS created_by_name
-         FROM INFORMATION_SCHEMA.COLUMNS
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM INFORMATION_SCHEMA.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE()
          AND TABLE_NAME = 'hr_payroll_items'
          AND COLUMN_NAME LIKE 'loan\\_%' ESCAPE '\\'
@@ -3373,11 +3205,8 @@ export async function getPayrollBreakdown(req, res, next) {
       .join(", ");
     const rows = await query(`SELECT pi.payroll_id, ${selectCols},
               e.first_name, e.last_name, e.emp_code,
-          pi.created_at,
-          u.username AS created_by_name
-         FROM hr_payroll_items pi
+          pi.created_at FROM hr_payroll_items pi
        JOIN hr_employees e ON e.id = pi.employee_id
-        LEFT JOIN adm_users u ON u.id = pi.created_by
          WHERE pi.payroll_id = :pid AND e.company_id = :companyId
        ORDER BY e.emp_code ASC`,
       { pid, companyId },
@@ -3385,11 +3214,8 @@ export async function getPayrollBreakdown(req, res, next) {
     // Load actual loan repayments for this payroll to expose real per-loan items
     // and exclude completed/non-active loans from Salary Breakdown display.
     const repayRows = await query(`SELECT lr.employee_id, lr.loan_id, lr.amount_paid, l.loan_type, l.status AS loan_status,
-          lr.created_at,
-          u.username AS created_by_name
-         FROM hr_loan_repayments lr 
+          lr.created_at FROM hr_loan_repayments lr 
        LEFT JOIN hr_loans l ON l.id = lr.loan_id
-        LEFT JOIN adm_users u ON u.id = lr.created_by
          WHERE lr.payroll_id = :pid 
          AND lr.amount_paid > 0
          AND l.status = 'ACTIVE'`,
@@ -3477,10 +3303,7 @@ export async function listMedicalPolicies(req, res, next) {
     await ensureMedicalPolicyAttachmentColumns();
     const { companyId } = req.scope;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_medical_policies
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_medical_policies
          WHERE company_id = :companyId AND is_active = 1 ORDER BY policy_name ASC`,
       { companyId },
     );
@@ -3496,10 +3319,7 @@ export async function getMedicalPolicy(req, res, next) {
     const { companyId } = req.scope;
     const { id } = req.params;
     const rows = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_medical_policies
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_medical_policies
          WHERE id = :id AND company_id = :companyId`,
       { id, companyId },
     );
@@ -3595,10 +3415,7 @@ export async function listAllowances(req, res, next) {
     await ensureHRTables();
     const { companyId } = req.scope;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_allowances
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_allowances
          WHERE company_id = :companyId AND is_active = 1 ORDER BY allowance_name ASC`,
       { companyId },
     );
@@ -3683,12 +3500,9 @@ export async function listLoans(req, res, next) {
 
     const where = `WHERE ${clauses.join(" AND ")}`;
     const items = await query(`SELECT l.*, e.first_name, e.last_name,
-          l.created_at,
-          u.username AS created_by_name
-         FROM hr_loans l
+          l.created_at FROM hr_loans l
        JOIN hr_employees e ON e.id = l.employee_id
        ${where}
-        LEFT JOIN adm_users u ON u.id = l.created_by
          ORDER BY l.created_at DESC`,
       params,
     );
@@ -3844,10 +3658,7 @@ export async function listLoanTypes(req, res, next) {
       {},
     ).catch(() => {});
     const items = await query(`SELECT id, name, is_active,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_setup_loan_types
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_setup_loan_types
          WHERE company_id = :companyId AND is_active = 1 ORDER BY name ASC`,
       { companyId },
     );
@@ -3900,10 +3711,7 @@ export async function listTaxConfigs(req, res, next) {
   try {
     const { companyId } = req.scope;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_tax_config
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_tax_config
          WHERE company_id = :companyId AND is_active = 1 ORDER BY tax_name ASC, min_amount ASC`,
       { companyId },
     );
@@ -4090,10 +3898,7 @@ export async function listSalaryStructures(req, res, next) {
   try {
     const { companyId } = req.scope;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_salary_structures
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_salary_structures
          WHERE company_id = :companyId AND is_active = 1 ORDER BY name ASC`,
       { companyId },
     );
@@ -4150,10 +3955,7 @@ export async function getActiveSalaryStructure(req, res, next) {
   try {
     const { companyId } = req.scope;
     const rows = await query(`SELECT id, name, description, is_active, components,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_salary_structures
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_salary_structures
          WHERE company_id = :companyId AND is_active = 1 
        ORDER BY id DESC LIMIT 1`,
       { companyId },
@@ -4174,16 +3976,13 @@ export async function listBaseSalaries(req, res, next) {
     const items = await query(`SELECT e.id as employee_id, e.emp_code, e.first_name, e.last_name, 
               COALESCE(bs.base_salary, e.base_salary, 0) as base_salary,
               bs.effective_date,
-          e.created_at,
-          u.username AS created_by_name
-         FROM hr_employees e
+          e.created_at FROM hr_employees e
        LEFT JOIN (
          SELECT t1.employee_id, t1.base_salary, t1.effective_date
          FROM hr_employee_base_salaries t1
          INNER JOIN (
            SELECT employee_id, MAX(id) as max_id
            FROM hr_employee_base_salaries
-        LEFT JOIN adm_users u ON u.id = e.created_by
          WHERE company_id = :companyId
            GROUP BY employee_id
          ) t2 ON t1.id = t2.max_id
@@ -4252,10 +4051,7 @@ export async function saveBaseSalariesBulk(req, res, next) {
       if (!row || !row.emp_code || row.base_salary == null) continue;
 
       const empRes = await query(`SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_employees
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_employees
          WHERE emp_code = :emp_code AND company_id = :companyId AND status = 'ACTIVE'`,
         { emp_code: String(row.emp_code).trim(), companyId },
       );
@@ -4294,10 +4090,7 @@ export async function closePayroll(req, res, next) {
       narration,
     } = req.body;
     const [hdr] = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_payroll
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_payroll
          WHERE id = :id AND company_id = :companyId`,
       { id: payroll_id, companyId },
     );
@@ -4332,10 +4125,7 @@ export async function closePayroll(req, res, next) {
            COALESCE(SUM(income_tax),0) AS paye, 
            COALESCE(SUM(ssf_employee),0) AS ssf, 
            COALESCE(SUM(net_salary),0) AS net,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_payroll_items
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_payroll_items
          WHERE payroll_id = :pid`,
         { pid: payroll_id },
       );
@@ -4344,19 +4134,13 @@ export async function closePayroll(req, res, next) {
       const ssf = Number(totals?.[0]?.ssf || 0);
       const net = Number(totals?.[0]?.net || 0);
       const fyRows = await query(`SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM fin_fiscal_years
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM fin_fiscal_years
          WHERE company_id = :companyId AND status = 'OPEN' ORDER BY start_date DESC LIMIT 1`,
         { companyId },
       );
       const fiscalYearId = fyRows.length ? fyRows[0].id : null;
       const vtRows = await query(`SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM fin_voucher_types
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM fin_voucher_types
          WHERE code = 'JV' LIMIT 1`,
         {},
       );
@@ -4401,10 +4185,7 @@ export async function closePayroll(req, res, next) {
         },
       );
       const payeAccRows = await query(`SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM fin_accounts
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM fin_accounts
          WHERE company_id = :companyId AND name = 'PAYE Payable' LIMIT 1`,
         { companyId },
       );
@@ -4425,10 +4206,7 @@ export async function closePayroll(req, res, next) {
         );
       }
       const ssfAccRows = await query(`SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM fin_accounts
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM fin_accounts
          WHERE company_id = :companyId AND name = 'SSNIT/Pension Payable' LIMIT 1`,
         { companyId },
       );
@@ -4496,10 +4274,7 @@ export async function assignOnboardingChecklist(req, res, next) {
     );
 
     const tasks = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_onboarding_tasks
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_onboarding_tasks
          WHERE checklist_id = :checklist_id ORDER BY task_order ASC`,
       { checklist_id },
     ).catch(() => []);
@@ -4528,10 +4303,7 @@ export async function backfillTier3(req, res, next) {
   try {
     const { companyId } = req.scope;
     const taxRows = await query(`SELECT employee_contribution_rate,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_tax_config
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_tax_config
          WHERE company_id = :companyId AND is_active = 1 AND 
              (tax_type = 'PROVIDENT_FUND' OR UPPER(tax_name) LIKE '%TIER 3%' OR UPPER(tax_name) LIKE '%TIER-3%')`,
       { companyId },
@@ -4543,10 +4315,7 @@ export async function backfillTier3(req, res, next) {
     rate = rate / 100;
     const existCol = async (table, col) => {
       const r = await query(`SELECT COUNT(*) AS c,
-          created_at,
-          u.username AS created_by_name
-         FROM INFORMATION_SCHEMA.COLUMNS
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM INFORMATION_SCHEMA.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c`,
         { t: table, c: col },
       ).catch(() => []);
@@ -4563,11 +4332,8 @@ export async function backfillTier3(req, res, next) {
       ).catch(() => {});
     }
     const rows = await query(`SELECT pi.payroll_id, pi.employee_id, pi.basic_salary, p.period_id,
-          pi.created_at,
-          u.username AS created_by_name
-         FROM hr_payroll_items pi
+          pi.created_at FROM hr_payroll_items pi
        JOIN hr_payroll p ON p.id = pi.payroll_id
-        LEFT JOIN adm_users u ON u.id = pi.created_by
          WHERE p.company_id = :companyId`,
       { companyId },
     );
@@ -4601,10 +4367,7 @@ export async function updateOnboardingTask(req, res, next) {
     );
 
     const pendingCountRows = await query(`SELECT COUNT(*) AS c,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_onboarding_assignment_tasks
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_onboarding_assignment_tasks
          WHERE assignment_id = :assignment_id AND completed = 0`,
       { assignment_id },
     );
@@ -4631,13 +4394,10 @@ export async function listOnboardingAssignments(req, res, next) {
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const items = await query(`SELECT a.*, e.first_name, e.last_name, c.name AS checklist_name,
-          a.created_at,
-          u.username AS created_by_name
-         FROM hr_onboarding_assignments a
+          a.created_at FROM hr_onboarding_assignments a
        LEFT JOIN hr_employees e ON e.id = a.employee_id
        LEFT JOIN hr_onboarding_checklists c ON c.id = a.checklist_id
        ${where}
-        LEFT JOIN adm_users u ON u.id = a.created_by
          ORDER BY a.created_at DESC`,
       params,
     );
@@ -4655,10 +4415,7 @@ export async function listLocations(req, res, next) {
     await ensureHRTables();
     const { companyId } = req.scope;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_locations
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_locations
          WHERE company_id = :companyId AND is_active = 1 ORDER BY location_name ASC`,
       { companyId },
     );
@@ -4711,10 +4468,7 @@ export async function listParameters(req, res, next) {
   try {
     const { companyId } = req.scope;
     const items = await query(`SELECT id, param_key, param_value,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_setup_parameters
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_setup_parameters
          WHERE company_id = :companyId`,
       { companyId },
     );
@@ -4765,13 +4519,10 @@ export async function reportEmployees(req, res, next) {
     }
     const where = `WHERE ${clauses.join(" AND ")}`;
     const items = await query(`SELECT e.id, e.emp_code, e.first_name, e.last_name, d.dept_name, p.pos_name, e.email, e.phone, e.status,
-          e.created_at,
-          u.username AS created_by_name
-         FROM hr_employees e
+          e.created_at FROM hr_employees e
        LEFT JOIN hr_departments d ON d.id = e.dept_id
        LEFT JOIN hr_positions p ON p.id = e.pos_id
        ${where}
-        LEFT JOIN adm_users u ON u.id = e.created_by
          ORDER BY e.emp_code ASC`,
       params,
     );
@@ -4801,11 +4552,8 @@ export async function reportSSF(req, res, next) {
     }
     const where = `WHERE ${clauses.join(" AND ")}`;
     const items = await query(`SELECT e.emp_code, e.first_name, e.last_name, p.period_name, i.basic_salary, i.ssf_employee,
-          i.created_at,
-          u.username AS created_by_name
-         FROM hr_payroll_items i
+          i.created_at FROM hr_payroll_items i
        JOIN hr_payslips ps ON ps.employee_id = i.employee_id AND ps.period_id = (SELECT period_id FROM hr_payroll
-        LEFT JOIN adm_users u ON u.id = i.created_by
          WHERE id = (SELECT MAX(id) FROM hr_payroll WHERE company_id = :companyId))
        JOIN hr_employees e ON e.id = i.employee_id
        JOIN hr_payroll pp ON pp.id = (SELECT MAX(id) FROM hr_payroll WHERE company_id = :companyId)
@@ -4840,14 +4588,11 @@ export async function reportPAYE(req, res, next) {
     }
     const where = `WHERE ${clauses.join(" AND ")}`;
     const items = await query(`SELECT e.emp_code, e.first_name, e.last_name, p.period_name, i.basic_salary, i.allowances, i.income_tax,
-          i.created_at,
-          u.username AS created_by_name
-         FROM hr_payroll_items i
+          i.created_at FROM hr_payroll_items i
        JOIN hr_employees e ON e.id = i.employee_id
        JOIN hr_payroll pp ON pp.company_id = :companyId
        JOIN hr_payroll_periods p ON p.id = pp.period_id
        ${where}
-        LEFT JOIN adm_users u ON u.id = i.created_by
          ORDER BY e.emp_code ASC`,
       params,
     );
@@ -4861,11 +4606,8 @@ export async function reportEmployeeLoans(req, res, next) {
   try {
     const { companyId } = req.scope;
     const items = await query(`SELECT l.id, e.emp_code, e.first_name, e.last_name, l.loan_type, l.amount, l.monthly_installment, l.start_date, l.status,
-          l.created_at,
-          u.username AS created_by_name
-         FROM hr_loans l
+          l.created_at FROM hr_loans l
        JOIN hr_employees e ON e.id = l.employee_id
-        LEFT JOIN adm_users u ON u.id = l.created_by
          WHERE l.company_id = :companyId
        ORDER BY l.start_date DESC`,
       { companyId },
@@ -4880,12 +4622,9 @@ export async function reportEmployeeAllowances(req, res, next) {
   try {
     const { companyId } = req.scope;
     const items = await query(`SELECT e.emp_code, e.first_name, e.last_name, a.allowance_name, a.amount_type, a.amount,
-          m.created_at,
-          u.username AS created_by_name
-         FROM hr_employee_allowance_mappings m
+          m.created_at FROM hr_employee_allowance_mappings m
        JOIN hr_employees e ON e.id = m.employee_id
        JOIN hr_allowances a ON a.id = m.allowance_id
-        LEFT JOIN adm_users u ON u.id = m.created_by
          WHERE e.company_id = :companyId
        ORDER BY e.emp_code ASC`,
       { companyId },
@@ -4910,12 +4649,9 @@ export async function sendEmailBulk(req, res, next) {
     let count = 0;
     for (const payslipId of payslipIds) {
       const rows = await query(`SELECT p.*, e.first_name, e.last_name, e.email, pr.period_name,
-          p.created_at,
-          u.username AS created_by_name
-         FROM hr_payslips p
+          p.created_at FROM hr_payslips p
          JOIN hr_employees e ON e.id = p.employee_id
          JOIN hr_payroll_periods pr ON pr.id = p.period_id
-        LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.id = :id AND e.company_id = :companyId`,
         { id: payslipId, companyId },
       );
@@ -5053,10 +4789,7 @@ export async function listEmploymentTypes(req, res, next) {
     await ensureHRTables();
     const { companyId } = req.scope;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_setup_employment_types
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_setup_employment_types
          WHERE company_id = :companyId ORDER BY name ASC`,
       { companyId },
     );
@@ -5094,10 +4827,7 @@ export async function listEmployeeCategories(req, res, next) {
     await ensureHRTables();
     const { companyId } = req.scope;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_setup_employee_categories
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_setup_employee_categories
          WHERE company_id = :companyId ORDER BY name ASC`,
       { companyId },
     );
@@ -5135,10 +4865,7 @@ export async function listAllowanceTypes(req, res, next) {
     await ensureHRTables();
     const { companyId } = req.scope;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_setup_allowance_types
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_setup_allowance_types
          WHERE company_id = :companyId ORDER BY name ASC`,
       { companyId },
     );
@@ -5193,12 +4920,9 @@ export async function listWorkSchedules(req, res, next) {
     const items = await query(`SELECT ws.*, 
               e.emp_code, e.first_name, e.last_name, e.status as emp_status,
               s.code as shift_code, s.name as shift_name, s.start_time, s.end_time, s.break_minutes,
-          ws.created_at,
-          u.username AS created_by_name
-         FROM hr_work_schedules ws
+          ws.created_at FROM hr_work_schedules ws
        JOIN hr_employees e ON e.id = ws.employee_id AND e.deleted_at IS NULL
        LEFT JOIN hr_shifts s ON s.id = ws.shift_id
-        LEFT JOIN adm_users u ON u.id = ws.created_by
          WHERE ws.company_id = :companyId
        ORDER BY e.first_name ASC, e.last_name ASC`,
       { companyId },
@@ -5328,10 +5052,7 @@ export async function listLeaveTypes(req, res, next) {
     await ensureLeaveTables();
     const { companyId } = req.scope;
     const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_leave_types
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_leave_types
          WHERE company_id = :companyId AND is_active = 1 ORDER BY type_name ASC`,
       { companyId },
     );
@@ -5346,10 +5067,7 @@ export async function getLeaveType(req, res, next) {
     const { companyId } = req.scope;
     const { id } = req.params;
     const rows = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_leave_types
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_leave_types
          WHERE id = :id AND company_id = :companyId`,
       { id, companyId },
     );
@@ -5408,28 +5126,19 @@ export async function getLeaveDashboard(req, res, next) {
 
     const [onLeaveRows, upcomingRows, totalRows] = await Promise.all([
       query(`SELECT COUNT(DISTINCT employee_id) AS cnt,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_leave_records
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_leave_records
          WHERE company_id = :companyId AND status = 'ACTIVE'
            AND start_date <= :today AND end_date >= :today`,
         { companyId, today },
       ),
       query(`SELECT COUNT(DISTINCT employee_id) AS cnt,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_leave_records
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_leave_records
          WHERE company_id = :companyId AND status = 'ACTIVE'
            AND start_date > :today AND start_date <= :futureIso`,
         { companyId, today, futureIso },
       ),
       query(`SELECT COALESCE(SUM(total_days), 0) AS total,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_leave_records
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_leave_records
          WHERE company_id = :companyId AND status = 'ACTIVE'
            AND YEAR(start_date) = :currentYear`,
         { companyId, currentYear },
@@ -5499,11 +5208,8 @@ export async function applyLeave(req, res, next) {
     // Email HR notification (fire-and-forget)
     try {
       const [empRow] = await conn.query(`SELECT e.first_name, e.last_name, e.emp_code, lt.type_name,
-          e.created_at,
-          u.username AS created_by_name
-         FROM hr_employees e
+          e.created_at FROM hr_employees e
          LEFT JOIN hr_leave_types lt ON lt.id = ?
-        LEFT JOIN adm_users u ON u.id = e.created_by
          WHERE e.id = ? LIMIT 1`,
         [leave_type_id, employee_id],
       );
@@ -5564,10 +5270,7 @@ export async function scheduleLeave(req, res, next) {
     for (const empId of employee_ids) {
       // Skip if APPLICATION already covers this period (APPLICATION wins)
       const existing = await query(`SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_leave_records
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_leave_records
          WHERE company_id = :companyId AND employee_id = :empId
            AND status = 'ACTIVE' AND source = 'APPLICATION'
            AND start_date <= :end_date AND end_date >= :start_date
@@ -5597,11 +5300,8 @@ export async function scheduleLeave(req, res, next) {
     // Notify employees (fire-and-forget)
     try {
       const empRows = await query(`SELECT e.first_name, e.last_name, e.email, lt.type_name,
-          e.created_at,
-          u.username AS created_by_name
-         FROM hr_employees e
+          e.created_at FROM hr_employees e
          LEFT JOIN hr_leave_types lt ON lt.id = :leave_type_id
-        LEFT JOIN adm_users u ON u.id = e.created_by
          WHERE e.id IN (${employeeDetails.map(() => "?").join(",")}) AND e.email IS NOT NULL`,
         {
           leave_type_id,
@@ -5648,10 +5348,7 @@ export async function saveLeaveRoster(req, res, next) {
 
       // Only insert if no APPLICATION or SCHEDULE covering same period
       const existing = await query(`SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_leave_records
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_leave_records
          WHERE company_id = :companyId AND employee_id = :employee_id
            AND status = 'ACTIVE' AND source IN ('APPLICATION','SCHEDULE')
            AND start_date <= :end_date AND end_date >= :start_date
@@ -5732,14 +5429,11 @@ export async function listLeaveRecords(req, res, next) {
               e.first_name, e.last_name, e.emp_code,
               d.dept_name,
               lt.type_name,
-          lr.created_at,
-          u.username AS created_by_name
-         FROM hr_leave_records lr
+          lr.created_at FROM hr_leave_records lr
        JOIN hr_employees e ON e.id = lr.employee_id AND e.deleted_at IS NULL
        LEFT JOIN hr_departments d ON d.id = e.dept_id
        LEFT JOIN hr_leave_types lt ON lt.id = lr.leave_type_id
        ${where}
-        LEFT JOIN adm_users u ON u.id = lr.created_by
          ORDER BY lr.created_at DESC`,
       params,
     );
@@ -5756,10 +5450,7 @@ export async function deleteLeaveRecord(req, res, next) {
     const { companyId } = req.scope;
     const { id } = req.params;
     const rows = await query(`SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_leave_records
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_leave_records
          WHERE id = :id AND company_id = :companyId LIMIT 1`,
       { id, companyId },
     );
@@ -5779,10 +5470,7 @@ export async function updateLeave(req, res, next) {
     const { start_date, end_date, status, remarks, leave_type_id } = req.body;
 
     const rows = await query(`SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM hr_leave_records
-        LEFT JOIN adm_users u ON u.id = created_by
+          created_at FROM hr_leave_records
          WHERE id = :id AND company_id = :companyId LIMIT 1`,
       { id, companyId },
     );
@@ -5849,13 +5537,10 @@ export async function leaveCalendar(req, res, next) {
     const events = await query(`SELECT lr.id, lr.employee_id, lr.start_date, lr.end_date, lr.total_days, lr.source, lr.status,
               e.first_name, e.last_name, e.emp_code,
               lt.type_name,
-          lr.created_at,
-          u.username AS created_by_name
-         FROM hr_leave_records lr
+          lr.created_at FROM hr_leave_records lr
        JOIN hr_employees e ON e.id = lr.employee_id AND e.deleted_at IS NULL
        LEFT JOIN hr_leave_types lt ON lt.id = lr.leave_type_id
        ${where}
-        LEFT JOIN adm_users u ON u.id = lr.created_by
          ORDER BY lr.start_date ASC`,
       params,
     );
@@ -5902,9 +5587,7 @@ export async function listLeaveBalances(req, res, next) {
          lt.type_name,
          COALESCE(lb.allocated_days, lt.max_days, 0)    AS allocated_days,
          COALESCE(SUM(CASE WHEN lr.status = 'ACTIVE' AND YEAR(lr.start_date) = :currentYear THEN lr.total_days ELSE 0 END), 0) AS used_days,
-          e.created_at,
-          u.username AS created_by_name
-         FROM hr_employees e
+          e.created_at FROM hr_employees e
        LEFT JOIN hr_departments d ON d.id = e.dept_id
        CROSS JOIN hr_leave_types lt ON lt.company_id = :companyId AND lt.is_active = 1
        LEFT JOIN hr_leave_balances lb
@@ -5912,7 +5595,6 @@ export async function listLeaveBalances(req, res, next) {
        LEFT JOIN hr_leave_records lr
          ON lr.employee_id = e.id AND lr.leave_type_id = lt.id AND lr.company_id = :companyId
        ${where}
-        LEFT JOIN adm_users u ON u.id = e.created_by
          GROUP BY e.id, lt.id, lb.allocated_days, lt.max_days
        ORDER BY e.first_name ASC, lt.type_name ASC`,
       params,

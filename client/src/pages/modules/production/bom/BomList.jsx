@@ -35,22 +35,18 @@ export default function BomList() {
                 <td>{b.version}</td>
                 <td>{b.active ? <span className="badge badge-success">Active</span> : <span className="badge badge-error">Inactive</span>}</td>
                 <td>
-                  {canPerformAction('production:bom','view') && (
-                    <Link
-                      to={`/production/bom/${b.id}?mode=view`}
-                      className="text-brand hover:text-brand-600 text-sm font-medium"
-                    >
-                      View
-                    </Link>
-                  )}
-                  {canPerformAction('production:bom','edit') && (
-                    <Link
-                      to={`/production/bom/${b.id}?mode=edit`}
-                      className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                    >
-                      Edit
-                    </Link>
-                  )}
+                  <Link
+                    to={`/production/bom/${b.id}?mode=view`}
+                    className={`text-brand hover:text-brand-600 text-sm font-medium ${!canPerformAction('production:bom','view') ? 'invisible pointer-events-none' : ''}`}
+                  >
+                    View
+                  </Link>
+                  <Link
+                    to={`/production/bom/${b.id}?mode=edit`}
+                    className={`text-blue-600 hover:text-blue-700 text-sm font-medium ml-2 ${!canPerformAction('production:bom','edit') ? 'invisible pointer-events-none' : ''}`}
+                  >
+                    Edit
+                  </Link>
                 </td>
                 <td>{b.created_by_name || "-"}</td>
                 <td>{b.created_at ? new Date(b.created_at).toLocaleDateString() : "-"}</td>

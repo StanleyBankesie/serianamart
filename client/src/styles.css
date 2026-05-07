@@ -95,6 +95,125 @@
     @apply bg-slate-50 dark:bg-slate-800/50;
   }
 
+  /* Keep actions columns visually stable across list pages */
+  .table th:last-child,
+  .table td:last-child,
+  .table th:has(+ th:last-child),
+  .table td:has(+ td:last-child) {
+    white-space: nowrap;
+  }
+  .table td:last-child,
+  .table td:has(> .user-action-buttons),
+  .table td:has(> .ds-action-buttons),
+  .table td:has(> .flex > .btn),
+  .table td:has(> .flex > a),
+  .table td:has(> .btn),
+  .table td:has(> a.btn) {
+    min-width: 13.5rem;
+  }
+  /* Keep actions columns visually stable across list pages */
+  .table th:last-child,
+  .table td:last-child,
+  .table th:has(+ th:last-child),
+  .table td:has(+ td:last-child) {
+    white-space: nowrap;
+  }
+  .table td:last-child,
+  .table td:has(> .user-action-buttons),
+  .table td:has(> .ds-action-buttons),
+  .table td:has(> .flex > .btn),
+  .table td:has(> .flex > a),
+  .table td:has(> .btn),
+  .table td:has(> a.btn) {
+    min-width: 28rem;
+  }
+  /* Use grid layout to maintain button positions */
+  .table td:last-child > .flex,
+  .table td:last-child > div.flex,
+  .table td > .user-action-buttons,
+  .table td > .ds-action-buttons,
+  .table td:has(> .flex > .btn) > .flex,
+  .table td:has(> .flex > a) > .flex {
+    display: inline-grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(4.5rem, max-content);
+    align-items: center;
+    gap: 0.5rem;
+    justify-content: start;
+  }
+  /* Fixed min-width for all direct children to prevent shifting */
+  .table td:last-child > .flex > *,
+  .table td > .user-action-buttons > *,
+  .table td > .ds-action-buttons > *,
+  .table td > .flex > a,
+  .table td > .flex > button {
+    min-width: 4.5rem;
+    text-align: center;
+  }
+  .table td:last-child > a,
+  .table td:last-child > button,
+  .table td > .user-action-buttons > a,
+  .table td > .user-action-buttons > button,
+  .table td > .ds-action-buttons > a,
+  .table td > .ds-action-buttons > button,
+  .table td > .flex > a,
+  .table td > .flex > button {
+    display: inline-flex;
+    justify-content: center;
+    min-width: 4.25rem;
+  }
+  .table td .hidden {
+    display: inline-flex !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+  /* Print / PDF / attachments — icon buttons share the same shell as the legacy PDF pill */
+  .list-doc-action-btn {
+    @apply w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 transition-colors h-9 disabled:opacity-50 disabled:pointer-events-none gap-1;
+  }
+  .list-doc-action-btn:hover:not(:disabled) {
+    @apply bg-slate-50;
+  }
+
+  /* Approval column — same height/padding as “Forward for approval” */
+  .list-approval-forward-btn {
+    @apply w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg text-white transition-colors whitespace-nowrap h-9 disabled:opacity-50 disabled:cursor-not-allowed;
+    background-color: #3c3e6e;
+  }
+  .list-approval-forward-btn:hover:not(:disabled) {
+    background-color: #2c2e5e;
+  }
+  .list-approval-forwarded-pill {
+    @apply w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-amber-500 text-white whitespace-nowrap overflow-hidden text-ellipsis h-9 cursor-default select-none;
+  }
+  .list-approval-approved-pill {
+    @apply w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg text-white cursor-default h-9;
+    background-color: #10b981;
+  }
+  .list-approval-reverse-btn {
+    @apply inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg transition-colors h-9 shrink-0 disabled:opacity-50;
+    @apply text-red-700 bg-white border border-red-600 hover:bg-red-50;
+  }
+
+  /* Attachments button style (list pages, legacy) */
+  .list-attachment-btn {
+    @apply inline-flex items-center justify-center rounded-xl border border-brand bg-white px-3 py-1 text-xs font-medium text-brand hover:bg-brand-50;
+  }
+  /* Keep reverse-approval at the end of action rows */
+  .list-action-reverse {
+    order: 99 !important;
+  }
+  /*
+    Make Forward / Forwarded / Approved appear in one static slot.
+    These classes are used consistently by approval state actions.
+  */
+  .table td:last-child > .flex > .w-40.bg-amber-500 {
+    margin-left: calc(-10rem - 0.5rem);
+  }
+  .table td:last-child > .flex > .w-40.btn-success {
+    margin-left: calc(-20rem - 1rem);
+  }
+
   /* ERP Status Badges */
   .badge {
     @apply inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium;

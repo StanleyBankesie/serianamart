@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { api } from "../../../../api/client";
 import { useDispatch } from "react-redux";
 import { setRefresh } from "../../../../store/ui/refreshSlice.js";
@@ -7,7 +12,10 @@ import { setRefresh } from "../../../../store/ui/refreshSlice.js";
 export default function PotentialCustomerForm() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const isEdit = Boolean(id);
+  const isViewOnly =
+    Boolean(isEdit) && searchParams.get("mode") === "view";
   const dispatch = useDispatch();
 
   const [loading, setLoading] = useState(false);
@@ -100,6 +108,7 @@ export default function PotentialCustomerForm() {
 
   async function submit(e) {
     e.preventDefault();
+    if (isViewOnly) return;
     setLoading(true);
     setError("");
     try {
@@ -140,7 +149,9 @@ export default function PotentialCustomerForm() {
           <div>
             <h1 className="text-2xl font-bold dark:text-brand-300">
               {isEdit
-                ? "Edit Prospective Customer"
+                ? isViewOnly
+                  ? "View Prospective Customer"
+                  : "Edit Prospective Customer"
                 : "New Prospective Customer"}
             </h1>
           </div>
@@ -162,7 +173,10 @@ export default function PotentialCustomerForm() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Form Section */}
               <div className="lg:col-span-2 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <fieldset
+                  disabled={loading || isViewOnly}
+                  className="min-w-0 border-0 p-0 m-0 grid grid-cols-1 md:grid-cols-2 gap-4"
+                >
                   <div>
                     <label className="label">Customer Code</label>
                     <input
@@ -334,10 +348,11 @@ export default function PotentialCustomerForm() {
                       ))}
                     </select>
                   </div>
-                </div>
+                </fieldset>
+                {!isViewOnly && (
                 <div className="flex justify-end gap-3 pt-4">
                   <Link
-                    to="/sales/potential-customers"
+                    to="/sales/prospect-customers"
                     className="btn btn-secondary"
                   >
                     Cancel
@@ -346,6 +361,7 @@ export default function PotentialCustomerForm() {
                     {loading ? "Saving..." : "Save Potential Customer"}
                   </button>
                 </div>
+                )}
               </div>
 
               {/* Preview Section */}

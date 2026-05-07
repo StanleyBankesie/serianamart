@@ -4,6 +4,12 @@ import { api } from "api/client";
 import { toast } from "react-toastify";
 import ReverseApprovalButton from "../../../components/ReverseApprovalButton.jsx";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
+import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+  ListAttachmentIconButton,
+} from "@/components/list/ListDocActionIconButtons.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function StockAdjustmentList() {
@@ -24,6 +30,8 @@ export default function StockAdjustmentList() {
   const [workflowsCache, setWorkflowsCache] = useState(null);
   const [targetApproverId, setTargetApproverId] = useState(null);
   const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -451,16 +459,16 @@ export default function StockAdjustmentList() {
                   <th>Type</th>
                   <th>Warehouse</th>
                   <th>Status</th>
-                  <th>Actions</th>
-                                <th>Created By</th>
-                <th>Created Date</th>
+                  <th className="text-right">Actions</th>
+                  <th>Created By</th>
+                  <th>Created Date</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
                     <td
-                      colSpan="6"
+                      colSpan="9"
                       className="text-center py-8 text-slate-500 dark:text-slate-400"
                     >
                       Loading...
@@ -468,7 +476,7 @@ export default function StockAdjustmentList() {
                   </tr>
                 ) : error ? (
                   <tr>
-                    <td colSpan="6" className="text-center py-8 text-red-600">
+                    <td colSpan="9" className="text-center py-8 text-red-600">
                       {error}
                     </td>
                   </tr>
@@ -496,66 +504,119 @@ export default function StockAdjustmentList() {
                         {adj.status}
                       </span>
                     </td>
-                    <td>
-                      <div className="flex items-center gap-2 whitespace-nowrap">
-                        <Link
-                          to={`/inventory/stock-adjustments/${adj.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                        {!["APPROVED", "POSTED"].includes(
-                          String(adj.status || "").toUpperCase(),
-                        ) && (
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Slot 1: View */}
+                        <div className="min-w-[80px]">
                           <Link
-                            to={`/inventory/stock-adjustments/${adj.id}?mode=edit`}
-                            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                            to={`/inventory/stock-adjustments/${adj.id}?mode=view`}
+                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
                           >
-                            Edit
+                            View
                           </Link>
-                        )}
-                        {adj.status === "APPROVED" ? (
-                          <>
-                            <span className="text-sm font-medium px-2 py-1 rounded bg-green-500 text-white">
-                              Approved
-                            </span>
-                            <ReverseApprovalButton
-                              docType="STOCK_ADJUSTMENT"
-                              docId={adj.id}
-                              onDone={() =>
-                                setAdjustments((prev) =>
-                                  prev.map((x) =>
-                                    x.id === adj.id
-                                      ? {
-                                          ...x,
-                                          status: "REVERSED",
-                                          forwarded_to_username: null,
-                                        }
-                                      : x,
-                                  ),
-                                )
-                              }
-                            />
-                          </>
-                        ) : adj.forwarded_to_username ? (
-                          <span className="text-sm font-medium px-2 py-1 rounded bg-amber-500 text-white whitespace-nowrap inline-flex items-center">
-                            Forwarded to {adj.forwarded_to_username}
-                          </span>
-                        ) : adj.status === "DRAFT" ||
-                          adj.status === "RETURNED" ? (
-                          <button
-                            type="button"
-                            onClick={() => openForwardModal(adj)}
-                            className="text-sm font-medium px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors whitespace-nowrap inline-flex items-center"
-                            disabled={hasInactiveWorkflow}
-                          >
-                            Forward
-                          </button>
-                        ) : null}
+                        </div>
+
+                        {/* Slot 2: Edit */}
+                        <div className="min-w-[80px]">
+                          {!["APPROVED", "POSTED", "PENDING_APPROVAL"].includes(
+                            String(adj.status || "").toUpperCase(),
+                          ) ? (
+                            <Link
+                              to={`/inventory/stock-adjustments/${adj.id}?mode=edit`}
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            >
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 3: Print */}
+                        <div className="min-w-[80px]">
+                          <ListPrintIconButton
+                            onClick={() =>
+                              window.open(
+                                `/inventory/stock-adjustments/${adj.id}?mode=view`,
+                                "_blank",
+                                "noopener,noreferrer",
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Slot 4: PDF */}
+                        <div className="min-w-[80px]">
+                          <ListPdfIconButton
+                            onClick={() =>
+                              toast.info(
+                                "PDF export is not available for stock adjustments.",
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Slot 5: Attachments */}
+                        <div className="w-9">
+                          <ListAttachmentIconButton
+                            onClick={() => {
+                              setActiveDocId(adj.id);
+                              setShowAttach(true);
+                            }}
+                          />
+                        </div>
+
+                        {/* Slot 6: Workflow */}
+                        <div className="min-w-[160px]">
+                          <div className="list-approval-slot">
+                            {["APPROVED", "POSTED"].includes(
+                              String(adj.status || "").toUpperCase(),
+                            ) ? (
+                              <div className="flex items-center gap-2">
+                                <span className="list-approval-approved-pill">
+                                  Approved
+                                </span>
+                                <ReverseApprovalButton
+                                  docType="STOCK_ADJUSTMENT"
+                                  docId={adj.id}
+                                  className="list-approval-reverse-btn"
+                                  onDone={() =>
+                                    setAdjustments((prev) =>
+                                      prev.map((x) =>
+                                        x.id === adj.id
+                                          ? {
+                                              ...x,
+                                              status: "REVERSED",
+                                              forwarded_to_username: null,
+                                            }
+                                          : x,
+                                      ),
+                                    )
+                                  }
+                                >
+                                  Cancel
+                                </ReverseApprovalButton>
+                              </div>
+                            ) : adj.forwarded_to_username ? (
+                              <span className="list-approval-forwarded-pill">
+                                Forwarded to {adj.forwarded_to_username}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="list-approval-forward-btn"
+                                onClick={() => openForwardModal(adj)}
+                                disabled={hasInactiveWorkflow}
+                              >
+                                Forward for Approval
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </td>
-                    <td>{u.created_by_name || "-"}</td>
-                    <td>{u.created_at ? new Date(u.created_at).toLocaleDateString() : "-"}</td>
+                    <td>{adj.created_by_name || "-"}</td>
+                    <td>{adj.created_at ? new Date(adj.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -698,6 +759,15 @@ export default function StockAdjustmentList() {
       <FloatingCreateButton
         to="/inventory/stock-adjustments/new"
         title="New Adjustment"
+      />
+      <DocumentAttachmentsModal
+        open={showAttach}
+        onClose={() => {
+          setShowAttach(false);
+          setActiveDocId(null);
+        }}
+        docType="stock-adjustment"
+        docId={activeDocId}
       />
     </div>
   );

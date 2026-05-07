@@ -39,6 +39,8 @@ export default function TrainingList() {
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Code</th>
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Title</th>
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Dates</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
+              <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th>
             </tr>
           </thead>
           <tbody>
@@ -49,11 +51,13 @@ export default function TrainingList() {
                 <td className="px-3 py-2">
                   {p.start_date} - {p.end_date}
                 </td>
+                <td className="px-3 py-2">{p.created_by_name || "-"}</td>
+                <td className="px-3 py-2">{p.created_at ? new Date(p.created_at).toLocaleDateString() : "-"}</td>
               </tr>
             ))}
             {!programs.length ? (
               <tr>
-                <td className="px-3 py-6 text-center text-sm" colSpan={3}>
+                <td className="px-3 py-6 text-center text-sm" colSpan={5}>
                   No programs
                 </td>
               </tr>

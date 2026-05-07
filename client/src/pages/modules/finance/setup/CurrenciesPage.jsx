@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 import { Link } from "react-router-dom";
+import { useExchangeRate } from "../../../../hooks/useExchangeRate";
 
 export default function CurrenciesPage() {
   const [items, setItems] = useState([]);
@@ -12,6 +13,7 @@ export default function CurrenciesPage() {
   const [symbol, setSymbol] = useState("");
   const [isBase, setIsBase] = useState(false);
   const [isActive, setIsActive] = useState(true);
+  const { getAvailableCurrencies, loading: apiLoading } = useExchangeRate();
 
   async function load() {
     try {
@@ -87,6 +89,45 @@ export default function CurrenciesPage() {
     }
   }
 
+  async function fetchFromApi() {
+    try {
+      const available = await getAvailableCurrencies();
+      if (!available || available.length === 0) {
+        toast.error("Could not fetch currencies from API");
+        return;
+      }
+
+      const existingCodes = new Set(items.map((it) => it.code.toUpperCase()));
+      const toAdd = available.filter((c) => !existingCodes.has(c.code.toUpperCase()));
+
+      if (toAdd.length === 0) {
+        toast.info("All currencies from API already exist in your list");
+        return;
+      }
+
+      if (window.confirm(`Found ${toAdd.length} new currencies. Add them to your list?`)) {
+        let added = 0;
+        for (const c of toAdd) {
+          try {
+            await api.post("/finance/currencies", {
+              code: c.code,
+              name: c.name,
+              isActive: true,
+              isBase: false
+            });
+            added++;
+          } catch (err) {
+            console.error(`Failed to add ${c.code}:`, err);
+          }
+        }
+        toast.success(`Successfully added ${added} currencies`);
+        load();
+      }
+    } catch (e) {
+      toast.error("Failed to fetch from API");
+    }
+  }
+
   function setRowDraft(id, field, value) {
     setItems((p) =>
       p.map((it) => (it.id === id ? { ...it, [field]: value } : it)),
@@ -109,6 +150,13 @@ export default function CurrenciesPage() {
             <Link to="/finance" className="btn btn-secondary">
               Return to Menu
             </Link>
+            <button
+              className="btn btn-secondary"
+              onClick={fetchFromApi}
+              disabled={loading || apiLoading}
+            >
+              {apiLoading ? "Fetching..." : "Fetch from API"}
+            </button>
             <button
               className="btn btn-secondary"
               onClick={load}

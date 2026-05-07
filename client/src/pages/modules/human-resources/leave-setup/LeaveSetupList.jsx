@@ -46,6 +46,8 @@ export default function LeaveSetupList() {
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Days Per Year</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Paid</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Carry Forward</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
               </tr>
             </thead>
@@ -60,6 +62,8 @@ export default function LeaveSetupList() {
                   <td className="px-4 py-2">
                     {r.carry_forward ? <span className="text-green-600">Yes</span> : <span className="text-slate-400">No</span>}
                   </td>
+                  <td className="px-4 py-2">{r.created_by_name || "-"}</td>
+                  <td className="px-4 py-2">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                   <td className="px-4 py-2 text-right">
                     <Link to={`/human-resources/leave-setup/${r.id}`} className="text-brand hover:underline text-sm">Edit</Link>
                   </td>
@@ -67,7 +71,7 @@ export default function LeaveSetupList() {
               ))}
               {items.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={5} className="text-center py-10 text-slate-500">No leave types configured</td>
+                  <td colSpan={7} className="text-center py-10 text-slate-500">No leave types configured</td>
                 </tr>
               )}
             </tbody>

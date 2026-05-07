@@ -56,7 +56,9 @@ export default function PurchaseBillsList() {
         }
       }
     } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to render purchase bill");
+      toast.error(
+        e?.response?.data?.message || "Failed to render purchase bill",
+      );
     }
   }
 
@@ -111,7 +113,9 @@ export default function PurchaseBillsList() {
   const getPaymentBadge = (status) => {
     const badges = {
       UNPAID: "badge-error",
+      "PARTIAL PAYMENT": "badge-warning",
       PARTIALLY_PAID: "badge-warning",
+      "FULLY PAID": "badge-success",
       PAID: "badge-success",
     };
     return badges[status] || "badge-info";
@@ -178,10 +182,10 @@ export default function PurchaseBillsList() {
                 <th>Supplier</th>
                 <th>PO</th>
                 <th>GRN</th>
-                <th className="text-right">Total</th>
+                <th className="text-right">NET</th>
                 <th className="text-right">Tax</th>
-                <th className="text-right">Net</th>
-                <th>Payment</th>
+                <th className="text-right">TOTAL</th>
+                <th>Payment Status</th>
                 <th>Status</th>
                 <th>Attachments</th>
                 <th>Actions</th>
@@ -288,39 +292,38 @@ export default function PurchaseBillsList() {
                     </td>
                     <td>
                       <div className="flex items-center gap-2 whitespace-nowrap">
-                      {canPerformAction(
-                        billType === "IMPORT"
-                          ? "purchase:purchase-bills-import"
-                          : "purchase:purchase-bills-local",
-                        "view",
-                      ) && (
-                        <Link
-                          to={`/purchase/purchase-bills-${billType.toLowerCase()}/${r.id}?mode=view`}
-                          className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                      )}
-                      <button
-                        type="button"
-                        className="text-slate-700 hover:text-slate-900 text-sm font-medium"
-                        title="Print"
-                        onClick={() => openPreview(r)}
-                      >
-                        Print
-                      </button>
-                      <button
-                        type="button"
-                        className="text-slate-700 hover:text-slate-900 text-sm font-medium"
-                        title="PDF"
-                        onClick={() => openPreview(r, { autoDownload: true })}
-                      >
-                        PDF
-                      </button>
-                      {exceptionalPerms?.has?.("PURCHASE.BILL.CANCEL") && (
+                        {canPerformAction(
+                          billType === "IMPORT"
+                            ? "purchase:purchase-bills-import"
+                            : "purchase:purchase-bills-local",
+                          "view",
+                        ) && (
+                          <Link
+                            to={`/purchase/purchase-bills-${billType.toLowerCase()}/${r.id}?mode=view`}
+                            className="text-brand hover:text-brand-600 dark:text-brand-300 dark:hover:text-brand-200 text-sm font-medium"
+                          >
+                            View
+                          </Link>
+                        )}
                         <button
                           type="button"
-                          className="inline-flex items-center px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs font-semibold"
+                          className="text-slate-700 hover:text-slate-900 text-sm font-medium"
+                          title="Print"
+                          onClick={() => openPreview(r)}
+                        >
+                          Print
+                        </button>
+                        <button
+                          type="button"
+                          className="text-slate-700 hover:text-slate-900 text-sm font-medium"
+                          title="PDF"
+                          onClick={() => openPreview(r, { autoDownload: true })}
+                        >
+                          PDF
+                        </button>
+                        <button
+                          type="button"
+                          className={`inline-flex items-center px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs font-semibold ${!exceptionalPerms?.has?.("PURCHASE.BILL.CANCEL") ? 'invisible pointer-events-none' : ''}`}
                           title="Cancel"
                           onClick={async () => {
                             try {
@@ -343,11 +346,14 @@ export default function PurchaseBillsList() {
                         >
                           Cancel
                         </button>
-                      )}
                       </div>
                     </td>
                     <td>{r.created_by_name || "-"}</td>
-                    <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
+                    <td>
+                      {r.created_at
+                        ? new Date(r.created_at).toLocaleDateString()
+                        : "-"}
+                    </td>
                   </tr>
                 ))
               )}

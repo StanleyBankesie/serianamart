@@ -450,17 +450,15 @@ export default function PosRegister() {
                       </td>
                       <td>
                         <div className="flex gap-2">
-                          {canPerformAction("pos:register", "view") && (
-                            <button
-                              className="btn btn-secondary"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openDetails(t);
-                              }}
-                            >
-                              View
-                            </button>
-                          )}
+                          <button
+                            className={`btn btn-secondary ${!canPerformAction("pos:register", "view") ? 'invisible pointer-events-none' : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openDetails(t);
+                            }}
+                          >
+                            View
+                          </button>
                           <button
                             className="btn btn-secondary"
                             onClick={(e) => {
@@ -470,17 +468,15 @@ export default function PosRegister() {
                           >
                             Print
                           </button>
-                          {canPerformAction("pos:register", "delete") && (
-                            <button
-                              className="btn btn-danger"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteTransaction(t.id);
-                              }}
-                            >
-                              Delete
-                            </button>
-                          )}
+                          <button
+                            className={`btn btn-danger ${!canPerformAction("pos:register", "delete") ? 'invisible pointer-events-none' : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteTransaction(t.id);
+                            }}
+                          >
+                            Delete
+                          </button>
                         </div>
                       </td>
                     </tr>

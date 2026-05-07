@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 import { Trash2, Plus } from "lucide-react";
+import { useExchangeRate } from "../../../../hooks/useExchangeRate";
 
 const CURRENCIES = [
   { id: 4, code: "GHS", name: "Ghanaian Cedi" },
@@ -15,6 +16,7 @@ export default function PurchaseBillsForm() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const { getExchangeRate } = useExchangeRate();
 
   const isNew = !id || id === "new";
   const billType = location.pathname.includes("purchase-bills-import")
@@ -68,6 +70,20 @@ export default function PurchaseBillsForm() {
     tax_amount: 0,
   });
 
+  const baseCurrencyCode = useMemo(() => {
+    return (
+      finCurrencies.find((c) => Number(c.is_base) === 1 || c.is_base === true)
+        ?.code || "GHS"
+    );
+  }, [finCurrencies]);
+
+  const selectedCurrencyCode = useMemo(() => {
+    return (
+      finCurrencies.find((c) => String(c.id) === String(formData.currency_id))
+        ?.code || ""
+    );
+  }, [finCurrencies, formData.currency_id]);
+
   useEffect(() => {
     let mounted = true;
 
@@ -80,17 +96,23 @@ export default function PurchaseBillsForm() {
               : `PLB-${String(1).padStart(6, "0")}`;
           setFormData((prev) => ({ ...prev, bill_no: initialNo }));
         }
-        const [supRes, poRes, itemsRes, uomsRes, taxesRes] = await Promise.all([
-          api.get("/purchase/suppliers").catch(() => ({ data: { items: [] } })),
-          api.get("/purchase/orders").catch(() => ({ data: { items: [] } })),
-          api.get("/inventory/items").catch(() => ({ data: { items: [] } })),
-          api.get("/inventory/uoms").catch(() => ({ data: { items: [] } })),
-          api
-            .get(
-              `/finance/tax-codes?form=${billType === "IMPORT" ? "PURCHASE_BILL_IMPORT" : "PURCHASE_BILL_LOCAL"}`,
-            )
-            .catch(() => ({ data: { items: [] } })),
-        ]);
+        const [supRes, poRes, itemsRes, uomsRes, taxesRes, curRes] =
+          await Promise.all([
+            api
+              .get("/purchase/suppliers")
+              .catch(() => ({ data: { items: [] } })),
+            api.get("/purchase/orders").catch(() => ({ data: { items: [] } })),
+            api.get("/inventory/items").catch(() => ({ data: { items: [] } })),
+            api.get("/inventory/uoms").catch(() => ({ data: { items: [] } })),
+            api
+              .get(
+                `/finance/tax-codes?form=${billType === "IMPORT" ? "PURCHASE_BILL_IMPORT" : "PURCHASE_BILL_LOCAL"}`,
+              )
+              .catch(() => ({ data: { items: [] } })),
+            api
+              .get("/finance/currencies")
+              .catch(() => ({ data: { items: [] } })),
+          ]);
 
         if (mounted) {
           setSuppliers(
@@ -110,6 +132,9 @@ export default function PurchaseBillsForm() {
             ? taxesRes.data.items
             : [];
           setTaxCodes(fetchedTaxCodes);
+          setFinCurrencies(
+            Array.isArray(curRes.data?.items) ? curRes.data.items : [],
+          );
           // Auto-select the first tax code for new (blank) items
           if (fetchedTaxCodes.length > 0) {
             setNewItem((prev) =>
@@ -138,8 +163,18 @@ export default function PurchaseBillsForm() {
               ? curRes.data.items
               : [];
             setFinCurrencies(items);
-            const base = items.find((c) => Number(c.is_base) === 1);
+            const base = items.find(
+              (c) => Number(c.is_base) === 1 || c.is_base === true,
+            );
             setBaseFinCurrencyId(base ? Number(base.id) : null);
+
+            if (isNew && !formData.currency_id && base) {
+              setFormData((prev) => ({
+                ...prev,
+                currency_id: base.id,
+                exchange_rate: 1,
+              }));
+            }
           }
         } catch {}
       } catch (e) {
@@ -153,6 +188,30 @@ export default function PurchaseBillsForm() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!formData.currency_id || finCurrencies.length === 0) return;
+    const selected = finCurrencies.find(
+      (c) => String(c.id) === String(formData.currency_id),
+    );
+    const base = finCurrencies.find(
+      (c) => Number(c.is_base) === 1 || c.is_base === true,
+    );
+    if (!selected || !base) return;
+
+    if (selected.code === base.code) {
+      if (formData.exchange_rate !== 1) {
+        setFormData((p) => ({ ...p, exchange_rate: 1 }));
+      }
+      return;
+    }
+
+    getExchangeRate(selected.code, base.code).then((rate) => {
+      if (rate && formData.exchange_rate !== rate) {
+        setFormData((p) => ({ ...p, exchange_rate: rate }));
+      }
+    });
+  }, [formData.currency_id, finCurrencies]);
 
   const fetchTaxComponentsForCode = async (taxCodeId) => {
     const key = String(taxCodeId || "");
@@ -741,46 +800,34 @@ export default function PurchaseBillsForm() {
       }
     }
     if (name === "currency_id") {
-      const cur = CURRENCIES.find((c) => Number(c.id) === Number(value));
-      const code = cur ? String(cur.code).toUpperCase() : null;
-      const selectedFin =
-        code &&
-        finCurrencies.find(
-          (fc) => String(fc.code).toUpperCase() === code.toUpperCase(),
-        );
-      const selId = selectedFin ? Number(selectedFin.id) : null;
-      const baseId = baseFinCurrencyId ? Number(baseFinCurrencyId) : null;
-      if (!selId || !baseId) {
-        setFormData((prev) => ({ ...prev, exchange_rate: 1 }));
-      } else if (selId === baseId) {
-        setFormData((prev) => ({ ...prev, exchange_rate: 1 }));
+      const selected = finCurrencies.find(
+        (c) => String(c.id) === String(value),
+      );
+      const base = finCurrencies.find(
+        (c) => Number(c.is_base) === 1 || c.is_base === true,
+      );
+
+      if (!selected || !base) {
+        setFormData((prev) => ({
+          ...prev,
+          currency_id: value,
+          exchange_rate: 1,
+        }));
+      } else if (selected.code === base.code) {
+        setFormData((prev) => ({
+          ...prev,
+          currency_id: value,
+          exchange_rate: 1,
+        }));
       } else {
-        try {
-          const res = await api.get("/finance/currency-rates", {
-            params: { fromCurrencyId: selId, toCurrencyId: baseId },
-          });
-          const items = Array.isArray(res.data?.items) ? res.data.items : [];
-          if (items.length > 0) {
-            const rate = Number(items[0].rate) || 1;
+        setFormData((prev) => ({ ...prev, currency_id: value }));
+        getExchangeRate(selected.code, base.code).then((rate) => {
+          if (rate) {
             setFormData((prev) => ({ ...prev, exchange_rate: rate }));
-          } else {
-            const resInv = await api.get("/finance/currency-rates", {
-              params: { fromCurrencyId: baseId, toCurrencyId: selId },
-            });
-            const invItems = Array.isArray(resInv.data?.items)
-              ? resInv.data.items
-              : [];
-            if (invItems.length > 0) {
-              const rate = Number(invItems[0].rate) || 1;
-              setFormData((prev) => ({ ...prev, exchange_rate: 1 / rate }));
-            } else {
-              setFormData((prev) => ({ ...prev, exchange_rate: 1 }));
-            }
           }
-        } catch {
-          setFormData((prev) => ({ ...prev, exchange_rate: 1 }));
-        }
+        });
       }
+      return; // prevent double setFormData in the caller
     }
   };
 
@@ -856,6 +903,34 @@ export default function PurchaseBillsForm() {
     formData.other_charges,
     taxComponentsByCode,
   ]);
+  const totalInCurrentCurrency = useMemo(() => {
+    return (
+      Number(totals.subTotal || 0) +
+      (0 - Number(formData.discount_amount || 0)) +
+      Number(totals.lineTaxTotal || 0) +
+      Number(formData.freight_charges || 0) +
+      Number(formData.other_charges || 0)
+    );
+  }, [
+    totals.subTotal,
+    totals.lineTaxTotal,
+    formData.discount_amount,
+    formData.freight_charges,
+    formData.other_charges,
+  ]);
+  const totalInBaseCurrency = useMemo(
+    () =>
+      Number(totals.grandTotal || 0) *
+      (Number(formData.exchange_rate || 1) || 1),
+    [totals.grandTotal, formData.exchange_rate],
+  );
+  const showBaseTotalRow = useMemo(
+    () =>
+      Math.abs(
+        Number(totalInBaseCurrency || 0) - Number(totalInCurrentCurrency || 0),
+      ) > 0.000001,
+    [totalInBaseCurrency, totalInCurrentCurrency],
+  );
 
   const handleSubmit = async (status = "DRAFT") => {
     // Validation
@@ -913,7 +988,11 @@ export default function PurchaseBillsForm() {
         setCurrentBillId(Number(id));
       }
 
-      toast.success(isNew ? "Purchase bill created successfully" : "Purchase bill updated successfully");
+      toast.success(
+        isNew
+          ? "Purchase bill created successfully"
+          : "Purchase bill updated successfully",
+      );
       navigate(`/purchase/purchase-bills-${billType.toLowerCase()}`);
     } catch (e2) {
       setError(e2?.response?.data?.message || "Failed to save purchase bill");
@@ -1163,7 +1242,7 @@ export default function PurchaseBillsForm() {
               value={formData.currency_id}
               onChange={handleChange}
             >
-              {CURRENCIES.map((c) => (
+              {finCurrencies.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.code}
                 </option>
@@ -1172,7 +1251,12 @@ export default function PurchaseBillsForm() {
           </div>
 
           <div className="form-group">
-            <label className="label">Exchange Rate</label>
+            <label className="label">
+              Exchange Rate{" "}
+              {selectedCurrencyCode
+                ? `(${baseCurrencyCode} per ${selectedCurrencyCode})`
+                : ""}
+            </label>
             <input
               type="number"
               className="input text-right"
@@ -1390,9 +1474,15 @@ export default function PurchaseBillsForm() {
               />
             </div>
             <div className="border-t pt-2 mt-2 flex justify-between items-center text-lg font-bold">
-              <span>Grand Total:</span>
-              <span>{totals.grandTotal.toFixed(2)}</span>
+              <span>{`Total ${selectedCurrencyCode || baseCurrencyCode}:`}</span>
+              <span>{Number(totalInCurrentCurrency || 0).toFixed(2)}</span>
             </div>
+            {showBaseTotalRow ? (
+              <div className="border-t pt-2 mt-2 flex justify-between items-center text-lg font-bold">
+                <span>{`Total ${baseCurrencyCode}:`}</span>
+                <span>{Number(totalInBaseCurrency || 0).toFixed(2)}</span>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

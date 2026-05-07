@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useLocation } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
@@ -8,6 +8,7 @@ import { Search } from "lucide-react";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
 export default function SalesReturnList() {
+  const navigate = useNavigate();
   const location = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
@@ -164,7 +165,7 @@ export default function SalesReturnList() {
       setHasInactiveWorkflow(false);
       return;
     }
-    const route = "/inventory/sales-returns";
+    const route = "/sales/returns";
     const normalize = (s) =>
       String(s || "")
         .trim()
@@ -173,12 +174,16 @@ export default function SalesReturnList() {
     const matching = workflowsCache.filter(
       (w) =>
         String(w.document_route) === route ||
+        String(w.document_route) === "/inventory/sales-returns" ||
         normalize(w.document_type) === "SALES_RETURN",
     );
     const hasInactive = matching.some((w) => Number(w.is_active) === 0);
     const chosen =
       workflowsCache.find(
-        (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
+        (w) =>
+          Number(w.is_active) === 1 &&
+          (String(w.document_route) === route ||
+            String(w.document_route) === "/inventory/sales-returns"),
       ) ||
       workflowsCache.find(
         (w) =>
@@ -234,7 +239,7 @@ export default function SalesReturnList() {
       setHasInactiveWorkflow(false);
       return;
     }
-    const route = "/inventory/sales-returns";
+    const route = "/sales/returns";
     const normalize = (s) =>
       String(s || "")
         .trim()
@@ -243,12 +248,16 @@ export default function SalesReturnList() {
     const matching = items.filter(
       (w) =>
         String(w.document_route) === route ||
+        String(w.document_route) === "/inventory/sales-returns" ||
         normalize(w.document_type) === "SALES_RETURN",
     );
     const hasInactive = matching.some((w) => Number(w.is_active) === 0);
     const chosen =
       items.find(
-        (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
+        (w) =>
+          Number(w.is_active) === 1 &&
+          (String(w.document_route) === route ||
+            String(w.document_route) === "/inventory/sales-returns"),
       ) ||
       items.find(
         (w) =>
@@ -402,13 +411,10 @@ export default function SalesReturnList() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link
-                to="/inventory/sales-returns/new"
-                className="btn btn-primary"
-              >
+              <Link to="/sales/returns/new" className="btn btn-primary">
                 New Sales Return
               </Link>
-              <Link to="/inventory" className="btn btn-secondary">
+              <Link to="/sales" className="btn btn-secondary">
                 Return to Menu
               </Link>
             </div>
@@ -512,55 +518,77 @@ export default function SalesReturnList() {
                         >
                           {r.status || "DRAFT"}
                         </span>
-                        {r.status === "APPROVED" ? (
-                          <ReverseApprovalButton
-                            docType="SALES_RETURN"
-                            docId={r.id}
-                            className="ml-2 text-indigo-700 hover:text-indigo-800 text-xs font-medium"
-                            onDone={() =>
-                              setItems((prev) =>
-                                prev.map((x) =>
-                                  x.id === r.id
-                                    ? {
-                                        ...x,
-                                        status: "REVERSED",
-                                        forwarded_to_username: null,
-                                      }
-                                    : x,
-                                ),
-                              )
-                            }
-                          />
-                        ) : null}
                       </td>
                       <td className="text-right">
-                        {r.status === "APPROVED" || r.status === "POSTED" ? (
-                          <span className="text-xs font-medium px-2 py-1 rounded bg-green-500 text-white">
-                            Approved
-                          </span>
-                        ) : r.forwarded_to_username ? (
-                          <span className="text-xs font-medium px-2 py-1 rounded bg-amber-500 text-white whitespace-nowrap inline-flex items-center">
-                            Forwarded to {r.forwarded_to_username}
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => openForwardModal(r)}
-                            className="text-sm font-medium px-2 py-1 rounded bg-brand text-white hover:bg-brand-700 whitespace-nowrap inline-flex items-center"
-                            disabled={
-                              submittingForward ||
-                              r.status === "PENDING" ||
-                              r.status === "PENDING_APPROVAL" ||
-                              r.status === "SUBMITTED" ||
-                              r.status === "CANCELLED" ||
-                              hasInactiveWorkflow
-                            }
-                          >
-                            {submittingForward
-                              ? "Forwarding..."
-                              : "Forward for Approval"}
-                          </button>
-                        )}
+                        <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+                          <div className="min-w-[80px]">
+                            <button
+                              type="button"
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                              onClick={() => navigate(`/sales/returns/${r.id}`)}
+                            >
+                              View
+                            </button>
+                          </div>
+                          <div className="min-w-[160px]">
+                          <div className="list-approval-slot">
+                            {r.status === "APPROVED" || r.status === "POSTED" ? (
+                              <div className="flex items-center gap-2">
+                                <span className="list-approval-approved-pill">
+                                  Approved
+                                </span>
+                                {(r.status === "APPROVED" || r.status === "POSTED") && (
+                                  <ReverseApprovalButton
+                                    docType="SALES_RETURN"
+                                    docId={r.id}
+                                    className="list-approval-reverse-btn"
+                                    onDone={() =>
+                                      setItems((prev) =>
+                                        prev.map((x) =>
+                                          x.id === r.id
+                                            ? {
+                                                ...x,
+                                                status: "REVERSED",
+                                                forwarded_to_username: null,
+                                              }
+                                            : x,
+                                        ),
+                                      )
+                                    }
+                                  >
+                                    Cancel
+                                  </ReverseApprovalButton>
+                                )}
+                              </div>
+                            ) : r.forwarded_to_username ? (
+                              <span
+                                className="list-approval-forwarded-pill"
+                                title="Assigned approver"
+                              >
+                                Forwarded to {r.forwarded_to_username}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => openForwardModal(r)}
+                                className="list-approval-forward-btn"
+                                disabled={
+                                  submittingForward ||
+                                  r.status === "PENDING" ||
+                                  r.status === "PENDING_APPROVAL" ||
+                                  r.status === "SUBMITTED" ||
+                                  r.status === "CANCELLED" ||
+                                  hasInactiveWorkflow
+                                }
+                              >
+                                {submittingForward
+                                  ? "Forwarding..."
+                                  : "Forward for Approval"}
+                              </button>
+                            )}
+                          </div>
+                          </div>
+                        </div>
                       </td>
                       <td>{r.created_by_name || "-"}</td>
                       <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>

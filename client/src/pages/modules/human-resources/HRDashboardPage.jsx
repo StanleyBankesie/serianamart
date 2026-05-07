@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../api/client.js";
 import ChartPie from "@/components/charts/ChartPie.jsx";
 
@@ -90,6 +90,11 @@ function SimpleBarChart({ title, data, palette = [] }) {
 }
 
 export default function HRDashboardPage() {
+  const location = useLocation();
+  const backTo =
+    location.state?.fromExecutiveOverview === true
+      ? "/executive-overview"
+      : "/human-resources";
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const [data, setData] = useState(null);
@@ -162,7 +167,7 @@ export default function HRDashboardPage() {
                   </option>
                 ))}
               </select>
-              <Link to="/human-resources" className="btn btn-secondary">
+              <Link to={backTo} className="btn btn-secondary">
                 Return to HR
               </Link>
             </div>

@@ -48,6 +48,8 @@ export default function AllowanceList() {
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Amount</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Taxable</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
               </tr>
             </thead>
@@ -75,6 +77,8 @@ export default function AllowanceList() {
                       </span>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-sm">{r.created_by_name || "-"}</td>
+                  <td className="px-4 py-3 text-sm">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                   <td className="px-4 py-3 text-right text-sm font-medium">
                     <Link to={`/human-resources/allowances/${r.id}`} className="text-brand hover:underline">
                       Edit
@@ -84,7 +88,7 @@ export default function AllowanceList() {
               ))}
               {items.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-12 text-center text-slate-500">
                     No allowances found. Click "+ New Allowance" to create one.
                   </td>
                 </tr>

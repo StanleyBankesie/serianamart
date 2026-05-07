@@ -64,6 +64,8 @@ export default function LeaveApplicationsList() {
               <th className="px-4 py-2 text-xs uppercase">End</th>
               <th className="px-4 py-2 text-xs uppercase">Days</th>
               <th className="px-4 py-2 text-xs uppercase">Status</th>
+              <th className="px-4 py-2 text-xs uppercase">Created By</th>
+              <th className="px-4 py-2 text-xs uppercase">Created Date</th>
             </tr>
           </thead>
           <tbody>
@@ -78,11 +80,13 @@ export default function LeaveApplicationsList() {
                     {r.status}
                   </span>
                 </td>
+                <td className="px-4 py-2">{r.created_by_name || "-"}</td>
+                <td className="px-4 py-2">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
               </tr>
             ))}
             {filtered.length === 0 && !loading && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                   No records
                 </td>
               </tr>
@@ -93,4 +97,3 @@ export default function LeaveApplicationsList() {
     </div>
   );
 }
-

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../api/client.js";
 
 function AreaLineChart({ title, data, colorArea, colorLine }) {
@@ -352,6 +352,11 @@ function TwoSeriesBarChart({
 }
 
 export default function FinanceDashboardPage() {
+  const location = useLocation();
+  const backTo =
+    location.state?.fromExecutiveOverview === true
+      ? "/executive-overview"
+      : "/finance";
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [cards, setCards] = useState([
@@ -586,7 +591,7 @@ export default function FinanceDashboardPage() {
               onChange={(e) => setTo(e.target.value)}
               title="To"
             />
-            <Link to="/finance" className="btn btn-secondary">
+            <Link to={backTo} className="btn btn-secondary">
               Return to Finance
             </Link>
           </div>

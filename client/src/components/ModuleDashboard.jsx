@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { usePermission } from "../auth/PermissionContext.jsx";
 
@@ -16,6 +16,7 @@ const ModuleDashboard = ({
   const location = useLocation();
   const { canAccessPath, canAccessFeatureKey, canViewDashboardElement } =
     usePermission();
+  const [searchTerm, setSearchTerm] = useState("");
 
   const handleNavigate = (path, e) => {
     if (e) e.stopPropagation();
@@ -105,6 +106,82 @@ const ModuleDashboard = ({
       },
     ];
   }, [sections, features]);
+
+  // Filter sections based on search term
+  const normalizeForSearch = React.useCallback(
+    (value) =>
+      String(value || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim(),
+    [],
+  );
+
+  const filteredSections = useMemo(() => {
+    if (!searchTerm || !searchTerm.trim()) return allSections;
+
+    const term = normalizeForSearch(searchTerm);
+    const queryParts = term.split(/\s+/).filter(Boolean);
+
+    const scoreItem = (item, sectionTitle = "") => {
+      const rawTitle = String(item.title || item.name || item.label || "");
+      const rawDescription = String(item.description || "");
+      const rawPath = String(item.path || "");
+      const pathWords = rawPath.replace(/[\/_-]+/g, " ");
+      const titleInitials = rawTitle
+        .split(/\s+/)
+        .map((w) => w[0] || "")
+        .join("")
+        .toLowerCase();
+      const searchable = normalizeForSearch(
+        `${rawTitle} ${rawDescription} ${rawPath} ${pathWords} ${sectionTitle}`,
+      );
+
+      if (!queryParts.length) return 1;
+      if (searchable.includes(term)) return 100;
+
+      let score = 0;
+      for (const part of queryParts) {
+        if (searchable.includes(part)) {
+          score += 10;
+          continue;
+        }
+        if (titleInitials && titleInitials.includes(part)) {
+          score += 6;
+          continue;
+        }
+        return 0;
+      }
+
+      if (normalizeForSearch(rawTitle).startsWith(queryParts[0] || "")) score += 8;
+      if (normalizeForSearch(rawPath).includes(queryParts[0] || "")) score += 4;
+      return score;
+    };
+
+    return allSections.map((section) => {
+      const sectionTitle = section.title || section.category || "";
+      const sectionItems = section.items || section.features || [];
+
+      const scoredItems = sectionItems
+        .map((item) => ({ item, score: scoreItem(item, sectionTitle) }))
+        .filter(({ score }) => score > 0)
+        .sort((a, b) => b.score - a.score)
+        .map(({ item }) => item);
+
+      return {
+        ...section,
+        items: scoredItems,
+      };
+    }).filter((section) => {
+      const sectionTitle = section.title || section.category || "";
+      return (
+        section.items.length > 0 ||
+        normalizeForSearch(sectionTitle).includes(term)
+      );
+    });
+  }, [allSections, searchTerm, normalizeForSearch]);
+
+  const isSearching = Boolean(String(searchTerm || "").trim());
 
   const slug = (s) =>
     String(s || "")
@@ -229,8 +306,29 @@ const ModuleDashboard = ({
         )}
       </div>
 
+      {/* Search Field */}
+      <div className="mb-6">
+        <div className="max-w-md">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search feature name, code, or path..."
+              className="input w-full pl-10"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="m21 21-4.3-4.3"/>
+              </svg>
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* Key Statistics */}
-      {stats.filter((s) => {
+      {!isSearching && stats.filter((s) => {
         if (!canShowItem(s)) return false;
         const path = String(s.path || "");
         const parts = path.split("/").filter(Boolean);
@@ -296,7 +394,8 @@ const ModuleDashboard = ({
       )}
 
       {/* Quick Actions */}
-      {quickActions.filter((a) => !a?.path || canShowItem(a)).length > 0 && (
+      {!isSearching &&
+        quickActions.filter((a) => !a?.path || canShowItem(a)).length > 0 && (
         <div className="mb-10">
           <h2 className="text-xl font-semibold text-brand-800 dark:text-brand-200 mb-4 flex items-center gap-2">
             <span>⚡</span> Quick Actions
@@ -324,7 +423,19 @@ const ModuleDashboard = ({
 
       {/* Category Sections */}
       <div className="space-y-10">
-        {allSections.map((section, sectionIndex) => {
+        {searchTerm && filteredSections.length === 0 && (
+          <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+            <div className="text-4xl mb-2">🔍</div>
+            <p>No menu items found matching "{searchTerm}"</p>
+            <button
+              onClick={() => setSearchTerm("")}
+              className="mt-2 text-brand-600 hover:text-brand-700 underline"
+            >
+              Clear search
+            </button>
+          </div>
+        )}
+        {filteredSections.map((section, sectionIndex) => {
           const sectionTitle = section.title || section.category;
           const sectionItems = section.items || section.features || [];
 

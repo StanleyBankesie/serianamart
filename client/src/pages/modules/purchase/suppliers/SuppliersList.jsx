@@ -153,22 +153,18 @@ export default function SuppliersList() {
                       </span>
                     </td>
                     <td>
-                      {canPerformAction("purchase:suppliers", "view") && (
-                        <Link
-                          to={`/purchase/suppliers/${s.id}?mode=view`}
-                          className="text-brand hover:text-brand-700 text-sm font-medium"
-                        >
-                          View
-                        </Link>
-                      )}
-                      {canPerformAction("purchase:suppliers", "edit") && (
-                        <Link
-                          to={`/purchase/suppliers/${s.id}?mode=edit`}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-medium ml-2"
-                        >
-                          Edit
-                        </Link>
-                      )}
+                      <Link
+                        to={`/purchase/suppliers/${s.id}?mode=view`}
+                        className={`text-brand hover:text-brand-700 text-sm font-medium ${!canPerformAction("purchase:suppliers", "view") ? 'invisible pointer-events-none' : ''}`}
+                      >
+                        View
+                      </Link>
+                      <Link
+                        to={`/purchase/suppliers/${s.id}?mode=edit`}
+                        className={`text-blue-600 hover:text-blue-700 text-sm font-medium ml-2 ${!canPerformAction("purchase:suppliers", "edit") ? 'invisible pointer-events-none' : ''}`}
+                      >
+                        Edit
+                      </Link>
                     </td>
                     <td>{s.created_by_name || "-"}</td>
                     <td>{s.created_at ? new Date(s.created_at).toLocaleDateString() : "-"}</td>
