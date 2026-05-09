@@ -418,33 +418,43 @@ export default function GeneralLedgerReportPage() {
                   <th>Description</th>
                   <th className="text-right">Debit</th>
                   <th className="text-right">Credit</th>
-                  <th className="text-right">Balance</th>
+                  <th className="text-right">Balance (Dr/Cr)</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, idx) => (
-                  <tr key={`${r.voucher_no}-${r.line_no}-${idx}`}>
-                    <td>{new Date(r.voucher_date).toLocaleDateString()}</td>
-                    <td>
-                      <Link
-                        to={getVoucherPath(r)}
-                        className="font-medium text-sky-400 hover:text-sky-500"
-                      >
-                        {r.voucher_no}
-                      </Link>
-                    </td>
-                    <td>{r.description || "-"}</td>
-                    <td className="text-right">
-                      {Number(r.debit || 0).toLocaleString()}
-                    </td>
-                    <td className="text-right">
-                      {Number(r.credit || 0).toLocaleString()}
-                    </td>
-                    <td className="text-right">
-                      {Number(r.balance || 0).toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
+                {items.map((r, idx) => {
+                  const balance = Number(r.balance || 0);
+                  const balanceType = balance >= 0 ? "Dr" : "Cr";
+                  const displayBalance = Math.abs(balance);
+                  return (
+                    <tr key={`${r.voucher_no}-${r.line_no}-${idx}`}>
+                      <td>{new Date(r.voucher_date).toLocaleDateString()}</td>
+                      <td>
+                        <Link
+                          to={getVoucherPath(r)}
+                          className="font-medium text-sky-400 hover:text-sky-500"
+                        >
+                          {r.voucher_no}
+                        </Link>
+                      </td>
+                      <td>{r.description || "-"}</td>
+                      <td className="text-right">
+                        {Number(r.debit || 0).toLocaleString()}
+                      </td>
+                      <td className="text-right">
+                        {Number(r.credit || 0).toLocaleString()}
+                      </td>
+                      <td className="text-right">
+                        <span className="font-medium">
+                          {displayBalance.toLocaleString()}{" "}
+                          <span className={balance >= 0 ? "text-blue-600" : "text-red-600"}>
+                            {balanceType}
+                          </span>
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

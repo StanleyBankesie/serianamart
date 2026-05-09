@@ -1469,7 +1469,7 @@ export default function SalesOrderForm() {
                       value={formData.exchange_rate}
                       onChange={handleInputChange}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                      disabled={isViewMode}
+                      readOnly
                     />
                   </div>
                 </div>

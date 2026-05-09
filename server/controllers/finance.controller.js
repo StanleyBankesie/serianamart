@@ -1336,6 +1336,61 @@ export const updateAccountActiveStatus = async (req, res, next) => {
   }
 };
 
+export const getAccountBalance = async (req, res, next) => {
+  try {
+    const companyId = req.scope.companyId;
+    const id = Number(req.params.id || 0);
+    if (!id) return next(httpError(400, "VALIDATION_ERROR", "Invalid ID"));
+
+    const rows = await query(
+      "SELECT id, code, name, opening_balance, opening_balance_date, is_debit_positive FROM fin_accounts WHERE id = :id AND company_id = :companyId LIMIT 1",
+      { id, companyId },
+    );
+    const account = rows?.[0];
+    if (!account) return next(httpError(404, "NOT_FOUND", "Account not found"));
+
+    // Calculate current balance from ledger
+    const ledgerResult = await query(
+      `SELECT 
+        COALESCE(SUM(
+          CASE 
+            WHEN account_id = :id AND entry_type = 'DEBIT' THEN amount
+            WHEN account_id = :id AND entry_type = 'CREDIT' THEN -amount
+            ELSE 0
+          END
+        ), 0) AS ledger_balance
+       FROM fin_ledger_entries
+       WHERE account_id = :id AND company_id = :companyId`,
+      { id, companyId }
+    );
+
+    // Also get balance from voucher lines for this account
+    const voucherResult = await query(
+      `SELECT 
+        COALESCE(SUM(debit), 0) - COALESCE(SUM(credit), 0) AS voucher_balance
+       FROM fin_voucher_lines vl
+       JOIN fin_vouchers v ON v.id = vl.voucher_id
+       WHERE vl.account_id = :id AND v.company_id = :companyId AND v.status = 'POSTED'`,
+      { id, companyId }
+    );
+
+    const openingBalance = Number(account.opening_balance || 0);
+    const ledgerBalance = Number(ledgerResult?.[0]?.ledger_balance || 0);
+    const voucherBalance = Number(voucherResult?.[0]?.voucher_balance || 0);
+    const currentBalance = openingBalance + ledgerBalance + voucherBalance;
+
+    res.json({
+      ...account,
+      balance: currentBalance,
+      opening_balance: openingBalance,
+      ledger_movement: ledgerBalance,
+      voucher_movement: voucherBalance
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const listTaxCodes = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
@@ -1910,7 +1965,37 @@ export const createVoucher = async (req, res, next) => {
         if (!billId || !(alloc > 0)) continue;
         await query(
           `UPDATE pur_bills
-              SET amount_paid = LEAST(COALESCE(net_amount, 0), COALESCE(amount_paid, 0) + :alloc)
+              SET amount_paid = LEAST(
+                    COALESCE(
+                      NULLIF(net_amount, 0),
+                      (SELECT COALESCE(SUM(d.line_total), 0) FROM pur_bill_details d WHERE d.bill_id = pur_bills.id),
+                      0
+                    ),
+                    COALESCE(amount_paid, 0) + :alloc
+                  ),
+                  payment_status = CASE
+                    WHEN LEAST(
+                      COALESCE(
+                        NULLIF(net_amount, 0),
+                        (SELECT COALESCE(SUM(d.line_total), 0) FROM pur_bill_details d WHERE d.bill_id = pur_bills.id),
+                        0
+                      ),
+                      COALESCE(amount_paid, 0) + :alloc
+                    ) >= COALESCE(
+                      NULLIF(net_amount, 0),
+                      (SELECT COALESCE(SUM(d.line_total), 0) FROM pur_bill_details d WHERE d.bill_id = pur_bills.id),
+                      0
+                    ) THEN 'FULLY PAID'
+                    WHEN LEAST(
+                      COALESCE(
+                        NULLIF(net_amount, 0),
+                        (SELECT COALESCE(SUM(d.line_total), 0) FROM pur_bill_details d WHERE d.bill_id = pur_bills.id),
+                        0
+                      ),
+                      COALESCE(amount_paid, 0) + :alloc
+                    ) > 0 THEN 'PARTIAL PAYMENT'
+                    ELSE 'UNPAID'
+                  END
             WHERE company_id = :companyId
               AND (:branchId IS NULL OR branch_id = :branchId)
               AND id = :billId`,
@@ -4361,6 +4446,132 @@ export const deleteBankReconciliationLine = async (req, res, next) => {
       { lineId, companyId, branchId: branchId || null },
     );
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getSupplierBillsByAccount = async (req, res, next) => {
+  try {
+    const companyId = req.scope.companyId;
+    const branchId = req.scope.branchId;
+    const accountId = req.query.accountId ? Number(req.query.accountId) : null;
+
+    if (!accountId) {
+      return res.json({ items: [] });
+    }
+
+    const accountRows = await query(
+      `SELECT id, code
+         FROM fin_accounts
+        WHERE company_id = :companyId
+          AND (:branchId IS NULL OR branch_id = :branchId)
+          AND id = :accountId
+        LIMIT 1`,
+      {
+        companyId,
+        branchId: branchId || null,
+        accountId,
+      },
+    );
+    const account = accountRows?.[0];
+    const accountCode = String(account?.code || "").trim();
+    if (!accountCode) {
+      return res.json({ items: [] });
+    }
+
+    let supplierWhereParts = ["CAST(id AS CHAR) = :accountCode"];
+    try {
+      const conn = await pool.getConnection();
+      try {
+        const hasSupplierExternalId = await hasColumn(
+          conn,
+          "pur_suppliers",
+          "supplier_id",
+        );
+        const hasSupplierCode = await hasColumn(
+          conn,
+          "pur_suppliers",
+          "supplier_code",
+        );
+        if (hasSupplierExternalId) {
+          supplierWhereParts.unshift("CAST(supplier_id AS CHAR) = :accountCode");
+        }
+        if (hasSupplierCode) {
+          supplierWhereParts.unshift("supplier_code = :accountCode");
+        }
+      } finally {
+        conn.release();
+      }
+    } catch {
+      // Ignore schema probe failures and use fallback matching.
+    }
+
+    const suppliers = await query(
+      `SELECT id
+         FROM pur_suppliers
+        WHERE company_id = :companyId
+          AND (${supplierWhereParts.join("\n          OR ")})`,
+      { companyId, accountCode },
+    );
+    const supplierIds = (suppliers || [])
+      .map((s) => Number(s.id || 0))
+      .filter((n) => n > 0);
+    if (!supplierIds.length) {
+      return res.json({ items: [] });
+    }
+
+    const supplierIdListSql = supplierIds.join(", ");
+    const items = await query(
+      `SELECT pb.id,
+              pb.bill_no,
+              pb.bill_date,
+              pb.supplier_id,
+              s.supplier_name,
+              COALESCE(
+                NULLIF(pb.net_amount, 0),
+                COALESCE(pbd.detail_total, 0),
+                0
+              ) AS total_amount,
+              COALESCE(pb.amount_paid, 0) AS amount_paid,
+              GREATEST(
+                0,
+                COALESCE(
+                  NULLIF(pb.net_amount, 0),
+                  COALESCE(pbd.detail_total, 0),
+                  0
+                ) - COALESCE(pb.amount_paid, 0)
+              ) AS outstanding,
+              COALESCE(pb.payment_status, 'UNPAID') AS payment_status
+         FROM pur_bills pb
+         LEFT JOIN pur_suppliers s
+           ON s.id = pb.supplier_id
+          AND s.company_id = pb.company_id
+         LEFT JOIN (
+           SELECT bill_id, COALESCE(SUM(line_total), 0) AS detail_total
+           FROM pur_bill_details
+           GROUP BY bill_id
+         ) pbd
+           ON pbd.bill_id = pb.id
+        WHERE pb.company_id = :companyId
+          AND (:branchId IS NULL OR pb.branch_id = :branchId)
+          AND pb.supplier_id IN (${supplierIdListSql})
+          AND COALESCE(pb.payment_status, 'UNPAID') IN ('UNPAID', 'PARTIAL PAYMENT')
+          AND GREATEST(
+            0,
+            COALESCE(
+              NULLIF(pb.net_amount, 0),
+              COALESCE(pbd.detail_total, 0),
+              0
+            ) - COALESCE(pb.amount_paid, 0)
+          ) > 0
+        ORDER BY pb.bill_date DESC, pb.id DESC`,
+      {
+        companyId,
+        branchId: branchId || null,
+      },
+    );
+    res.json({ items });
   } catch (e) {
     next(e);
   }

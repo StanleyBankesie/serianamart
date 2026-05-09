@@ -1264,6 +1264,7 @@ export default function PurchaseBillsForm() {
               value={formData.exchange_rate}
               onChange={handleChange}
               step="0.000001"
+              readOnly
             />
           </div>
 

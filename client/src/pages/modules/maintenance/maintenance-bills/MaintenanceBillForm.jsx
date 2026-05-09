@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
+import { useExchangeRate } from "@/hooks/useExchangeRate";
 
 const STATUSES = ["DRAFT","PENDING","APPROVED","PAID","CANCELLED"];
 const PAYMENT_STATUSES = ["UNPAID","PAID","OVERDUE"];
@@ -11,6 +12,7 @@ const PAYMENT_METHODS = [{ key:"cash",label:"Cash" },{ key:"bank",label:"Bank Tr
 export default function MaintenanceBillForm() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { getExchangeRate } = useExchangeRate();
   const location = useLocation();
   const params = new URLSearchParams(location.search);
   const isEdit = !!id;
@@ -35,6 +37,7 @@ export default function MaintenanceBillForm() {
   const [saving, setSaving] = useState(false);
   const [suppliers, setSuppliers] = useState([]);
   const [executions, setExecutions] = useState([]);
+  const [currencies, setCurrencies] = useState([]);
   const [taxCodes, setTaxCodes] = useState([]);
   const update = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
@@ -42,6 +45,7 @@ export default function MaintenanceBillForm() {
     let mounted = true;
     api.get("/purchase/suppliers").then(r => { if (mounted) setSuppliers(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
     api.get("/maintenance/job-executions").then(r => { if (mounted) setExecutions(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
+    api.get("/finance/currencies").then(r => { if (mounted) setCurrencies(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
     api.get("/finance/tax-codes?form=MAINTENANCE_BILL").then(r => {
       if (!mounted) return;
       const fetchedTaxCodes = Array.isArray(r.data?.items) ? r.data.items : [];
@@ -212,6 +216,23 @@ export default function MaintenanceBillForm() {
   const removeLine = i => setLines(p => p.filter((_, idx) => idx !== i));
   const updateLine = (i, row) => setLines(p => p.map((r, idx) => idx === i ? row : r));
 
+  const handleCurrencyChange = async (code) => {
+    update("currency", code);
+    const target = currencies.find(c => (c.code || c.currency_code) === code);
+    const base = currencies.find(c => Number(c.is_base) === 1);
+    if (!target || !base || target.code === base.code) {
+      update("exchange_rate", 1);
+      return;
+    }
+    try {
+      const rate = await getExchangeRate(target.code || target.currency_code, base.code || base.currency_code);
+      if (rate) update("exchange_rate", rate);
+      else update("exchange_rate", 1);
+    } catch {
+      update("exchange_rate", 1);
+    }
+  };
+
   async function handleSubmit(e) {
     e.preventDefault();
     setSaving(true);
@@ -257,8 +278,17 @@ export default function MaintenanceBillForm() {
                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.supplier_name || s.name}</option>)}
               </select>
             </div>
-            <div><label className="label">Currency</label><input className="input" value={form.currency} onChange={e => update("currency", e.target.value)} /></div>
-            <div><label className="label">Exchange Rate</label><input className="input text-right" type="number" step="0.000001" value={form.exchange_rate} onChange={e => update("exchange_rate", e.target.value)} /></div>
+            <div>
+              <label className="label">Currency</label>
+              <select className="input" value={form.currency} onChange={e => handleCurrencyChange(e.target.value)}>
+                {currencies.map(c => (
+                  <option key={c.id} value={c.code || c.currency_code}>
+                    {c.code || c.currency_code} - {c.name || c.currency_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div><label className="label">Exchange Rate</label><input className="input text-right" type="number" step="0.000001" value={form.exchange_rate} readOnly /></div>
             <div><label className="label">Payment Terms (Days)</label><input className="input" type="number" value={form.payment_terms} onChange={e => update("payment_terms", e.target.value)} /></div>
             <div><label className="label">Payment Method</label><select className="input" value={form.payment_method} onChange={e => update("payment_method", e.target.value)}>{PAYMENT_METHODS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}</select></div>
             <div><label className="label">Payment Reference</label><input className="input" value={form.payment_reference} onChange={e => update("payment_reference", e.target.value)} /></div>

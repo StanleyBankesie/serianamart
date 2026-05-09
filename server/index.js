@@ -36,6 +36,7 @@ import socialFeedRoutes from "./routes/social-feed.routes.js";
 import accessRoutes from "./routes/access.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
 import emailTestRoutes from "./routes/email-test.routes.js";
+import visitorsRoutes from "./routes/visitors.routes.js";
 import { initializeSocket } from "./utils/socket.js";
 import {
   ensureExceptionalPermissionsTable,
@@ -320,6 +321,38 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
       console.warn("Could not create hr_loan_repayments table: ", e.message);
     }
 
+    // Visitors Log Book Table
+    try {
+      await query(
+        `CREATE TABLE IF NOT EXISTS svc_visitors_log (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          company_id BIGINT UNSIGNED NOT NULL,
+          branch_id BIGINT UNSIGNED NOT NULL,
+          visitor_name VARCHAR(255) NOT NULL,
+          phone_number VARCHAR(50) NULL DEFAULT NULL,
+          organisation VARCHAR(255) NULL DEFAULT NULL,
+          department_visited VARCHAR(255) NULL DEFAULT NULL,
+          temp_address VARCHAR(500) NULL DEFAULT NULL,
+          time_in TIME NULL DEFAULT NULL,
+          time_out TIME NULL DEFAULT NULL,
+          visit_date DATE NOT NULL,
+          purpose TEXT NULL DEFAULT NULL,
+          status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+          created_by BIGINT UNSIGNED NULL DEFAULT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_company_branch (company_id, branch_id),
+          KEY idx_visit_date (visit_date),
+          KEY idx_status (status),
+          KEY idx_department (department_visited)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+      );
+      console.log("svc_visitors_log table ensured");
+    } catch (e) {
+      console.warn("Could not create svc_visitors_log table: ", e.message);
+    }
+
     // Add Triggers for hr_loans
     try {
       const resp = await query("SHOW TABLES LIKE 'hr_loans'");
@@ -480,6 +513,7 @@ app.use("/api/social-feed", socialFeedRoutes);
 app.use("/api/access", accessRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/email-test", emailTestRoutes);
+app.use("/api/visitors", visitorsRoutes);
 
 /* ---------------- STATIC FILES & SPA FALLBACK ---------------- */
 const serveFrontendFlag = (() => {

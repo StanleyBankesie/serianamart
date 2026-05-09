@@ -255,7 +255,7 @@ export default function LoginPage() {
                 id="username"
                 name="username"
                 type="text"
-                className="input"
+                className="input login-input"
                 ref={usernameRef}
                 autoComplete="username"
                 required
@@ -357,7 +357,7 @@ export default function LoginPage() {
                   id="password"
                   name="password"
                   type={showPassword ? "text" : "password"}
-                  className="input pr-10"
+                  className="input login-input pr-10"
                   ref={passwordRef}
                   autoComplete="current-password"
                   required

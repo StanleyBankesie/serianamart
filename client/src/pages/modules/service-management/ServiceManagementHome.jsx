@@ -51,14 +51,14 @@ function ServiceManagementLanding() {
     let mounted = true;
     async function load() {
       try {
-        const resp = await api.get("/bi/dashboards");
+        const resp = await api.get("/purchase/service/dashboard/metrics");
         const openReq = Number(
-          resp?.data?.summary?.services?.open_requests || 0,
+          resp?.data?.cards?.ytd_requests || 0,
         );
         const pendingBills = Number(
-          resp?.data?.summary?.services?.pending_bills || 0,
+          resp?.data?.cards?.ytd_service_bill_value || 0,
         );
-        const confirmed = Number(resp?.data?.summary?.services?.confirmed || 0);
+        const confirmed = Number(resp?.data?.cards?.ytd_confirmations || 0);
         if (mounted) {
           setStats((prev) => {
             const next = [...prev];
@@ -115,6 +115,12 @@ function ServiceManagementLanding() {
           description: "Configure work locations, service types, categories",
           path: "/service-management/setup",
           icon: "⚙️",
+        },
+        {
+          title: "Visitors Log Book",
+          description: "Track and manage visitor records",
+          path: "/service-management/visitors-log",
+          icon: "📝",
         },
       ],
     },
@@ -187,6 +193,12 @@ function ServiceManagementLanding() {
           path: "/service-management/reports/service-type-performance",
           icon: "🏷️",
         },
+        {
+          title: "Visitors Log Report",
+          description: "Summary of visitor activity and statistics",
+          path: "/service-management/reports/visitors-log",
+          icon: "📋",
+        },
       ],
     },
   ];
@@ -241,6 +253,21 @@ export default function ServiceManagementHome() {
       />
       <Route path="service-bills" element={<ServiceBillsList />} />
       <Route path="setup" element={<ServiceParametersPage />} />
+      <Route path="visitors-log" element={
+        <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+          {React.createElement(React.lazy(() => import("./visitors-log/VisitorsLogList.jsx")))}
+        </React.Suspense>
+      } />
+      <Route path="visitors-log/new" element={
+        <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+          {React.createElement(React.lazy(() => import("./visitors-log/VisitorLogForm.jsx")))}
+        </React.Suspense>
+      } />
+      <Route path="visitors-log/:id/edit" element={
+        <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+          {React.createElement(React.lazy(() => import("./visitors-log/VisitorLogForm.jsx")))}
+        </React.Suspense>
+      } />
       <Route
         path="reports/service-request-summary"
         element={
@@ -369,6 +396,18 @@ export default function ServiceManagementHome() {
           </React.Suspense>
         }
       />
+      <Route
+        path="reports/visitors-log"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(
+                () => import("./reports/VisitorsLogReport.jsx"),
+              ),
+            )}
+          </React.Suspense>
+        }
+      />
     </Routes>
   );
 }
@@ -408,6 +447,12 @@ export const serviceManagementFeatures = [
     module_key: "service-management",
     label: "Service Setup",
     path: "/service-management/setup",
+    type: "feature",
+  },
+  {
+    module_key: "service-management",
+    label: "Visitors Log Book",
+    path: "/service-management/visitors-log",
     type: "feature",
   },
 ];

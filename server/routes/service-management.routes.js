@@ -26,7 +26,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -86,7 +86,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -147,7 +147,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -206,7 +206,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -259,7 +259,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -325,7 +325,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -370,7 +370,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -405,7 +405,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -453,7 +453,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -494,7 +494,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
@@ -528,7 +528,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
+  requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;

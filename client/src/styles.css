@@ -67,7 +67,19 @@
 
   /* ERP Input Styles */
   .input {
-    @apply w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all shadow-sm;
+    @apply  px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all shadow-sm;
+  }
+
+  /* Login page input variant */
+  .login-input {
+    @apply w-full h-10 px-4 rounded-[10px] border border-slate-300 bg-white text-slate-900 outline-none transition-all;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 1px 2px rgba(15, 23, 42, 0.08);
+  }
+  .login-input::placeholder {
+    @apply text-slate-400;
+  }
+  .login-input:focus {
+    @apply border-brand-500 ring-2 ring-brand-500/20;
   }
 
   .label {
@@ -89,6 +101,25 @@
 
   .table td {
     @apply px-4 py-3 border-b border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300;
+  }
+
+  /* Voucher Posting Lines shared widths */
+  .pl-col-account {
+    width: 220px;
+    min-width: 100px;
+  }
+  .pl-col-debit,
+  .pl-col-credit {
+    width: 90px;
+    min-width: 90px;
+  }
+  .pl-account-input {
+    width: 160px;
+    min-width: 100px;
+  }
+  .pl-amount-input {
+    width: 160px;
+    min-width: 100px;
   }
 
   .table tbody tr:hover {

@@ -69,6 +69,14 @@ router.put(
   financeController.updateAccountActiveStatus,
 );
 
+router.get(
+  "/accounts/:id/balance",
+  requireAuth,
+  requireCompanyScope,
+  financeController.requireIdParam("id"),
+  financeController.getAccountBalance,
+);
+
 // Voucher types and numbers
 router.get(
   "/voucher-types",
@@ -348,6 +356,15 @@ router.delete(
   requireCompanyScope,
   financeController.requireIdParam("id"),
   financeController.deleteCurrencyRate,
+);
+
+// Supplier Bills by Account
+router.get(
+  "/supplier-bills-by-account",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.getSupplierBillsByAccount,
 );
 
 // Fiscal Years

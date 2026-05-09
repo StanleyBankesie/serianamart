@@ -1593,7 +1593,7 @@ export default function InvoiceForm() {
                   className="input"
                   value={form.exchange_rate}
                   onChange={(e) => update("exchange_rate", e.target.value)}
-                  disabled={readOnly}
+                  readOnly
                 />
               </div>
               <div>

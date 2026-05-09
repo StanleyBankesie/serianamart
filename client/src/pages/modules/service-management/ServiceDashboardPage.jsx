@@ -116,6 +116,11 @@ export default function ServiceDashboardPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [visitorStats, setVisitorStats] = useState({
+    total: 0,
+    active: 0,
+    today: 0,
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -142,6 +147,27 @@ export default function ServiceDashboardPage() {
       mounted = false;
     };
   }, [from, to, topN]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadVisitorStats() {
+      try {
+        const res = await api.get("/visitors/dashboard/stats");
+        if (!mounted) return;
+        setVisitorStats({
+          total: res.data?.stats?.total_visitors || 0,
+          active: res.data?.stats?.active_visitors || 0,
+          today: res.data?.stats?.today_visitors || 0,
+        });
+      } catch {
+        // Silent fail
+      }
+    }
+    loadVisitorStats();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const cards = data?.cards || {};
   const trend = data?.month_wise_trend || [];
@@ -187,6 +213,9 @@ export default function ServiceDashboardPage() {
                 <Card title="WTD Confirmations" value={cards.wtd_confirmations} />
                 <Card title="YTD Service Bill Value" value={cards.ytd_service_bill_value} />
                 <Card title="MTD Service Bill Value" value={cards.mtd_service_bill_value} />
+                <Card title="Total Visitors" value={visitorStats.total} />
+                <Card title="Active Visitors" value={visitorStats.active} />
+                <Card title="Today's Visitors" value={visitorStats.today} />
               </div>
               <div className="grid grid-cols-1">
                 <MultiLineChart

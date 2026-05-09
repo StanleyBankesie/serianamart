@@ -343,58 +343,7 @@ export default function PurchaseOrdersImportForm() {
     };
   }, []);
 
-  useEffect(() => {
-    async function ensureUsdGhsRate() {
-      try {
-        const arr = Array.isArray(currencies) ? currencies : [];
-        if (!arr.length) return;
-        const base =
-          arr.find(
-            (c) =>
-              String(c.is_base) === "1" ||
-              c.is_base === 1 ||
-              c.is_base === true,
-          ) ||
-          arr.find(
-            (c) =>
-              String(c.code || c.currency_code || "").toUpperCase() === "GHS",
-          ) ||
-          arr.find((c) =>
-            /ghana|cedi/i.test(String(c.name || c.currency_name || "")),
-          );
-        const usd = arr.find(
-          (c) =>
-            String(c.code || c.currency_code || "").toUpperCase() === "USD",
-        );
-        if (!base || !usd || base.id === usd.id) return;
-        const toDate =
-          formData.po_date || new Date().toISOString().split("T")[0];
-        const res = await api.get("/finance/currency-rates", {
-          params: {
-            fromCurrencyId: usd.id,
-            toCurrencyId: base.id,
-            to: toDate,
-          },
-        });
-        const list = Array.isArray(res.data?.items) ? res.data.items : [];
-        if (!list.length) {
-          try {
-            await api.post("/finance/currency-rates", {
-              fromCurrencyId: usd.id,
-              toCurrencyId: base.id,
-              rate: 1,
-              rateDate: toDate,
-            });
-          } catch (e2) {
-            console.error("Failed to seed USD->GHS rate", e2);
-          }
-        }
-      } catch (e) {
-        console.error("ensureUsdGhsRate error", e);
-      }
-    }
-    ensureUsdGhsRate();
-  }, [currencies, formData.po_date]);
+
 
   useEffect(() => {
     let mounted = true;
@@ -1652,6 +1601,7 @@ export default function PurchaseOrdersImportForm() {
                     onChange={handleInputChange}
                     step="0.01"
                     className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
+                    readOnly
                   />
                 </div>
               </div>

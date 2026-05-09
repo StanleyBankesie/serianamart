@@ -852,7 +852,7 @@ export default function DirectPurchase() {
                 className="input"
                 value={form.exchange_rate}
                 onChange={(e) => updateForm("exchange_rate", e.target.value)}
-                disabled={isViewMode}
+                readOnly
               />
             </div>
             {form.payment_type === "CREDIT" && (

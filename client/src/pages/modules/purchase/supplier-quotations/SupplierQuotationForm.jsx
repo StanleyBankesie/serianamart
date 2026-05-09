@@ -856,6 +856,7 @@ export default function SupplierQuotationForm() {
                   value={formData.exchange_rate}
                   onChange={handleInputChange}
                   step="0.000001"
+                  readOnly
                 />
               </div>
               <div>

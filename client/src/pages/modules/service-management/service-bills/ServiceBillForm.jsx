@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { api } from "../../../../api/client";
+import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
@@ -51,6 +52,7 @@ export default function ServiceBillForm() {
   const navigate = useNavigate();
   const location = useLocation();
   const { id } = useParams();
+  const { getExchangeRate } = useExchangeRate();
   const readOnly =
     String(
       new URLSearchParams(location.search).get("mode") || "",
@@ -454,25 +456,19 @@ export default function ServiceBillForm() {
   }, []);
   const handleCurrencyChange = async (code) => {
     setBill((p) => ({ ...p, currency: code }));
-    setBill((p) => ({ ...p, currency: code }));
     const arr = Array.isArray(currencies) ? currencies : [];
     const target = arr.find(
       (c) => String(c.code || c.currency_code || "").toUpperCase() === code,
     );
-    const baseId = baseCurrencyId ? Number(baseCurrencyId) : null;
-    const targetId = target ? Number(target.id) : null;
-    if (!baseId || !targetId || baseId === targetId) {
+    const base = arr.find(c => Number(c.is_base) === 1);
+    if (!target || !base || target.code === base.code) {
       setBill((p) => ({ ...p, exchangeRate: 1 }));
       return;
     }
     try {
-      const res = await api.get("/finance/currency-rates", {
-        params: { fromCurrencyId: targetId, toCurrencyId: baseId },
-      });
-      const items = Array.isArray(res.data?.items) ? res.data.items : [];
-      const first = items[0];
-      if (first && first.rate) {
-        setBill((p) => ({ ...p, exchangeRate: Number(first.rate) || 1 }));
+      const rate = await getExchangeRate(target.code || target.currency_code, base.code || base.currency_code);
+      if (rate) {
+        setBill((p) => ({ ...p, exchangeRate: rate }));
       } else {
         setBill((p) => ({ ...p, exchangeRate: 1 }));
       }
@@ -688,8 +684,7 @@ export default function ServiceBillForm() {
               step="0.000001"
               value={bill.exchangeRate || 1}
               onChange={(e) => update("exchangeRate", e.target.value)}
-              readOnly={readOnly}
-              disabled={readOnly}
+              readOnly
             />
           </div>
           <div>

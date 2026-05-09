@@ -305,7 +305,9 @@ export default function CurrenciesPage() {
           <div className="flex justify-between items-center">
             <div>
               <h2 className="text-xl font-semibold">Currency Rates</h2>
-              <p className="text-sm">Maintain exchange rate history</p>
+              <p className="text-sm text-amber-600 font-medium">
+                Historical records only. Live rates are fetched directly from the exchange API for all transactions.
+              </p>
             </div>
             <div className="flex gap-2">
               <button
