@@ -944,9 +944,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   }, [isPAYV, pvForm.taxCodeId, pvTaxComponentsByCode]);
 
   // Auto-populate posting lines when PAYV tax code changes (even if components already cached or cleared)
-  // Skip for Direct Payment mode - backend handles posting lines
   useEffect(() => {
-    if (!isPAYV || paymentType === "DIRECT") return;
+    if (!isPAYV) return;
     // Trigger whenever tax code changes (including when cleared to empty)
     if (
       pvForm.taxCodeId &&
@@ -974,9 +973,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     }
   }, [isPAYV, pvForm.paymentAccountId]);
 
-  // Load outstanding bills when Paid To account changes (for Payment Against Bill mode)
+  // Load outstanding bills when Paid To account changes (for all payment modes)
   useEffect(() => {
-    if (isPAYV && paymentType === "AGAINST_BILL" && pvForm.payToAccountId) {
+    if (isPAYV && pvForm.payToAccountId) {
       const account = accounts.find(
         (a) => String(a.id) === String(pvForm.payToAccountId)
       );
@@ -988,7 +987,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       setSelectedBillId("");
       setSelectedBillDetails(null);
     }
-  }, [isPAYV, paymentType, pvForm.payToAccountId, accounts, suppliers]);
+  }, [isPAYV, pvForm.payToAccountId, accounts, suppliers]);
 
   useEffect(() => {
     let mounted = true;
@@ -1649,9 +1648,21 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         },
       ];
     } else if (isPAYV && paymentType === "DIRECT") {
-      // For PAYV DIRECT: posting lines auto-generated on backend from payment details
-      // Send empty lines - backend will create DEBIT to account and CREDIT from payment account
-      cleaned = [];
+      // For PAYV DIRECT: use posting lines from UI (including tax components)
+      cleaned = lines
+        .map((l) => ({
+          accountId: Number(l.accountId || 0),
+          description: l.description || null,
+          debit: Number(l.debit || 0),
+          credit: Number(l.credit || 0),
+          accountName: l.accountName || null,
+          accountCode: l.accountCode || null,
+          referenceNo: l.referenceNo || null,
+          chequeNumber: l.chequeNumber || null,
+          chequeDate: l.chequeDate || null,
+          paymentMethod: l.paymentMethod || null,
+        }))
+        .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0));
     } else {
       // For all other voucher types: use posting lines from UI
       cleaned = lines
@@ -1671,8 +1682,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0));
     }
 
-    // Skip posting lines validation for PAYV Direct Payment
-    if (!(isPAYV && paymentType === "DIRECT")) {
+    // Skip posting lines validation for Direct Payment modes (lines auto-populated with tax)
+    if (!((isPAYV || isRV) && paymentType === "DIRECT")) {
       if (cleaned.length < 2) {
         toast.error("Enter at least two posting lines");
         return;
@@ -1693,8 +1704,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         voucherTypeId: effVoucherTypeId,
         voucherTypeCode: voucherTypeCode,
         voucherDate,
-        // Include bill reference for Payment Against Bill
-        ...(isPAYV && paymentType === "AGAINST_BILL" && selectedBillId
+        // Include bill reference when a bill is selected (any payment mode)
+        ...(isPAYV && selectedBillId
           ? { billId: selectedBillId }
           : {}),
         // Include payment details for Direct Payment - backend will generate posting lines
@@ -1774,17 +1785,27 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         const newId = Number(res?.data?.id || 0) || null;
         const newRef = String(res?.data?.voucherNo || "") || null;
         
-        // Update bill payment status when Payment Against Bill is used
-        if (isPAYV && paymentType === "AGAINST_BILL" && selectedBillId) {
+        // Update bill payment status when a bill is linked (any payment mode)
+        if (isPAYV && selectedBillId) {
           try {
             const paymentAmount = pvForm.items.reduce(
               (sum, item) => sum + Number(item.amount || 0),
               0
             );
             if (paymentAmount > 0) {
+              // Calculate payment status based on amounts
+              const billTotal = Number(selectedBillDetails?.net_amount || selectedBillDetails?.total_amount || 0);
+              let paymentStatus = "PARTIAL PAYMENT";
+              if (paymentAmount >= billTotal) {
+                paymentStatus = "FULLY PAID";
+              } else if (paymentAmount > 0 && paymentAmount < billTotal) {
+                paymentStatus = "PARTIAL PAYMENT";
+              }
+              
               await api.post("/purchase/bills/update-payment-status", {
                 billId: selectedBillId,
                 paymentAmount: paymentAmount,
+                paymentStatus: paymentStatus,
               });
             }
           } catch (billError) {
@@ -2051,7 +2072,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
 
   // Auto-populate posting lines when RV tax code changes
   function autoPopulateRvTaxLines() {
-    if (!isRV || paymentType !== "DIRECT" || !rvForm.taxCodeId) return;
+    if (!isRV || !rvForm.taxCodeId) return;
 
     const comps = rvTaxComponentsByCode[String(rvForm.taxCodeId)] || [];
     if (!comps.length) return;
@@ -2558,12 +2579,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     const changed = nextItems[idx];
     updatePv({ items: nextItems });
     // Auto-populate posting lines when account, description, or amount changes
-    // Skip for Direct Payment mode - backend generates posting lines automatically
     if (
-      paymentType !== "DIRECT" &&
-      (patch.accountId !== undefined ||
-        patch.description !== undefined ||
-        patch.amount !== undefined)
+      patch.accountId !== undefined ||
+      patch.description !== undefined ||
+      patch.amount !== undefined
     ) {
       setTimeout(async () => await autoPopulatePvPostingLines(idx, patch), 0);
     }
@@ -2571,14 +2590,13 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
 
   // Auto-populate posting lines for Payment Voucher based on payment details
   async function autoPopulatePvPostingLines(changedIdx, changedPatch) {
-    if (!isPAYV || paymentType !== "DIRECT") return;
+    if (!isPAYV) return;
 
     // Get the changed item details
     const currentItem = pvForm.items[changedIdx] || {};
     const updatedItem = { ...currentItem, ...changedPatch };
     const accountId = updatedItem.accountId || currentItem.accountId || "";
-    const description =
-      updatedItem.description || currentItem.description || "";
+    const description = updatedItem.description || currentItem.description || "";
     const amount = Number(updatedItem.amount || currentItem.amount || 0);
     const itemCurrency = updatedItem.currencyCode || currentItem.currencyCode || effectivePaymentCurrencyCode || "USD";
 
@@ -2588,87 +2606,81 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       0,
     );
 
-    // Calculate tax amount if tax code is selected (hidden, not displayed)
-    let taxAmount = 0;
-    const taxComponents = [];
-    if (pvForm.taxCodeId && pvTaxComponentsByCode[String(pvForm.taxCodeId)]) {
-      const comps = pvTaxComponentsByCode[String(pvForm.taxCodeId)] || [];
-      comps.forEach((comp) => {
-        const rate = Number(comp.rate_percent || 0);
-        const compTaxAmount = (totalAmount * rate) / 100;
-        taxAmount += compTaxAmount;
-        if (comp.account_id) {
-          taxComponents.push({
-            accountId: String(comp.account_id),
-            accountName: comp.account_name || "",
-            componentName: comp.component_name || "",
-            description: description || `Tax - ${comp.component_name || ""}`,
-            amount: compTaxAmount,
-          });
-        }
-      });
-    }
-
-    const netAmount = totalAmount - taxAmount;
+    // Get the first item's description for tax components
+    const firstDescription = pvForm.items[0]?.description || description || "";
 
     // Build new posting lines array
     const newLines = [];
 
     // 1. Add the selected account from Payment Details to Posting Lines (CREDIT side)
+    // Duplicate account data, description, and amount into credit field
     if (accountId) {
       const acc = accounts.find((a) => String(a.id) === String(accountId));
       newLines.push({
         accountId: String(accountId),
         accountName: acc?.name || "",
-        description: description || "",
+        description: firstDescription || "",
         currencyCode: itemCurrency,
         debit: 0,
-        credit: amount,
+        credit: totalAmount,
       });
     }
 
-    // 2. Add supplier expense account line (DEBIT side) if account matches a supplier
-    if (accountId) {
-      const acc = accounts.find((a) => String(a.id) === String(accountId));
-      const accountCode = acc?.code || "";
-      const supplier = payees.find(
-        (p) => p.type === "SUPPLIER" && String(p.code) === String(accountCode),
-      );
-      if (supplier) {
-        try {
-          const res = await api.get(`/purchase/suppliers/${supplier.id}`);
-          const suppData = res.data?.item || res.data || {};
-          const expenseAccountId = suppData.expense_account_id;
-          if (expenseAccountId) {
-            const expenseAcc = accounts.find(
-              (a) => String(a.id) === String(expenseAccountId),
-            );
-            newLines.push({
-              accountId: String(expenseAccountId),
-              accountName: expenseAcc?.name || "",
-              description: description || "",
-              currencyCode: itemCurrency,
-              debit: netAmount,
-              credit: 0,
-            });
-          }
-        } catch {
-          // Silent fail
+    // 2. Calculate and add tax component lines (DEBIT side)
+    let totalTaxAmount = 0;
+    if (pvForm.taxCodeId && pvTaxComponentsByCode[String(pvForm.taxCodeId)]) {
+      const comps = pvTaxComponentsByCode[String(pvForm.taxCodeId)] || [];
+      comps.forEach((comp) => {
+        const rate = Number(comp.rate_percent || 0);
+        const compTaxAmount = Math.round((totalAmount * rate)) / 100;
+        totalTaxAmount += compTaxAmount;
+        if (comp.account_id) {
+          newLines.push({
+            accountId: String(comp.account_id),
+            accountName: comp.account_name || "",
+            description: firstDescription || `Tax - ${comp.component_name || ""}`,
+            currencyCode: itemCurrency,
+            debit: compTaxAmount,
+            credit: 0,
+          });
         }
+      });
+    }
+
+    // 3. Look up inv_items table for purchase_account_id and add to posting lines (DEBIT side)
+    // Net amount = Total - Tax
+    const netAmount = totalAmount - totalTaxAmount;
+    if (accountId && netAmount > 0) {
+      try {
+        // Search for item where purchase_account_id matches the selected account
+        const res = await api.get("/inventory/items", {
+          params: { 
+            purchase_account_id: accountId,
+            limit: 1
+          }
+        });
+        const items = res.data?.items || [];
+        const matchingItem = items.find(item => 
+          String(item.purchase_account_id) === String(accountId)
+        );
+        
+        if (matchingItem?.purchase_account_id) {
+          const purchaseAcc = accounts.find(
+            (a) => String(a.id) === String(matchingItem.purchase_account_id)
+          );
+          newLines.push({
+            accountId: String(matchingItem.purchase_account_id),
+            accountName: purchaseAcc?.name || matchingItem.name || "",
+            description: firstDescription || "",
+            currencyCode: itemCurrency,
+            debit: netAmount,
+            credit: 0,
+          });
+        }
+      } catch {
+        // Silent fail - if no matching item found, skip this line
       }
     }
-
-    // 3. Add tax component lines (DEBIT side)
-    taxComponents.forEach((comp) => {
-      newLines.push({
-        accountId: comp.accountId,
-        accountName: comp.accountName,
-        description: comp.description,
-        currencyCode: itemCurrency,
-        debit: comp.amount,
-        credit: 0,
-      });
-    });
 
     // Set all posting lines
     if (newLines.length > 0) {
@@ -2678,7 +2690,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
 
   // Auto-populate posting lines when PAYV tax code changes
   async function autoPopulatePvTaxLines() {
-    if (!isPAYV || paymentType !== "DIRECT") return;
+    if (!isPAYV) return;
 
     // Trigger full rebuild of posting lines with tax recalculation
     // Always trigger, even with 0 items - tax components will be calculated based on current total
@@ -2706,19 +2718,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     setPvCurrencyCodeOverride(paymentAccountCurrencyCode || "");
   }, [isPAYV, paymentAccountCurrencyCode]);
 
-  useEffect(() => {
-    if (!isRV || paymentType !== "DIRECT") return;
-    if (!rvIsTaxIncluded && rvForm.taxCodeId) {
-      updateRvForm({ taxCodeId: "" });
-    }
-  }, [isRV, paymentType, rvIsTaxIncluded, rvForm.taxCodeId]);
+  // Allow tax code to persist regardless of tax included setting for RV
 
-  useEffect(() => {
-    if (!isPAYV || paymentType !== "DIRECT") return;
-    if (!pvIsTaxIncluded && pvForm.taxCodeId) {
-      updatePv({ taxCodeId: "" });
-    }
-  }, [isPAYV, paymentType, pvIsTaxIncluded, pvForm.taxCodeId]);
+  // Allow tax code to persist regardless of tax included setting
 
   useEffect(() => {
     if (!isPAYV) return;
