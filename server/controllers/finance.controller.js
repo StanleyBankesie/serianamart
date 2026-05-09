@@ -1616,7 +1616,7 @@ export const getVoucherById = async (req, res, next) => {
     const voucher = headerRows?.[0];
     if (!voucher) return next(httpError(404, "NOT_FOUND", "Voucher not found"));
     const lines = await query(
-      `SELECT l.id, l.line_no, l.account_id, l.debit, l.credit, l.description AS narration,
+      `SELECT l.id, l.line_no, l.account_id, l.debit, l.credit, l.description,
               a.code AS account_code, a.name AS account_name
          FROM fin_voucher_lines l
          LEFT JOIN fin_accounts a ON a.id = l.account_id AND a.company_id = :companyId
@@ -1632,8 +1632,18 @@ export const getVoucherById = async (req, res, next) => {
 };
 
 export const createVoucher = async (req, res, next) => {
+  let conn;
   try {
     await ensurePurBillsPaymentStatusObjects();
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+    
+    // Helper to execute queries within transaction
+    const txQuery = async (sql, params) => {
+      const [rows] = await conn.execute(sql, params);
+      return rows;
+    };
+    
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId || null;
     const {
@@ -1767,7 +1777,7 @@ export const createVoucher = async (req, res, next) => {
         const pvTotal = Math.max(pvTotalDebit, pvTotalCredit);
 
         // Create PV with posting lines
-        const pvResult = await query(
+        const pvResult = await txQuery(
           `INSERT INTO fin_vouchers
              (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, balanced_amount, status, created_by)
            VALUES
@@ -1795,7 +1805,7 @@ export const createVoucher = async (req, res, next) => {
         // Save posting lines to PV
         for (let i = 0; i < postingLines.length; i++) {
           const line = postingLines[i];
-          await query(
+          await txQuery(
             `INSERT INTO fin_voucher_lines
                (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no, cheque_number, cheque_date, payment_method)
              VALUES
@@ -1838,7 +1848,7 @@ export const createVoucher = async (req, res, next) => {
           0,
         );
         const svTotal = Math.max(svTotalDebit, svTotalCredit);
-        const svResult = await query(
+        const svResult = await txQuery(
           `INSERT INTO fin_vouchers
              (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, balanced_amount, status, created_by)
            VALUES
@@ -1863,7 +1873,7 @@ export const createVoucher = async (req, res, next) => {
         salesVoucherId = svResult.insertId;
         for (let i = 0; i < postingLines.length; i++) {
           const line = postingLines[i];
-          await query(
+          await txQuery(
             `INSERT INTO fin_voucher_lines
                (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no, cheque_number, cheque_date, payment_method)
              VALUES
@@ -1886,10 +1896,10 @@ export const createVoucher = async (req, res, next) => {
       }
     }
 
-    // For direct PAYV/RV, main voucher keeps non-posting details only.
+    // For direct PAYV/RV, calculate total from posting lines
     const totalAmount =
       isPayvDirect || isRvDirect
-        ? 0
+        ? postingLines.reduce((sum, l) => sum + Number(l?.debit || 0), 0)
         : Array.isArray(lines)
           ? lines.reduce((sum, l) => sum + Number(l?.debit || 0), 0)
           : 0;
@@ -1919,7 +1929,7 @@ export const createVoucher = async (req, res, next) => {
       }
     }
 
-    const result = await query(
+    const result = await txQuery(
       `INSERT INTO fin_vouchers
          (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, balanced_amount, status, created_by)
        VALUES
@@ -1943,15 +1953,14 @@ export const createVoucher = async (req, res, next) => {
     );
 
     // For non-direct payment, save the lines to the voucher
-    if (
-      !isPayvDirect &&
-      !isRvDirect &&
-      Array.isArray(lines) &&
-      lines.length > 0
-    ) {
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        await query(
+    // For direct payment, save the auto-generated posting lines
+    const linesToSave = (isPayvDirect || isRvDirect)
+      ? postingLines
+      : Array.isArray(lines) ? lines : [];
+    if (linesToSave.length > 0) {
+      for (let i = 0; i < linesToSave.length; i++) {
+        const line = linesToSave[i];
+        await txQuery(
           `INSERT INTO fin_voucher_lines
              (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no, cheque_number, cheque_date, payment_method)
            VALUES
@@ -1981,7 +1990,7 @@ export const createVoucher = async (req, res, next) => {
         const billId = Number(row?.bill_id || 0);
         const alloc = Number(row?.amount || 0);
         if (!billId || !(alloc > 0)) continue;
-        await query(
+        await txQuery(
           `UPDATE pur_bills
               SET amount_paid = LEAST(
                     COALESCE(
@@ -2031,7 +2040,7 @@ export const createVoucher = async (req, res, next) => {
         const billId = Number(row?.bill_id || 0);
         const alloc = Number(row?.amount || 0);
         if (!billId || !(alloc > 0)) continue;
-        await query(
+        await txQuery(
           `UPDATE pur_service_bills
               SET amount_paid = LEAST(COALESCE(total_amount, 0), COALESCE(amount_paid, 0) + :alloc),
                   payment = CASE
@@ -2059,7 +2068,7 @@ export const createVoucher = async (req, res, next) => {
         const billId = Number(row?.bill_id || 0);
         const alloc = Number(row?.amount || 0);
         if (!billId || !(alloc > 0)) continue;
-        await query(
+        await txQuery(
           `UPDATE maint_bills
               SET amount_paid = LEAST(COALESCE(total_amount, 0), COALESCE(amount_paid, 0) + :alloc),
                   payment_status = CASE
@@ -2088,7 +2097,7 @@ export const createVoucher = async (req, res, next) => {
         const invoiceId = Number(row?.invoice_id || 0);
         const alloc = Number(row?.amount || 0);
         if (!invoiceId || !(alloc > 0)) continue;
-        await query(
+        await txQuery(
           `UPDATE sal_invoices
               SET balance_amount = GREATEST(0, COALESCE(balance_amount, COALESCE(total_amount, net_amount, 0)) - :alloc),
                   payment_status = CASE
@@ -2109,6 +2118,7 @@ export const createVoucher = async (req, res, next) => {
       }
     }
 
+    await conn.commit();
     res.status(201).json({
       id: result.insertId,
       voucherNo: finalVoucherNo,
@@ -2116,7 +2126,14 @@ export const createVoucher = async (req, res, next) => {
       linkedSalesVoucherId: salesVoucherId,
     });
   } catch (e) {
+    if (conn) {
+      try { await conn.rollback(); } catch {}
+    }
     next(e);
+  } finally {
+    if (conn) {
+      try { conn.release(); } catch {}
+    }
   }
 };
 
