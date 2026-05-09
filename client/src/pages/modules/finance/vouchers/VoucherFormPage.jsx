@@ -884,8 +884,21 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     const cached = accountBalances[String(accountId)];
     if (cached !== undefined) return cached;
     try {
-      const res = await api.get(`/finance/accounts/${accountId}/balance`);
-      const balance = res.data?.balance ?? res.data?.item?.balance ?? null;
+      let balance = null;
+      try {
+        const gl = await api.get("/finance/reports/general-ledger", {
+          params: { accountId: Number(accountId) },
+        });
+        balance =
+          gl.data?.account?.current_balance ??
+          gl.data?.account?.balance ??
+          gl.data?.closing_balance ??
+          null;
+      } catch {}
+      if (balance === null || balance === undefined) {
+        const res = await api.get(`/finance/accounts/${accountId}/balance`);
+        balance = res.data?.balance ?? res.data?.item?.balance ?? null;
+      }
       setAccountBalances((prev) => ({ ...prev, [String(accountId)]: balance }));
       return balance;
     } catch {
@@ -975,13 +988,18 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     loadPvTaxComponents();
   }, [isPAYV, pvForm.taxCodeId, pvTaxComponentsByCode]);
 
-  // Auto-populate PAYV posting lines when tax code changes (even if components already cached)
+  // Auto-populate PAYV posting lines when tax code changes (even if components already cached or cleared)
   useEffect(() => {
+    if (!isPAYV) return;
+    // Trigger whenever tax code changes (including when cleared to empty)
     if (
-      isPAYV &&
       pvForm.taxCodeId &&
       pvTaxComponentsByCode[String(pvForm.taxCodeId)]
     ) {
+      // Tax code selected and components loaded - populate with tax
+      (async () => await autoPopulatePvTaxLines())();
+    } else if (!pvForm.taxCodeId) {
+      // Tax code cleared - still trigger rebuild without tax
       (async () => await autoPopulatePvTaxLines())();
     }
   }, [isPAYV, pvForm.taxCodeId]);
@@ -1665,6 +1683,21 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           paymentMethod: cvForm.transferMethod || null,
         },
       ];
+    } else if (isPAYV) {
+      // For PAYV: only use posting lines from UI when DIRECT payment type
+      if (paymentType === "DIRECT") {
+        cleaned = lines
+          .map((l) => ({
+            accountId: Number(l.accountId || 0),
+            description: l.description || null,
+            debit: Number(l.debit || 0),
+            credit: Number(l.credit || 0),
+          }))
+          .filter((l) => l.accountId && (l.debit || l.credit));
+      } else {
+        // For AGAINST_BILL: do not use posting lines UI, will use payment details
+        cleaned = [];
+      }
     } else {
       cleaned = lines
         .map((l) => ({
@@ -1793,6 +1826,33 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         const res = await api.post("/finance/vouchers", payload);
         const newId = Number(res?.data?.id || 0) || null;
         const newRef = String(res?.data?.voucherNo || "") || null;
+        
+        // Create Purchase Voucher when Payment Voucher is saved (for posting lines)
+        if (isPAYV && paymentType === "DIRECT" && lines.length > 0) {
+          try {
+            const purchaseLines = lines
+              .map((l) => ({
+                accountId: Number(l.accountId || 0),
+                description: l.description || null,
+                debit: Number(l.debit || 0),
+                credit: Number(l.credit || 0),
+              }))
+              .filter((l) => l.accountId && (l.debit || l.credit));
+            
+            if (purchaseLines.length >= 2) {
+              const pvPayload = {
+                voucherTypeCode: "PV",
+                voucherDate,
+                narration: `Purchase entry from Payment Voucher ${newRef || res.data?.voucherNo || ""}`,
+                lines: purchaseLines,
+              };
+              await api.post("/finance/vouchers", pvPayload);
+            }
+          } catch (pvError) {
+            console.warn("Failed to create purchase voucher:", pvError);
+          }
+        }
+        
         toast.success(`Created ${res.data?.voucherNo || "voucher"}`);
         navigate(
           `/finance/${
@@ -2550,12 +2610,14 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   async function autoPopulatePvPostingLines(changedIdx, changedPatch) {
     if (!isPAYV || paymentType !== "DIRECT") return;
 
+    // Get the changed item details
     const currentItem = pvForm.items[changedIdx] || {};
     const updatedItem = { ...currentItem, ...changedPatch };
     const accountId = updatedItem.accountId || currentItem.accountId || "";
     const description =
       updatedItem.description || currentItem.description || "";
     const amount = Number(updatedItem.amount || currentItem.amount || 0);
+    const itemCurrency = updatedItem.currencyCode || currentItem.currencyCode || effectivePaymentCurrencyCode || "USD";
 
     // Calculate total amount from all items
     const totalAmount = pvForm.items.reduce(
@@ -2563,7 +2625,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       0,
     );
 
-    // Calculate tax amount if tax code is selected
+    // Calculate tax amount if tax code is selected (hidden, not displayed)
     let taxAmount = 0;
     const taxComponents = [];
     if (pvForm.taxCodeId && pvTaxComponentsByCode[String(pvForm.taxCodeId)]) {
@@ -2576,7 +2638,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           taxComponents.push({
             accountId: String(comp.account_id),
             accountName: comp.account_name || "",
-            accountCode: comp.account_code || "",
             componentName: comp.component_name || "",
             description: description || `Tax - ${comp.component_name || ""}`,
             amount: compTaxAmount,
@@ -2590,8 +2651,20 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     // Build new posting lines array
     const newLines = [];
 
-    // 1. Add supplier expense account line (debit side) if account matches a supplier
-    let supplierExpenseAdded = false;
+    // 1. Add the selected account from Payment Details to Posting Lines (CREDIT side)
+    if (accountId) {
+      const acc = accounts.find((a) => String(a.id) === String(accountId));
+      newLines.push({
+        accountId: String(accountId),
+        accountName: acc?.name || "",
+        description: description || "",
+        currencyCode: itemCurrency,
+        debit: 0,
+        credit: amount,
+      });
+    }
+
+    // 2. Add supplier expense account line (DEBIT side) if account matches a supplier
     if (accountId) {
       const acc = accounts.find((a) => String(a.id) === String(accountId));
       const accountCode = acc?.code || "";
@@ -2610,12 +2683,11 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
             newLines.push({
               accountId: String(expenseAccountId),
               accountName: expenseAcc?.name || "",
-              accountCode: expenseAcc?.code || "",
               description: description || "",
+              currencyCode: itemCurrency,
               debit: netAmount,
               credit: 0,
             });
-            supplierExpenseAdded = true;
           }
         } catch {
           // Silent fail
@@ -2623,45 +2695,17 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       }
     }
 
-    // If no supplier expense account found, add the selected account as debit
-    if (!supplierExpenseAdded && accountId) {
-      const acc = accounts.find((a) => String(a.id) === String(accountId));
-      newLines.push({
-        accountId: String(accountId),
-        accountName: acc?.name || "",
-        accountCode: acc?.code || "",
-        description: description || "",
-        debit: netAmount,
-        credit: 0,
-      });
-    }
-
-    // 2. Add tax component lines (debit side)
+    // 3. Add tax component lines (DEBIT side)
     taxComponents.forEach((comp) => {
       newLines.push({
         accountId: comp.accountId,
         accountName: comp.accountName,
-        accountCode: comp.accountCode,
         description: comp.description,
+        currencyCode: itemCurrency,
         debit: comp.amount,
         credit: 0,
       });
     });
-
-    // 3. Add payment account line (credit side) - the bank/cash account
-    if (pvForm.paymentAccountId) {
-      const paymentAcc = accounts.find(
-        (a) => String(a.id) === String(pvForm.paymentAccountId),
-      );
-      newLines.push({
-        accountId: String(pvForm.paymentAccountId),
-        accountName: paymentAcc?.name || "",
-        accountCode: paymentAcc?.code || "",
-        description: description || "Payment",
-        debit: 0,
-        credit: totalAmount,
-      });
-    }
 
     // Set all posting lines
     if (newLines.length > 0) {
@@ -2672,11 +2716,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   // Auto-populate posting lines when PAYV tax code changes
   async function autoPopulatePvTaxLines() {
     if (!isPAYV || paymentType !== "DIRECT") return;
-    
+
     // Trigger full rebuild of posting lines with tax recalculation
-    if (pvForm.items.length > 0) {
-      await autoPopulatePvPostingLines(0, {});
-    }
+    // Always trigger, even with 0 items - tax components will be calculated based on current total
+    await autoPopulatePvPostingLines(0, {});
   }
 
   function addPvItem() {
@@ -3428,8 +3471,18 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                         {isCN || isDN ? (
                           <th className="text-right w-32">Currency</th>
                         ) : null}
-                        <th className="text-right" style={{ minWidth: "300px" }}>Debit</th>
-                        <th className="text-right" style={{ minWidth: "300px" }}>Credit</th>
+                        <th
+                          className="text-right"
+                          style={{ minWidth: "300px" }}
+                        >
+                          Debit
+                        </th>
+                        <th
+                          className="text-right"
+                          style={{ minWidth: "300px" }}
+                        >
+                          Credit
+                        </th>
                         <th />
                       </tr>
                     </thead>
@@ -5337,8 +5390,15 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                       className="input md:w-64 bg-slate-50 dark:bg-slate-800 text-right"
                       value={
                         pvForm.paymentAccountId
-                          ? accountBalances[String(pvForm.paymentAccountId)] !== undefined && accountBalances[String(pvForm.paymentAccountId)] !== null
-                            ? Number(accountBalances[String(pvForm.paymentAccountId)]).toLocaleString(undefined, {
+                          ? accountBalances[String(pvForm.paymentAccountId)] !==
+                              undefined &&
+                            accountBalances[String(pvForm.paymentAccountId)] !==
+                              null
+                            ? Number(
+                                accountBalances[
+                                  String(pvForm.paymentAccountId)
+                                ],
+                              ).toLocaleString(undefined, {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
                               })
@@ -5348,10 +5408,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                       disabled
                     />
                   </div>
-                  <div className="md:w-64">
+                  <div className="md:w-32">
                     <label className="label">Currency</label>
                     <input
-                      className={`input md:w-64 ${disabledClass}`}
+                      className={`input md:w-32 ${disabledClass}`}
                       value={effectivePaymentCurrencyCode}
                       onChange={(e) =>
                         setPvCurrencyCodeOverride(e.target.value)
@@ -5359,10 +5419,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                       disabled={readOnly}
                     />
                   </div>
-                  <div className="md:w-64">
-                    <label className="label">Exchange Rate</label>
+                  <div className="md:w-32">
+                    <label className="label">Exch Rate</label>
                     <input
-                      className={`input md:w-64 ${disabledClass}`}
+                      className={`input md:w-32 ${disabledClass}`}
                       value={pvExchangeRate || ""}
                       onChange={(e) => setPvExchangeRate(e.target.value)}
                       disabled={readOnly}
@@ -5371,72 +5431,73 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 </div>
               </div>
 
-              {paymentType === "AGAINST_BILL" && supplierBills.length > 0 && (
+              {paymentType === "AGAINST_BILL" && (
                 <div className="mt-4">
                   <div className="md:w-64">
                     <label className="label">Outstanding Bills</label>
-                    {supplierBills.length > 0 ? (
+                    {pvForm.payToAccountId && supplierBills.length > 0 ? (
                       <select
                         className={`input md:w-64 ${disabledClass}`}
-                            value={selectedBillRefs[0] || ""}
-                            onChange={(e) => {
-                              const selectedRef = String(e.target.value || "");
-                              const chosenList = supplierBills.filter(
-                                (b) => String(b.bill_no) === selectedRef,
-                              );
-                              setSelectedBillRefs(
-                                selectedRef ? [selectedRef] : [],
-                              );
-                              const defaultTotal = chosenList.reduce(
-                                (sum, b) => sum + Number(b.outstanding || 0),
-                                0,
-                              );
-                              setKnockOffTotal(defaultTotal);
-                              const items = chosenList.map((b) => ({
-                                description: `Bill ${b.bill_no} payment`,
-                                accountId: pvForm.payToAccountId || "",
-                                amount: Number(b.outstanding || 0),
-                                referenceNo: String(b.bill_no),
-                                exchangeRate: pvExchangeRate || "1",
-                              }));
-                              updatePv({
-                                items:
-                                  items.length > 0
-                                    ? items
-                                    : [
-                                        {
-                                          description: "",
-                                          accountId:
-                                            pvForm.payToAccountId || "",
-                                          amount: 0,
-                                          referenceNo: "",
-                                          exchangeRate: pvExchangeRate || "1",
-                                        },
-                                      ],
-                              });
-                            }}
-                            disabled={readOnly}
-                          >
-                            <option value="">Select bill</option>
-                            {supplierBills.map((b) => (
-                              <option key={b.id} value={b.bill_no}>
-                                {b.bill_no} - Outstanding{" "}
-                                {Number(b.outstanding || 0).toLocaleString(
-                                  undefined,
-                                  {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  },
-                                )}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <div className="input md:w-64 bg-gray-100 text-gray-500">
-                            No bills for selected supplier
-                          </div>
-                        )}
+                        value={selectedBillRefs[0] || ""}
+                        onChange={(e) => {
+                          const selectedRef = String(e.target.value || "");
+                          const chosenList = supplierBills.filter(
+                            (b) => String(b.bill_no) === selectedRef,
+                          );
+                          setSelectedBillRefs(selectedRef ? [selectedRef] : []);
+                          const defaultTotal = chosenList.reduce(
+                            (sum, b) => sum + Number(b.outstanding || 0),
+                            0,
+                          );
+                          setKnockOffTotal(defaultTotal);
+                          const items = chosenList.map((b) => ({
+                            description: `Bill ${b.bill_no} payment`,
+                            accountId: pvForm.payToAccountId || "",
+                            amount: Number(b.outstanding || 0),
+                            referenceNo: String(b.bill_no),
+                            exchangeRate: pvExchangeRate || "1",
+                          }));
+                          updatePv({
+                            items:
+                              items.length > 0
+                                ? items
+                                : [
+                                    {
+                                      description: "",
+                                      accountId: pvForm.payToAccountId || "",
+                                      amount: 0,
+                                      referenceNo: "",
+                                      exchangeRate: pvExchangeRate || "1",
+                                    },
+                                  ],
+                          });
+                        }}
+                        disabled={readOnly}
+                      >
+                        <option value="">Select bill</option>
+                        {supplierBills.map((b) => (
+                          <option key={b.id} value={b.bill_no}>
+                            {b.bill_no} - Outstanding{" "}
+                            {Number(b.outstanding || 0).toLocaleString(
+                              undefined,
+                              {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              },
+                            )}
+                          </option>
+                        ))}
+                      </select>
+                    ) : pvForm.payToAccountId ? (
+                      <div className="input md:w-64 bg-gray-100 text-gray-500">
+                        No bills for selected supplier
                       </div>
+                    ) : (
+                      <div className="input md:w-64 bg-gray-100 text-gray-500">
+                        Select Paid To account first
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -5515,10 +5576,23 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 )}
                               </div>
                             </td>
-                            <td className="text-right">
-                              {accounts.find(
-                                (a) => String(a.id) === String(it.accountId),
-                              )?.currency_code || ""}
+                            <td>
+                              <select
+                                className={`input text-right ${disabledClass}`}
+                                value={it.currencyCode || effectivePaymentCurrencyCode || "USD"}
+                                onChange={(e) =>
+                                  updatePvItem(idx, {
+                                    currencyCode: e.target.value,
+                                  })
+                                }
+                                disabled={readOnly}
+                              >
+                                {currencies.map((c) => (
+                                  <option key={c.id} value={c.code}>
+                                    {c.code}
+                                  </option>
+                                ))}
+                              </select>
                             </td>
                             <td>
                               <input
@@ -5663,7 +5737,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                       </span>
                     </div>
                     <div className="flex justify-between border-t pt-2">
-                      <span className="font-semibold">TOTAL AMOUNT</span>
+                      <span className="font-semibold">TOTAL AMOUNT {effectivePaymentCurrencyCode || "USD"}</span>
                       <span className="font-bold">
                         {Number(totals.grand || 0).toLocaleString(undefined, {
                           minimumFractionDigits: 2,
@@ -5671,6 +5745,17 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                         })}
                       </span>
                     </div>
+                    {Number(pvExchangeRate || 1) !== 1 && (
+                      <div className="flex justify-between">
+                        <span className="font-semibold">AMOUNT in {baseCurrency?.code || "USD"}</span>
+                        <span className="font-bold">
+                          {Number((totals.grand || 0) * (Number(pvExchangeRate) || 1)).toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -5750,10 +5835,21 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 disabled={readOnly}
                               />
                             </td>
-                            <td className="text-right text-xs text-slate-500 font-mono">
-                              {accounts.find(
-                                (a) => String(a.id) === String(l.accountId),
-                              )?.currency_code || ""}
+                            <td>
+                              <select
+                                className="input text-right"
+                                value={l.currencyCode || effectivePaymentCurrencyCode || "USD"}
+                                onChange={(e) =>
+                                  updateLine(idx, { currencyCode: e.target.value })
+                                }
+                                disabled={readOnly}
+                              >
+                                {currencies.map((c) => (
+                                  <option key={c.id} value={c.code}>
+                                    {c.code}
+                                  </option>
+                                ))}
+                              </select>
                             </td>
                             <td>
                               <input

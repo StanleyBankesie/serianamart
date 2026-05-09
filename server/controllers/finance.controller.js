@@ -1349,42 +1349,27 @@ export const getAccountBalance = async (req, res, next) => {
     const account = rows?.[0];
     if (!account) return next(httpError(404, "NOT_FOUND", "Account not found"));
 
-    // Calculate current balance from ledger
+    // Calculate current balance from general ledger (voucher lines)
     const ledgerResult = await query(
       `SELECT 
-        COALESCE(SUM(
-          CASE 
-            WHEN account_id = :id AND entry_type = 'DEBIT' THEN amount
-            WHEN account_id = :id AND entry_type = 'CREDIT' THEN -amount
-            ELSE 0
-          END
-        ), 0) AS ledger_balance
-       FROM fin_ledger_entries
-       WHERE account_id = :id AND company_id = :companyId`,
-      { id, companyId }
-    );
-
-    // Also get balance from voucher lines for this account
-    const voucherResult = await query(
-      `SELECT 
-        COALESCE(SUM(debit), 0) - COALESCE(SUM(credit), 0) AS voucher_balance
+        COALESCE(SUM(vl.debit), 0) - COALESCE(SUM(vl.credit), 0) AS ledger_balance
        FROM fin_voucher_lines vl
-       JOIN fin_vouchers v ON v.id = vl.voucher_id
-       WHERE vl.account_id = :id AND v.company_id = :companyId AND v.status = 'POSTED'`,
+       INNER JOIN fin_vouchers v ON v.id = vl.voucher_id
+       WHERE vl.account_id = :id 
+         AND v.company_id = :companyId 
+         AND v.status IN ('POSTED', 'APPROVED')`,
       { id, companyId }
     );
 
     const openingBalance = Number(account.opening_balance || 0);
     const ledgerBalance = Number(ledgerResult?.[0]?.ledger_balance || 0);
-    const voucherBalance = Number(voucherResult?.[0]?.voucher_balance || 0);
-    const currentBalance = openingBalance + ledgerBalance + voucherBalance;
+    const currentBalance = openingBalance + ledgerBalance;
 
     res.json({
       ...account,
       balance: currentBalance,
       opening_balance: openingBalance,
-      ledger_movement: ledgerBalance,
-      voucher_movement: voucherBalance
+      ledger_movement: ledgerBalance
     });
   } catch (e) {
     next(e);
