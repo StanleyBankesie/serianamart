@@ -2590,7 +2590,11 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
 
   // Auto-populate posting lines for Payment Voucher based on payment details
   async function autoPopulatePvPostingLines(changedIdx, changedPatch) {
-    if (!isPAYV) return;
+    console.log("DEBUG autoPopulatePvPostingLines called:", { isPAYV, changedIdx, changedPatch, paymentType });
+    if (!isPAYV) {
+      console.log("DEBUG: Not PAYV, returning");
+      return;
+    }
 
     // Get the changed item details
     const currentItem = pvForm.items[changedIdx] || {};
@@ -2600,22 +2604,29 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     const amount = Number(updatedItem.amount || currentItem.amount || 0);
     const itemCurrency = updatedItem.currencyCode || currentItem.currencyCode || effectivePaymentCurrencyCode || "USD";
 
+    console.log("DEBUG: Item details:", { accountId, description, amount, itemCurrency });
+
     // Calculate total amount from all items
     const totalAmount = pvForm.items.reduce(
       (sum, it) => sum + Number(it.amount || 0),
       0,
     );
 
+    console.log("DEBUG: Total amount:", totalAmount, "Items:", pvForm.items);
+
     // Get the first item's description for tax components
     const firstDescription = pvForm.items[0]?.description || description || "";
 
     // Build new posting lines array
     const newLines = [];
+    console.log("DEBUG: Starting to build lines");
 
     // 1. Add the selected account from Payment Details to Posting Lines (CREDIT side)
     // Duplicate account data, description, and amount into credit field
+    console.log("DEBUG: Checking accountId:", accountId);
     if (accountId) {
       const acc = accounts.find((a) => String(a.id) === String(accountId));
+      console.log("DEBUG: Found account:", acc);
       newLines.push({
         accountId: String(accountId),
         accountName: acc?.name || "",
@@ -2624,16 +2635,20 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         debit: 0,
         credit: totalAmount,
       });
+      console.log("DEBUG: Added credit line for account:", accountId);
     }
 
     // 2. Calculate and add tax component lines (DEBIT side)
     let totalTaxAmount = 0;
+    console.log("DEBUG: Checking tax code:", pvForm.taxCodeId, "Components:", pvTaxComponentsByCode);
     if (pvForm.taxCodeId && pvTaxComponentsByCode[String(pvForm.taxCodeId)]) {
       const comps = pvTaxComponentsByCode[String(pvForm.taxCodeId)] || [];
+      console.log("DEBUG: Tax components found:", comps.length);
       comps.forEach((comp) => {
         const rate = Number(comp.rate_percent || 0);
         const compTaxAmount = Math.round((totalAmount * rate)) / 100;
         totalTaxAmount += compTaxAmount;
+        console.log("DEBUG: Adding tax component:", comp.component_name, "amount:", compTaxAmount);
         if (comp.account_id) {
           newLines.push({
             accountId: String(comp.account_id),
@@ -2683,8 +2698,12 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     }
 
     // Set all posting lines
+    console.log("DEBUG: Final newLines count:", newLines.length, "Lines:", newLines);
     if (newLines.length > 0) {
       setLines(newLines);
+      console.log("DEBUG: Lines set successfully");
+    } else {
+      console.log("DEBUG: No lines to set");
     }
   }
 
@@ -5344,8 +5363,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 </div>
               </div>
 
-              {/* Outstanding Bills - Only visible when Payment Against Bill is selected */}
-              {paymentType === "AGAINST_BILL" && (
+              {/* Outstanding Bills - visible for all payment modes */}
+              {isPAYV && (
                 <div className="space-y-3 mt-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="md:w-96">

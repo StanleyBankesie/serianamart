@@ -169,10 +169,30 @@ const ItemGroupForm = () => {
         };
 
         if (modalMode === "create") {
-          await api.post("/inventory/item-groups", payload);
+          // Production fallback: some deployments expose a legacy create path.
+          const createPaths = [
+            "/inventory/item-groups",
+            "/inventory/item-group",
+            "/inventory/groups",
+          ];
+          let lastErr = null;
+          let created = false;
+          for (const path of createPaths) {
+            try {
+              await api.post(path, payload);
+              created = true;
+              break;
+            } catch (e) {
+              lastErr = e;
+              const status = e?.response?.status;
+              if (status !== 404) throw e;
+            }
+          }
+          if (!created && lastErr) throw lastErr;
         } else {
+          const groupId = selectedItem?.group_id || selectedItem?.id;
           await api.put(
-            `/inventory/item-groups/${selectedItem.group_id}`,
+            `/inventory/item-groups/${groupId}`,
             payload,
           );
         }
