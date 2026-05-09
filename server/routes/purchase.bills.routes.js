@@ -52,6 +52,41 @@ router.get("/outstanding",
       const params = [companyId, branchId, supplierId, ...statuses];
       const rows = await query(sql, params);
       
+      // Fetch bill details for each bill
+      const billIds = rows.map(r => r.id);
+      let detailsMap = {};
+      if (billIds.length > 0) {
+        const placeholders = billIds.map(() => "?").join(",");
+        const detailsSql = `
+          SELECT 
+            bd.bill_id,
+            bd.item_id,
+            bd.qty,
+            bd.unit_price,
+            bd.line_total,
+            bd.tax_amount,
+            i.item_code,
+            i.item_name
+          FROM pur_bill_details bd
+          LEFT JOIN inv_items i ON i.id = bd.item_id
+          WHERE bd.bill_id IN (${placeholders})
+        `;
+        const detailsRows = await query(detailsSql, billIds);
+        detailsMap = (detailsRows || []).reduce((acc, d) => {
+          if (!acc[d.bill_id]) acc[d.bill_id] = [];
+          acc[d.bill_id].push({
+            item_id: d.item_id,
+            item_code: d.item_code,
+            item_name: d.item_name,
+            qty: Number(d.qty || 0),
+            unit_price: Number(d.unit_price || 0),
+            line_total: Number(d.line_total || 0),
+            tax_amount: Number(d.tax_amount || 0)
+          });
+          return acc;
+        }, {});
+      }
+      
       // Format response
       const items = (rows || []).map(row => ({
         id: row.id,
@@ -64,7 +99,8 @@ router.get("/outstanding",
         amount_paid: Number(row.amount_paid || 0),
         balance_amount: Number(row.balance_amount || row.net_amount || 0),
         payment_status: row.payment_status || "UNPAID",
-        status: row.status
+        status: row.status,
+        details: detailsMap[row.id] || []
       }));
       
       res.json({ items });

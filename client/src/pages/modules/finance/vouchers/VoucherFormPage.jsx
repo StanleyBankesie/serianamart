@@ -943,9 +943,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     loadPvTaxComponents();
   }, [isPAYV, pvForm.taxCodeId, pvTaxComponentsByCode]);
 
-  // Auto-populate PAYV posting lines when tax code changes (even if components already cached or cleared)
+  // Auto-populate posting lines when PAYV tax code changes (even if components already cached or cleared)
+  // Skip for Direct Payment mode - backend handles posting lines
   useEffect(() => {
-    if (!isPAYV) return;
+    if (!isPAYV || paymentType === "DIRECT") return;
     // Trigger whenever tax code changes (including when cleared to empty)
     if (
       pvForm.taxCodeId &&
@@ -957,7 +958,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       // Tax code cleared - still trigger rebuild without tax
       (async () => await autoPopulatePvTaxLines())();
     }
-  }, [isPAYV, pvForm.taxCodeId]);
+  }, [isPAYV, pvForm.taxCodeId, paymentType]);
 
   // Fetch balance when RV deposit account changes
   useEffect(() => {
@@ -1648,22 +1649,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         },
       ];
     } else if (isPAYV && paymentType === "DIRECT") {
-      // For PAYV DIRECT: use posting lines from UI (manually entered)
-      cleaned = lines
-        .map((l) => ({
-          accountId: Number(l.accountId || 0),
-          description: l.description || null,
-          debit: Number(l.debit || 0),
-          credit: Number(l.credit || 0),
-          // Preserve all additional fields from posting lines
-          accountName: l.accountName || null,
-          accountCode: l.accountCode || null,
-          referenceNo: l.referenceNo || null,
-          chequeNumber: l.chequeNumber || null,
-          chequeDate: l.chequeDate || null,
-          paymentMethod: l.paymentMethod || null,
-        }))
-        .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0));
+      // For PAYV DIRECT: posting lines auto-generated on backend from payment details
+      // Send empty lines - backend will create DEBIT to account and CREDIT from payment account
+      cleaned = [];
     } else {
       // For all other voucher types: use posting lines from UI
       cleaned = lines
@@ -1683,17 +1671,20 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0));
     }
 
-    if (cleaned.length < 2) {
-      toast.error("Enter at least two posting lines");
-      return;
-    }
+    // Skip posting lines validation for PAYV Direct Payment
+    if (!(isPAYV && paymentType === "DIRECT")) {
+      if (cleaned.length < 2) {
+        toast.error("Enter at least two posting lines");
+        return;
+      }
 
-    const debit = cleaned.reduce((s, l) => s + Number(l.debit || 0), 0);
-    const credit = cleaned.reduce((s, l) => s + Number(l.credit || 0), 0);
+      const debit = cleaned.reduce((s, l) => s + Number(l.debit || 0), 0);
+      const credit = cleaned.reduce((s, l) => s + Number(l.credit || 0), 0);
 
-    if (Math.round(debit * 100) !== Math.round(credit * 100)) {
-      toast.error("Total debit must equal total credit");
-      return;
+      if (Math.round(debit * 100) !== Math.round(credit * 100)) {
+        toast.error("Total debit must equal total credit");
+        return;
+      }
     }
 
     try {
@@ -1702,6 +1693,22 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         voucherTypeId: effVoucherTypeId,
         voucherTypeCode: voucherTypeCode,
         voucherDate,
+        // Include bill reference for Payment Against Bill
+        ...(isPAYV && paymentType === "AGAINST_BILL" && selectedBillId
+          ? { billId: selectedBillId }
+          : {}),
+        // Include payment details for Direct Payment - backend will generate posting lines
+        ...(isPAYV && paymentType === "DIRECT"
+          ? {
+              paymentDetails: {
+                accountId: pvForm.items[0]?.accountId || null,
+                paymentAccountId: pvForm.paymentAccountId || null,
+                totalAmount: pvForm.items.reduce((sum, item) => sum + Number(item.amount || 0), 0),
+                currencyCode: effectivePaymentCurrencyCode || "USD",
+                description: pvForm.items[0]?.description || "Direct Payment",
+              }
+            }
+          : {}),
         narration:
           isRV || isPAYV || isCV
             ? voucherNarration
@@ -1766,6 +1773,24 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         const res = await api.post("/finance/vouchers", payload);
         const newId = Number(res?.data?.id || 0) || null;
         const newRef = String(res?.data?.voucherNo || "") || null;
+        
+        // Update bill payment status when Payment Against Bill is used
+        if (isPAYV && paymentType === "AGAINST_BILL" && selectedBillId) {
+          try {
+            const paymentAmount = pvForm.items.reduce(
+              (sum, item) => sum + Number(item.amount || 0),
+              0
+            );
+            if (paymentAmount > 0) {
+              await api.post("/purchase/bills/update-payment-status", {
+                billId: selectedBillId,
+                paymentAmount: paymentAmount,
+              });
+            }
+          } catch (billError) {
+            console.warn("Failed to update bill payment status:", billError);
+          }
+        }
         
         // Create Purchase Voucher when Payment Voucher is saved (for posting lines)
         if (isPAYV && paymentType === "DIRECT" && lines.length > 0) {
@@ -2533,10 +2558,12 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     const changed = nextItems[idx];
     updatePv({ items: nextItems });
     // Auto-populate posting lines when account, description, or amount changes
+    // Skip for Direct Payment mode - backend generates posting lines automatically
     if (
-      patch.accountId !== undefined ||
-      patch.description !== undefined ||
-      patch.amount !== undefined
+      paymentType !== "DIRECT" &&
+      (patch.accountId !== undefined ||
+        patch.description !== undefined ||
+        patch.amount !== undefined)
     ) {
       setTimeout(async () => await autoPopulatePvPostingLines(idx, patch), 0);
     }
@@ -3308,6 +3335,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     </div>
                   </div>
                 ) : null}
+                {/* Hide Posting Lines for PAYV Direct Payment - auto-generated on backend */}
+                {!(isPAYV && paymentType === "DIRECT") && (
+                <>
                 <div className="flex justify-between items-center mb-3">
                   <div className="font-semibold text-slate-800 dark:text-slate-200">
                     Posting Lines
@@ -3544,6 +3574,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     </div>
                   </div>
                 </div>
+                </>
+                )}
               </div>
 
               <div className="flex justify-end gap-3">
@@ -3553,7 +3585,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 <button
                   type="submit"
                   className="btn-success"
-                  disabled={loading || !balanced || readOnly}
+                  disabled={loading || readOnly || (!(isPAYV && paymentType === "DIRECT") && !balanced)}
                 >
                   {loading ? "Saving..." : "Save Voucher"}
                 </button>
@@ -4963,7 +4995,18 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                   <button
                     type="button"
                     className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${paymentType === "AGAINST_BILL" ? "bg-white dark:bg-slate-700 shadow text-brand-600 dark:text-brand-400" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"}`}
-                    onClick={() => setPaymentType("AGAINST_BILL")}
+                    onClick={() => {
+                      setPaymentType("AGAINST_BILL");
+                      // Clear bill selection when switching to this mode
+                      if (pvForm.payToAccountId) {
+                        const account = accounts.find(
+                          (a) => String(a.id) === String(pvForm.payToAccountId)
+                        );
+                        if (account?.code) {
+                          loadOutstandingBillsForSupplier(account.code);
+                        }
+                      }
+                    }}
                     disabled={readOnly}
                   >
                     Payment Against Bill
@@ -4971,7 +5014,13 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                   <button
                     type="button"
                     className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${paymentType === "DIRECT" ? "bg-white dark:bg-slate-700 shadow text-brand-600 dark:text-brand-400" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"}`}
-                    onClick={() => setPaymentType("DIRECT")}
+                    onClick={() => {
+                      setPaymentType("DIRECT");
+                      // Clear bill selection when switching modes
+                      setSelectedBillId("");
+                      setSelectedBillDetails(null);
+                      setOutstandingBills([]);
+                    }}
                     disabled={readOnly}
                   >
                     Direct Payment
