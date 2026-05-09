@@ -798,12 +798,19 @@ async function ensureUomTable() {
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       uom_code VARCHAR(20) NOT NULL,
       uom_name VARCHAR(120) NOT NULL,
+      uom_type VARCHAR(20) NOT NULL DEFAULT 'COUNT',
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       UNIQUE KEY uq_uom_code (uom_code)
     )
+  `).catch(() => {});
+
+  // Add uom_type column if it doesn't exist
+  await query(`
+    ALTER TABLE inv_uom
+    ADD COLUMN IF NOT EXISTS uom_type VARCHAR(20) NOT NULL DEFAULT 'COUNT'
   `).catch(() => {});
 
   // Ensure default UOMs exist
@@ -830,16 +837,92 @@ router.get("/uoms", requireAuth, async (req, res, next) => {
   try {
     await ensureUomTable();
     const rows = await query(`
-        SELECT id, uom_code, uom_name,
+        SELECT id, uom_code, uom_name, uom_type, is_active,
           created_at,
           u.username AS created_by_name
          FROM inv_uom
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE is_active = 1
         ORDER BY uom_name ASC, uom_code ASC
         `);
     res.json({ items: rows || [] });
   } catch (e) {
+    next(e);
+  }
+});
+
+router.post("/uoms", requireAuth, async (req, res, next) => {
+  try {
+    await ensureUomTable();
+    const body = req.body || {};
+    const uomCode = String(body.uom_code || "").trim();
+    const uomName = String(body.uom_name || "").trim();
+    const uomType = String(body.uom_type || "COUNT").trim();
+    const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
+
+    if (!uomCode || !uomName) {
+      throw httpError(400, "VALIDATION_ERROR", "uom_code and uom_name are required");
+    }
+
+    const ins = await query(
+      `INSERT INTO inv_uom (uom_code, uom_name, uom_type, is_active) VALUES (:uomCode, :uomName, :uomType, :isActive)`,
+      { uomCode, uomName, uomType, isActive },
+    );
+    res.status(201).json({ id: ins.insertId });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put("/uoms/:id", requireAuth, async (req, res, next) => {
+  try {
+    await ensureUomTable();
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+    }
+
+    const body = req.body || {};
+    const uomCode = String(body.uom_code || "").trim();
+    const uomName = String(body.uom_name || "").trim();
+    const uomType = String(body.uom_type || "COUNT").trim();
+    const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
+
+    if (!uomCode || !uomName) {
+      throw httpError(400, "VALIDATION_ERROR", "uom_code and uom_name are required");
+    }
+
+    const upd = await query(
+      `UPDATE inv_uom SET uom_code = :uomCode, uom_name = :uomName, uom_type = :uomType, is_active = :isActive WHERE id = :id`,
+      { id, uomCode, uomName, uomType, isActive },
+    );
+
+    if (!upd.affectedRows) {
+      throw httpError(404, "NOT_FOUND", "UOM not found");
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete("/uoms/:id", requireAuth, async (req, res, next) => {
+  try {
+    await ensureUomTable();
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+    }
+
+    const del = await query(`DELETE FROM inv_uom WHERE id = :id`, { id });
+
+    if (!del.affectedRows) {
+      throw httpError(404, "NOT_FOUND", "UOM not found");
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.code === "ER_ROW_IS_REFERENCED_2") {
+      return next(httpError(400, "CONSTRAINT_ERROR", "Cannot delete UOM because it is in use."));
+    }
     next(e);
   }
 });

@@ -125,7 +125,9 @@ export default function DeliveryForm() {
 
   const fetchTaxCodes = async () => {
     try {
-      const response = await api.get("/finance/tax-codes");
+      const response = await api.get("/finance/tax-codes", {
+        params: { form: "DELIVERY_NOTE" },
+      });
       const fetchedTaxes = Array.isArray(response.data?.items)
         ? response.data.items
         : [];

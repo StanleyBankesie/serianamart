@@ -560,7 +560,7 @@ const ItemGroupForm = () => {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredCategories.map((category) => (
-                    <tr key={category.category_id} className="hover:bg-gray-50">
+                    <tr key={category.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {category.category_code}
                       </td>
@@ -573,12 +573,18 @@ const ItemGroupForm = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span
                           className={`px-3 py-1 rounded-full text-xs font-medium ${
-                            category.is_active === "Y"
+                            category.is_active === "Y" ||
+                            category.is_active === 1 ||
+                            category.is_active === true
                               ? "bg-green-100 text-green-800"
                               : "bg-red-100 text-red-800"
                           }`}
                         >
-                          {category.is_active === "Y" ? "Active" : "Inactive"}
+                          {category.is_active === "Y" ||
+                          category.is_active === 1 ||
+                          category.is_active === true
+                            ? "Active"
+                            : "Inactive"}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -619,7 +625,7 @@ const ItemGroupForm = () => {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredTypes.map((t) => (
-                    <tr key={t.type_id} className="hover:bg-gray-50">
+                    <tr key={t.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {t.type_code}
                       </td>
@@ -629,12 +635,18 @@ const ItemGroupForm = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span
                           className={`px-3 py-1 rounded-full text-xs font-medium ${
-                            t.is_active === "Y"
+                            t.is_active === "Y" ||
+                            t.is_active === 1 ||
+                            t.is_active === true
                               ? "bg-green-100 text-green-800"
                               : "bg-red-100 text-red-800"
                           }`}
                         >
-                          {t.is_active === "Y" ? "Active" : "Inactive"}
+                          {t.is_active === "Y" ||
+                          t.is_active === 1 ||
+                          t.is_active === true
+                            ? "Active"
+                            : "Inactive"}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -646,7 +658,7 @@ const ItemGroupForm = () => {
                             <Edit className="w-5 h-5" />
                           </button>
                           <button
-                            onClick={() => handleDelete("type", t.type_id)}
+                            onClick={() => handleDelete("type", t.id)}
                             className="text-red-600 hover:text-red-900"
                           >
                             <Trash2 className="w-5 h-5" />
@@ -682,7 +694,7 @@ const ItemGroupForm = () => {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredUoms.map((uom) => (
-                    <tr key={uom.uom_id} className="hover:bg-gray-50">
+                    <tr key={uom.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {uom.uom_code}
                       </td>
@@ -718,7 +730,7 @@ const ItemGroupForm = () => {
                             <Edit className="w-5 h-5" />
                           </button>
                           <button
-                            onClick={() => handleDelete("uom", uom.uom_id)}
+                            onClick={() => handleDelete("uom", uom.id)}
                             className="text-red-600 hover:text-red-900"
                           >
                             <Trash2 className="w-5 h-5" />

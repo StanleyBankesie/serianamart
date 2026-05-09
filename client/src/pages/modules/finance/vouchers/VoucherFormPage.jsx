@@ -15,6 +15,10 @@ function emptyLine() {
     description: "",
     debit: "",
     credit: "",
+    referenceNo: "",
+    chequeNumber: "",
+    chequeDate: "",
+    paymentMethod: "",
   };
 }
 
@@ -33,8 +37,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   const [taxCodes, setTaxCodes] = useState([]);
   const [payees, setPayees] = useState([]);
   const [customerInvoices, setCustomerInvoices] = useState([]);
-  const [supplierBills, setSupplierBills] = useState([]);
-  const [selectedBillRefs, setSelectedBillRefs] = useState([]);
   const [selectedInvoiceRefs, setSelectedInvoiceRefs] = useState([]);
   const [voucherNoPreview, setVoucherNoPreview] = useState("");
 
@@ -100,12 +102,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   const [receivedFromSearch, setReceivedFromSearch] = useState("");
   const [paidToSearch, setPaidToSearch] = useState("");
   const [showForwardModal, setShowForwardModal] = useState(false);
-  const [showBillModal, setShowBillModal] = useState(false);
-  const [billModalLoading, setBillModalLoading] = useState(false);
-  const [billModalError, setBillModalError] = useState("");
-  const [billModalType, setBillModalType] = useState("");
-  const [billModalHeader, setBillModalHeader] = useState(null);
-  const [billModalDetails, setBillModalDetails] = useState([]);
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
@@ -114,6 +110,11 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   const [targetApproverId, setTargetApproverId] = useState(null);
   const [submittingForward, setSubmittingForward] = useState(false);
   const [voucherStatus, setVoucherStatus] = useState("DRAFT");
+  const [outstandingBills, setOutstandingBills] = useState([]);
+  const [selectedBillId, setSelectedBillId] = useState("");
+  const [selectedBillDetails, setSelectedBillDetails] = useState(null);
+  const [suppliers, setSuppliers] = useState([]);
+  const [loadingBills, setLoadingBills] = useState(false);
   const [cvForm, setCvForm] = useState({
     fromAccountId: "",
     toAccountId: "",
@@ -154,12 +155,26 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
 
   async function loadSetup() {
     try {
+      // Map voucherTypeCode to form ID for strict tax filtering
+      const vTypeCode = String(voucherTypeCode || "").toUpperCase();
+      const formIdMap = {
+        PV: "PAYMENT_VOUCHER",
+        PAYV: "PAYMENT_VOUCHER",
+        RV: "RECEIPT_VOUCHER",
+        JV: "JOURNAL_VOUCHER",
+        CV: "CONTRA_VOUCHER",
+        SV: "SALES_VOUCHER",
+        DN: "DEBIT_NOTE",
+        CN: "CREDIT_NOTE",
+      };
+      const formParam = formIdMap[vTypeCode] || null;
+
       const [vtRes, fyRes, accRes, taxRes, custRes, supRes, curRes] =
         await Promise.all([
           api.get("/finance/voucher-types"),
           api.get("/finance/fiscal-years"),
           api.get("/finance/accounts"),
-          api.get("/finance/tax-codes"),
+          api.get("/finance/tax-codes", { params: { form: formParam } }),
           api.get("/sales/customers?active=true"),
           api.get("/purchase/suppliers?active=true"),
           api.get("/finance/currencies"),
@@ -205,6 +220,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       setTaxCodes(taxes);
       setPayees(combinedPayees);
       setCurrencies(currs);
+      setSuppliers(suppliers);
 
       if (!fiscalYearId && fys.length) setFiscalYearId(String(fys[0].id));
     } catch (e) {
@@ -238,98 +254,37 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     }
   }
 
-  async function loadOutstandingBillsForSupplier(entry) {
-    try {
-      const purRes = await api.get("/purchase/bills");
-      const purItems = Array.isArray(purRes.data?.items)
-        ? purRes.data.items
-        : [];
-      const purchaseFiltered = purItems
-        .filter((x) => String(x.supplier_id) === String(entry.id))
-        .map((x) => ({
-          id: x.id,
-          bill_no: x.bill_no,
-          payment_status: String(x.payment_status || "UNPAID"),
-          outstanding: Math.max(
-            0,
-            Math.round(
-              (Number(x.net_amount || 0) - Number(x.amount_paid || 0)) * 100,
-            ) / 100,
-          ),
-        }))
-        .filter(
-          (x) => x.payment_status !== "PAID" && Number(x.outstanding) > 0,
-        );
-      let combined = purchaseFiltered;
-      if (String(entry.serviceContractor || "N") === "Y") {
-        const srvRes = await api.get("/purchase/service-bills", {
-          params: { supplierId: entry.id },
-        });
-        const srvItems = Array.isArray(srvRes.data?.items)
-          ? srvRes.data.items
-          : [];
-        const serviceFiltered = srvItems
-          .map((x) => ({
-            id: `SB-${x.id}`,
-            bill_no: x.bill_no,
-            payment_status: String(x.payment || "UNPAID"),
-            outstanding: Math.max(
-              0,
-              Math.round(
-                (Number(x.total_amount || 0) - Number(x.amount_paid || 0)) *
-                  100,
-              ) / 100,
-            ),
-          }))
-          .filter(
-            (x) => x.payment_status !== "PAID" && Number(x.outstanding) > 0,
-          );
-        combined = [...purchaseFiltered, ...serviceFiltered];
-      }
-      combined = combined.sort((a, b) =>
-        String(a.bill_no || "").localeCompare(String(b.bill_no || "")),
-      );
-      setSupplierBills(combined);
-      const validNos = new Set(combined.map((b) => String(b.bill_no)));
-      setSelectedBillRefs((prev) =>
-        prev.filter((r) => validNos.has(String(r))),
-      );
-    } catch {
-      setSupplierBills([]);
-      setSelectedBillRefs([]);
-    }
-  }
-
-  async function loadOutstandingBillsForAccount(accountId) {
-    if (!accountId) {
-      setSupplierBills([]);
-      setSelectedBillRefs([]);
+  // Function to fetch outstanding bills for a supplier based on account code
+  async function loadOutstandingBillsForSupplier(accountCode) {
+    if (!accountCode) {
+      setOutstandingBills([]);
       return;
     }
+    setLoadingBills(true);
     try {
-      const res = await api.get("/finance/supplier-bills-by-account", {
-        params: { accountId },
+      // Find supplier by account code
+      const supplier = suppliers.find(
+        (s) => String(s.account_code || s.code || "").trim() === String(accountCode).trim()
+      );
+      if (!supplier) {
+        setOutstandingBills([]);
+        setLoadingBills(false);
+        return;
+      }
+      // Fetch outstanding bills for this supplier
+      const res = await api.get("/purchase/bills/outstanding", {
+        params: { 
+          supplier_id: supplier.id,
+          status: "UNPAID,PARTIAL PAYMENT"
+        },
       });
       const bills = Array.isArray(res.data?.items) ? res.data.items : [];
-      const mapped = bills.map((x) => ({
-        id: x.id,
-        bill_no: x.bill_no,
-        bill_date: x.bill_date,
-        due_date: x.due_date,
-        total_amount: x.total_amount,
-        net_amount: x.net_amount,
-        amount_paid: x.amount_paid,
-        outstanding: x.outstanding,
-        payment_status: x.payment_status,
-      }));
-      setSupplierBills(mapped);
-      const validNos = new Set(mapped.map((b) => String(b.bill_no)));
-      setSelectedBillRefs((prev) =>
-        prev.filter((r) => validNos.has(String(r))),
-      );
-    } catch {
-      setSupplierBills([]);
-      setSelectedBillRefs([]);
+      setOutstandingBills(bills);
+    } catch (e) {
+      console.warn("Failed to load outstanding bills:", e);
+      setOutstandingBills([]);
+    } finally {
+      setLoadingBills(false);
     }
   }
 
@@ -1018,12 +973,21 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     }
   }, [isPAYV, pvForm.paymentAccountId]);
 
-  // Fetch outstanding bills when Paid To account changes
+  // Load outstanding bills when Paid To account changes (for Payment Against Bill mode)
   useEffect(() => {
-    if (isPAYV && pvForm.payToAccountId) {
-      loadOutstandingBillsForAccount(pvForm.payToAccountId);
+    if (isPAYV && paymentType === "AGAINST_BILL" && pvForm.payToAccountId) {
+      const account = accounts.find(
+        (a) => String(a.id) === String(pvForm.payToAccountId)
+      );
+      if (account?.code) {
+        loadOutstandingBillsForSupplier(account.code);
+      }
+    } else {
+      setOutstandingBills([]);
+      setSelectedBillId("");
+      setSelectedBillDetails(null);
     }
-  }, [isPAYV, pvForm.payToAccountId]);
+  }, [isPAYV, paymentType, pvForm.payToAccountId, accounts, suppliers]);
 
   useEffect(() => {
     let mounted = true;
@@ -1683,30 +1647,40 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           paymentMethod: cvForm.transferMethod || null,
         },
       ];
-    } else if (isPAYV) {
-      // For PAYV: only use posting lines from UI when DIRECT payment type
-      if (paymentType === "DIRECT") {
-        cleaned = lines
-          .map((l) => ({
-            accountId: Number(l.accountId || 0),
-            description: l.description || null,
-            debit: Number(l.debit || 0),
-            credit: Number(l.credit || 0),
-          }))
-          .filter((l) => l.accountId && (l.debit || l.credit));
-      } else {
-        // For AGAINST_BILL: do not use posting lines UI, will use payment details
-        cleaned = [];
-      }
-    } else {
+    } else if (isPAYV && paymentType === "DIRECT") {
+      // For PAYV DIRECT: use posting lines from UI (manually entered)
       cleaned = lines
         .map((l) => ({
           accountId: Number(l.accountId || 0),
           description: l.description || null,
           debit: Number(l.debit || 0),
           credit: Number(l.credit || 0),
+          // Preserve all additional fields from posting lines
+          accountName: l.accountName || null,
+          accountCode: l.accountCode || null,
+          referenceNo: l.referenceNo || null,
+          chequeNumber: l.chequeNumber || null,
+          chequeDate: l.chequeDate || null,
+          paymentMethod: l.paymentMethod || null,
         }))
-        .filter((l) => l.accountId && (l.debit || l.credit));
+        .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0));
+    } else {
+      // For all other voucher types: use posting lines from UI
+      cleaned = lines
+        .map((l) => ({
+          accountId: Number(l.accountId || 0),
+          description: l.description || null,
+          debit: Number(l.debit || 0),
+          credit: Number(l.credit || 0),
+          // Preserve all additional fields from posting lines
+          accountName: l.accountName || null,
+          accountCode: l.accountCode || null,
+          referenceNo: l.referenceNo || null,
+          chequeNumber: l.chequeNumber || null,
+          chequeDate: l.chequeDate || null,
+          paymentMethod: l.paymentMethod || null,
+        }))
+        .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0));
     }
 
     if (cleaned.length < 2) {
@@ -1783,40 +1757,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                       .join(" | ")
                   : narration,
         lines: cleaned,
-        ...(isPAYV
-          ? {
-              apply_to_purchase_bills: (pvForm.items || [])
-                .map((it) => ({
-                  ref: (it.referenceNo && String(it.referenceNo)) || "",
-                  amount: Number(it.amount || 0),
-                }))
-                .filter((x) => x.ref && x.amount > 0)
-                .map((x) => {
-                  const b = supplierBills.find(
-                    (sb) => String(sb.bill_no) === String(x.ref),
-                  );
-                  return b ? { bill_id: Number(b.id), amount: x.amount } : null;
-                })
-                .filter(Boolean),
-              apply_to_service_bills: (pvForm.items || [])
-                .map((it) => ({
-                  ref: (it.referenceNo && String(it.referenceNo)) || "",
-                  amount: Number(it.amount || 0),
-                }))
-                .filter((x) => x.ref && x.amount > 0)
-                .map((x) => {
-                  const b = supplierBills.find(
-                    (sb) => String(sb.bill_no) === String(x.ref),
-                  );
-                  if (!b) return null;
-                  const idStr = String(b.id || "");
-                  if (!/^SB-\d+$/.test(idStr)) return null;
-                  const idNum = Number(idStr.replace(/^SB-/, ""));
-                  return { bill_id: idNum, amount: x.amount };
-                })
-                .filter(Boolean),
-            }
-          : {}),
       };
 
       if (isEdit) {
@@ -1830,14 +1770,22 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         // Create Purchase Voucher when Payment Voucher is saved (for posting lines)
         if (isPAYV && paymentType === "DIRECT" && lines.length > 0) {
           try {
+            // Include all fields from posting lines for purchase voucher
             const purchaseLines = lines
               .map((l) => ({
                 accountId: Number(l.accountId || 0),
                 description: l.description || null,
                 debit: Number(l.debit || 0),
                 credit: Number(l.credit || 0),
+                // Include additional fields if present in posting lines
+                accountName: l.accountName || null,
+                accountCode: l.accountCode || null,
+                referenceNo: l.referenceNo || null,
+                chequeNumber: l.chequeNumber || null,
+                chequeDate: l.chequeDate || null,
+                paymentMethod: l.paymentMethod || null,
               }))
-              .filter((l) => l.accountId && (l.debit || l.credit));
+              .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0));
             
             if (purchaseLines.length >= 2) {
               const pvPayload = {
@@ -1845,11 +1793,16 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 voucherDate,
                 narration: `Purchase entry from Payment Voucher ${newRef || res.data?.voucherNo || ""}`,
                 lines: purchaseLines,
+                // Include payment voucher reference for tracking
+                sourceVoucherNo: newRef || res.data?.voucherNo || null,
+                sourceVoucherType: "PAYV",
               };
               await api.post("/finance/vouchers", pvPayload);
+              // Purchase voucher created silently without success message
             }
           } catch (pvError) {
             console.warn("Failed to create purchase voucher:", pvError);
+            toast.warning("Payment voucher saved but purchase voucher creation failed");
           }
         }
         
@@ -2578,23 +2531,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       i === idx ? { ...it, ...patch } : it,
     );
     const changed = nextItems[idx];
-    if (
-      Object.prototype.hasOwnProperty.call(patch, "amount") &&
-      (!changed.referenceNo || String(changed.referenceNo).trim() === "")
-    ) {
-      const used = new Set(
-        nextItems
-          .map((x) => String(x.referenceNo || ""))
-          .filter((r) => r && r.length > 0),
-      );
-      const candidate =
-        selectedBillRefs.find((r) => !used.has(String(r))) ||
-        selectedBillRefs[0] ||
-        null;
-      if (candidate) {
-        nextItems[idx] = { ...changed, referenceNo: String(candidate) };
-      }
-    }
     updatePv({ items: nextItems });
     // Auto-populate posting lines when account, description, or amount changes
     if (
@@ -2737,82 +2673,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     updatePv({
       items: pvForm.items.filter((_, i) => i !== idx),
     });
-  }
-  const [knockOffTotal, setKnockOffTotal] = useState(0);
-  function setPvAmountForRef(referenceNo, amount) {
-    if (readOnly) return;
-    const idx = pvForm.items.findIndex(
-      (it) => String(it.referenceNo || "") === String(referenceNo || ""),
-    );
-    if (idx >= 0) {
-      updatePvItem(idx, { amount: Number(amount || 0) });
-    } else {
-      updatePv({
-        items: [
-          ...pvForm.items,
-          {
-            description: `Bill ${referenceNo} payment`,
-            accountId: pvForm.payToAccountId || "",
-            amount: Number(amount || 0),
-            referenceNo: String(referenceNo || ""),
-          },
-        ],
-      });
-    }
-  }
-  function allocatePvBillsFifo(total) {
-    if (readOnly) return;
-    const refs = [...selectedBillRefs];
-    const chosen = supplierBills.filter((b) =>
-      refs.includes(String(b.bill_no)),
-    );
-    let remaining = Number(total || 0);
-    const nextItemsMap = new Map(
-      pvForm.items.map((it) => [String(it.referenceNo || ""), { ...it }]),
-    );
-    for (let i = 0; i < chosen.length; i++) {
-      const b = chosen[i];
-      const outstanding = Number(b?.outstanding || 0);
-      const alloc = Math.max(0, Math.min(outstanding, remaining));
-      remaining = Math.max(0, remaining - alloc);
-      nextItemsMap.set(String(b.bill_no), {
-        description: `Bill ${b.bill_no} payment`,
-        accountId: pvForm.payToAccountId || "",
-        amount: alloc,
-        referenceNo: String(b.bill_no),
-      });
-    }
-    updatePv({ items: Array.from(nextItemsMap.values()) });
-  }
-  async function openBillModal(entry) {
-    if (!entry) return;
-    setShowBillModal(true);
-    setBillModalLoading(true);
-    setBillModalError("");
-    setBillModalHeader(null);
-    setBillModalDetails([]);
-    try {
-      const idStr = String(entry.id || "");
-      if (idStr.startsWith("SB-")) {
-        const idNum = Number(idStr.replace(/^SB-/, ""));
-        setBillModalType("SERVICE");
-        const res = await api.get(`/purchase/service-bills/${idNum}`);
-        setBillModalHeader(res.data?.item || null);
-        setBillModalDetails(res.data?.details || []);
-      } else {
-        const idNum = Number(entry.id);
-        setBillModalType("PURCHASE");
-        const res = await api.get(`/purchase/bills/${idNum}`);
-        setBillModalHeader(res.data?.item || null);
-        setBillModalDetails(res.data?.details || []);
-      }
-    } catch (e) {
-      setBillModalError(
-        e?.response?.data?.message || "Failed to load bill details",
-      );
-    } finally {
-      setBillModalLoading(false);
-    }
   }
   useEffect(() => {
     if (!isPAYV) return;
@@ -3585,13 +3445,11 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                   className="input text-right"
                                   type="number"
                                   min="0"
-                                  step="1"
+                                  step="any"
                                   value={l.debit || ""}
                                   onChange={(e) =>
                                     updateLine(idx, {
-                                      debit: String(
-                                        e.target.value || "",
-                                      ).replace(/^0+(?=\d)/, ""),
+                                      debit: e.target.value,
                                       credit: 0,
                                     })
                                   }
@@ -3627,13 +3485,11 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                   className="input text-right"
                                   type="number"
                                   min="0"
-                                  step="1"
+                                  step="any"
                                   value={l.credit || ""}
                                   onChange={(e) =>
                                     updateLine(idx, {
-                                      credit: String(
-                                        e.target.value || "",
-                                      ).replace(/^0+(?=\d)/, ""),
+                                      credit: e.target.value,
                                       debit: 0,
                                     })
                                   }
@@ -4484,11 +4340,11 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 className={`input text-right ${disabledClass}`}
                                 type="number"
                                 min="0"
-                                step="1"
+                                step="any"
                                 value={it.amount || ""}
                                 onChange={(e) =>
                                   updateRvItem(idx, {
-                                    amount: Number(e.target.value || 0),
+                                    amount: e.target.value,
                                   })
                                 }
                                 onFocus={() => {
@@ -4700,7 +4556,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 className="input text-right"
                                 type="number"
                                 min="0"
-                                step="1"
+                                step="any"
                                 value={l.debit || ""}
                                 onChange={(e) =>
                                   updateLine(idx, {
@@ -4719,7 +4575,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 className="input text-right"
                                 type="number"
                                 min="0"
-                                step="1"
+                                step="any"
                                 value={l.credit || ""}
                                 onChange={(e) =>
                                   updateLine(idx, {
@@ -5217,6 +5073,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                             (a) => String(a.id) === selected.value,
                           );
                           if (acc) {
+                            const accountCurrency = acc?.currency_code || acc?.currency || "";
                             setPaidToSearch("");
                             updatePv({
                               payTo: String(acc.name || ""),
@@ -5231,6 +5088,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                         description: "",
                                         accountId: acc.id,
                                         amount: 0,
+                                        currencyCode: accountCurrency,
                                       },
                                     ]
                                   : [
@@ -5239,6 +5097,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                         description: "",
                                         accountId: acc.id,
                                         amount: 0,
+                                        currencyCode: accountCurrency,
                                       },
                                     ],
                             });
@@ -5259,6 +5118,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 (a) => String(a.id) === o.value,
                               );
                               if (acc) {
+                                const accountCurrency = acc?.currency_code || acc?.currency || "";
                                 setPaidToSearch("");
                                 updatePv({
                                   payTo: String(acc.name || ""),
@@ -5273,6 +5133,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                             description: "",
                                             accountId: acc.id,
                                             amount: 0,
+                                            currencyCode: accountCurrency,
                                           },
                                         ]
                                       : [
@@ -5281,6 +5142,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                             description: "",
                                             accountId: acc.id,
                                             amount: 0,
+                                            currencyCode: accountCurrency,
                                           },
                                         ],
                                 });
@@ -5431,70 +5293,60 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 </div>
               </div>
 
+              {/* Outstanding Bills - Only visible when Payment Against Bill is selected */}
               {paymentType === "AGAINST_BILL" && (
-                <div className="mt-4">
-                  <div className="md:w-64">
-                    <label className="label">Outstanding Bills</label>
-                    {pvForm.payToAccountId && supplierBills.length > 0 ? (
+                <div className="space-y-3 mt-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:w-96">
+                      <label className="label">Outstanding Bills</label>
                       <select
-                        className={`input md:w-64 ${disabledClass}`}
-                        value={selectedBillRefs[0] || ""}
+                        className={`input md:w-96 ${disabledClass}`}
+                        value={selectedBillId}
                         onChange={(e) => {
-                          const selectedRef = String(e.target.value || "");
-                          const chosenList = supplierBills.filter(
-                            (b) => String(b.bill_no) === selectedRef,
+                          const billId = e.target.value;
+                          setSelectedBillId(billId);
+                          const bill = outstandingBills.find(
+                            (b) => String(b.id) === String(billId)
                           );
-                          setSelectedBillRefs(selectedRef ? [selectedRef] : []);
-                          const defaultTotal = chosenList.reduce(
-                            (sum, b) => sum + Number(b.outstanding || 0),
-                            0,
-                          );
-                          setKnockOffTotal(defaultTotal);
-                          const items = chosenList.map((b) => ({
-                            description: `Bill ${b.bill_no} payment`,
-                            accountId: pvForm.payToAccountId || "",
-                            amount: Number(b.outstanding || 0),
-                            referenceNo: String(b.bill_no),
-                            exchangeRate: pvExchangeRate || "1",
-                          }));
-                          updatePv({
-                            items:
-                              items.length > 0
-                                ? items
-                                : [
-                                    {
-                                      description: "",
-                                      accountId: pvForm.payToAccountId || "",
-                                      amount: 0,
-                                      referenceNo: "",
-                                      exchangeRate: pvExchangeRate || "1",
-                                    },
-                                  ],
-                          });
+                          setSelectedBillDetails(bill || null);
+                          // Auto-populate amount if bill is selected
+                          if (bill && bill.net_amount) {
+                            updatePv({
+                              items: [
+                                {
+                                  description: `Payment for Bill ${bill.bill_no}`,
+                                  accountId: pvForm.payToAccountId || "",
+                                  amount: Number(bill.balance_amount || bill.net_amount || 0),
+                                  exchangeRate: "1",
+                                  currencyCode: effectivePaymentCurrencyCode,
+                                },
+                              ],
+                            });
+                          }
                         }}
-                        disabled={readOnly}
+                        disabled={readOnly || loadingBills || outstandingBills.length === 0}
                       >
-                        <option value="">Select bill</option>
-                        {supplierBills.map((b) => (
-                          <option key={b.id} value={b.bill_no}>
-                            {b.bill_no} - Outstanding{" "}
-                            {Number(b.outstanding || 0).toLocaleString(
-                              undefined,
-                              {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              },
-                            )}
+                        <option value="">
+                          {loadingBills
+                            ? "Loading bills..."
+                            : outstandingBills.length === 0
+                            ? "No outstanding bills"
+                            : "Select outstanding bill"}
+                        </option>
+                        {outstandingBills.map((bill) => (
+                          <option key={bill.id} value={bill.id}>
+                            {bill.bill_no} - {bill.net_amount?.toLocaleString()} (
+                            {bill.payment_status})
                           </option>
                         ))}
                       </select>
-                    ) : pvForm.payToAccountId ? (
-                      <div className="input md:w-64 bg-gray-100 text-gray-500">
-                        No bills for selected supplier
-                      </div>
-                    ) : (
-                      <div className="input md:w-64 bg-gray-100 text-gray-500">
-                        Select Paid To account first
+                    </div>
+                    {selectedBillDetails && (
+                      <div className="bg-slate-50 dark:bg-slate-800 rounded p-3 text-sm">
+                        <div className="font-medium">Bill Details</div>
+                        <div>Total: {selectedBillDetails.net_amount?.toLocaleString()}</div>
+                        <div>Balance: {selectedBillDetails.balance_amount?.toLocaleString() || selectedBillDetails.net_amount?.toLocaleString()}</div>
+                        <div>Status: {selectedBillDetails.payment_status}</div>
                       </div>
                     )}
                   </div>
@@ -5551,11 +5403,17 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 <select
                                   className={`input bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold ${disabledClass} flex-1`}
                                   value={it.accountId}
-                                  onChange={(e) =>
+                                  onChange={(e) => {
+                                    const selectedAccountId = e.target.value;
+                                    const selectedAcc = accounts.find(
+                                      (a) => String(a.id) === String(selectedAccountId),
+                                    );
+                                    const accountCurrency = selectedAcc?.currency_code || selectedAcc?.currency || "";
                                     updatePvItem(idx, {
-                                      accountId: e.target.value,
-                                    })
-                                  }
+                                      accountId: selectedAccountId,
+                                      currencyCode: accountCurrency,
+                                    });
+                                  }}
                                   required
                                   disabled={readOnly}
                                 >
@@ -5580,11 +5438,28 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                               <select
                                 className={`input text-right ${disabledClass}`}
                                 value={it.currencyCode || effectivePaymentCurrencyCode || "USD"}
-                                onChange={(e) =>
+                                onChange={async (e) => {
+                                  const selectedCurrency = e.target.value;
+                                  const baseCurrencyCode = baseCurrency?.code || "GHS";
+                                  
+                                  // If different from base currency, fetch exchange rate
+                                  let exchangeRate = "1";
+                                  if (selectedCurrency && selectedCurrency !== baseCurrencyCode) {
+                                    try {
+                                      const rate = await getExchangeRate(selectedCurrency, baseCurrencyCode);
+                                      if (rate) {
+                                        exchangeRate = String(rate);
+                                      }
+                                    } catch (err) {
+                                      console.warn("Failed to fetch exchange rate:", err);
+                                    }
+                                  }
+                                  
                                   updatePvItem(idx, {
-                                    currencyCode: e.target.value,
-                                  })
-                                }
+                                    currencyCode: selectedCurrency,
+                                    exchangeRate: exchangeRate,
+                                  });
+                                }}
                                 disabled={readOnly}
                               >
                                 {currencies.map((c) => (
@@ -5614,7 +5489,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 className={`input text-right ${disabledClass}`}
                                 type="number"
                                 min="0"
-                                step="1"
+                                step="any"
                                 value={it.amount || ""}
                                 onChange={(e) =>
                                   updatePvItem(idx, {
@@ -5856,7 +5731,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 className="input text-right"
                                 type="number"
                                 min="0"
-                                step="1"
+                                step="any"
                                 value={l.debit || ""}
                                 onChange={(e) =>
                                   updateLine(idx, {
@@ -5875,7 +5750,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 className="input text-right"
                                 type="number"
                                 min="0"
-                                step="1"
+                                step="any"
                                 value={l.credit || ""}
                                 onChange={(e) =>
                                   updateLine(idx, {
@@ -5939,130 +5814,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                   </div>
                 </div>
               ) : null}
-              {selectedBillRefs.length > 0 &&
-                paymentType === "AGAINST_BILL" && (
-                  <div className="mt-4">
-                    <div className="font-semibold mb-2">
-                      Knock Off Payment Against Bills
-                    </div>
-                    <div className="mb-2 flex items-center gap-2">
-                      <label className="label mb-0">Total to Allocate</label>
-                      <input
-                        type="number"
-                        className={`input w-40 text-right ${disabledClass}`}
-                        min="0"
-                        step="1"
-                        value={Number(knockOffTotal || 0)}
-                        onChange={(e) => {
-                          const v = Number(e.target.value || 0);
-                          setKnockOffTotal(v);
-                          allocatePvBillsFifo(v);
-                        }}
-                        disabled={readOnly}
-                      />
-                      <button
-                        type="button"
-                        className="btn-success"
-                        onClick={() => {
-                          let applied = selectedBillRefs.reduce((sum, ref) => {
-                            const it = pvForm.items.find(
-                              (x) =>
-                                String(x.referenceNo || "") === String(ref),
-                            );
-                            return sum + Number(it?.amount || 0);
-                          }, 0);
-                          if (applied <= 0) {
-                            allocatePvBillsFifo(knockOffTotal);
-                            applied = selectedBillRefs.reduce((sum, ref) => {
-                              const it = pvForm.items.find(
-                                (x) =>
-                                  String(x.referenceNo || "") === String(ref),
-                              );
-                              return sum + Number(it?.amount || 0);
-                            }, 0);
-                          }
-                          toast.success(
-                            `Knock-off confirmed. Allocated GH₵ ${applied.toFixed(
-                              2,
-                            )} (FIFO applied)`,
-                          );
-                        }}
-                        disabled={readOnly}
-                      >
-                        Confirm Knock-off
-                      </button>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="table">
-                        <thead>
-                          <tr>
-                            <th className="w-32">Bill No</th>
-                            <th className="text-right w-40">Outstanding</th>
-                            <th className="text-right w-40">
-                              Knock-off Amount
-                            </th>
-                            <th className="text-right w-40">
-                              Balance After Knock-off
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {selectedBillRefs.map((ref) => {
-                            const b = supplierBills.find(
-                              (sb) => String(sb.bill_no) === String(ref),
-                            );
-                            const outstanding = Number(b?.outstanding || 0);
-                            const it = pvForm.items.find(
-                              (x) =>
-                                String(x.referenceNo || "") === String(ref),
-                            ) || {
-                              referenceNo: ref,
-                              amount: 0,
-                            };
-                            const balance = Math.max(
-                              0,
-                              outstanding - Number(it.amount || 0),
-                            );
-                            return (
-                              <tr key={`knock-${ref}`}>
-                                <td>{String(ref)}</td>
-                                <td className="text-right">
-                                  {outstanding.toLocaleString(undefined, {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}
-                                </td>
-                                <td>
-                                  <input
-                                    className={`input text-right ${disabledClass}`}
-                                    type="number"
-                                    min="0"
-                                    step="1"
-                                    value={Number(it.amount || 0)}
-                                    onChange={(e) =>
-                                      setPvAmountForRef(
-                                        ref,
-                                        Number(e.target.value || 0),
-                                      )
-                                    }
-                                    disabled={readOnly}
-                                  />
-                                </td>
-                                <td className="text-right">
-                                  {balance.toLocaleString(undefined, {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-
               <div>
                 <label className="label">Notes / Remarks</label>
                 <textarea
@@ -6094,140 +5845,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
             </div>
           </div>
         </form>
-        {showBillModal ? (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-lg w-[800px] max-w-[95%]">
-              <div className="p-4 border-b flex justify-between items-center bg-brand text-white rounded-t-lg">
-                <div className="font-semibold">
-                  {billModalType === "SERVICE"
-                    ? "Service Bill"
-                    : "Purchase Bill"}{" "}
-                  Details
-                </div>
-                <button
-                  type="button"
-                  className="text-white text-xl font-bold"
-                  onClick={() => setShowBillModal(false)}
-                >
-                  &times;
-                </button>
-              </div>
-              <div className="p-4">
-                {billModalLoading ? (
-                  <div className="text-center py-6">Loading...</div>
-                ) : billModalError ? (
-                  <div className="text-center text-red-600 py-6">
-                    {billModalError}
-                  </div>
-                ) : !billModalHeader ? (
-                  <div className="text-center text-slate-500 py-6">No data</div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                      <div>
-                        <div className="label">Bill No</div>
-                        <div className="input">{billModalHeader.bill_no}</div>
-                      </div>
-                      <div>
-                        <div className="label">Date</div>
-                        <div className="input">
-                          {billModalHeader.bill_date || ""}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="label">Status</div>
-                        <div className="input">
-                          {billModalHeader.status || ""}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="label">Amount</div>
-                        <div className="input">
-                          {Number(
-                            billModalHeader.total_amount ||
-                              billModalHeader.net_amount ||
-                              0,
-                          ).toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="table">
-                        <thead>
-                          <tr>
-                            <th>Description</th>
-                            <th className="text-right w-32">Qty</th>
-                            <th className="text-right w-32">Price</th>
-                            <th className="text-right w-40">Amount</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {billModalDetails.length === 0 ? (
-                            <tr>
-                              <td
-                                className="text-center text-slate-500"
-                                colSpan={4}
-                              >
-                                No details
-                              </td>
-                            </tr>
-                          ) : (
-                            billModalDetails.map((d) => (
-                              <tr key={d.id}>
-                                <td>
-                                  {d.item_name || d.description || ""}{" "}
-                                  <span className="text-xs text-slate-500">
-                                    {d.item_code || d.category || ""}
-                                  </span>
-                                </td>
-                                <td className="text-right">
-                                  {Number(
-                                    d.qty || d.quantity || 0,
-                                  ).toLocaleString(undefined, {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}
-                                </td>
-                                <td className="text-right">
-                                  {Number(
-                                    d.unit_price || d.rate || 0,
-                                  ).toLocaleString(undefined, {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}
-                                </td>
-                                <td className="text-right">
-                                  {Number(
-                                    d.line_total || d.amount || 0,
-                                  ).toLocaleString(undefined, {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                )}
-              </div>
-              <div className="p-3 border-t flex justify-end">
-                <button
-                  type="button"
-                  className="btn-success"
-                  onClick={() => setShowBillModal(false)}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
         {showForwardModal ? (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg shadow-lg w-[640px] max-w-[95%]">
@@ -6706,7 +6323,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 className="input text-right"
                                 type="number"
                                 min="0"
-                                step="1"
+                                step="any"
                                 value={it.amount}
                                 onChange={(e) =>
                                   updateCvItem(idx, {

@@ -44,7 +44,7 @@ export default function PurchaseReturnForm() {
           api.get("/purchase/suppliers?active=true"),
           api.get("/inventory/warehouses"),
           api.get("/inventory/items"),
-          api.get("/finance/tax-codes"),
+          api.get("/finance/tax-codes", { params: { form: "PURCHASE_RETURN" } }),
           api.get("/purchase/returns/next-no"),
         ]);
         if (!mounted) return;

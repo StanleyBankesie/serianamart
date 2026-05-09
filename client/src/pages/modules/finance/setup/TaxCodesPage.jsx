@@ -70,6 +70,26 @@ const ALL_PAGES = [
     code: "RECEIPT_VOUCHER",
     label: "Receipt Voucher",
   },
+  {
+    value: PAGE_IDS.JOURNAL_VOUCHER,
+    code: "JOURNAL_VOUCHER",
+    label: "Journal Voucher",
+  },
+  {
+    value: PAGE_IDS.CONTRA_VOUCHER,
+    code: "CONTRA_VOUCHER",
+    label: "Contra Voucher",
+  },
+  { value: PAGE_IDS.DEBIT_NOTE, code: "DEBIT_NOTE", label: "Debit Note" },
+  { value: PAGE_IDS.CREDIT_NOTE, code: "CREDIT_NOTE", label: "Credit Note" },
+  { value: PAGE_IDS.SALES_VOUCHER, code: "SALES_VOUCHER", label: "Sales Voucher" },
+  { value: PAGE_IDS.SALES_RETURN, code: "SALES_RETURN", label: "Sales Return" },
+  {
+    value: PAGE_IDS.PURCHASE_RETURN,
+    code: "PURCHASE_RETURN",
+    label: "Purchase Return",
+  },
+  { value: PAGE_IDS.DELIVERY_NOTE, code: "DELIVERY_NOTE", label: "Delivery Note" },
 ];
 
 const SALES_PAGES = [
@@ -77,6 +97,10 @@ const SALES_PAGES = [
   PAGE_IDS.SALES_ORDER,
   PAGE_IDS.QUOTATION,
   PAGE_IDS.SUPPLIER_QUOTATION,
+  PAGE_IDS.SALES_VOUCHER,
+  PAGE_IDS.SALES_RETURN,
+  PAGE_IDS.DELIVERY_NOTE,
+  PAGE_IDS.CREDIT_NOTE,
 ];
 const PURCHASE_PAGES = [
   PAGE_IDS.DIRECT_PURCHASE,
@@ -84,9 +108,16 @@ const PURCHASE_PAGES = [
   PAGE_IDS.PURCHASE_BILL_LOCAL,
   PAGE_IDS.LOCAL_PURCHASE_ORDER,
   PAGE_IDS.IMPORT_PURCHASE_ORDER,
+  PAGE_IDS.PURCHASE_RETURN,
+  PAGE_IDS.DEBIT_NOTE,
 ];
 const SERVICE_PAGES = [PAGE_IDS.SERVICE_BILL, PAGE_IDS.MAINTENANCE_BILL];
-const VOUCHER_PAGES = [PAGE_IDS.PAYMENT_VOUCHER, PAGE_IDS.RECEIPT_VOUCHER];
+const VOUCHER_PAGES = [
+  PAGE_IDS.PAYMENT_VOUCHER,
+  PAGE_IDS.RECEIPT_VOUCHER,
+  PAGE_IDS.JOURNAL_VOUCHER,
+  PAGE_IDS.CONTRA_VOUCHER,
+];
 
 export default function TaxCodesPage() {
   const [items, setItems] = useState([]);
@@ -665,8 +696,9 @@ export default function TaxCodesPage() {
                 <div>
                   <label className="label mb-1">Applicable Pages</label>
                   <p className="text-xs text-slate-500 mb-2">
-                    Select which pages/forms this tax code can be used on. Leave
-                    all unchecked to allow on all pages.
+                    Select which pages/forms this tax code can be used on. If no
+                    pages are selected, the tax code will not be displayed in
+                    any transaction forms.
                   </p>
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                     {ALL_PAGES.map((pg) => (

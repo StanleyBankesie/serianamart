@@ -17,6 +17,14 @@ const PAGE_ID_MAP = {
   SUPPLIER_QUOTATION: 11,
   PAYMENT_VOUCHER: 12,
   RECEIPT_VOUCHER: 13,
+  JOURNAL_VOUCHER: 14,
+  CONTRA_VOUCHER: 15,
+  DEBIT_NOTE: 16,
+  CREDIT_NOTE: 17,
+  SALES_VOUCHER: 18,
+  SALES_RETURN: 19,
+  PURCHASE_RETURN: 20,
+  DELIVERY_NOTE: 21,
 };
 
 // Function to convert page codes to page IDs
@@ -1400,8 +1408,6 @@ export const listTaxCodes = async (req, res, next) => {
           AND (:active IS NULL OR is_active = :active)
           AND (
             :resolvedPageId IS NULL OR
-            valid_pages IS NULL OR
-            valid_pages = '' OR
             FIND_IN_SET(:resolvedPageId, REPLACE(valid_pages, ' ', '')) > 0
           )
         ORDER BY code ASC`,
@@ -1428,7 +1434,7 @@ export const getTaxCodesByPageId = async (req, res, next) => {
          FROM fin_tax_codes
         WHERE company_id = :companyId
           AND is_active = 1
-          AND (valid_pages IS NULL OR valid_pages = '' OR FIND_IN_SET(:pageId, REPLACE(valid_pages, ' ', '')) > 0)
+          AND FIND_IN_SET(:pageId, REPLACE(valid_pages, ' ', '')) > 0
         ORDER BY code ASC`,
       { companyId, pageId },
     );

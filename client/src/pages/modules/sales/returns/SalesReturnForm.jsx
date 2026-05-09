@@ -64,7 +64,7 @@ export default function SalesReturnForm() {
           api.get("/sales/customers?active=true"),
           api.get("/inventory/warehouses"),
           api.get("/inventory/items"),
-          api.get("/finance/tax-codes"),
+          api.get("/finance/tax-codes", { params: { form: "SALES_RETURN" } }),
         ]);
         if (!mounted) return;
         setCustomers(
