@@ -254,34 +254,32 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     }
   }
 
-  // Function to fetch outstanding bills for a supplier based on account code
-  async function loadOutstandingBillsForSupplier(accountCode) {
-    if (!accountCode) {
+  // Function to fetch outstanding bills for a supplier based on account ID
+  // Server will: 1) Get account code from fin_accounts, 2) Find supplier by supplier_code, 3) Return outstanding bills
+  async function loadOutstandingBillsForSupplier(accountId) {
+    console.log("DEBUG >>> loadOutstandingBillsForSupplier called with accountId:", accountId);
+    if (!accountId) {
+      console.log("DEBUG: No account ID provided - returning");
       setOutstandingBills([]);
       return;
     }
     setLoadingBills(true);
     try {
-      // Find supplier by account code
-      const supplier = suppliers.find(
-        (s) => String(s.account_code || s.code || "").trim() === String(accountCode).trim()
-      );
-      if (!supplier) {
-        setOutstandingBills([]);
-        setLoadingBills(false);
-        return;
-      }
-      // Fetch outstanding bills for this supplier
-      const res = await api.get("/purchase/bills/outstanding", {
-        params: { 
-          supplier_id: supplier.id,
-          status: "UNPAID,PARTIAL PAYMENT"
-        },
+      // Use new endpoint that handles all lookups on server
+      const endpoint = "/purchase/bills/outstanding-by-account";
+      console.log("DEBUG: Calling endpoint:", endpoint, "with account_id:", accountId);
+      const res = await api.get(endpoint, {
+        params: { account_id: accountId }
       });
+      console.log("DEBUG: API Response:", res.data);
       const bills = Array.isArray(res.data?.items) ? res.data.items : [];
+      console.log("DEBUG: Setting outstandingBills to:", bills.length, "bills");
       setOutstandingBills(bills);
     } catch (e) {
-      console.warn("Failed to load outstanding bills:", e);
+      console.error("DEBUG: Failed to load outstanding bills:");
+      console.error("  Status:", e.response?.status);
+      console.error("  Data:", e.response?.data);
+      console.error("  Full error:", e.message);
       setOutstandingBills([]);
     } finally {
       setLoadingBills(false);
@@ -946,7 +944,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   // Auto-populate posting lines when PAYV tax code changes (even if components already cached or cleared)
   useEffect(() => {
     if (!isPAYV) return;
-    // Trigger whenever tax code changes (including when cleared to empty)
+    // Trigger whenever tax code changes or components load (including when cleared to empty)
     if (
       pvForm.taxCodeId &&
       pvTaxComponentsByCode[String(pvForm.taxCodeId)]
@@ -957,7 +955,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       // Tax code cleared - still trigger rebuild without tax
       (async () => await autoPopulatePvTaxLines())();
     }
-  }, [isPAYV, pvForm.taxCodeId, paymentType]);
+  }, [isPAYV, pvForm.taxCodeId, pvTaxComponentsByCode, paymentType]);
 
   // Fetch balance when RV deposit account changes
   useEffect(() => {
@@ -975,19 +973,18 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
 
   // Load outstanding bills when Paid To account changes (for all payment modes)
   useEffect(() => {
+    console.log("DEBUG useEffect triggered:", { isPAYV, payToAccountId: pvForm.payToAccountId, paymentType });
     if (isPAYV && pvForm.payToAccountId) {
-      const account = accounts.find(
-        (a) => String(a.id) === String(pvForm.payToAccountId)
-      );
-      if (account?.code) {
-        loadOutstandingBillsForSupplier(account.code);
-      }
+      console.log("DEBUG: Calling loadOutstandingBillsForSupplier with accountId:", pvForm.payToAccountId);
+      // Pass account ID directly - server will look up account code and find supplier
+      loadOutstandingBillsForSupplier(pvForm.payToAccountId);
     } else {
+      console.log("DEBUG: Clearing bills - either not PAYV or no payToAccountId");
       setOutstandingBills([]);
       setSelectedBillId("");
       setSelectedBillDetails(null);
     }
-  }, [isPAYV, pvForm.payToAccountId, accounts, suppliers]);
+  }, [isPAYV, pvForm.payToAccountId]);
 
   useEffect(() => {
     let mounted = true;
@@ -2662,30 +2659,28 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       });
     }
 
-    // 3. Look up inv_items table for purchase_account_id and add to posting lines (DEBIT side)
+    // 3. Look up pur_suppliers table for purchase/expense account and add to posting lines (DEBIT side)
     // Net amount = Total - Tax
     const netAmount = totalAmount - totalTaxAmount;
     if (accountId && netAmount > 0) {
       try {
-        // Search for item where purchase_account_id matches the selected account
-        const res = await api.get("/inventory/items", {
-          params: { 
-            purchase_account_id: accountId,
-            limit: 1
-          }
-        });
-        const items = res.data?.items || [];
-        const matchingItem = items.find(item => 
-          String(item.purchase_account_id) === String(accountId)
+        // Get account code from selected account
+        const selectedAcc = accounts.find((a) => String(a.id) === String(accountId));
+        const accountCode = selectedAcc?.code || "";
+        
+        // Find supplier by account code
+        const supplier = suppliers.find(
+          (s) => String(s.account_code || s.code || s.supplier_code || "").trim() === String(accountCode).trim()
         );
         
-        if (matchingItem?.purchase_account_id) {
+        if (supplier?.purchase_account_id || supplier?.expense_account_id) {
+          const purchaseAccountId = supplier.purchase_account_id || supplier.expense_account_id;
           const purchaseAcc = accounts.find(
-            (a) => String(a.id) === String(matchingItem.purchase_account_id)
+            (a) => String(a.id) === String(purchaseAccountId)
           );
           newLines.push({
-            accountId: String(matchingItem.purchase_account_id),
-            accountName: purchaseAcc?.name || matchingItem.name || "",
+            accountId: String(purchaseAccountId),
+            accountName: purchaseAcc?.name || supplier.supplier_name || "",
             description: firstDescription || "",
             currencyCode: itemCurrency,
             debit: netAmount,
@@ -2693,7 +2688,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           });
         }
       } catch {
-        // Silent fail - if no matching item found, skip this line
+        // Silent fail - if no matching supplier found, skip this line
       }
     }
 
@@ -5018,14 +5013,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${paymentType === "AGAINST_BILL" ? "bg-white dark:bg-slate-700 shadow text-brand-600 dark:text-brand-400" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"}`}
                     onClick={() => {
                       setPaymentType("AGAINST_BILL");
-                      // Clear bill selection when switching to this mode
+                      // Load outstanding bills when switching to this mode
                       if (pvForm.payToAccountId) {
-                        const account = accounts.find(
-                          (a) => String(a.id) === String(pvForm.payToAccountId)
-                        );
-                        if (account?.code) {
-                          loadOutstandingBillsForSupplier(account.code);
-                        }
+                        loadOutstandingBillsForSupplier(pvForm.payToAccountId);
                       }
                     }}
                     disabled={readOnly}
@@ -5037,10 +5027,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${paymentType === "DIRECT" ? "bg-white dark:bg-slate-700 shadow text-brand-600 dark:text-brand-400" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"}`}
                     onClick={() => {
                       setPaymentType("DIRECT");
-                      // Clear bill selection when switching modes
-                      setSelectedBillId("");
-                      setSelectedBillDetails(null);
-                      setOutstandingBills([]);
+                      // Load outstanding bills when switching to this mode
+                      if (pvForm.payToAccountId) {
+                        loadOutstandingBillsForSupplier(pvForm.payToAccountId);
+                      }
                     }}
                     disabled={readOnly}
                   >

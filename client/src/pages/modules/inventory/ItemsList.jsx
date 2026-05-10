@@ -626,7 +626,8 @@ export default function ItemsList() {
           }
           return;
         } catch (bulkErr) {
-          // Fallback to per-row upload when bulk endpoint is unavailable
+          // Fallback to per-row upload when bulk endpoint is unavailable or fails
+          console.error("Bulk upload failed, falling back to per-row:", bulkErr);
         }
       }
       let success = 0;

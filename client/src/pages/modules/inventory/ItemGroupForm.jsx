@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { api } from "api/client";
+import { toast } from "react-toastify";
 import { useUoms } from "@/hooks/useUoms";
 import { useItemCategories } from "@/hooks/useItemCategories";
 import { useItemTypes } from "@/hooks/useItemTypes";
@@ -72,10 +73,32 @@ const ItemGroupForm = () => {
     fetchGroups();
   }, []);
 
+  async function requestWithFallback(method, paths, data = undefined) {
+    let lastErr = null;
+    for (const path of paths) {
+      try {
+        if (method === "get") return await api.get(path);
+        if (method === "post") return await api.post(path, data);
+        if (method === "put") return await api.put(path, data);
+        if (method === "delete") return await api.delete(path);
+      } catch (e) {
+        lastErr = e;
+        const status = e?.response?.status;
+        if (status !== 404) throw e;
+      }
+    }
+    if (lastErr) throw lastErr;
+    return null;
+  }
+
   const fetchGroups = async () => {
     try {
       setLoading(true);
-      const res = await api.get("/inventory/item-groups");
+      const res = await requestWithFallback("get", [
+        "/inventory/item-groups",
+        "/inventory/item-group",
+        "/inventory/groups",
+      ]);
       const groups = Array.isArray(res.data?.items) ? res.data.items : [];
       // Map API data to UI format
       const mappedGroups = groups.map((g) => ({
@@ -162,95 +185,157 @@ const ItemGroupForm = () => {
 
     try {
       if (modalType === "group") {
+        const isDuplicate = itemGroups.some((g) => {
+          if (modalMode === "edit" && (g.group_id === selectedItem?.group_id || g.id === selectedItem?.id)) return false;
+          return (
+            g.group_code?.toString().toUpperCase() === formData.code.trim().toUpperCase() ||
+            g.group_name?.toString().toUpperCase() === formData.name.trim().toUpperCase()
+          );
+        });
+
+        if (isDuplicate) {
+          toast.error("An item group with this code or name already exists.");
+          setLoading(false);
+          return;
+        }
+
         const payload = {
-          group_code: formData.code,
-          group_name: formData.name,
+          group_code: formData.code.trim(),
+          group_name: formData.name.trim(),
           is_active: formData.active === "Y" ? 1 : 0,
         };
 
         if (modalMode === "create") {
-          // Production fallback: some deployments expose a legacy create path.
-          const createPaths = [
+          await requestWithFallback("post", [
             "/inventory/item-groups",
             "/inventory/item-group",
             "/inventory/groups",
-          ];
-          let lastErr = null;
-          let created = false;
-          for (const path of createPaths) {
-            try {
-              await api.post(path, payload);
-              created = true;
-              break;
-            } catch (e) {
-              lastErr = e;
-              const status = e?.response?.status;
-              if (status !== 404) throw e;
-            }
-          }
-          if (!created && lastErr) throw lastErr;
+          ], payload);
+          toast.success("Item group created successfully");
         } else {
           const groupId = selectedItem?.group_id || selectedItem?.id;
-          await api.put(
+          await requestWithFallback("put", [
             `/inventory/item-groups/${groupId}`,
-            payload,
-          );
+            `/inventory/item-group/${groupId}`,
+            `/inventory/groups/${groupId}`,
+          ], payload);
+          toast.success("Item group updated successfully");
         }
         await fetchGroups();
       } else if (modalType === "category") {
+        const isDuplicate = categoryList.some((c) => {
+          const catId = c.id || c.category_id;
+          const selectedCatId = selectedItem?.id || selectedItem?.category_id;
+          if (modalMode === "edit" && catId === selectedCatId) return false;
+          return (
+            c.category_code?.toString().toUpperCase() === formData.code.trim().toUpperCase() ||
+            c.category_name?.toString().toUpperCase() === formData.name.trim().toUpperCase()
+          );
+        });
+
+        if (isDuplicate) {
+          toast.error("A category with this code or name already exists.");
+          setLoading(false);
+          return;
+        }
+
         const payload = {
-          category_code: formData.code,
-          category_name: formData.name,
+          category_code: formData.code.trim(),
+          category_name: formData.name.trim(),
           parent_category_id: formData.parent || null,
           is_active: formData.active === "Y" ? 1 : 0,
         };
 
         if (modalMode === "create") {
-          await api.post("/inventory/item-categories", payload);
+          await requestWithFallback("post", [
+            "/inventory/item-categories",
+            "/inventory/item-category",
+            "/inventory/categories",
+          ], payload);
+          toast.success("Category created successfully");
         } else {
-          await api.put(
-            `/inventory/item-categories/${selectedItem.id}`,
-            payload,
-          );
+          const categoryId = selectedItem?.id || selectedItem?.category_id;
+          await requestWithFallback("put", [
+            `/inventory/item-categories/${categoryId}`,
+            `/inventory/item-category/${categoryId}`,
+            `/inventory/categories/${categoryId}`,
+          ], payload);
+          toast.success("Category updated successfully");
         }
         await fetchCategories();
       } else if (modalType === "uom") {
+        const isDuplicate = uomList.some((u) => {
+          if (modalMode === "edit" && u.id === selectedItem?.id) return false;
+          return (
+            u.uom_code?.toString().toUpperCase() === formData.code.trim().toUpperCase() ||
+            u.uom_name?.toString().toUpperCase() === formData.name.trim().toUpperCase()
+          );
+        });
+
+        if (isDuplicate) {
+          toast.error("A unit of measure with this code or name already exists.");
+          setLoading(false);
+          return;
+        }
+
         const payload = {
-          uom_code: formData.code,
-          uom_name: formData.name,
+          uom_code: formData.code.trim(),
+          uom_name: formData.name.trim(),
           uom_type: formData.type,
           is_active: formData.active === "Y" ? 1 : 0,
         };
 
         if (modalMode === "create") {
           await api.post("/inventory/uoms", payload);
+          toast.success("Unit of measure created successfully");
         } else {
           await api.put(`/inventory/uoms/${selectedItem.id}`, payload);
+          toast.success("Unit of measure updated successfully");
         }
         await fetchUoms();
       } else if (modalType === "type") {
+        const isDuplicate = itemTypeList.some((t) => {
+          const typeId = t.id || t.type_id;
+          const selectedTypeId = selectedItem?.id || selectedItem?.type_id;
+          if (modalMode === "edit" && typeId === selectedTypeId) return false;
+          return (
+            t.type_code?.toString().toUpperCase() === formData.code.trim().toUpperCase() ||
+            t.type_name?.toString().toUpperCase() === formData.name.trim().toUpperCase()
+          );
+        });
+
+        if (isDuplicate) {
+          toast.error("An item type with this code or name already exists.");
+          setLoading(false);
+          return;
+        }
+
         const payload = {
-          type_code: formData.code,
-          type_name: formData.name,
+          type_code: formData.code.trim(),
+          type_name: formData.name.trim(),
           is_active: formData.active === "Y" ? 1 : 0,
         };
 
         if (modalMode === "create") {
           await api.post("/inventory/item-types", payload);
+          toast.success("Item type created successfully");
         } else {
           await api.put(
-            `/inventory/item-types/${selectedItem.type_id}`,
+            `/inventory/item-types/${selectedItem.type_id || selectedItem.id}`,
             payload,
           );
+          toast.success("Item type updated successfully");
         }
         await fetchItemTypes();
       }
       setShowModal(false);
       setSelectedItem(null);
     } catch (err) {
-      alert(
+      toast.error(
         "Failed to save item: " + (err.response?.data?.message || err.message),
       );
+    } finally {
+      setLoading(false);
     }
   };
 

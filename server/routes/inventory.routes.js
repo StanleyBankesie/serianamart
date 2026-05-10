@@ -1415,6 +1415,35 @@ router.get(
 );
 
 router.get(
+  "/items/next-code",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const rows = await query(
+        `SELECT item_code FROM inv_items 
+         WHERE company_id = :companyId AND item_code LIKE 'ITM-%' 
+         ORDER BY id DESC LIMIT 100`,
+        { companyId },
+      );
+      let maxNum = 0;
+      (rows || []).forEach((r) => {
+        const m = String(r.item_code || "").match(/(\d+)/);
+        if (m) {
+          const n = parseInt(m[1], 10);
+          if (n > maxNum) maxNum = n;
+        }
+      });
+      const nextCode = `ITM-${String(maxNum + 1).padStart(6, "0")}`;
+      res.json({ nextCode });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
   "/warehouses",
   requireAuth,
   requireCompanyScope,
@@ -7511,6 +7540,139 @@ router.get("/items/:id", requireAuth, async (req, res, next) => {
 });
 
 router.post(
+  "/items/bulk",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      await ensureItemsTable();
+      const { companyId } = req.scope;
+      const userId = toNumber(req.scope?.userId ?? req.user?.sub) || null;
+      const items = Array.isArray(req.body?.items)
+        ? req.body.items
+        : Array.isArray(req.body?.rows)
+          ? req.body.rows
+          : [];
+
+      if (!items.length) {
+        return res.json({ inserted: 0, updated: 0, failed: 0 });
+      }
+
+      await conn.beginTransaction();
+
+      let inserted = 0;
+      let updated = 0;
+      let failed = 0;
+
+      // Get current max code for auto-generation
+      const [codeRows] = await conn.execute(
+        `SELECT item_code FROM inv_items 
+         WHERE company_id = :companyId AND item_code LIKE 'ITM-%' 
+         ORDER BY id DESC LIMIT 10`,
+        { companyId },
+      );
+      let currentMax = 0;
+      (codeRows || []).forEach((r) => {
+        const m = String(r.item_code || "").match(/(\d+)/);
+        if (m) {
+          const n = parseInt(m[1], 10);
+          if (n > currentMax) currentMax = n;
+        }
+      });
+
+      for (const item of items) {
+        try {
+          let itemCode = item.item_code ? String(item.item_code).trim() : null;
+          if (!itemCode) {
+            currentMax++;
+            itemCode = `ITM-${String(currentMax).padStart(6, "0")}`;
+          }
+
+          const itemName = item.item_name ? String(item.item_name).trim() : null;
+          if (!itemName) {
+            failed++;
+            continue;
+          }
+
+          const uom = item.uom ? String(item.uom).trim() : "PCS";
+          const itemType = item.item_type || "INVENTORY";
+          const categoryId = toNumber(item.category_id);
+          const itemGroupId = toNumber(item.item_group_id);
+          const costPrice = Number(item.cost_price || 0);
+          const sellingPrice = Number(item.selling_price || 0);
+          const isActive = item.is_active === false || item.is_active === 0 ? 0 : 1;
+
+          // Check if exists
+          const [existing] = await conn.execute(
+            `SELECT id FROM inv_items WHERE company_id = :companyId AND item_code = :itemCode LIMIT 1`,
+            { companyId, itemCode },
+          );
+
+          if (existing && existing.length > 0) {
+            const itemId = existing[0].id;
+            await conn.execute(
+              `UPDATE inv_items SET 
+                item_name = :itemName, uom = :uom, item_type = :itemType, 
+                category_id = :categoryId, item_group_id = :itemGroupId,
+                cost_price = :costPrice, selling_price = :sellingPrice, is_active = :isActive
+               WHERE id = :itemId`,
+              {
+                itemName,
+                uom,
+                itemType,
+                categoryId,
+                itemGroupId,
+                costPrice,
+                sellingPrice,
+                isActive,
+                itemId,
+              },
+            );
+            updated++;
+          } else {
+            await conn.execute(
+              `INSERT INTO inv_items (
+                company_id, item_code, item_name, uom, item_type, 
+                category_id, item_group_id, cost_price, selling_price, is_active, created_by
+              ) VALUES (
+                :companyId, :itemCode, :itemName, :uom, :itemType,
+                :categoryId, :itemGroupId, :costPrice, :sellingPrice, :isActive, :createdBy
+              )`,
+              {
+                companyId,
+                itemCode,
+                itemName,
+                uom,
+                itemType,
+                categoryId,
+                itemGroupId,
+                costPrice,
+                sellingPrice,
+                isActive,
+                createdBy: userId,
+              },
+            );
+            inserted++;
+          }
+        } catch (itemErr) {
+          console.error("Bulk item error:", itemErr);
+          failed++;
+        }
+      }
+
+      await conn.commit();
+      res.json({ inserted, updated, failed });
+    } catch (e) {
+      await conn.rollback();
+      next(e);
+    } finally {
+      conn.release();
+    }
+  },
+);
+
+router.post(
   "/items",
   requireAuth,
   requireCompanyScope,
@@ -7520,7 +7682,26 @@ router.post(
       const { companyId } = req.scope;
       const userId = toNumber(req.scope?.userId ?? req.user?.sub) || null;
       const body = req.body || {};
-      const itemCode = body.item_code ? String(body.item_code).trim() : null;
+      let itemCode = body.item_code ? String(body.item_code).trim() : null;
+
+      if (!itemCode) {
+        const rows = await query(
+          `SELECT item_code FROM inv_items 
+           WHERE company_id = :companyId AND item_code LIKE 'ITM-%' 
+           ORDER BY id DESC LIMIT 10`,
+          { companyId },
+        );
+        let maxNum = 0;
+        (rows || []).forEach((r) => {
+          const m = String(r.item_code || "").match(/(\d+)/);
+          if (m) {
+            const n = parseInt(m[1], 10);
+            if (n > maxNum) maxNum = n;
+          }
+        });
+        itemCode = `ITM-${String(maxNum + 1).padStart(6, "0")}`;
+      }
+
       const itemName = body.item_name ? String(body.item_name).trim() : null;
       const uom = body.uom ? String(body.uom).trim() : "PCS";
       const itemType = body.item_type

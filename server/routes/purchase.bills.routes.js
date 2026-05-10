@@ -110,6 +110,112 @@ router.get("/outstanding",
   }
 );
 
+// Get outstanding bills for a supplier based on account ID
+// This endpoint: 1) Gets account code from fin_accounts, 2) Finds supplier with matching supplier_code, 3) Returns their outstanding bills
+router.get("/outstanding-by-account",
+  requireAuth,
+  async (req, res, next) => {
+    try {
+      const companyId = Number(req.user?.companyId || req.companyId || 0);
+      const branchId = Number(req.user?.branchId || req.branchId || 0);
+      const { account_id } = req.query;
+      
+      console.log("[DEBUG] outstanding-by-account called:", { account_id, companyId, branchId });
+      
+      if (!account_id) {
+        return res.status(400).json({ error: "account_id is required" });
+      }
+
+      // Step 1: Get account code from fin_accounts table using account ID
+      const accountRows = await query(
+        `SELECT code FROM fin_accounts 
+         WHERE id = ? AND company_id = ? AND (branch_id = ? OR branch_id IS NULL)`,
+        [account_id, companyId, branchId]
+      );
+      
+      console.log("[DEBUG] Step 1 - Account lookup:", accountRows);
+      
+      if (!accountRows || accountRows.length === 0) {
+        return res.status(404).json({ error: "Account not found" });
+      }
+      
+      const accountCode = accountRows[0].code;
+      
+      // Step 2: Find supplier in pur_suppliers where supplier_code matches account code
+      const supplierRows = await query(
+        `SELECT id, supplier_code, supplier_name 
+         FROM pur_suppliers 
+         WHERE supplier_code = ? AND company_id = ? AND (branch_id = ? OR branch_id IS NULL)`,
+        [accountCode, companyId, branchId]
+      );
+      
+      console.log("[DEBUG] Step 2 - Supplier lookup for code:", accountCode, "Result:", supplierRows);
+      
+      if (!supplierRows || supplierRows.length === 0) {
+        return res.json({ items: [], message: "No supplier found for this account", account_code: accountCode });
+      }
+      
+      const supplierId = supplierRows[0].id;
+      
+      // Step 3: Get outstanding bills for this supplier from pur_bills joined with pur_bill_details
+      // where payment_status is UNPAID or PARTIAL PAYMENT
+      const billRows = await query(
+        `SELECT b.id, b.bill_no, b.bill_date, b.net_amount, b.amount_paid, 
+                b.payment_status, b.due_date, s.supplier_name,
+                bd.item_id, bd.item_name, bd.quantity, bd.rate, bd.amount
+         FROM pur_bills b
+         LEFT JOIN pur_suppliers s ON b.supplier_id = s.id
+         LEFT JOIN pur_bill_details bd ON b.id = bd.bill_id
+         WHERE b.supplier_id = ? 
+           AND b.company_id = ? 
+           AND (b.branch_id = ? OR b.branch_id IS NULL)
+           AND (b.payment_status = 'UNPAID' OR b.payment_status = 'PARTIAL PAYMENT')
+         ORDER BY b.bill_date DESC`,
+        [supplierId, companyId, branchId]
+      );
+      
+      console.log("[DEBUG] Step 3 - Bills found:", billRows.length);
+      
+      // Group bill details by bill
+      const billsMap = new Map();
+      billRows.forEach(row => {
+        if (!billsMap.has(row.id)) {
+          billsMap.set(row.id, {
+            id: row.id,
+            bill_no: row.bill_no,
+            bill_date: row.bill_date,
+            net_amount: Number(row.net_amount || 0),
+            amount_paid: Number(row.amount_paid || 0),
+            payment_status: row.payment_status,
+            due_date: row.due_date,
+            supplier_name: row.supplier_name,
+            items: []
+          });
+        }
+        if (row.item_id) {
+          billsMap.get(row.id).items.push({
+            item_id: row.item_id,
+            item_name: row.item_name,
+            quantity: row.quantity,
+            rate: row.rate,
+            amount: row.amount
+          });
+        }
+      });
+      
+      const bills = Array.from(billsMap.values());
+      
+      res.json({ 
+        items: bills,
+        supplier: supplierRows[0],
+        account_code: accountCode
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // Update bill payment status when payment is made
 router.post("/update-payment-status",
   requireAuth,
@@ -177,5 +283,10 @@ router.post("/update-payment-status",
     }
   }
 );
+
+// Simple test route to verify router is working
+router.get("/test", (req, res) => {
+  res.json({ message: "Purchase bills router is working!" });
+});
 
 export default router;
