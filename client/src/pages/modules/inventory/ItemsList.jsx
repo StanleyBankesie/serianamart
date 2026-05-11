@@ -1198,6 +1198,7 @@ export default function ItemsList() {
     samplePurchaseAccId = 36;
     sampleSalesAccId = 1;
     const headers = [
+      "ITEM_CODE",
       "ITEM_NAME*",
       "ITEM_TYPE*",
       "ITEM_CATEGORY",
@@ -1221,6 +1222,7 @@ export default function ItemsList() {
     ];
     const sample = [
       [
+        "000001",
         "Raw Material 1",
         "RAW_MATERIAL",
         "",
@@ -1243,6 +1245,7 @@ export default function ItemsList() {
         "20",
       ],
       [
+        "000002",
         "Finished Good 1",
         "FINISHED_GOOD",
         "",

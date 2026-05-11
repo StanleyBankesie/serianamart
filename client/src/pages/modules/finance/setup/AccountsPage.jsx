@@ -399,6 +399,7 @@ export default function AccountsPage() {
               <table className="table">
                 <thead>
                   <tr>
+                    <th>ID</th>
                     <th>Code</th>
                     <th>Name</th>
                     <th>Group</th>
@@ -415,6 +416,7 @@ export default function AccountsPage() {
                     <tr key={a.id}>
                       {String(editId) === String(a.id) ? (
                         <>
+                          <td className="text-gray-500">{a.id}</td>
                           <td>
                             <input
                               className="input"
@@ -495,6 +497,7 @@ export default function AccountsPage() {
                         </>
                       ) : (
                         <>
+                          <td className="text-gray-500">{a.id}</td>
                           <td className="font-medium">{a.code}</td>
                           <td>{a.name}</td>
                           <td>{a.group_name}</td>
