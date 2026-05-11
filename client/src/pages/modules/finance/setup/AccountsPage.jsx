@@ -369,7 +369,7 @@ export default function AccountsPage() {
                 ))}
               </select>
             </div>
-            <div>
+            <div className="md:ml-2">
               <label className="label">
                 Exchange Rate {selectedCurrencyCode ? `(${baseCurrencyCode} per ${selectedCurrencyCode})` : ""}
               </label>
