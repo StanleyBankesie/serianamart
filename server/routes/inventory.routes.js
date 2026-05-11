@@ -7512,6 +7512,10 @@ async function ensureItemsTable() {
   await query(`
     ALTER TABLE inv_items ADD COLUMN IF NOT EXISTS is_purchasable CHAR(1) NOT NULL DEFAULT 'Y'
   `).catch(() => {});
+  // Add unique constraint on item_name per company to detect and reject duplicates
+  await query(`
+    ALTER TABLE inv_items ADD UNIQUE KEY uq_item_name (company_id, item_name)
+  `).catch(() => {});
   // Update any items with NULL or empty UOM to default 'PCS'
   await query(`
     UPDATE inv_items SET uom = 'PCS' WHERE uom IS NULL OR uom = ''
@@ -7556,7 +7560,7 @@ router.post(
           : [];
 
       if (!items.length) {
-        return res.json({ inserted: 0, updated: 0, failed: 0, skipped: 0 });
+        return res.json({ inserted: 0, updated: 0, failed: 0 });
       }
 
       await conn.beginTransaction();
@@ -7564,7 +7568,6 @@ router.post(
       let inserted = 0;
       let updated = 0;
       let failed = 0;
-      let skipped = 0;
 
       // Get current max code for auto-generation
       const [codeRows] = await conn.execute(
@@ -7631,9 +7634,49 @@ router.post(
           );
 
           if (existing && existing.length > 0) {
-            // Skip existing items - do not update
-            skipped++;
-            continue;
+            const itemId = existing[0].id;
+            await conn.execute(
+              `UPDATE inv_items SET
+                item_name = :itemName, uom = :uom, item_type = :itemType,
+                category_id = :categoryId, item_group_id = :itemGroupId,
+                cost_price = :costPrice, selling_price = :sellingPrice, is_active = :isActive,
+                barcode = :barcode, currency_id = :currencyId, image_url = :imageUrl,
+                vat_on_purchase_id = :vatOnPurchaseId, vat_on_sales_id = :vatOnSalesId,
+                purchase_account_id = :purchaseAccountId, sales_account_id = :salesAccountId,
+                service_item = :serviceItem, is_stockable = :isStockable, is_sellable = :isSellable,
+                is_purchasable = :isPurchasable, min_stock_level = :minStockLevel,
+                max_stock_level = :maxStockLevel, reorder_level = :reorderLevel,
+                safety_stock = :safetyStock, description = :description
+               WHERE id = :itemId`,
+              {
+                itemName,
+                uom,
+                itemType,
+                categoryId,
+                itemGroupId,
+                costPrice,
+                sellingPrice,
+                isActive,
+                barcode,
+                currencyId,
+                imageUrl,
+                vatOnPurchaseId,
+                vatOnSalesId,
+                purchaseAccountId,
+                salesAccountId,
+                serviceItem,
+                isStockable,
+                isSellable,
+                isPurchasable,
+                minStockLevel,
+                maxStockLevel,
+                reorderLevel,
+                safetyStock,
+                description,
+                itemId,
+              },
+            );
+            updated++;
           } else {
             await conn.execute(
               `INSERT INTO inv_items (
@@ -7690,7 +7733,7 @@ router.post(
       }
 
       await conn.commit();
-      res.json({ inserted, updated, failed, skipped });
+      res.json({ inserted, updated, failed });
     } catch (e) {
       await conn.rollback();
       next(e);
@@ -7823,6 +7866,16 @@ router.post(
       const itemId = result.insertId;
       res.status(201).json({ id: itemId, item_code: itemCode });
     } catch (e) {
+      // Handle duplicate key errors
+      if (e?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(e?.message || '')) {
+        if (/uq_item_code/i.test(e?.message || '')) {
+          throw httpError(409, 'DUPLICATE_ITEM_CODE', 'An item with this code already exists');
+        }
+        if (/uq_item_name/i.test(e?.message || '')) {
+          throw httpError(409, 'DUPLICATE_ITEM_NAME', 'An item with this name already exists');
+        }
+        throw httpError(409, 'DUPLICATE_ENTRY', 'An item with this code or name already exists');
+      }
       next(e);
     }
   },
@@ -7943,6 +7996,16 @@ router.put(
         throw httpError(404, "NOT_FOUND", "Item not found");
       res.json({ ok: true });
     } catch (e) {
+      // Handle duplicate key errors
+      if (e?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(e?.message || '')) {
+        if (/uq_item_code/i.test(e?.message || '')) {
+          throw httpError(409, 'DUPLICATE_ITEM_CODE', 'An item with this code already exists');
+        }
+        if (/uq_item_name/i.test(e?.message || '')) {
+          throw httpError(409, 'DUPLICATE_ITEM_NAME', 'An item with this name already exists');
+        }
+        throw httpError(409, 'DUPLICATE_ENTRY', 'An item with this code or name already exists');
+      }
       next(e);
     }
   },

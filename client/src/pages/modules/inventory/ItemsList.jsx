@@ -502,11 +502,6 @@ export default function ItemsList() {
           errorsRow.push("Unknown ITEM_TYPE (no match in system)");
         }
         if (nameUpper) seenNames.add(nameUpper);
-        const toYN = (v) => {
-          const s = String(v ?? "").trim().toUpperCase();
-          if (["Y", "YES", "TRUE", "1", "T"].includes(s)) return "Y";
-          return "N";
-        };
         rows.push({
           index: i + 1,
           raw: rowData,
@@ -522,9 +517,6 @@ export default function ItemsList() {
             group_name: groupName,
             uom: rowData.BASE_UOM || "PCS",
             barcode: barcodeExpanded,
-            service_item: toYN(pick(rowData, "SERVICE_ITEM")) === "Y",
-            is_stockable: toYN(pick(rowData, "IS_STOCKABLE")) === "Y",
-            is_sellable: toYN(pick(rowData, "IS_SELLABLE")) === "Y",
           },
           valid: errorsRow.length === 0,
           errors: errorsRow,
@@ -541,9 +533,6 @@ export default function ItemsList() {
         "Group Name",
         "UOM",
         "Barcode",
-        "Service Item",
-        "Is Stockable",
-        "Is Sellable",
         "Status",
       ]);
       setPreviewRows(rows);
@@ -826,10 +815,9 @@ export default function ItemsList() {
           const inserted = Number(resp?.data?.inserted || 0);
           const updated = Number(resp?.data?.updated || 0);
           const failed = Number(resp?.data?.failed || 0);
-          const skipped = Number(resp?.data?.skipped || 0);
           shouldClosePreview = failed === 0;
-          if (inserted || updated || skipped) {
-            toast.success(`Uploaded ${inserted} new, skipped ${skipped} existing`);
+          if (inserted || updated) {
+            toast.success(`Uploaded ${inserted} new, updated ${updated}`);
             const res = await api.get("/inventory/items");
             setItems(Array.isArray(res.data?.items) ? res.data.items : []);
           }
@@ -1690,30 +1678,6 @@ export default function ItemsList() {
                           <td>{r.preview.group_name || "-"}</td>
                           <td>{r.preview.uom || "-"}</td>
                           <td>{r.preview.barcode || "-"}</td>
-                          <td className="text-center">
-                            <input
-                              type="checkbox"
-                              checked={r.preview.service_item}
-                              readOnly
-                              className="w-4 h-4"
-                            />
-                          </td>
-                          <td className="text-center">
-                            <input
-                              type="checkbox"
-                              checked={r.preview.is_stockable}
-                              readOnly
-                              className="w-4 h-4"
-                            />
-                          </td>
-                          <td className="text-center">
-                            <input
-                              type="checkbox"
-                              checked={r.preview.is_sellable}
-                              readOnly
-                              className="w-4 h-4"
-                            />
-                          </td>
                           <td>
                             {r.valid ? (
                               <span className="text-green-700 font-medium">
