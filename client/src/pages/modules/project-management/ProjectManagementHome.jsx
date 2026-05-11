@@ -8,61 +8,55 @@ import ProjectForm from "./projects/ProjectForm.jsx";
 import TaskList from "./tasks/TaskList.jsx";
 import TaskForm from "./tasks/TaskForm.jsx";
 import ProjectReports from "./reports/ProjectReports.jsx";
+import TimesheetList from "./timesheets/TimesheetList.jsx";
+import ExpenseList from "./expenses/ExpenseList.jsx";
 
 function ProjectManagementLanding() {
   const [stats, setStats] = React.useState([
     {
       rbac_key: "active-projects",
       icon: "📁",
-      value: "8",
-      label: "Active Projects",
-      change: "2 due this week",
-      changeType: "neutral",
+      value: "0",
+      label: "Total Projects",
       path: "/project-management/projects",
     },
     {
-      rbac_key: "open-tasks",
+      rbac_key: "active-tasks",
       icon: "✅",
-      value: "34",
-      label: "Open Tasks",
-      change: "12 high priority",
-      changeType: "negative",
+      value: "0",
+      label: "Active Tasks",
       path: "/project-management/tasks",
     },
     {
-      rbac_key: "on-time-completion",
-      icon: "📊",
-      value: "92%",
-      label: "On Time Completion",
-      change: "↑ 3% this month",
-      changeType: "positive",
+      rbac_key: "total-budget",
+      icon: "💰",
+      value: "0",
+      label: "Total Budget",
+      path: "/project-management/reports",
+    },
+    {
+      rbac_key: "logged-hours",
+      icon: "⏱️",
+      value: "0",
+      label: "Logged Hours",
       path: "/project-management/reports",
     },
   ]);
 
   React.useEffect(() => {
-    let mounted = true;
     async function load() {
       try {
-        const resp = await api.get("/bi/dashboards");
-        const projects = Number(resp?.data?.summary?.projects?.active_projects || 0);
-        const tasks = Number(resp?.data?.summary?.projects?.open_tasks || 0);
-        const onTime = Number(resp?.data?.summary?.projects?.on_time_percent || 0);
-        if (mounted) {
-          setStats((prev) => {
-            const next = [...prev];
-            next[0] = { ...next[0], value: String(projects) };
-            next[1] = { ...next[1], value: String(tasks) };
-            next[2] = { ...next[2], value: `${onTime}%` };
-            return next;
-          });
-        }
+        const resp = await api.get("/projects/dashboard/stats");
+        const d = resp.data;
+        setStats([
+          { ...stats[0], value: String(d.totalProjects) },
+          { ...stats[1], value: String(d.activeTasks) },
+          { ...stats[2], value: `GHS ${Number(d.totalBudget).toLocaleString()}` },
+          { ...stats[3], value: `${Number(d.totalLoggedHours).toFixed(1)}h` },
+        ]);
       } catch {}
     }
     load();
-    return () => {
-      mounted = false;
-    };
   }, []);
 
   const sections = [
@@ -73,20 +67,8 @@ function ProjectManagementLanding() {
         {
           title: "Projects",
           path: "/project-management/projects",
-          description: "Create and manage projects",
+          description: "Manage end-to-end project lifecycles",
           icon: "📁",
-          actions: [
-            {
-              label: "View Projects",
-              path: "/project-management/projects",
-              type: "outline",
-            },
-            {
-              label: "New Project",
-              path: "/project-management/projects/new",
-              type: "primary",
-            },
-          ],
         },
       ],
     },
@@ -95,40 +77,38 @@ function ProjectManagementLanding() {
       badge: "Tracking",
       items: [
         {
-          title: "Tasks",
+          title: "Task Board",
           path: "/project-management/tasks",
-          description: "Assign and track tasks",
+          description: "WBS and task assignment",
           icon: "✅",
-          actions: [
-            {
-              label: "View Tasks",
-              path: "/project-management/tasks",
-              type: "outline",
-            },
-            {
-              label: "New Task",
-              path: "/project-management/tasks/new",
-              type: "primary",
-            },
-          ],
+        },
+        {
+          title: "Timesheets",
+          path: "/project-management/timesheets",
+          description: "Log and approve work hours",
+          icon: "⏱️",
         },
       ],
     },
     {
-      title: "Reports",
+      title: "Finance",
       items: [
         {
-          title: "Project Reports",
+          title: "Project Expenses",
+          path: "/project-management/expenses",
+          description: "Track project-related costs",
+          icon: "💵",
+        },
+      ],
+    },
+    {
+      title: "Reporting",
+      items: [
+        {
+          title: "Analytics",
           path: "/project-management/reports",
-          description: "Project KPIs and status reporting",
+          description: "Project profitability and KPIs",
           icon: "📊",
-          actions: [
-            {
-              label: "View Reports",
-              path: "/project-management/reports",
-              type: "primary",
-            },
-          ],
         },
       ],
     },
@@ -137,7 +117,7 @@ function ProjectManagementLanding() {
   return (
     <ModuleDashboard
       title="Project Management"
-      description="Project planning, tracking, and resource allocation"
+      description="Strategic project planning and operational execution"
       stats={stats}
       sections={sections}
       features={projectManagementFeatures}
@@ -158,6 +138,9 @@ export default function ProjectManagementHome() {
       <Route path="/tasks/new" element={<TaskForm />} />
       <Route path="/tasks/:id" element={<TaskForm />} />
 
+      <Route path="/timesheets" element={<TimesheetList />} />
+      <Route path="/expenses" element={<ExpenseList />} />
+
       <Route path="/reports" element={<ProjectReports />} />
     </Routes>
   );
@@ -165,8 +148,8 @@ export default function ProjectManagementHome() {
 
 export const projectManagementFeatures = [
   { module_key: "project-management", label: "Projects", path: "/project-management/projects", type: "feature" },
-  { module_key: "project-management", label: "New Project", path: "/project-management/projects/new", type: "feature" },
   { module_key: "project-management", label: "Tasks", path: "/project-management/tasks", type: "feature" },
-  { module_key: "project-management", label: "New Task", path: "/project-management/tasks/new", type: "feature" },
+  { module_key: "project-management", label: "Timesheets", path: "/project-management/timesheets", type: "feature" },
+  { module_key: "project-management", label: "Expenses", path: "/project-management/expenses", type: "feature" },
   { module_key: "project-management", label: "Project Reports", path: "/project-management/reports", type: "dashboard" },
 ];

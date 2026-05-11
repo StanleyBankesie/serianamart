@@ -50,11 +50,11 @@ export default function PmScheduleForm() {
       <div>
         <Link
           to="/maintenance/pm-schedules"
-          className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          className="btn btn-secondary mb-4"
         >
           ← Back to PM Schedules
         </Link>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
+        <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">
           {readOnly
             ? "View Schedule"
             : isEdit
@@ -64,23 +64,23 @@ export default function PmScheduleForm() {
       </div>
 
       <form onSubmit={submit}>
-        <div className="card">
-          <div className="card-body space-y-4">
-            <fieldset disabled={readOnly}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="card shadow-sm">
+          <div className="card-body space-y-6">
+            <fieldset disabled={readOnly} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="label">Code</label>
+                  <label className="label">Schedule Code</label>
                   <input
-                    className="input"
+                    className="input w-full"
                     value={form.code}
                     onChange={(e) => update("code", e.target.value)}
-                    placeholder="Auto"
+                    placeholder="Auto-generated"
                   />
                 </div>
                 <div>
-                  <label className="label">Asset No</label>
+                  <label className="label">Target Asset</label>
                   <input
-                    className="input"
+                    className="input w-full"
                     value={form.assetNo}
                     onChange={(e) => update("assetNo", e.target.value)}
                   />
@@ -88,7 +88,7 @@ export default function PmScheduleForm() {
                 <div>
                   <label className="label">Frequency</label>
                   <select
-                    className="input"
+                    className="input w-full"
                     value={form.frequency}
                     onChange={(e) => update("frequency", e.target.value)}
                   >
@@ -99,9 +99,9 @@ export default function PmScheduleForm() {
                   </select>
                 </div>
                 <div>
-                  <label className="label">Status</label>
+                  <label className="label">Active Status</label>
                   <select
-                    className="input"
+                    className="input w-full"
                     value={form.active ? "1" : "0"}
                     onChange={(e) => update("active", e.target.value === "1")}
                   >
@@ -111,13 +111,15 @@ export default function PmScheduleForm() {
                 </div>
               </div>
             </fieldset>
-            <div className="flex justify-end gap-3">
-              <Link to="/maintenance/pm-schedules" className="btn-success">
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-700">
+              <Link to="/maintenance/pm-schedules" className="btn btn-secondary">
                 Cancel
               </Link>
-              <button className="btn-success" disabled={loading || readOnly}>
-                {loading ? "Saving..." : "Save"}
-              </button>
+              {!readOnly && (
+                <button className="btn-success px-8" disabled={loading}>
+                  {loading ? "Saving..." : "Save Plan"}
+                </button>
+              )}
             </div>
           </div>
         </div>

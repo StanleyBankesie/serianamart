@@ -351,49 +351,59 @@ export default function MaintenanceSetupPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Link to="/maintenance" className="btn-secondary">← Back</Link>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Maintenance Setup</h1>
-          <p className="text-sm mt-1">Configure maintenance parameters and system settings</p>
+    <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="flex items-center gap-4">
+          <Link to="/maintenance" className="btn btn-secondary p-2">
+            <ArrowLeft size={20} />
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">Maintenance Setup</h1>
+            <p className="text-slate-500 text-sm">Configure maintenance parameters and system settings</p>
+          </div>
         </div>
+        <button type="button" className="btn-success px-8" onClick={save} disabled={saving}>
+          {saving ? "Saving..." : "Save Configuration"}
+        </button>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700">
         {TAB_LABELS.map(t => (
           <button key={t.key} type="button"
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${tab === t.key ? "border-brand text-brand" : "border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400"}`}
+            className={`px-6 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${tab === t.key ? "border-brand-600 text-brand-600 bg-brand-50/50" : "border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500"}`}
             onClick={() => setTab(t.key)}>{t.label}</button>
         ))}
       </div>
 
-      <div className="card">
-        <div className="card-body space-y-4">
+      <div className="card p-8">
+        <div className="space-y-8">
           {tab === "general" && (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-6">
+              <div className="flex items-center gap-3 text-brand-600 border-b border-slate-50 dark:border-slate-700 pb-3">
+                 <h2 className="font-bold uppercase text-xs tracking-wider">Financial & Service Limits</h2>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                   <label className="label">Default Currency</label>
-                  <input className="input" value={params.default_currency} onChange={e => set("default_currency", e.target.value)} />
+                  <input className="input w-full" value={params.default_currency} onChange={e => set("default_currency", e.target.value)} />
                 </div>
                 <div>
-                  <label className="label">Warranty Alert (days before expiry)</label>
-                  <input className="input" type="number" value={params.warranty_alert_days} onChange={e => set("warranty_alert_days", e.target.value)} />
+                  <label className="label">Warranty Alert (days)</label>
+                  <input className="input w-full" type="number" value={params.warranty_alert_days} onChange={e => set("warranty_alert_days", e.target.value)} />
                 </div>
                 <div>
-                  <label className="label">RFQ Default Response Days</label>
-                  <input className="input" type="number" value={params.rfq_response_days} onChange={e => set("rfq_response_days", e.target.value)} />
+                  <label className="label">RFQ Response Deadline (days)</label>
+                  <input className="input w-full" type="number" value={params.rfq_response_days} onChange={e => set("rfq_response_days", e.target.value)} />
                 </div>
               </div>
-            </>
+            </div>
           )}
           {tab === "catalogs" && (
-            <div className="space-y-4">
+            <div className="space-y-8">
               <SetupItemsEditor
-                title="Maintenance Types"
-                description="Add each maintenance type individually for request forms."
+                title="Maintenance Classification"
+                description="Define service categories for request sorting."
                 kind="maintenance-types"
                 items={catalogs.maintenanceTypes}
                 draft={drafts["maintenance-types"]}
@@ -404,8 +414,8 @@ export default function MaintenanceSetupPage() {
                 hideDescription
               />
               <SetupItemsEditor
-                title="Priorities"
-                description="Maintain the allowed priority values individually."
+                title="Service Priorities"
+                description="Manage allowed urgency levels for work orders."
                 kind="priorities"
                 items={catalogs.priorities}
                 draft={drafts.priorities}
@@ -415,24 +425,13 @@ export default function MaintenanceSetupPage() {
                 onDelete={deleteItem}
                 hideDescription
               />
-              <SetupItemsEditor
-                title="Execution Types"
-                description="Indicate where the order should be done (e.g. In House or by Service Provider)."
-                kind="execution-types"
-                items={catalogs.executionTypes}
-                draft={drafts["execution-types"]}
-                onDraftChange={setDraft}
-                onCreate={createItem}
-                onSave={saveItem}
-                onDelete={deleteItem}
-              />
             </div>
           )}
           {tab === "structure" && (
-            <div className="space-y-4">
+            <div className="space-y-8">
               <SetupItemsEditor
-                title="Maintenance Sections"
-                description="Create the maintenance sections that appear on maintenance requests."
+                title="Facility Sections"
+                description="Manage physical or logical areas of maintenance."
                 kind="sections"
                 items={catalogs.sections}
                 draft={drafts.sections}
@@ -442,8 +441,8 @@ export default function MaintenanceSetupPage() {
                 onDelete={deleteItem}
               />
               <SetupItemsEditor
-                title="Locations"
-                description="Create the locations that appear on maintenance requests."
+                title="Sub-Locations"
+                description="Specific points or bins within sections."
                 kind="locations"
                 items={catalogs.locations}
                 draft={drafts.locations}
@@ -455,21 +454,21 @@ export default function MaintenanceSetupPage() {
             </div>
           )}
           {tab === "assignments" && (
-            <div className="space-y-4">
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
+            <div className="space-y-6">
+              <div className="card bg-slate-50/50 dark:bg-slate-900/50 p-6 space-y-6 border-dashed">
                 <div>
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                    Section Users
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tight">
+                    Technical Resource Assignment
                   </h3>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    Link users to a maintenance section and mark whether work should be assigned to them.
+                  <p className="text-xs text-slate-500 mt-1">
+                    Link technicians to specific facility sections.
                   </p>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                   <div className="md:col-span-4">
-                    <label className="label">Maintenance Section</label>
+                    <label className="label">Section</label>
                     <select
-                      className="input"
+                      className="input w-full"
                       value={assignmentDraft.section_item_id}
                       onChange={(e) =>
                         setAssignmentDraft((prev) => ({
@@ -489,9 +488,9 @@ export default function MaintenanceSetupPage() {
                     </select>
                   </div>
                   <div className="md:col-span-5">
-                    <label className="label">User</label>
+                    <label className="label">User/Technician</label>
                     <select
-                      className="input"
+                      className="input w-full"
                       value={assignmentDraft.user_id}
                       onChange={(e) =>
                         setAssignmentDraft((prev) => ({
@@ -503,135 +502,91 @@ export default function MaintenanceSetupPage() {
                       <option value="">-- Select User --</option>
                       {users.map((user) => (
                         <option key={user.id} value={user.id}>
-                          {user.full_name || user.username} {user.email ? `- ${user.email}` : ""}
+                          {user.full_name || user.username} {user.email ? `(${user.email})` : ""}
                         </option>
                       ))}
                     </select>
                   </div>
-                  <label className="md:col-span-2 inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={assignmentDraft.assign_work}
-                      onChange={(e) =>
-                        setAssignmentDraft((prev) => ({
-                          ...prev,
-                          assign_work: e.target.checked,
-                        }))
-                      }
-                    />
-                    Assign Work
-                  </label>
-                  <div className="md:col-span-1">
-                    <button type="button" className="btn-primary w-full" onClick={createAssignment}>
-                      Add
+                  <div className="md:col-span-3">
+                    <button type="button" className="btn-success w-full" onClick={createAssignment}>
+                      Add Link
                     </button>
                   </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Section</th>
-                        <th>User</th>
-                        <th>Email</th>
-                        <th>Assign Work</th>
-                        <th>Active</th>
-                        <th>Actions</th>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Section</th>
+                      <th>Resource</th>
+                      <th>Communication</th>
+                      <th>Work Flow</th>
+                      <th className="text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                    {sectionUsers.length === 0 ? (
+                      <tr><td colSpan="5" className="text-center py-10 text-slate-400 italic">No resources assigned.</td></tr>
+                    ) : sectionUsers.map((item) => (
+                      <tr key={item.id}>
+                        <td className="font-bold text-slate-900 dark:text-slate-200">{item.section_name}</td>
+                        <td className="text-sm font-medium">{item.full_name || item.username}</td>
+                        <td className="text-xs text-slate-500">{item.email || "-"}</td>
+                        <td>
+                           <div className="flex items-center gap-3">
+                             <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" className="rounded border-slate-300 text-brand-600 focus:ring-brand-500" checked={Boolean(item.assign_work)} onChange={e => {
+                                   setSectionUsers(prev => prev.map(en => en.id === item.id ? { ...en, assign_work: e.target.checked } : en));
+                                }} />
+                                <span className="text-[10px] font-bold uppercase text-slate-500">Assign</span>
+                             </label>
+                             <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" className="rounded border-slate-300 text-brand-600 focus:ring-brand-500" checked={Boolean(item.is_active)} onChange={e => {
+                                   setSectionUsers(prev => prev.map(en => en.id === item.id ? { ...en, is_active: e.target.checked } : en));
+                                }} />
+                                <span className="text-[10px] font-bold uppercase text-slate-500">Active</span>
+                             </label>
+                           </div>
+                        </td>
+                        <td className="text-right">
+                          <div className="flex justify-end gap-2">
+                             <button type="button" className="p-1.5 text-brand-600 hover:bg-brand-50 rounded" onClick={() => saveAssignment(item)} title="Save changes"><Save size={16} /></button>
+                             <button type="button" className="p-1.5 text-rose-600 hover:bg-rose-50 rounded" onClick={() => deleteAssignment(item.id)} title="Remove assignment">Delete</button>
+                          </div>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {sectionUsers.length === 0 && (
-                        <tr>
-                          <td colSpan="6" className="text-center py-6 text-slate-500">
-                            No section users linked
-                          </td>
-                        </tr>
-                      )}
-                      {sectionUsers.map((item) => (
-                        <tr key={item.id}>
-                          <td>{item.section_name}</td>
-                          <td>{item.full_name || item.username}</td>
-                          <td>{item.email || "-"}</td>
-                          <td>
-                            <input
-                              type="checkbox"
-                              checked={Boolean(item.assign_work)}
-                              onChange={(e) =>
-                                setSectionUsers((prev) =>
-                                  prev.map((entry) =>
-                                    entry.id === item.id
-                                      ? { ...entry, assign_work: e.target.checked }
-                                      : entry,
-                                  ),
-                                )
-                              }
-                            />
-                          </td>
-                          <td>
-                            <input
-                              type="checkbox"
-                              checked={Boolean(item.is_active)}
-                              onChange={(e) =>
-                                setSectionUsers((prev) =>
-                                  prev.map((entry) =>
-                                    entry.id === item.id
-                                      ? { ...entry, is_active: e.target.checked }
-                                      : entry,
-                                  ),
-                                )
-                              }
-                            />
-                          </td>
-                          <td className="whitespace-nowrap space-x-2">
-                            <button
-                              type="button"
-                              className="btn-secondary btn-sm"
-                              onClick={() => saveAssignment(item)}
-                            >
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-danger btn-sm"
-                              onClick={() => deleteAssignment(item.id)}
-                            >
-                              Delete
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
           {tab === "notifications" && (
-            <>
-              <div>
-                <label className="label">Notification Email</label>
-                <input className="input" type="email" value={params.notify_email} onChange={e => set("notify_email", e.target.value)} placeholder="maintenance@company.com" />
-                <p className="text-xs text-slate-500 mt-1">Receives alerts for overdue schedules and warranty expirations.</p>
-              </div>
-            </>
+            <div className="max-w-xl space-y-4">
+               <div>
+                  <label className="label">Master Alert Email</label>
+                  <input className="input w-full" type="email" value={params.notify_email} onChange={e => set("notify_email", e.target.value)} placeholder="maintenance@enterprise.com" />
+                  <p className="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-tight">Receives global alerts for overdue schedules and critical faults.</p>
+               </div>
+            </div>
           )}
           {tab === "scheduling" && (
-            <>
-              <div className="flex items-center gap-3">
-                <label className="label mb-0">Auto-Schedule from PM Calendar</label>
-                <select className="input w-40" value={params.auto_schedule_enabled} onChange={e => set("auto_schedule_enabled", e.target.value)}>
-                  <option value="false">Disabled</option>
-                  <option value="true">Enabled</option>
+            <div className="max-w-xl space-y-4">
+              <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl">
+                <div>
+                  <div className="text-sm font-bold text-slate-900 dark:text-white">PM Auto-Generation</div>
+                  <div className="text-xs text-slate-500">Automatically spawn job orders from due PM schedules.</div>
+                </div>
+                <select className="input w-32" value={params.auto_schedule_enabled} onChange={e => set("auto_schedule_enabled", e.target.value)}>
+                  <option value="false">Off</option>
+                  <option value="true">On</option>
                 </select>
               </div>
-              <p className="text-xs text-slate-500">When enabled, the system will auto-create job orders from due PM schedules.</p>
-            </>
+            </div>
           )}
         </div>
-      </div>
-
-      <div className="flex justify-end">
-        <button type="button" className="btn-primary" onClick={save} disabled={saving}>{saving ? "Saving..." : "Save Settings"}</button>
       </div>
     </div>
   );

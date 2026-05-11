@@ -1,67 +1,160 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import { usePermission } from '../../../../auth/PermissionContext.jsx';
+import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
+import { 
+  Plus, 
+  Search, 
+  ClipboardList, 
+  Clock, 
+  CheckCircle2, 
+  AlertCircle,
+  ArrowLeft,
+  ChevronRight,
+  MoreVertical,
+  Filter
+} from "lucide-react";
+import { api } from "api/client";
+import { toast } from "react-toastify";
+
+const StatusBadge = ({ status }) => {
+  const styles = {
+    DRAFT: "bg-slate-100 text-slate-700",
+    IN_PROGRESS: "bg-amber-100 text-amber-700",
+    COMPLETED: "bg-emerald-100 text-emerald-700",
+    CANCELLED: "bg-rose-100 text-rose-700"
+  };
+  return (
+    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${styles[status] || styles.DRAFT}`}>
+      {status.replace('_', ' ')}
+    </span>
+  );
+};
 
 export default function WorkOrderList() {
-  const { canPerformAction } = usePermission();
-  const items = [
-    { id: 1, woNo: 'WO-0001', product: 'Finished Good A', qty: 10, status: 'PLANNED' },
-    { id: 2, woNo: 'WO-0002', product: 'Finished Good B', qty: 5, status: 'RELEASED' },
-  ];
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const fetchOrders = async () => {
+    try {
+      const res = await api.get("/production/work-orders");
+      setOrders(res.data?.items || []);
+    } catch (error) {
+      toast.error("Failed to fetch work orders");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchOrders();
+  }, []);
+
+  const filteredOrders = orders.filter(o => 
+    String(o.work_order_no || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+    String(o.bom_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+    String(o.item_name || "").toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">Work Orders</h1>
-          <p className="text-sm mt-1">Production order tracking</p>
+    <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="flex items-center gap-4">
+          <Link to="/production" className="btn btn-secondary p-2">
+            <ArrowLeft size={20} />
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">Production Orders</h1>
+            <p className="text-slate-500 text-sm">Execution and tracking of manufacturing runs</p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Link to="/production" className="btn btn-secondary">Return to Menu</Link>
-          <Link to="/production/work-orders/new" className="btn-success">+ New Work Order</Link>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Search orders..."
+              className="input pl-10 pr-4 py-2 w-64"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <Link 
+            to="/production/work-orders/new" 
+            className="btn-success flex items-center gap-2"
+          >
+            <Plus size={20} />
+            New Order
+          </Link>
         </div>
       </div>
 
-      <div className="card"><div className="card-body overflow-x-auto">
-        <table className="table">
-          <thead><tr><th>WO No</th><th>Product</th><th className="text-right">Qty</th><th>Status</th><th />                    <th>Created By</th>
-                    <th>Created Date</th>
-                    </tr></thead>
-          <tbody>
-            {items.map((w) => (
-              <tr key={w.id}>
-                <td className="font-medium">{w.woNo}</td>
-                <td>{w.product}</td>
-                <td className="text-right">{Number(w.qty).toFixed(2)}</td>
-                <td>{w.status}</td>
-                <td>
-                  <Link
-                    to={`/production/work-orders/${w.id}?mode=view`}
-                    className={`text-brand hover:text-brand-600 text-sm font-medium ${!canPerformAction('production:work-orders','view') ? 'invisible pointer-events-none' : ''}`}
-                  >
-                    View
-                  </Link>
-                  <Link
-                    to={`/production/work-orders/${w.id}?mode=edit`}
-                    className={`text-blue-600 hover:text-blue-700 text-sm font-medium ml-2 ${!canPerformAction('production:work-orders','edit') ? 'invisible pointer-events-none' : ''}`}
-                  >
-                    Edit
-                  </Link>
-                </td>
-                <td>{w.created_by_name || "-"}</td>
-                <td>{w.created_at ? new Date(w.created_at).toLocaleDateString() : "-"}</td>
+      <div className="card overflow-hidden shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Order No</th>
+                <th>Product / BOM</th>
+                <th className="text-center">Target Qty</th>
+                <th>Date</th>
+                <th>Status</th>
+                <th className="text-right">Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div></div>
+            </thead>
+            <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
+              {loading ? (
+                <tr>
+                  <td colSpan="6" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Loading Orders...</td>
+                </tr>
+              ) : filteredOrders.length > 0 ? filteredOrders.map((order) => (
+                <tr key={order.id} className="group">
+                  <td className="px-6 py-4 font-bold text-brand-600 dark:text-brand-400">
+                    {order.work_order_no}
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="text-sm font-bold text-brand-700 dark:text-brand-300">{order.item_name}</div>
+                    <div className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1 mt-0.5">
+                      <ClipboardList size={10} />
+                      {order.bom_name}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <div className="text-sm font-bold text-slate-900 dark:text-white px-3 py-1 bg-slate-50 dark:bg-slate-800 rounded-lg inline-block">
+                      {Number(order.qty_to_produce).toLocaleString()}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="text-sm text-slate-500 font-medium">{new Date(order.work_order_date).toLocaleDateString()}</div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <StatusBadge status={order.status} />
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Link 
+                        to={`/production/work-orders/${order.id}`}
+                        className="p-2 text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30 rounded-lg transition-colors"
+                      >
+                        <ChevronRight size={20} />
+                      </Link>
+                    </div>
+                  </td>
+                </tr>
+              )) : (
+                <tr>
+                  <td colSpan="6" className="px-6 py-20 text-center">
+                    <div className="flex flex-col items-center gap-3 text-slate-400">
+                      <ClipboardList size={48} className="opacity-20" />
+                      <p className="font-medium">No production orders found</p>
+                      <Link to="/production/work-orders/new" className="btn-success btn-sm">Issue first order</Link>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
-
-
-
-
-
-
-

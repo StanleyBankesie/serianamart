@@ -547,6 +547,54 @@ export default function ItemsList() {
     try {
       setUploading(true);
       let shouldClosePreview = true;
+      // Rebuild lookup maps here (upload runs independently of file-parse scope)
+      const currencyCodeToId = new Map();
+      const taxCodeToId = new Map();
+      const priceTypeNameToId = new Map();
+      try {
+        const [curRes, taxRes, ptRes] = await Promise.all([
+          api.get("/finance/currencies"),
+          api.get("/finance/tax-codes"),
+          api.get("/sales/price-types?active=true"),
+        ]);
+        const curs = Array.isArray(curRes?.data?.items) ? curRes.data.items : [];
+        const taxes = Array.isArray(taxRes?.data?.items) ? taxRes.data.items : [];
+        const pts = Array.isArray(ptRes?.data?.items) ? ptRes.data.items : [];
+        curs.forEach((c) => {
+          const id = Number(c.id);
+          const code = String(c.code || "").toUpperCase();
+          const name = String(c.name || "").toUpperCase();
+          if (id > 0) {
+            if (code) currencyCodeToId.set(code, id);
+            if (name) currencyCodeToId.set(name, id);
+          }
+        });
+        taxes.forEach((t) => {
+          const id = Number(t.id);
+          const code = String(t.code || "").toUpperCase();
+          const name = String(t.name || "").toUpperCase();
+          if (id > 0) {
+            if (code) taxCodeToId.set(code, id);
+            if (name) taxCodeToId.set(name, id);
+          }
+        });
+        pts.forEach((p) => {
+          const id = Number(p.id);
+          const name = String(p.name || "").toUpperCase();
+          if (id > 0 && name) priceTypeNameToId.set(name, id);
+        });
+      } catch {
+        // keep empty maps; payload still carries raw code fields for server-side resolution
+      }
+      const getNextItemCode = async (fallbackSeed) => {
+        try {
+          const res = await api.get("/inventory/items/next-code", {
+            __skipOfflineQueue: true,
+          });
+          if (res?.data?.nextCode) return String(res.data.nextCode);
+        } catch {}
+        return `ITM-${String(Date.now()).slice(-6)}-${String(fallbackSeed).padStart(2, "0")}`;
+      };
       const payloadRows = previewRows
         .filter((r) => r && r.valid) // only valid rows
         .map((r) => {
@@ -646,12 +694,7 @@ export default function ItemsList() {
         const rowData = r.raw;
         let nextItemCode = rowData.ITEM_CODE;
         if (!nextItemCode) {
-          try {
-            const res = await api.get("/inventory/items/next-code", {
-              __skipOfflineQueue: true,
-            });
-            if (res?.data?.nextCode) nextItemCode = res.data.nextCode;
-          } catch {}
+          nextItemCode = await getNextItemCode(r.index || 0);
         }
         const basePayload = {
           item_code: nextItemCode,
@@ -796,11 +839,9 @@ export default function ItemsList() {
           ) {
             // Try regenerate item code once and retry
             try {
-              const res = await api.get("/inventory/items/next-code", {
-                __skipOfflineQueue: true,
-              });
-              if (res?.data?.nextCode) {
-                payload.item_code = res.data.nextCode;
+              const regenerated = await getNextItemCode(r.index || 0);
+              if (regenerated) {
+                payload.item_code = regenerated;
                 const resp2 = await api.post("/inventory/items", payload, {
                   __skipOfflineQueue: true,
                 });
@@ -817,11 +858,9 @@ export default function ItemsList() {
             );
             if (/duplicate entry/i.test(msg)) {
               try {
-                const res = await api.get("/inventory/items/next-code", {
-                  __skipOfflineQueue: true,
-                });
-                if (res?.data?.nextCode) {
-                  payload.item_code = res.data.nextCode;
+                const regenerated = await getNextItemCode(r.index || 0);
+                if (regenerated) {
+                  payload.item_code = regenerated;
                   const resp3 = await api.post("/inventory/items", payload, {
                     __skipOfflineQueue: true,
                   });

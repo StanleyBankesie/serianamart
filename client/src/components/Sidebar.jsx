@@ -266,19 +266,14 @@ export default function Sidebar() {
       path: "/production",
       children: [
         {
-          key: "production-planning",
-          label: "Production Planning",
-          path: "/production/planning",
+          key: "production-bom",
+          label: "Bill of Materials",
+          path: "/production/boms",
         },
         {
           key: "work-order-management",
           label: "Work Orders",
           path: "/production/work-orders",
-        },
-        {
-          key: "quality-control",
-          label: "Quality Control",
-          path: "/production/quality",
         },
       ],
     },

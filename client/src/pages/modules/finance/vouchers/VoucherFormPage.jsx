@@ -257,30 +257,28 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   // Function to fetch outstanding bills for a supplier based on account ID
   // Server will: 1) Get account code from fin_accounts, 2) Find supplier by supplier_code, 3) Return outstanding bills
   async function loadOutstandingBillsForSupplier(accountId) {
-    console.log("DEBUG >>> loadOutstandingBillsForSupplier called with accountId:", accountId);
-    if (!accountId) {
-      console.log("DEBUG: No account ID provided - returning");
+    const idNum = Number(accountId || 0);
+    if (!(idNum > 0)) {
       setOutstandingBills([]);
+      setSelectedBillId("");
+      setSelectedBillDetails(null);
       return;
     }
     setLoadingBills(true);
     try {
-      // Use new endpoint that handles all lookups on server
-      const endpoint = "/purchase/bills/outstanding-by-account";
-      console.log("DEBUG: Calling endpoint:", endpoint, "with account_id:", accountId);
-      const res = await api.get(endpoint, {
-        params: { account_id: accountId }
+      const res = await api.get("/purchase/bills/outstanding-by-account", {
+        params: { account_id: idNum },
       });
-      console.log("DEBUG: API Response:", res.data);
       const bills = Array.isArray(res.data?.items) ? res.data.items : [];
-      console.log("DEBUG: Setting outstandingBills to:", bills.length, "bills");
       setOutstandingBills(bills);
+      if (!bills.some((b) => String(b.id) === String(selectedBillId))) {
+        setSelectedBillId("");
+        setSelectedBillDetails(null);
+      }
     } catch (e) {
-      console.error("DEBUG: Failed to load outstanding bills:");
-      console.error("  Status:", e.response?.status);
-      console.error("  Data:", e.response?.data);
-      console.error("  Full error:", e.message);
       setOutstandingBills([]);
+      setSelectedBillId("");
+      setSelectedBillDetails(null);
     } finally {
       setLoadingBills(false);
     }
@@ -945,10 +943,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   useEffect(() => {
     if (!isPAYV) return;
     // Trigger whenever tax code changes or components load (including when cleared to empty)
-    if (
-      pvForm.taxCodeId &&
-      pvTaxComponentsByCode[String(pvForm.taxCodeId)]
-    ) {
+    if (pvForm.taxCodeId && pvTaxComponentsByCode[String(pvForm.taxCodeId)]) {
       // Tax code selected and components loaded - populate with tax
       (async () => await autoPopulatePvTaxLines())();
     } else if (!pvForm.taxCodeId) {
@@ -971,20 +966,16 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     }
   }, [isPAYV, pvForm.paymentAccountId]);
 
-  // Load outstanding bills when Paid To account changes (for all payment modes)
+  // Load outstanding bills when Paid To account changes in Against Bill mode
   useEffect(() => {
-    console.log("DEBUG useEffect triggered:", { isPAYV, payToAccountId: pvForm.payToAccountId, paymentType });
-    if (isPAYV && pvForm.payToAccountId) {
-      console.log("DEBUG: Calling loadOutstandingBillsForSupplier with accountId:", pvForm.payToAccountId);
-      // Pass account ID directly - server will look up account code and find supplier
+    if (isPAYV && paymentType === "AGAINST_BILL" && pvForm.payToAccountId) {
       loadOutstandingBillsForSupplier(pvForm.payToAccountId);
     } else {
-      console.log("DEBUG: Clearing bills - either not PAYV or no payToAccountId");
       setOutstandingBills([]);
       setSelectedBillId("");
       setSelectedBillDetails(null);
     }
-  }, [isPAYV, pvForm.payToAccountId]);
+  }, [isPAYV, pvForm.payToAccountId, paymentType]);
 
   useEffect(() => {
     let mounted = true;
@@ -1701,9 +1692,18 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         voucherTypeId: effVoucherTypeId,
         voucherTypeCode: voucherTypeCode,
         voucherDate,
-        // Include bill reference when a bill is selected (any payment mode)
-        ...(isPAYV && selectedBillId
-          ? { billId: selectedBillId }
+        ...(isPAYV &&
+        paymentType === "AGAINST_BILL" &&
+        selectedBillId &&
+        Number(totals.grand || 0) > 0
+          ? {
+              apply_to_purchase_bills: [
+                {
+                  bill_id: Number(selectedBillId),
+                  amount: Number(totals.grand || 0),
+                },
+              ],
+            }
           : {}),
         // Include payment details for Direct Payment - backend will generate posting lines
         ...(isPAYV && paymentType === "DIRECT"
@@ -1711,10 +1711,13 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
               paymentDetails: {
                 accountId: pvForm.items[0]?.accountId || null,
                 paymentAccountId: pvForm.paymentAccountId || null,
-                totalAmount: pvForm.items.reduce((sum, item) => sum + Number(item.amount || 0), 0),
+                totalAmount: pvForm.items.reduce(
+                  (sum, item) => sum + Number(item.amount || 0),
+                  0,
+                ),
                 currencyCode: effectivePaymentCurrencyCode || "USD",
                 description: pvForm.items[0]?.description || "Direct Payment",
-              }
+              },
             }
           : {}),
         narration:
@@ -1781,35 +1784,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         const res = await api.post("/finance/vouchers", payload);
         const newId = Number(res?.data?.id || 0) || null;
         const newRef = String(res?.data?.voucherNo || "") || null;
-        
-        // Update bill payment status when a bill is linked (any payment mode)
-        if (isPAYV && selectedBillId) {
-          try {
-            const paymentAmount = pvForm.items.reduce(
-              (sum, item) => sum + Number(item.amount || 0),
-              0
-            );
-            if (paymentAmount > 0) {
-              // Calculate payment status based on amounts
-              const billTotal = Number(selectedBillDetails?.net_amount || selectedBillDetails?.total_amount || 0);
-              let paymentStatus = "PARTIAL PAYMENT";
-              if (paymentAmount >= billTotal) {
-                paymentStatus = "FULLY PAID";
-              } else if (paymentAmount > 0 && paymentAmount < billTotal) {
-                paymentStatus = "PARTIAL PAYMENT";
-              }
-              
-              await api.post("/purchase/bills/update-payment-status", {
-                billId: selectedBillId,
-                paymentAmount: paymentAmount,
-                paymentStatus: paymentStatus,
-              });
-            }
-          } catch (billError) {
-            console.warn("Failed to update bill payment status:", billError);
-          }
-        }
-        
+
         // Create Purchase Voucher when Payment Voucher is saved (for posting lines)
         if (isPAYV && paymentType === "DIRECT" && lines.length > 0) {
           try {
@@ -1829,7 +1804,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 paymentMethod: l.paymentMethod || null,
               }))
               .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0));
-            
+
             if (purchaseLines.length >= 2) {
               const pvPayload = {
                 voucherTypeCode: "PV",
@@ -1845,10 +1820,12 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
             }
           } catch (pvError) {
             console.warn("Failed to create purchase voucher:", pvError);
-            toast.warning("Payment voucher saved but purchase voucher creation failed");
+            toast.warning(
+              "Payment voucher saved but purchase voucher creation failed",
+            );
           }
         }
-        
+
         toast.success(`Created ${res.data?.voucherNo || "voucher"}`);
         navigate(
           `/finance/${
@@ -2587,7 +2564,12 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
 
   // Auto-populate posting lines for Payment Voucher based on payment details
   async function autoPopulatePvPostingLines(changedIdx, changedPatch) {
-    console.log("DEBUG autoPopulatePvPostingLines called:", { isPAYV, changedIdx, changedPatch, paymentType });
+    console.log("DEBUG autoPopulatePvPostingLines called:", {
+      isPAYV,
+      changedIdx,
+      changedPatch,
+      paymentType,
+    });
     if (!isPAYV) {
       console.log("DEBUG: Not PAYV, returning");
       return;
@@ -2597,11 +2579,21 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     const currentItem = pvForm.items[changedIdx] || {};
     const updatedItem = { ...currentItem, ...changedPatch };
     const accountId = updatedItem.accountId || currentItem.accountId || "";
-    const description = updatedItem.description || currentItem.description || "";
+    const description =
+      updatedItem.description || currentItem.description || "";
     const amount = Number(updatedItem.amount || currentItem.amount || 0);
-    const itemCurrency = updatedItem.currencyCode || currentItem.currencyCode || effectivePaymentCurrencyCode || "USD";
+    const itemCurrency =
+      updatedItem.currencyCode ||
+      currentItem.currencyCode ||
+      effectivePaymentCurrencyCode ||
+      "USD";
 
-    console.log("DEBUG: Item details:", { accountId, description, amount, itemCurrency });
+    console.log("DEBUG: Item details:", {
+      accountId,
+      description,
+      amount,
+      itemCurrency,
+    });
 
     // Calculate total amount from all items
     const totalAmount = pvForm.items.reduce(
@@ -2637,20 +2629,31 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
 
     // 2. Calculate and add tax component lines (DEBIT side)
     let totalTaxAmount = 0;
-    console.log("DEBUG: Checking tax code:", pvForm.taxCodeId, "Components:", pvTaxComponentsByCode);
+    console.log(
+      "DEBUG: Checking tax code:",
+      pvForm.taxCodeId,
+      "Components:",
+      pvTaxComponentsByCode,
+    );
     if (pvForm.taxCodeId && pvTaxComponentsByCode[String(pvForm.taxCodeId)]) {
       const comps = pvTaxComponentsByCode[String(pvForm.taxCodeId)] || [];
       console.log("DEBUG: Tax components found:", comps.length);
       comps.forEach((comp) => {
         const rate = Number(comp.rate_percent || 0);
-        const compTaxAmount = Math.round((totalAmount * rate)) / 100;
+        const compTaxAmount = Math.round(totalAmount * rate) / 100;
         totalTaxAmount += compTaxAmount;
-        console.log("DEBUG: Adding tax component:", comp.component_name, "amount:", compTaxAmount);
+        console.log(
+          "DEBUG: Adding tax component:",
+          comp.component_name,
+          "amount:",
+          compTaxAmount,
+        );
         if (comp.account_id) {
           newLines.push({
             accountId: String(comp.account_id),
             accountName: comp.account_name || "",
-            description: firstDescription || `Tax - ${comp.component_name || ""}`,
+            description:
+              firstDescription || `Tax - ${comp.component_name || ""}`,
             currencyCode: itemCurrency,
             debit: compTaxAmount,
             credit: 0,
@@ -2665,18 +2668,23 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     if (accountId && netAmount > 0) {
       try {
         // Get account code from selected account
-        const selectedAcc = accounts.find((a) => String(a.id) === String(accountId));
+        const selectedAcc = accounts.find(
+          (a) => String(a.id) === String(accountId),
+        );
         const accountCode = selectedAcc?.code || "";
-        
+
         // Find supplier by account code
         const supplier = suppliers.find(
-          (s) => String(s.account_code || s.code || s.supplier_code || "").trim() === String(accountCode).trim()
+          (s) =>
+            String(s.account_code || s.code || s.supplier_code || "").trim() ===
+            String(accountCode).trim(),
         );
-        
+
         if (supplier?.purchase_account_id || supplier?.expense_account_id) {
-          const purchaseAccountId = supplier.purchase_account_id || supplier.expense_account_id;
+          const purchaseAccountId =
+            supplier.purchase_account_id || supplier.expense_account_id;
           const purchaseAcc = accounts.find(
-            (a) => String(a.id) === String(purchaseAccountId)
+            (a) => String(a.id) === String(purchaseAccountId),
           );
           newLines.push({
             accountId: String(purchaseAccountId),
@@ -2693,7 +2701,12 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     }
 
     // Set all posting lines
-    console.log("DEBUG: Final newLines count:", newLines.length, "Lines:", newLines);
+    console.log(
+      "DEBUG: Final newLines count:",
+      newLines.length,
+      "Lines:",
+      newLines,
+    );
     if (newLines.length > 0) {
       setLines(newLines);
       console.log("DEBUG: Lines set successfully");
@@ -3353,244 +3366,248 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 ) : null}
                 {/* Hide Posting Lines for PAYV Direct Payment - auto-generated on backend */}
                 {!(isPAYV && paymentType === "DIRECT") && (
-                <>
-                <div className="flex justify-between items-center mb-3">
-                  <div className="font-semibold text-slate-800 dark:text-slate-200">
-                    Posting Lines
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-success"
-                    onClick={addLine}
-                    disabled={readOnly}
-                  >
-                    + Add Line
-                  </button>
-                </div>
+                  <>
+                    <div className="flex justify-between items-center mb-3">
+                      <div className="font-semibold text-slate-800 dark:text-slate-200">
+                        Posting Lines
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-success"
+                        onClick={addLine}
+                        disabled={readOnly}
+                      >
+                        + Add Line
+                      </button>
+                    </div>
 
-                <div className="overflow-x-auto">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Account</th>
-                        <th>Description</th>
-                        {isCN || isDN ? (
-                          <th className="text-right w-32">Currency</th>
-                        ) : null}
-                        <th
-                          className="text-right"
-                          style={{ minWidth: "300px" }}
-                        >
-                          Debit
-                        </th>
-                        <th
-                          className="text-right"
-                          style={{ minWidth: "300px" }}
-                        >
-                          Credit
-                        </th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lines.map((l, idx) => {
-                        const accFromList = accounts.find(
-                          (a) => String(a.id) === String(l.accountId || ""),
-                        );
-                        const displayName =
-                          l.accountName || accFromList?.name || "";
-                        const displayCode =
-                          l.accountCode || accFromList?.code || "";
-                        const accountLabel =
-                          isSV || isPV
-                            ? displayName
-                            : displayCode
-                              ? `${displayCode} - ${displayName}`
-                              : displayName;
-                        const isReadOnlySVorPV = readOnly && (isSV || isPV);
-                        return (
-                          <tr key={idx}>
-                            <td>
-                              {isReadOnlySVorPV ? (
-                                <span className="font-medium text-slate-800 dark:text-slate-200">
-                                  {accountLabel || "-"}
-                                </span>
-                              ) : (
-                                <select
-                                  className="input"
-                                  value={l.accountId}
-                                  onChange={(e) =>
-                                    updateLine(idx, {
-                                      accountId: e.target.value,
-                                    })
-                                  }
-                                  required
-                                  disabled={readOnly}
-                                >
-                                  <option value="">Select account</option>
-                                  {accounts.map((a) => (
-                                    <option key={a.id} value={a.id}>
-                                      {isSV || isPV
-                                        ? a.name
-                                        : `${a.code} - ${a.name}`}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-                            </td>
-                            <td>
-                              {isReadOnlySVorPV ? (
-                                <span className="text-slate-600 dark:text-slate-400">
-                                  {l.description || "-"}
-                                </span>
-                              ) : (
-                                <input
-                                  className="input"
-                                  value={l.description}
-                                  onChange={(e) =>
-                                    updateLine(idx, {
-                                      description: e.target.value,
-                                    })
-                                  }
-                                  placeholder="Line memo"
-                                  disabled={readOnly}
-                                />
-                              )}
-                            </td>
+                    <div className="overflow-x-auto">
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th>Account</th>
+                            <th>Description</th>
                             {isCN || isDN ? (
-                              <td className="text-right">
-                                {(() => {
-                                  const acc = accounts.find(
-                                    (a) =>
-                                      String(a.id) ===
-                                      String(l.accountId || ""),
-                                  );
-                                  return acc?.currency_code || "";
-                                })()}
-                              </td>
+                              <th className="text-right w-32">Currency</th>
                             ) : null}
-                            <td
-                              className={
-                                isReadOnlySVorPV ? "text-right font-mono" : ""
-                              }
+                            <th
+                              className="text-right"
+                              style={{ minWidth: "300px" }}
                             >
-                              {isReadOnlySVorPV ? (
-                                <span
-                                  className={
-                                    Number(l.debit || 0) > 0
-                                      ? "font-semibold text-slate-800 dark:text-slate-200"
-                                      : "text-slate-400"
-                                  }
-                                >
-                                  {Number(l.debit || 0) > 0
-                                    ? `GH₵ ${Number(l.debit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                    : "-"}
-                                </span>
-                              ) : (
-                                <input
-                                  className="input text-right"
-                                  type="number"
-                                  min="0"
-                                  step="any"
-                                  value={l.debit || ""}
-                                  onChange={(e) =>
-                                    updateLine(idx, {
-                                      debit: e.target.value,
-                                      credit: 0,
-                                    })
-                                  }
-                                  onFocus={() => {
-                                    const v = String(l.debit ?? "");
-                                    if (v === "0") {
-                                      updateLine(idx, { debit: "" });
-                                    }
-                                  }}
-                                  disabled={readOnly}
-                                />
-                              )}
-                            </td>
-                            <td
-                              className={
-                                isReadOnlySVorPV ? "text-right font-mono" : ""
-                              }
+                              Debit
+                            </th>
+                            <th
+                              className="text-right"
+                              style={{ minWidth: "300px" }}
                             >
-                              {isReadOnlySVorPV ? (
-                                <span
-                                  className={
-                                    Number(l.credit || 0) > 0
-                                      ? "font-semibold text-slate-800 dark:text-slate-200"
-                                      : "text-slate-400"
-                                  }
-                                >
-                                  {Number(l.credit || 0) > 0
-                                    ? `GH₵ ${Number(l.credit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                    : "-"}
-                                </span>
-                              ) : (
-                                <input
-                                  className="input text-right"
-                                  type="number"
-                                  min="0"
-                                  step="any"
-                                  value={l.credit || ""}
-                                  onChange={(e) =>
-                                    updateLine(idx, {
-                                      credit: e.target.value,
-                                      debit: 0,
-                                    })
-                                  }
-                                  onFocus={() => {
-                                    const v = String(l.credit ?? "");
-                                    if (v === "0") {
-                                      updateLine(idx, { credit: "" });
-                                    }
-                                  }}
-                                  disabled={readOnly}
-                                />
-                              )}
-                            </td>
-                            <td>
-                              {!readOnly && (
-                                <button
-                                  type="button"
-                                  className="text-red-600 hover:text-red-700 text-sm font-medium"
-                                  onClick={() => removeLine(idx)}
-                                  disabled={readOnly}
-                                >
-                                  Remove
-                                </button>
-                              )}
-                            </td>
+                              Credit
+                            </th>
+                            <th />
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                        </thead>
+                        <tbody>
+                          {lines.map((l, idx) => {
+                            const accFromList = accounts.find(
+                              (a) => String(a.id) === String(l.accountId || ""),
+                            );
+                            const displayName =
+                              l.accountName || accFromList?.name || "";
+                            const displayCode =
+                              l.accountCode || accFromList?.code || "";
+                            const accountLabel =
+                              isSV || isPV
+                                ? displayName
+                                : displayCode
+                                  ? `${displayCode} - ${displayName}`
+                                  : displayName;
+                            const isReadOnlySVorPV = readOnly && (isSV || isPV);
+                            return (
+                              <tr key={idx}>
+                                <td>
+                                  {isReadOnlySVorPV ? (
+                                    <span className="font-medium text-slate-800 dark:text-slate-200">
+                                      {accountLabel || "-"}
+                                    </span>
+                                  ) : (
+                                    <select
+                                      className="input"
+                                      value={l.accountId}
+                                      onChange={(e) =>
+                                        updateLine(idx, {
+                                          accountId: e.target.value,
+                                        })
+                                      }
+                                      required
+                                      disabled={readOnly}
+                                    >
+                                      <option value="">Select account</option>
+                                      {accounts.map((a) => (
+                                        <option key={a.id} value={a.id}>
+                                          {isSV || isPV
+                                            ? a.name
+                                            : `${a.code} - ${a.name}`}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  )}
+                                </td>
+                                <td>
+                                  {isReadOnlySVorPV ? (
+                                    <span className="text-slate-600 dark:text-slate-400">
+                                      {l.description || "-"}
+                                    </span>
+                                  ) : (
+                                    <input
+                                      className="input"
+                                      value={l.description}
+                                      onChange={(e) =>
+                                        updateLine(idx, {
+                                          description: e.target.value,
+                                        })
+                                      }
+                                      placeholder="Line memo"
+                                      disabled={readOnly}
+                                    />
+                                  )}
+                                </td>
+                                {isCN || isDN ? (
+                                  <td className="text-right">
+                                    {(() => {
+                                      const acc = accounts.find(
+                                        (a) =>
+                                          String(a.id) ===
+                                          String(l.accountId || ""),
+                                      );
+                                      return acc?.currency_code || "";
+                                    })()}
+                                  </td>
+                                ) : null}
+                                <td
+                                  className={
+                                    isReadOnlySVorPV
+                                      ? "text-right font-mono"
+                                      : ""
+                                  }
+                                >
+                                  {isReadOnlySVorPV ? (
+                                    <span
+                                      className={
+                                        Number(l.debit || 0) > 0
+                                          ? "font-semibold text-slate-800 dark:text-slate-200"
+                                          : "text-slate-400"
+                                      }
+                                    >
+                                      {Number(l.debit || 0) > 0
+                                        ? `GH₵ ${Number(l.debit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                        : "-"}
+                                    </span>
+                                  ) : (
+                                    <input
+                                      className="input text-right"
+                                      type="number"
+                                      min="0"
+                                      step="any"
+                                      value={l.debit || ""}
+                                      onChange={(e) =>
+                                        updateLine(idx, {
+                                          debit: e.target.value,
+                                          credit: 0,
+                                        })
+                                      }
+                                      onFocus={() => {
+                                        const v = String(l.debit ?? "");
+                                        if (v === "0") {
+                                          updateLine(idx, { debit: "" });
+                                        }
+                                      }}
+                                      disabled={readOnly}
+                                    />
+                                  )}
+                                </td>
+                                <td
+                                  className={
+                                    isReadOnlySVorPV
+                                      ? "text-right font-mono"
+                                      : ""
+                                  }
+                                >
+                                  {isReadOnlySVorPV ? (
+                                    <span
+                                      className={
+                                        Number(l.credit || 0) > 0
+                                          ? "font-semibold text-slate-800 dark:text-slate-200"
+                                          : "text-slate-400"
+                                      }
+                                    >
+                                      {Number(l.credit || 0) > 0
+                                        ? `GH₵ ${Number(l.credit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                        : "-"}
+                                    </span>
+                                  ) : (
+                                    <input
+                                      className="input text-right"
+                                      type="number"
+                                      min="0"
+                                      step="any"
+                                      value={l.credit || ""}
+                                      onChange={(e) =>
+                                        updateLine(idx, {
+                                          credit: e.target.value,
+                                          debit: 0,
+                                        })
+                                      }
+                                      onFocus={() => {
+                                        const v = String(l.credit ?? "");
+                                        if (v === "0") {
+                                          updateLine(idx, { credit: "" });
+                                        }
+                                      }}
+                                      disabled={readOnly}
+                                    />
+                                  )}
+                                </td>
+                                <td>
+                                  {!readOnly && (
+                                    <button
+                                      type="button"
+                                      className="text-red-600 hover:text-red-700 text-sm font-medium"
+                                      onClick={() => removeLine(idx)}
+                                      disabled={readOnly}
+                                    >
+                                      Remove
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
 
-                <div className="mt-4 flex justify-end">
-                  <div className="w-72 space-y-1">
-                    <div className="flex justify-between text-sm">
-                      <span>Total Debit</span>
-                      <span>{`GH₵ ${totals.debit.toFixed(2)}`}</span>
+                    <div className="mt-4 flex justify-end">
+                      <div className="w-72 space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span>Total Debit</span>
+                          <span>{`GH₵ ${totals.debit.toFixed(2)}`}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span>Total Credit</span>
+                          <span>{`GH₵ ${totals.credit.toFixed(2)}`}</span>
+                        </div>
+                        <div
+                          className={`flex justify-between text-sm font-semibold ${
+                            balanced
+                              ? "text-green-700 dark:text-green-300"
+                              : "text-red-700 dark:text-red-300"
+                          }`}
+                        >
+                          <span>Status</span>
+                          <span>{balanced ? "Balanced" : "Not Balanced"}</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Total Credit</span>
-                      <span>{`GH₵ ${totals.credit.toFixed(2)}`}</span>
-                    </div>
-                    <div
-                      className={`flex justify-between text-sm font-semibold ${
-                        balanced
-                          ? "text-green-700 dark:text-green-300"
-                          : "text-red-700 dark:text-red-300"
-                      }`}
-                    >
-                      <span>Status</span>
-                      <span>{balanced ? "Balanced" : "Not Balanced"}</span>
-                    </div>
-                  </div>
-                </div>
-                </>
+                  </>
                 )}
               </div>
 
@@ -3601,7 +3618,11 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 <button
                   type="submit"
                   className="btn-success"
-                  disabled={loading || readOnly || (!(isPAYV && paymentType === "DIRECT") && !balanced)}
+                  disabled={
+                    loading ||
+                    readOnly ||
+                    (!(isPAYV && paymentType === "DIRECT") && !balanced)
+                  }
                 >
                   {loading ? "Saving..." : "Save Voucher"}
                 </button>
@@ -5027,10 +5048,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${paymentType === "DIRECT" ? "bg-white dark:bg-slate-700 shadow text-brand-600 dark:text-brand-400" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"}`}
                     onClick={() => {
                       setPaymentType("DIRECT");
-                      // Load outstanding bills when switching to this mode
-                      if (pvForm.payToAccountId) {
-                        loadOutstandingBillsForSupplier(pvForm.payToAccountId);
-                      }
+                      setOutstandingBills([]);
+                      setSelectedBillId("");
+                      setSelectedBillDetails(null);
                     }}
                     disabled={readOnly}
                   >
@@ -5133,7 +5153,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                             (a) => String(a.id) === selected.value,
                           );
                           if (acc) {
-                            const accountCurrency = acc?.currency_code || acc?.currency || "";
+                            const accountCurrency =
+                              acc?.currency_code || acc?.currency || "";
                             setPaidToSearch("");
                             updatePv({
                               payTo: String(acc.name || ""),
@@ -5178,7 +5199,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 (a) => String(a.id) === o.value,
                               );
                               if (acc) {
-                                const accountCurrency = acc?.currency_code || acc?.currency || "";
+                                const accountCurrency =
+                                  acc?.currency_code || acc?.currency || "";
                                 setPaidToSearch("");
                                 updatePv({
                                   payTo: String(acc.name || ""),
@@ -5353,8 +5375,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 </div>
               </div>
 
-              {/* Outstanding Bills - visible for all payment modes */}
-              {isPAYV && (
+              {isPAYV && paymentType === "AGAINST_BILL" && (
                 <div className="space-y-3 mt-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="md:w-96">
@@ -5366,7 +5387,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                           const billId = e.target.value;
                           setSelectedBillId(billId);
                           const bill = outstandingBills.find(
-                            (b) => String(b.id) === String(billId)
+                            (b) => String(b.id) === String(billId),
                           );
                           setSelectedBillDetails(bill || null);
                           // Auto-populate amount if bill is selected
@@ -5376,7 +5397,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 {
                                   description: `Payment for Bill ${bill.bill_no}`,
                                   accountId: pvForm.payToAccountId || "",
-                                  amount: Number(bill.balance_amount || bill.net_amount || 0),
+                                  amount: Number(
+                                    bill.balance_amount || bill.net_amount || 0,
+                                  ),
                                   exchangeRate: "1",
                                   currencyCode: effectivePaymentCurrencyCode,
                                 },
@@ -5384,19 +5407,23 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                             });
                           }
                         }}
-                        disabled={readOnly || loadingBills || outstandingBills.length === 0}
+                        disabled={
+                          readOnly ||
+                          loadingBills ||
+                          outstandingBills.length === 0
+                        }
                       >
                         <option value="">
                           {loadingBills
                             ? "Loading bills..."
                             : outstandingBills.length === 0
-                            ? "No outstanding bills"
-                            : "Select outstanding bill"}
+                              ? "No outstanding bills"
+                              : "Select outstanding bill"}
                         </option>
                         {outstandingBills.map((bill) => (
                           <option key={bill.id} value={bill.id}>
-                            {bill.bill_no} - {bill.net_amount?.toLocaleString()} (
-                            {bill.payment_status})
+                            {bill.bill_no} - {bill.net_amount?.toLocaleString()}{" "}
+                            ({bill.payment_status})
                           </option>
                         ))}
                       </select>
@@ -5404,8 +5431,15 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     {selectedBillDetails && (
                       <div className="bg-slate-50 dark:bg-slate-800 rounded p-3 text-sm">
                         <div className="font-medium">Bill Details</div>
-                        <div>Total: {selectedBillDetails.net_amount?.toLocaleString()}</div>
-                        <div>Balance: {selectedBillDetails.balance_amount?.toLocaleString() || selectedBillDetails.net_amount?.toLocaleString()}</div>
+                        <div>
+                          Total:{" "}
+                          {selectedBillDetails.net_amount?.toLocaleString()}
+                        </div>
+                        <div>
+                          Balance:{" "}
+                          {selectedBillDetails.balance_amount?.toLocaleString() ||
+                            selectedBillDetails.net_amount?.toLocaleString()}
+                        </div>
                         <div>Status: {selectedBillDetails.payment_status}</div>
                       </div>
                     )}
@@ -5466,9 +5500,14 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                   onChange={(e) => {
                                     const selectedAccountId = e.target.value;
                                     const selectedAcc = accounts.find(
-                                      (a) => String(a.id) === String(selectedAccountId),
+                                      (a) =>
+                                        String(a.id) ===
+                                        String(selectedAccountId),
                                     );
-                                    const accountCurrency = selectedAcc?.currency_code || selectedAcc?.currency || "";
+                                    const accountCurrency =
+                                      selectedAcc?.currency_code ||
+                                      selectedAcc?.currency ||
+                                      "";
                                     updatePvItem(idx, {
                                       accountId: selectedAccountId,
                                       currencyCode: accountCurrency,
@@ -5497,24 +5536,38 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                             <td>
                               <select
                                 className={`input text-right ${disabledClass}`}
-                                value={it.currencyCode || effectivePaymentCurrencyCode || "USD"}
+                                value={
+                                  it.currencyCode ||
+                                  effectivePaymentCurrencyCode ||
+                                  "USD"
+                                }
                                 onChange={async (e) => {
                                   const selectedCurrency = e.target.value;
-                                  const baseCurrencyCode = baseCurrency?.code || "GHS";
-                                  
+                                  const baseCurrencyCode =
+                                    baseCurrency?.code || "GHS";
+
                                   // If different from base currency, fetch exchange rate
                                   let exchangeRate = "1";
-                                  if (selectedCurrency && selectedCurrency !== baseCurrencyCode) {
+                                  if (
+                                    selectedCurrency &&
+                                    selectedCurrency !== baseCurrencyCode
+                                  ) {
                                     try {
-                                      const rate = await getExchangeRate(selectedCurrency, baseCurrencyCode);
+                                      const rate = await getExchangeRate(
+                                        selectedCurrency,
+                                        baseCurrencyCode,
+                                      );
                                       if (rate) {
                                         exchangeRate = String(rate);
                                       }
                                     } catch (err) {
-                                      console.warn("Failed to fetch exchange rate:", err);
+                                      console.warn(
+                                        "Failed to fetch exchange rate:",
+                                        err,
+                                      );
                                     }
                                   }
-                                  
+
                                   updatePvItem(idx, {
                                     currencyCode: selectedCurrency,
                                     exchangeRate: exchangeRate,
@@ -5672,7 +5725,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                       </span>
                     </div>
                     <div className="flex justify-between border-t pt-2">
-                      <span className="font-semibold">TOTAL AMOUNT {effectivePaymentCurrencyCode || "USD"}</span>
+                      <span className="font-semibold">
+                        TOTAL AMOUNT {effectivePaymentCurrencyCode || "USD"}
+                      </span>
                       <span className="font-bold">
                         {Number(totals.grand || 0).toLocaleString(undefined, {
                           minimumFractionDigits: 2,
@@ -5682,9 +5737,13 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     </div>
                     {Number(pvExchangeRate || 1) !== 1 && (
                       <div className="flex justify-between">
-                        <span className="font-semibold">AMOUNT in {baseCurrency?.code || "USD"}</span>
+                        <span className="font-semibold">
+                          AMOUNT in {baseCurrency?.code || "USD"}
+                        </span>
                         <span className="font-bold">
-                          {Number((totals.grand || 0) * (Number(pvExchangeRate) || 1)).toLocaleString(undefined, {
+                          {Number(
+                            (totals.grand || 0) * (Number(pvExchangeRate) || 1),
+                          ).toLocaleString(undefined, {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                           })}
@@ -5773,9 +5832,15 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                             <td>
                               <select
                                 className="input text-right"
-                                value={l.currencyCode || effectivePaymentCurrencyCode || "USD"}
+                                value={
+                                  l.currencyCode ||
+                                  effectivePaymentCurrencyCode ||
+                                  "USD"
+                                }
                                 onChange={(e) =>
-                                  updateLine(idx, { currencyCode: e.target.value })
+                                  updateLine(idx, {
+                                    currencyCode: e.target.value,
+                                  })
                                 }
                                 disabled={readOnly}
                               >

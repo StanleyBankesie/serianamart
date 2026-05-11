@@ -46,4 +46,56 @@ router.post(
   projectsController.createProject
 );
 
+router.put(
+  "/projects/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("PM.PROJECT.MANAGE"),
+  projectsController.updateProject
+);
+
+// ===== TASKS =====
+router.get(
+  "/tasks",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.listTasks
+);
+
+router.post(
+  "/tasks",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.createOrUpdateTask
+);
+
+// ===== TIMESHEETS =====
+router.get(
+  "/timesheets",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.listTimesheets
+);
+
+router.post(
+  "/timesheets",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.createTimesheet
+);
+
+// ===== DASHBOARD =====
+router.get(
+  "/dashboard/stats",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.getPMDashboardStats
+);
+
 export default router;

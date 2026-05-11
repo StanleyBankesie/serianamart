@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { ArrowLeft, Search, Plus, ChevronRight } from "lucide-react";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 import { Guard } from "../../../../hooks/usePermissions";
@@ -49,55 +50,77 @@ export default function MaintenanceRequestsList() {
 
   return (
     <Guard moduleKey="maintenance">
-      <div className="p-4 space-y-4">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-2xl font-bold">Maintenance Requests</h1>
-            <p className="text-sm text-slate-500">Track and manage maintenance requests</p>
+      <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="flex items-center gap-4">
+            <Link to="/maintenance" className="btn btn-secondary p-2">
+               <ArrowLeft size={20} />
+            </Link>
+            <div>
+              <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">Maintenance Requests</h1>
+              <p className="text-slate-500 text-sm">Track and manage service tickets and fault reports</p>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Link to="/maintenance" className="btn-secondary">Back to Menu</Link>
-            <Link to="/maintenance/maintenance-requests/new" className="btn-primary">+ New Request</Link>
+          <div className="flex items-center gap-3">
+             <div className="relative">
+               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+               <input 
+                 className="input pl-10 pr-4 py-2 w-64" 
+                 placeholder="Search requests..." 
+                 value={search} 
+                 onChange={e => setSearch(e.target.value)} 
+               />
+             </div>
+             <Link to="/maintenance/maintenance-requests/new" className="btn-success flex items-center gap-2">
+                <Plus size={20} />
+                + New Request
+             </Link>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-slate-200 dark:border-slate-700">
-            <input className="input max-w-md" placeholder="Search by no, requester, type, status..." value={search} onChange={e => setSearch(e.target.value)} />
-          </div>
+        <div className="card overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="min-w-full">
-              <thead className="bg-[#f8fafc] dark:bg-slate-900/50">
-                <tr className="text-left bg-slate-50 dark:bg-slate-900/50">
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Request No</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Date</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Requester</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Department</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Type</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Request Details</th>
+                  <th>Requester</th>
+                  <th>Department</th>
+                  <th>Type</th>
+                  <th>Priority</th>
+                  <th>Status</th>
+                  <th className="text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                {loading && <tr><td colSpan="8" className="px-4 py-8 text-center text-slate-500">Loading...</td></tr>}
-                {!loading && !filtered.length && <tr><td colSpan="8" className="px-4 py-8 text-center text-slate-500">No maintenance requests found</td></tr>}
-                {!loading && filtered.map(r => (
-                  <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                    <td className="px-4 py-3 font-mono text-sm">{r.request_no}</td>
-                    <td className="px-4 py-3 text-sm">{r.request_date}</td>
-                    <td className="px-4 py-3 text-sm">{r.requester_name}</td>
-                    <td className="px-4 py-3 text-sm">{r.department}</td>
-                    <td className="px-4 py-3 text-sm">{r.maintenance_type}</td>
+              <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
+                {loading ? (
+                   <tr><td colSpan="7" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Fetching Tickets...</td></tr>
+                ) : filtered.length > 0 ? filtered.map(r => (
+                  <tr key={r.id} className="group">
+                    <td className="px-6 py-4">
+                       <div className="font-bold text-slate-900 dark:text-white text-sm leading-tight">{r.request_no}</div>
+                       <div className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">{r.request_date}</div>
+                    </td>
+                    <td className="px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-200">{r.requester_name}</td>
+                    <td className="px-4 py-3 text-sm text-slate-500">{r.department}</td>
+                    <td className="px-4 py-3 text-sm text-slate-500">{r.maintenance_type}</td>
                     <td className="px-4 py-3 text-sm"><Badge value={r.priority} colorMap={priorityColors} /></td>
                     <td className="px-4 py-3 text-sm"><Badge value={r.status} colorMap={statusColors} /></td>
-                    <td className="px-4 py-3 text-sm whitespace-nowrap space-x-2">
-                      <Link to={`/maintenance/maintenance-requests/${r.id}`} className="text-brand hover:underline mr-3">Edit</Link>
-                      <Link to={`/maintenance/job-orders/new?request_id=${r.id}&request_no=${r.request_no}&asset_name=${encodeURIComponent(r.asset_name||"")}`} className="text-emerald-600 hover:underline mr-3">Create Job Order</Link>
-                      <Link to={`/maintenance/rfq/new?request_id=${r.id}&request_no=${r.request_no}`} className="text-indigo-600 hover:underline">Create RFQ</Link>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Link 
+                          to={`/maintenance/maintenance-requests/${r.id}`} 
+                          className="p-2 text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30 rounded-lg transition-colors"
+                          title="Edit Request"
+                        >
+                          <ChevronRight size={20} />
+                        </Link>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                )) : (
+                  <tr><td colSpan="7" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">No maintenance tickets found.</td></tr>
+                )}
               </tbody>
             </table>
           </div>

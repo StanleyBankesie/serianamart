@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { ArrowLeft, Search, Plus, ChevronRight } from "lucide-react";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 import { Guard } from "../../../../hooks/usePermissions";
@@ -40,55 +41,76 @@ export default function MaintenanceJobOrdersList() {
 
   return (
     <Guard moduleKey="maintenance">
-      <div className="p-4 space-y-4">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-2xl font-bold">Job Orders</h1>
-            <p className="text-sm text-slate-500">Track and manage maintenance job orders</p>
+      <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="flex items-center gap-4">
+            <Link to="/maintenance" className="btn btn-secondary p-2">
+               <ArrowLeft size={20} />
+            </Link>
+            <div>
+              <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">Job Orders</h1>
+              <p className="text-slate-500 text-sm">Track and manage maintenance job orders</p>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Link to="/maintenance" className="btn-secondary">Back to Menu</Link>
-            <Link to="/maintenance/job-orders/new" className="btn-primary">+ New Job Order</Link>
+          <div className="flex items-center gap-3">
+             <div className="relative">
+               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+               <input 
+                 className="input pl-10 pr-4 py-2 w-64" 
+                 placeholder="Search orders..." 
+                 value={search} 
+                 onChange={e => setSearch(e.target.value)} 
+               />
+             </div>
+             <Link to="/maintenance/job-orders/new" className="btn-success flex items-center gap-2">
+                <Plus size={20} />
+                + New Job Order
+             </Link>
           </div>
         </div>
-        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-slate-200 dark:border-slate-700">
-            <input className="input max-w-md" placeholder="Search by no, asset, technician, status..." value={search} onChange={e => setSearch(e.target.value)} />
-          </div>
+
+        <div className="card overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="min-w-full">
-              <thead className="bg-[#f8fafc] dark:bg-slate-900/50">
-                <tr className="text-left bg-slate-50 dark:bg-slate-900/50">
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Order No</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Date</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Request Ref</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Asset</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Type</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scheduled</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Technician</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Order No</th>
+                  <th>Request Ref</th>
+                  <th>Asset</th>
+                  <th>Schedule</th>
+                  <th>Technician</th>
+                  <th>Status</th>
+                  <th className="text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                {loading && <tr><td colSpan="9" className="px-4 py-8 text-center text-slate-500">Loading...</td></tr>}
-                {!loading && !filtered.length && <tr><td colSpan="9" className="px-4 py-8 text-center text-slate-500">No job orders found</td></tr>}
-                {!loading && filtered.map(r => (
-                  <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                    <td className="px-4 py-3 font-mono text-sm">{r.order_no}</td>
-                    <td className="px-4 py-3 text-sm">{r.order_date}</td>
-                    <td className="px-4 py-3 text-sm">{r.request_id}</td>
-                    <td className="px-4 py-3 text-sm">{r.asset_name}</td>
-                    <td className="px-4 py-3 text-sm">{r.order_type}</td>
-                    <td className="px-4 py-3 text-sm">{r.scheduled_date}</td>
-                    <td className="px-4 py-3 text-sm">{r.assigned_technician}</td>
+              <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
+                {loading ? (
+                   <tr><td colSpan="7" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Loading Orders...</td></tr>
+                ) : filtered.length > 0 ? filtered.map(r => (
+                  <tr key={r.id} className="group">
+                    <td className="px-6 py-4">
+                       <div className="font-bold text-slate-900 dark:text-white text-sm leading-tight">{r.order_no}</div>
+                       <div className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">{r.order_date}</div>
+                    </td>
+                    <td className="px-4 py-3 text-sm font-semibold text-brand-700 dark:text-brand-300">{r.request_no || r.request_id}</td>
+                    <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{r.asset_name}</td>
+                    <td className="px-4 py-3 text-sm text-slate-500">{r.scheduled_date}</td>
+                    <td className="px-4 py-3 text-sm text-slate-500 font-medium">{r.assigned_technician}</td>
                     <td className="px-4 py-3 text-sm"><Badge value={r.status} colorMap={statusColors} /></td>
-                    <td className="px-4 py-3 text-sm whitespace-nowrap space-x-2">
-                      <Link to={`/maintenance/job-orders/${r.id}`} className="text-brand hover:underline mr-3">Edit</Link>
-                      <Link to={`/maintenance/job-executions/new?job_order_id=${r.id}&order_no=${r.order_no}`} className="text-emerald-600 hover:underline">Create Execution</Link>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Link 
+                          to={`/maintenance/job-orders/${r.id}`} 
+                          className="p-2 text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30 rounded-lg transition-colors"
+                        >
+                          <ChevronRight size={20} />
+                        </Link>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                )) : (
+                  <tr><td colSpan="7" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">No job orders identified.</td></tr>
+                )}
               </tbody>
             </table>
           </div>

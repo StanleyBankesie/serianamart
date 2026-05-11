@@ -30,34 +30,46 @@ import EquipmentList from "./equipment/EquipmentList.jsx";
 import EquipmentForm from "./equipment/EquipmentForm.jsx";
 import MaintenanceContractList from "./contracts/MaintenanceContractList.jsx";
 import MaintenanceContractForm from "./contracts/MaintenanceContractForm.jsx";
-import MaintenanceSetupPage from "./setup/MaintenanceSetupPage.jsx";
+import MaintenanceSetupPage from "./setup/MaintenanceSetupPage";
+import DowntimeLogList from "./assets/DowntimeLogList.jsx";
+import DowntimeLogForm from "./assets/DowntimeLogForm.jsx";
+import DowntimeAnalysisReport from "./reports/DowntimeAnalysisReport.jsx";
 
 function MaintenanceLanding() {
   const [stats, setStats] = React.useState([
     {
-      rbac_key: "open-work-orders",
+      rbac_key: "open-requests",
+      icon: "📩",
+      value: "0",
+      label: "New Requests",
+      change: "Awaiting review",
+      changeType: "neutral",
+      path: "/maintenance/maintenance-requests",
+    },
+    {
+      rbac_key: "active-jobs",
       icon: "🛠",
-      value: "8",
-      label: "Open Work Orders",
-      change: "2 critical",
-      changeType: "negative",
-      path: "/maintenance/work-orders",
+      value: "0",
+      label: "Jobs In Progress",
+      change: "Active on floor",
+      changeType: "positive",
+      path: "/maintenance/job-orders",
     },
     {
       rbac_key: "overdue-pms",
       icon: "🗓",
-      value: "4",
+      value: "0",
       label: "Overdue PMs",
-      change: "Needs attention",
+      change: "Critical delay",
       changeType: "negative",
       path: "/maintenance/pm-schedules",
     },
     {
       rbac_key: "asset-health",
       icon: "🏷",
-      value: "98%",
+      value: "0%",
       label: "Asset Health",
-      change: "↑ 1% this month",
+      change: "Optimal range",
       changeType: "positive",
       path: "/maintenance/assets",
     },
@@ -67,22 +79,15 @@ function MaintenanceLanding() {
     let mounted = true;
     async function load() {
       try {
-        const resp = await api.get("/bi/dashboards");
-        const openWos = Number(
-          resp?.data?.summary?.maintenance?.open_work_orders || 0,
-        );
-        const overdue = Number(
-          resp?.data?.summary?.maintenance?.overdue_pms || 0,
-        );
-        const health = Number(
-          resp?.data?.summary?.maintenance?.asset_health_percent || 0,
-        );
+        const resp = await api.get("/maintenance/dashboard/stats");
+        const { openRequests, activeJobs, overduePm, assetHealth } = resp.data;
         if (mounted) {
           setStats((prev) => {
             const next = [...prev];
-            next[0] = { ...next[0], value: String(openWos) };
-            next[1] = { ...next[1], value: String(overdue) };
-            next[2] = { ...next[2], value: `${health}%` };
+            next[0] = { ...next[0], value: String(openRequests) };
+            next[1] = { ...next[1], value: String(activeJobs) };
+            next[2] = { ...next[2], value: String(overduePm) };
+            next[3] = { ...next[3], value: `${assetHealth}%` };
             return next;
           });
         }
@@ -110,6 +115,12 @@ function MaintenanceLanding() {
           "/maintenance/assets",
           "Register and manage assets",
           "🏷",
+        ),
+        buildFeature(
+          "Downtime Tracking",
+          "/maintenance/assets/downtime",
+          "Log and analyze asset downtime",
+          "⏱️",
         ),
         buildFeature(
           "Equipment",
@@ -243,6 +254,8 @@ export default function MaintenanceHome() {
       <Route path="/assets" element={<AssetList />} />
       <Route path="/assets/new" element={<AssetForm />} />
       <Route path="/assets/:id" element={<AssetForm />} />
+      <Route path="/assets/downtime" element={<DowntimeLogList />} />
+      <Route path="/assets/downtime/new" element={<DowntimeLogForm />} />
 
       <Route path="/work-orders" element={<MaintenanceWorkOrderList />} />
       <Route path="/work-orders/new" element={<MaintenanceWorkOrderForm />} />
@@ -310,6 +323,7 @@ export default function MaintenanceHome() {
       <Route path="/setup" element={<MaintenanceSetupPage />} />
 
       <Route path="/reports" element={<MaintenanceReports />} />
+      <Route path="/reports/downtime" element={<DowntimeAnalysisReport />} />
     </Routes>
   );
 }

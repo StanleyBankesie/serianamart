@@ -109,4 +109,18 @@ router.get("/contracts/:id", ...auth, mc.getContractById);
 router.post("/contracts", ...auth, mc.createContract);
 router.put("/contracts/:id", ...auth, mc.updateContract);
 
+// ===== DASHBOARD =====
+router.get("/dashboard/stats", ...auth, mc.getMaintenanceStats);
+
+// ===== ASSET METERS =====
+router.get("/assets/meters", ...auth, mc.listAssetMeters);
+router.post("/assets/meters", ...auth, mc.createAssetMeter);
+
+// ===== DOWNTIME =====
+router.get("/assets/downtime", ...auth, mc.listDowntimeLogs);
+router.post("/assets/downtime", ...auth, mc.createDowntimeLog);
+
+// ===== REPORTS =====
+router.get("/reports/downtime", ...auth, mc.getDowntimeReport);
+
 export default router;

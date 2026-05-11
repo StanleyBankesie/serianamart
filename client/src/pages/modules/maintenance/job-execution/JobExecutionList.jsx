@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { ArrowLeft, Search, ChevronRight } from "lucide-react";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 
@@ -31,45 +32,76 @@ export default function JobExecutionList() {
   }, [items, search]);
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg">
-          <div className="flex justify-between items-center">
-            <div className="font-semibold">Job Executions</div>
-            <div className="flex gap-2">
-              <Link to="/maintenance" className="btn btn-secondary">Return to Menu</Link>
-              <Link to="/maintenance/job-executions/new" className="btn-success">+ New Execution</Link>
-            </div>
+    <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="flex items-center gap-4">
+          <Link to="/maintenance" className="btn btn-secondary p-2">
+            <ArrowLeft size={20} />
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">Job Executions</h1>
+            <p className="text-slate-500 text-sm">Real-time maintenance work tracking and logs</p>
           </div>
         </div>
-        <div className="card-body">
-          <div className="mb-4"><input className="input max-w-md" placeholder="Search by no, job order, status..." value={search} onChange={e => setSearch(e.target.value)} /></div>
-          <div className="overflow-x-auto">
-            <table className="table">
-              <thead><tr><th>Execution No</th><th>Job Order</th><th>Start Date</th><th>End Date</th><th>Technicians</th><th>Completion</th><th>Status</th><th>Actions</th>                    <th>Created By</th>
-                    <th>Created Date</th>
-                    </tr></thead>
-              <tbody>
-                {loading && <tr><td colSpan="8" className="text-center py-8 text-slate-500">Loading...</td></tr>}
-                {!loading && !filtered.length && <tr><td colSpan="8" className="text-center py-8 text-slate-500">No executions found</td></tr>}
-                {!loading && filtered.map(r => (
-                  <tr key={r.id}>
-                    <td className="font-mono text-sm">{r.execution_no}</td>
-                    <td>{r.order_no}</td>
-                    <td>{r.start_date}</td>
-                    <td>{r.end_date}</td>
-                    <td>{r.technicians}</td>
-                    <td>{r.completion_status}</td>
-                    <td><Badge value={r.status} colorMap={statusColors} /></td>
-                    <td className="whitespace-nowrap space-x-2">
-                      <Link to={`/maintenance/job-executions/${r.id}`} className="btn-secondary btn-sm">Edit</Link>
-                      <Link to={`/maintenance/bills/new?execution_id=${r.id}&execution_no=${r.execution_no}`} className="btn-primary btn-sm">Create Bill</Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input 
+              className="input pl-10 pr-4 py-2 w-64" 
+              placeholder="Search executions..." 
+              value={search} 
+              onChange={e => setSearch(e.target.value)} 
+            />
           </div>
+          <Link to="/maintenance/job-executions/new" className="btn-success flex items-center gap-2">
+            <Plus size={20} />
+            + New Execution
+          </Link>
+        </div>
+      </div>
+
+      <div className="card overflow-hidden shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Execution No</th>
+                <th>Job Order</th>
+                <th>Timeline</th>
+                <th>Technicians</th>
+                <th>Status</th>
+                <th className="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
+              {loading ? (
+                <tr><td colSpan="6" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Loading Logs...</td></tr>
+              ) : filtered.length > 0 ? filtered.map(r => (
+                <tr key={r.id} className="group">
+                  <td className="px-6 py-4 font-bold text-slate-900 dark:text-white text-sm">{r.execution_no}</td>
+                  <td className="px-4 py-3 text-sm font-semibold text-brand-700 dark:text-brand-300">{r.order_no}</td>
+                  <td className="px-4 py-3 text-sm text-slate-500">
+                    <div>{r.start_date}</div>
+                    <div className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">{r.end_date}</div>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-slate-500">{r.technicians}</td>
+                  <td className="px-4 py-3 text-sm"><Badge value={r.status} colorMap={statusColors} /></td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Link 
+                        to={`/maintenance/job-executions/${r.id}`} 
+                        className="p-2 text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30 rounded-lg transition-colors"
+                      >
+                        <ChevronRight size={20} />
+                      </Link>
+                    </div>
+                  </td>
+                </tr>
+              )) : (
+                <tr><td colSpan="6" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">No execution records identified.</td></tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
