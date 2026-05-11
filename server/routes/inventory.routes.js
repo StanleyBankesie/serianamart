@@ -7602,6 +7602,26 @@ router.post(
           const costPrice = Number(item.cost_price || 0);
           const sellingPrice = Number(item.selling_price || 0);
           const isActive = item.is_active === false || item.is_active === 0 ? 0 : 1;
+          const barcode = item.barcode ? String(item.barcode).trim() || null : null;
+          const currencyId = toNumber(item.currency_id);
+          const imageUrl = item.image_url ? String(item.image_url).trim() || null : null;
+          const vatOnPurchaseId = toNumber(item.vat_on_purchase_id);
+          const vatOnSalesId = toNumber(item.vat_on_sales_id);
+          const purchaseAccountId = toNumber(item.purchase_account_id);
+          const salesAccountId = toNumber(item.sales_account_id);
+          const serviceItem =
+            String(item.service_item || "N").toUpperCase() === "Y" ? "Y" : "N";
+          const isStockable =
+            String(item.is_stockable ?? "Y").toUpperCase() === "Y" ? "Y" : "N";
+          const isSellable =
+            String(item.is_sellable ?? "Y").toUpperCase() === "Y" ? "Y" : "N";
+          const isPurchasable =
+            String(item.is_purchasable ?? "Y").toUpperCase() === "Y" ? "Y" : "N";
+          const minStockLevel = Number(item.min_stock_level || 0);
+          const maxStockLevel = Number(item.max_stock_level || 0);
+          const reorderLevel = Number(item.reorder_level || 0);
+          const safetyStock = Number(item.safety_stock || 0);
+          const description = item.description ? String(item.description).trim() || null : null;
 
           // Check if exists
           const [existing] = await conn.execute(
@@ -7612,10 +7632,17 @@ router.post(
           if (existing && existing.length > 0) {
             const itemId = existing[0].id;
             await conn.execute(
-              `UPDATE inv_items SET 
-                item_name = :itemName, uom = :uom, item_type = :itemType, 
+              `UPDATE inv_items SET
+                item_name = :itemName, uom = :uom, item_type = :itemType,
                 category_id = :categoryId, item_group_id = :itemGroupId,
-                cost_price = :costPrice, selling_price = :sellingPrice, is_active = :isActive
+                cost_price = :costPrice, selling_price = :sellingPrice, is_active = :isActive,
+                barcode = :barcode, currency_id = :currencyId, image_url = :imageUrl,
+                vat_on_purchase_id = :vatOnPurchaseId, vat_on_sales_id = :vatOnSalesId,
+                purchase_account_id = :purchaseAccountId, sales_account_id = :salesAccountId,
+                service_item = :serviceItem, is_stockable = :isStockable, is_sellable = :isSellable,
+                is_purchasable = :isPurchasable, min_stock_level = :minStockLevel,
+                max_stock_level = :maxStockLevel, reorder_level = :reorderLevel,
+                safety_stock = :safetyStock, description = :description
                WHERE id = :itemId`,
               {
                 itemName,
@@ -7626,6 +7653,22 @@ router.post(
                 costPrice,
                 sellingPrice,
                 isActive,
+                barcode,
+                currencyId,
+                imageUrl,
+                vatOnPurchaseId,
+                vatOnSalesId,
+                purchaseAccountId,
+                salesAccountId,
+                serviceItem,
+                isStockable,
+                isSellable,
+                isPurchasable,
+                minStockLevel,
+                maxStockLevel,
+                reorderLevel,
+                safetyStock,
+                description,
                 itemId,
               },
             );
@@ -7633,11 +7676,19 @@ router.post(
           } else {
             await conn.execute(
               `INSERT INTO inv_items (
-                company_id, item_code, item_name, uom, item_type, 
-                category_id, item_group_id, cost_price, selling_price, is_active, created_by
+                company_id, item_code, item_name, uom, item_type,
+                category_id, item_group_id, cost_price, selling_price, is_active, created_by,
+                barcode, currency_id, image_url, vat_on_purchase_id, vat_on_sales_id,
+                purchase_account_id, sales_account_id, service_item, is_stockable, is_sellable,
+                is_purchasable, min_stock_level, max_stock_level, reorder_level, safety_stock,
+                description
               ) VALUES (
                 :companyId, :itemCode, :itemName, :uom, :itemType,
-                :categoryId, :itemGroupId, :costPrice, :sellingPrice, :isActive, :createdBy
+                :categoryId, :itemGroupId, :costPrice, :sellingPrice, :isActive, :createdBy,
+                :barcode, :currencyId, :imageUrl, :vatOnPurchaseId, :vatOnSalesId,
+                :purchaseAccountId, :salesAccountId, :serviceItem, :isStockable, :isSellable,
+                :isPurchasable, :minStockLevel, :maxStockLevel, :reorderLevel, :safetyStock,
+                :description
               )`,
               {
                 companyId,
@@ -7651,6 +7702,22 @@ router.post(
                 sellingPrice,
                 isActive,
                 createdBy: userId,
+                barcode,
+                currencyId,
+                imageUrl,
+                vatOnPurchaseId,
+                vatOnSalesId,
+                purchaseAccountId,
+                salesAccountId,
+                serviceItem,
+                isStockable,
+                isSellable,
+                isPurchasable,
+                minStockLevel,
+                maxStockLevel,
+                reorderLevel,
+                safetyStock,
+                description,
               },
             );
             inserted++;
