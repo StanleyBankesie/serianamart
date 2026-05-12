@@ -1681,6 +1681,92 @@ router.get(
   },
 );
 
+router.post(
+  "/stock-balances/bulk-upload",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      await ensureStockBalancesWarehouseInfrastructure();
+      const { companyId, branchId } = req.scope;
+      const body = req.body || {};
+      const rows = Array.isArray(body.rows)
+        ? body.rows
+        : Array.isArray(body.data)
+          ? body.data
+          : [];
+      const warehouseId =
+        Number(body.warehouseId || 0) > 0 ? Number(body.warehouseId) : null;
+
+      if (!rows.length) {
+        throw httpError(400, "VALIDATION_ERROR", "No rows provided");
+      }
+
+      await conn.beginTransaction();
+
+      let updated = 0;
+      let failed = 0;
+
+      for (const r of rows) {
+        const itemCode = String(
+          r.item_code || r.itemCode || r.ITEM_CODE || "",
+        ).trim();
+        const qty = Number(r.qty ?? r.NEW_QTY ?? r.new_qty ?? r.QTY ?? 0);
+
+        if (!itemCode || !Number.isFinite(qty)) {
+          failed += 1;
+          continue;
+        }
+
+        const [itemRows] = await conn.execute(
+          `SELECT id
+             FROM inv_items
+            WHERE company_id = :companyId
+              AND item_code = :itemCode
+            LIMIT 1`,
+          { companyId, itemCode },
+        );
+        const itemId = Number(itemRows?.[0]?.id || 0) || null;
+        if (!itemId) {
+          failed += 1;
+          continue;
+        }
+
+        await conn.execute(
+          `DELETE FROM inv_stock_balances
+            WHERE company_id = :companyId
+              AND branch_id = :branchId
+              AND item_id = :itemId
+              AND warehouse_id <=> :warehouseId`,
+          { companyId, branchId, itemId, warehouseId },
+        );
+
+        if (qty > 0) {
+          await conn.execute(
+            `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
+             VALUES (:companyId, :branchId, :warehouseId, :itemId, :qty)`,
+            { companyId, branchId, warehouseId, itemId, qty },
+          );
+        }
+
+        updated += 1;
+      }
+
+      await conn.commit();
+      res.json({ updated, failed });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(err);
+    } finally {
+      conn.release();
+    }
+  },
+);
+
 // ─── Inventory Reports (minimal endpoints) ────────────────────────────────────
 router.get(
   "/reports/health-monitor",

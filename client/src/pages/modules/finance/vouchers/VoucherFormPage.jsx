@@ -68,7 +68,16 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     chequeDate: "",
     depositAccountId: "",
     taxCodeId: "",
-    items: [{ description: "", accountId: "", amount: "", referenceNo: "" }],
+    items: [
+      {
+        description: "",
+        accountId: "",
+        amount: "",
+        referenceNo: "",
+        currencyCode: "",
+        exchangeRate: "1",
+      },
+    ],
     notes: "",
   });
   const [paymentType, setPaymentType] = useState("AGAINST_BILL");
@@ -228,26 +237,46 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     }
   }
 
-  async function loadInvoicesForCustomer(customerId) {
+  async function loadInvoicesForCustomer(accountId) {
+    const accountIdNum = Number(accountId || 0);
+    if (!(accountIdNum > 0)) {
+      setCustomerInvoices([]);
+      return;
+    }
     try {
-      const res = await api.get("/sales/invoices", {
-        params: { customer_id: customerId },
+      const res = await api.get("/sales/invoices/outstanding-by-account", {
+        params: { account_id: accountIdNum },
       });
       const items = Array.isArray(res.data?.items) ? res.data.items : [];
       const filtered = items
-        .filter(
-          (x) =>
-            String(x.customer_id) === String(customerId) &&
-            Number(x.balance_amount || 0) > 0,
-        )
+        .filter((x) => {
+          const status = String(x.payment_status || "")
+            .trim()
+            .toUpperCase()
+            .replace(/\s+/g, "_");
+          const balance = Number(
+            x.balance_amount ?? x.net_amount ?? x.total_amount ?? 0,
+          );
+          return (
+            balance > 0 ||
+            status === "UNPAID" ||
+            status === "PARTIALLY_PAID" ||
+            status === "PARTIAL_PAYMENT"
+          );
+        })
         .map((x) => ({
           id: x.id,
           invoice_no: x.invoice_no,
-          balance_amount: Number(x.balance_amount || 0),
+          balance_amount: Number(
+            x.balance_amount ?? x.net_amount ?? x.total_amount ?? 0,
+          ),
           total_amount: Number(x.total_amount || x.net_amount || 0),
           tax_code_id: x.tax_code_id || null,
+          payment_status: x.payment_status || "",
         }))
-        .sort((a, b) => a.invoice_no.localeCompare(b.invoice_no));
+        .sort((a, b) =>
+          String(a.invoice_no || "").localeCompare(String(b.invoice_no || "")),
+        );
       setCustomerInvoices(filtered);
     } catch {
       setCustomerInvoices([]);
@@ -531,15 +560,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         const rvPayAccId = creditFirstRaw?.account_id
           ? String(creditFirstRaw.account_id)
           : "";
-        const payeeEntry = rvCode
-          ? payees.find((p) => String(p.code) === rvCode)
-          : null;
-        if (
-          String(payeeEntry?.type || "").toUpperCase() === "CUSTOMER" &&
-          payeeEntry?.id
-        ) {
-          await loadInvoicesForCustomer(payeeEntry.id);
-        } else {
+        if (!rvPayAccId) {
           setCustomerInvoices([]);
         }
         setRvForm((prev) => ({
@@ -559,6 +580,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                   description: l.description || "",
                   accountId: String(l.accountId || ""),
                   amount: Number(l.credit || 0),
+                  currencyCode:
+                    getAccountCurrencyCode(String(l.accountId || "")) ||
+                    String(v.currency_code || ""),
+                  exchangeRate: String(v.exchange_rate || 1),
                   referenceNo:
                     String(
                       (
@@ -922,7 +947,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     ) {
       autoPopulateRvTaxLines();
     }
-  }, [isRV, rvForm.taxCodeId]);
+  }, [isRV, rvForm.taxCodeId, rvTaxComponentsByCode]);
 
   useEffect(() => {
     async function loadPvTaxComponents() {
@@ -1692,6 +1717,12 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         voucherTypeId: effVoucherTypeId,
         voucherTypeCode: voucherTypeCode,
         voucherDate,
+        ...(isRV
+          ? {
+              currencyId: rvVoucherCurrencyId || null,
+              exchangeRate: Number(rvVoucherExchangeRate || 1) || 1,
+            }
+          : {}),
         ...(isPAYV &&
         paymentType === "AGAINST_BILL" &&
         selectedBillId &&
@@ -2013,7 +2044,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     i === existingIdx
                       ? {
                           ...l,
-                          debit: netAmount,
+                          debit: 0,
+                          credit: netAmount,
                           description: description || l.description,
                         }
                       : l,
@@ -2026,8 +2058,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     accountName: salesAcc?.name || "",
                     accountCode: salesAcc?.code || "",
                     description: description || "",
-                    debit: netAmount,
-                    credit: 0,
+                    debit: 0,
+                    credit: netAmount,
                   },
                 ];
               });
@@ -2089,7 +2121,14 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     updateRvForm({
       items: [
         ...rvForm.items,
-        { description: "", accountId: "", amount: "", referenceNo: "" },
+        {
+          description: "",
+          accountId: "",
+          amount: "",
+          referenceNo: "",
+          currencyCode: "",
+          exchangeRate: "1",
+        },
       ],
     });
   }
@@ -2258,13 +2297,13 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     const acc = accounts.find(
       (a) => String(a.id) === String(rvForm.depositAccountId || ""),
     );
-    return acc?.currency_code || "";
+    return acc?.currency_code || acc?.currency || "";
   }, [accounts, rvForm.depositAccountId]);
   const rvPayeeCurrencyCode = useMemo(() => {
     const acc = accounts.find(
       (a) => String(a.id) === String(rvForm.payerAccountId || ""),
     );
-    return acc?.currency_code || "";
+    return acc?.currency_code || acc?.currency || "";
   }, [accounts, rvForm.payerAccountId]);
   const rvPayeeCurrencyId = useMemo(() => {
     const acc = accounts.find(
@@ -2278,6 +2317,83 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     );
     return acc?.currency_id || null;
   }, [accounts, rvForm.depositAccountId]);
+  const baseCurrencyCode = String(
+    baseCurrency?.code || baseCurrency?.currency_code || "",
+  ).toUpperCase();
+  function getAccountCurrencyCode(accountId) {
+    const acc = accounts.find((a) => String(a.id) === String(accountId || ""));
+    return String(acc?.currency_code || acc?.currency || "").toUpperCase();
+  }
+  function getRvItemCurrencyCode(item) {
+    return String(
+      item?.currencyCode || getAccountCurrencyCode(item?.accountId) || "",
+    ).toUpperCase();
+  }
+  function getRvItemExchangeRateValue(item, idx) {
+    const itemCurrencyCode = getRvItemCurrencyCode(item);
+    if (!itemCurrencyCode || itemCurrencyCode === baseCurrencyCode) return "1";
+    return String(item?.exchangeRate || rvItemExchangeRates[idx] || "");
+  }
+  async function resolveExchangeRateForCurrency(currencyCode) {
+    const fromCode = String(currencyCode || "").toUpperCase();
+    if (!fromCode || !baseCurrencyCode || fromCode === baseCurrencyCode) {
+      return "1";
+    }
+    try {
+      const rate = await getExchangeRate(fromCode, baseCurrencyCode);
+      console.info("[RV exchange debug] external lookup", {
+        fromCode,
+        baseCurrencyCode,
+        rate,
+      });
+      return rate ? String(rate) : "";
+    } catch (err) {
+      console.warn("[RV exchange debug] external lookup failed", {
+        fromCode,
+        baseCurrencyCode,
+        error: err?.message || err,
+      });
+      toast.warn(
+        `Exchange rate debug: failed to resolve ${fromCode}/${baseCurrencyCode}. Check console for source details.`,
+      );
+      return "";
+    }
+  }
+  const rvSummaryCurrencyCode = useMemo(() => {
+    const items = Array.isArray(rvForm.items) ? rvForm.items : [];
+    return (
+      items.map((it) => getRvItemCurrencyCode(it)).find(Boolean) ||
+      baseCurrencyCode ||
+      ""
+    );
+  }, [rvForm.items, baseCurrencyCode, accounts]);
+  const rvVoucherCurrencyId = useMemo(() => {
+    const code = rvSummaryCurrencyCode;
+    const cur = currencies.find(
+      (c) =>
+        String(c.code || c.currency_code || "").toUpperCase() ===
+        String(code || "").toUpperCase(),
+    );
+    return cur?.id || null;
+  }, [currencies, rvSummaryCurrencyCode]);
+  const rvVoucherExchangeRate = useMemo(() => {
+    const firstItem = (Array.isArray(rvForm.items) ? rvForm.items : []).find(
+      (it) => getRvItemCurrencyCode(it),
+    );
+    return String(
+      getRvItemExchangeRateValue(firstItem || {}, 0) || rvExchangeRate || "1",
+    );
+  }, [rvForm.items, rvItemExchangeRates, rvExchangeRate, baseCurrencyCode]);
+  const rvTotalInBaseCurrency = useMemo(() => {
+    if (!isRV) return 0;
+    return (Array.isArray(rvForm.items) ? rvForm.items : []).reduce(
+      (sum, it, idx) =>
+        sum +
+        Number(it.amount || 0) *
+          Number(getRvItemExchangeRateValue(it, idx) || 1),
+      0,
+    );
+  }, [isRV, rvForm.items, rvItemExchangeRates, baseCurrencyCode, accounts]);
   const cvToCurrencyCode = useMemo(() => {
     const acc = accounts.find(
       (a) => String(a.id) === String(cvForm.toAccountId || ""),
@@ -2924,7 +3040,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
 
   useEffect(() => {
     if (!isRV) return;
-    const baseCode = String(baseCurrency?.code || "").toUpperCase();
+    const baseCode = String(
+      baseCurrency?.code || baseCurrency?.currency_code || "",
+    ).toUpperCase();
     const items = Array.isArray(rvForm.items) ? rvForm.items : [];
     if (!items.length || !baseCode) {
       setRvItemExchangeRates({});
@@ -2934,13 +3052,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     (async () => {
       const pairs = await Promise.all(
         items.map(async (it, idx) => {
-          const acc = accounts.find(
-            (a) => String(a.id) === String(it.accountId || ""),
-          );
-          const fromCode = String(acc?.currency_code || "").toUpperCase();
+          const fromCode = getRvItemCurrencyCode(it);
           if (!fromCode || fromCode === baseCode) return [idx, "1"];
           try {
-            const rate = await getExchangeRate(fromCode, baseCode);
+            const rate = await resolveExchangeRateForCurrency(fromCode);
             return [idx, rate ? String(rate) : ""];
           } catch {
             return [idx, ""];
@@ -2953,7 +3068,15 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     return () => {
       cancelled = true;
     };
-  }, [isRV, rvForm.items, accounts, baseCurrency, getExchangeRate]);
+  }, [isRV, rvForm.items, accounts, baseCurrency, getExchangeRate, currencies, voucherDate]);
+  useEffect(() => {
+    if (!isRV) return;
+    if (!rvForm.payerAccountId) {
+      setCustomerInvoices([]);
+      return;
+    }
+    loadInvoicesForCustomer(rvForm.payerAccountId);
+  }, [isRV, rvForm.payerAccountId]);
 
   function updateCv(patch) {
     if (readOnly) return;
@@ -4012,9 +4135,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                           if (acc) {
                             setReceivedFromSearch("");
                             updateRvForm({
-                              receivedFrom: "",
-                              receivedFromCode: "",
-                              payerAccountId: "",
+                              receivedFrom: String(acc.name || ""),
+                              receivedFromCode: String(acc.code || ""),
+                              payerAccountId: String(acc.id || ""),
                               items:
                                 rvForm.items.length === 0 ||
                                 (rvForm.items.length === 1 &&
@@ -4025,6 +4148,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                         accountId: acc.id,
                                         amount: "",
                                         referenceNo: "",
+                                        currencyCode: getAccountCurrencyCode(
+                                          acc.id,
+                                        ),
+                                        exchangeRate: "1",
                                       },
                                     ]
                                   : [
@@ -4034,6 +4161,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                         accountId: acc.id,
                                         amount: "",
                                         referenceNo: "",
+                                        currencyCode: getAccountCurrencyCode(
+                                          acc.id,
+                                        ),
+                                        exchangeRate: "1",
                                       },
                                     ],
                             });
@@ -4057,9 +4188,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 if (acc) {
                                   setReceivedFromSearch("");
                                   updateRvForm({
-                                    receivedFrom: "",
-                                    receivedFromCode: "",
-                                    payerAccountId: "",
+                                    receivedFrom: String(acc.name || ""),
+                                    receivedFromCode: String(acc.code || ""),
+                                    payerAccountId: String(acc.id || ""),
                                     items:
                                       rvForm.items.length === 0 ||
                                       (rvForm.items.length === 1 &&
@@ -4070,6 +4201,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                               accountId: acc.id,
                                               amount: "",
                                               referenceNo: "",
+                                              currencyCode:
+                                                getAccountCurrencyCode(acc.id),
+                                              exchangeRate: "1",
                                             },
                                           ]
                                         : [
@@ -4079,6 +4213,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                               accountId: acc.id,
                                               amount: "",
                                               referenceNo: "",
+                                              currencyCode:
+                                                getAccountCurrencyCode(acc.id),
+                                              exchangeRate: "1",
                                             },
                                           ],
                                   });
@@ -4229,6 +4366,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 accountId: rvForm.payerAccountId || "",
                                 amount: Number(inv.balance_amount || 0),
                                 referenceNo: String(inv.invoice_no),
+                                currencyCode: getAccountCurrencyCode(
+                                  rvForm.payerAccountId,
+                                ),
+                                exchangeRate: "1",
                               }))
                             : [
                                 {
@@ -4236,6 +4377,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                   accountId: rvForm.payerAccountId || "",
                                   amount: 0,
                                   referenceNo: "",
+                                  currencyCode: getAccountCurrencyCode(
+                                    rvForm.payerAccountId,
+                                  ),
+                                  exchangeRate: "1",
                                 },
                               ];
                         const firstTaxCodeId =
@@ -4262,6 +4407,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                               maximumFractionDigits: 2,
                             },
                           )}
+                          {inv.payment_status
+                            ? ` (${String(inv.payment_status).replace(/_/g, " ")})`
+                            : ""}
                         </option>
                       ))}
                     </select>
@@ -4354,9 +4502,19 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 <select
                                   className={`input bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold ${disabledClass} flex-1`}
                                   value={it.accountId}
-                                  onChange={(e) => {
+                                  onChange={async (e) => {
                                     const accountId = e.target.value;
-                                    updateRvItem(idx, { accountId });
+                                    const accountCurrency =
+                                      getAccountCurrencyCode(accountId);
+                                    const exchangeRate =
+                                      await resolveExchangeRateForCurrency(
+                                        accountCurrency,
+                                      );
+                                    updateRvItem(idx, {
+                                      accountId,
+                                      currencyCode: accountCurrency,
+                                      exchangeRate,
+                                    });
                                     if (idx === 0) {
                                       const acc = accounts.find(
                                         (a) =>
@@ -4374,6 +4532,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                         receivedFromCode: code,
                                         payerAccountId: String(accountId || ""),
                                       });
+                                      setSelectedInvoiceRefs([]);
                                     }
                                   }}
                                   required
@@ -4388,21 +4547,59 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 </select>
                                 {it.accountId && (
                                   <span className="text-xs text-slate-500 whitespace-nowrap">
-                                    {accounts.find(
-                                      (a) =>
-                                        String(a.id) === String(it.accountId),
-                                    )?.currency_code || ""}
+                                    {getAccountCurrencyCode(it.accountId)}
                                   </span>
                                 )}
                               </div>
                             </td>
                             <td className="text-right">
-                              {accounts.find(
-                                (a) => String(a.id) === String(it.accountId),
-                              )?.currency_code || ""}
+                              <select
+                                className={`input text-right ${disabledClass}`}
+                                value={getRvItemCurrencyCode(it)}
+                                onChange={async (e) => {
+                                  const currencyCode = String(
+                                    e.target.value || "",
+                                  ).toUpperCase();
+                                  const exchangeRate =
+                                    await resolveExchangeRateForCurrency(
+                                      currencyCode,
+                                    );
+                                  updateRvItem(idx, {
+                                    currencyCode,
+                                    exchangeRate,
+                                  });
+                                }}
+                                disabled={readOnly}
+                              >
+                                <option value="">Select currency</option>
+                                {currencies.map((c) => {
+                                  const code = String(
+                                    c.code || c.currency_code || "",
+                                  ).toUpperCase();
+                                  return (
+                                    <option key={c.id || code} value={code}>
+                                      {code}
+                                    </option>
+                                  );
+                                })}
+                              </select>
                             </td>
                             <td className="text-right">
-                              {rvItemExchangeRates[idx] || "1"}
+                              <input
+                                className={`input text-right ${disabledClass}`}
+                                type="number"
+                                min="0"
+                                step="any"
+                                value={getRvItemExchangeRateValue(it, idx)}
+                                onChange={(e) =>
+                                  updateRvItem(idx, {
+                                    exchangeRate: String(
+                                      e.target.value || "",
+                                    ),
+                                  })
+                                }
+                                disabled={readOnly}
+                              />
                             </td>
                             <td>
                               <input
@@ -4532,14 +4729,28 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                       </span>
                     </div>
                     <div className="flex justify-between border-t pt-2">
-                      <span className="font-semibold">TOTAL AMOUNT</span>
+                      <span className="font-semibold">
+                        Total Amount {rvSummaryCurrencyCode || baseCurrencyCode}
+                      </span>
                       <span className="font-bold">
-                        {Number(
-                          rvTaxComponentsTotals.grand || totals.grand || 0,
-                        ).toLocaleString(undefined, {
+                        {Number(totals.grand || 0).toLocaleString(undefined, {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t pt-2">
+                      <span className="font-semibold">
+                        Total Amount in {baseCurrencyCode || "GHS"}
+                      </span>
+                      <span className="font-bold">
+                        {Number(rvTotalInBaseCurrency || 0).toLocaleString(
+                          undefined,
+                          {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          },
+                        )}
                       </span>
                     </div>
                   </div>

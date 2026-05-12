@@ -547,50 +547,18 @@ export default function ItemsList() {
     try {
       setUploading(true);
       let shouldClosePreview = true;
-      const pick = (row, ...keys) => {
-        for (const k of keys) {
-          if (k == null) continue;
-          const v = row?.[k];
-          if (v !== undefined && v !== null && String(v).trim() !== "") {
-            return v;
-          }
-        }
-        return "";
-      };
-      const toNumOrZero = (v) => {
-        const n = Number(v);
-        return Number.isFinite(n) ? n : 0;
-      };
-      const toNumOrNull = (v) => {
-        const n = Number(v);
-        return Number.isFinite(n) && n > 0 ? n : null;
-      };
-      const toYN = (v) => {
-        const s = String(v ?? "")
-          .trim()
-          .toUpperCase();
-        if (!s) return "N";
-        if (["Y", "YES", "TRUE", "1", "T"].includes(s)) return "Y";
-        if (["N", "NO", "FALSE", "0", "F"].includes(s)) return "N";
-        return "N";
-      };
       // Rebuild lookup maps here (upload runs independently of file-parse scope)
       const currencyCodeToId = new Map();
       const taxCodeToId = new Map();
-      const accountCodeToId = new Map();
       const priceTypeNameToId = new Map();
       try {
-        const [curRes, taxRes, accRes, ptRes] = await Promise.all([
+        const [curRes, taxRes, ptRes] = await Promise.all([
           api.get("/finance/currencies"),
           api.get("/finance/tax-codes"),
-          api.get("/finance/accounts"),
           api.get("/sales/price-types?active=true"),
         ]);
         const curs = Array.isArray(curRes?.data?.items) ? curRes.data.items : [];
         const taxes = Array.isArray(taxRes?.data?.items) ? taxRes.data.items : [];
-        const accounts = Array.isArray(accRes?.data?.items)
-          ? accRes.data.items
-          : [];
         const pts = Array.isArray(ptRes?.data?.items) ? ptRes.data.items : [];
         curs.forEach((c) => {
           const id = Number(c.id);
@@ -608,15 +576,6 @@ export default function ItemsList() {
           if (id > 0) {
             if (code) taxCodeToId.set(code, id);
             if (name) taxCodeToId.set(name, id);
-          }
-        });
-        accounts.forEach((a) => {
-          const id = Number(a.id);
-          const code = String(a.code || "").toUpperCase();
-          const name = String(a.name || "").toUpperCase();
-          if (id > 0) {
-            if (code) accountCodeToId.set(code, id);
-            if (name) accountCodeToId.set(name, id);
           }
         });
         pts.forEach((p) => {
@@ -640,169 +599,42 @@ export default function ItemsList() {
         .filter((r) => r && r.valid) // only valid rows
         .map((r) => {
           const rowData = r.raw || {};
-          const currencyLookup = String(
-            pick(
-              rowData,
-              "CURRENCY_ID",
-              "CURRENCY_CODE",
-              "CURRENCY CODE",
-              "CURRENCY",
-            ),
-          ).toUpperCase();
-          const purchaseTaxLookup = String(
-            pick(
-              rowData,
-              "VAT_ON_PURCHASE_ID",
-              "VAT_ON_PURCHASE",
-              "VAT_PURCHASE",
-              "VAT_PURCHASE_CODE",
-              "TAX_ON_PURCHASE",
-              "TAX ON PURCHASE",
-              "PURCHASE_TAX",
-              "PURCHASE TAX",
-            ),
-          ).toUpperCase();
-          const salesTaxLookup = String(
-            pick(
-              rowData,
-              "VAT_ON_SALES_ID",
-              "VAT_ON_SALES",
-              "VAT_SALES",
-              "VAT_SALES_CODE",
-              "TAX_ON_SALES",
-              "TAX ON SALES",
-              "SALES_TAX",
-              "SALES TAX",
-            ),
-          ).toUpperCase();
-          const purchaseAccountLookup = String(
-            pick(
-              rowData,
-              "PURCHASE_ACCOUNT_ID",
-              "PURCHASE_ACCOUNT_CODE",
-              "PURCHASE ACCOUNT CODE",
-              "PURCHASE_ACCOUNT",
-              "PURCHASE ACCOUNT",
-            ),
-          ).toUpperCase();
-          const salesAccountLookup = String(
-            pick(
-              rowData,
-              "SALES_ACCOUNT_ID",
-              "SALES_ACCOUNT_CODE",
-              "SALES ACCOUNT CODE",
-              "SALES_ACCOUNT",
-              "SALES ACCOUNT",
-            ),
-          ).toUpperCase();
-          const priceTypeLookup = String(
-            pick(rowData, "PRICE_TYPE_ID", "PRICE_TYPE", "PRICE_TYPE_NAME"),
-          ).toUpperCase();
           return {
-            item_code: pick(rowData, "ITEM_CODE") || r.preview.item_code || "",
-            item_name: pick(rowData, "ITEM_NAME"),
-            item_type: r.preview.item_type || pick(rowData, "ITEM_TYPE") || "",
+            item_code: rowData.ITEM_CODE || r.preview.item_code || "",
+            item_name: rowData.ITEM_NAME || "",
+            item_type: r.preview.item_type || rowData.ITEM_TYPE || "",
             category_id: r.preview.category_id || null,
             item_group_id: r.preview.item_group_id || null,
             category_label: r.preview.category_label || "",
             category_name: r.preview.category_name || "",
-            category_code: pick(rowData, "ITEM_CATEGORY_CODE") || "",
+            category_code: rowData.ITEM_CATEGORY_CODE || "",
             group_label: r.preview.group_label || "",
             group_name: r.preview.group_name || "",
-            group_code: pick(rowData, "ITEM_GROUP_CODE") || "",
-            uom: pick(rowData, "BASE_UOM", "UOM") || "PCS",
-            barcode:
-              r.preview.barcode || normalizeBarcode(pick(rowData, "BARCODE")),
-            cost_price: toNumOrZero(
-              pick(
-                rowData,
-                "STANDARD_COST",
-                "COST_PRICE",
-                "COST PRICE",
-                "STANDARD COST",
-                "COST PRICE/STANDARD COST",
-              ),
-            ),
-            selling_price: toNumOrZero(
-              pick(rowData, "SELLING_PRICE", "SELLING PRICE"),
-            ),
-            currency_id:
-              toNumOrNull(pick(rowData, "CURRENCY_ID")) ||
-              currencyCodeToId.get(currencyLookup) ||
-              null,
-            currency_code:
-              pick(rowData, "CURRENCY_CODE", "CURRENCY CODE", "CURRENCY") || "",
-            price_type_id:
-              toNumOrNull(pick(rowData, "PRICE_TYPE_ID")) ||
-              priceTypeNameToId.get(priceTypeLookup) ||
-              null,
-            price_type: pick(rowData, "PRICE_TYPE") || "",
-            price_type_name: pick(rowData, "PRICE_TYPE_NAME") || "",
-            image_url: pick(rowData, "IMAGE_URL", "IMAGE") || "",
+            group_code: rowData.ITEM_GROUP_CODE || "",
+            uom: rowData.BASE_UOM || "PCS",
+            barcode: r.preview.barcode || "",
+            cost_price: Number(rowData.STANDARD_COST) || 0,
+            selling_price: Number(rowData.SELLING_PRICE) || 0,
+            currency_code: rowData.CURRENCY_CODE || rowData.CURRENCY || "",
+            price_type: rowData.PRICE_TYPE || "",
+            price_type_name: rowData.PRICE_TYPE_NAME || "",
+            image_url: rowData.IMAGE_URL || rowData.IMAGE || "",
             vat_on_purchase_code:
-              pick(
-                rowData,
-                "VAT_ON_PURCHASE",
-                "VAT_PURCHASE_CODE",
-                "TAX_ON_PURCHASE",
-                "TAX ON PURCHASE",
-                "PURCHASE_TAX",
-                "PURCHASE TAX",
-              ) || "",
-            vat_on_purchase_id:
-              toNumOrNull(pick(rowData, "VAT_ON_PURCHASE_ID")) ||
-              taxCodeToId.get(purchaseTaxLookup) ||
-              null,
+              rowData.VAT_ON_PURCHASE || rowData.VAT_PURCHASE_CODE || "",
             purchase_account_id:
-              toNumOrNull(pick(rowData, "PURCHASE_ACCOUNT_ID")) ||
-              accountCodeToId.get(purchaseAccountLookup) ||
-              null,
+              Number(rowData.PURCHASE_ACCOUNT_ID || 0) || null,
+            sales_account_id: Number(rowData.SALES_ACCOUNT_ID || 0) || null,
             vat_on_sales_code:
-              pick(
-                rowData,
-                "VAT_ON_SALES",
-                "VAT_SALES_CODE",
-                "TAX_ON_SALES",
-                "TAX ON SALES",
-                "SALES_TAX",
-                "SALES TAX",
-              ) || "",
-            vat_on_sales_id:
-              toNumOrNull(pick(rowData, "VAT_ON_SALES_ID")) ||
-              taxCodeToId.get(salesTaxLookup) ||
-              null,
+              rowData.VAT_ON_SALES || rowData.VAT_SALES_CODE || "",
             purchase_account_code:
-              pick(
-                rowData,
-                "PURCHASE_ACCOUNT_CODE",
-                "PURCHASE ACCOUNT CODE",
-                "PURCHASE_ACCOUNT",
-                "PURCHASE ACCOUNT",
-              ) || "",
-            sales_account_id:
-              toNumOrNull(pick(rowData, "SALES_ACCOUNT_ID")) ||
-              accountCodeToId.get(salesAccountLookup) ||
-              null,
+              rowData.PURCHASE_ACCOUNT_CODE || rowData.PURCHASE_ACCOUNT || "",
             sales_account_code:
-              pick(
-                rowData,
-                "SALES_ACCOUNT_CODE",
-                "SALES ACCOUNT CODE",
-                "SALES_ACCOUNT",
-                "SALES ACCOUNT",
-              ) || "",
-            is_stockable: toYN(pick(rowData, "IS_STOCKABLE")) === "Y",
-            is_sellable: toYN(pick(rowData, "IS_SELLABLE")) === "Y",
-            is_purchasable: toYN(pick(rowData, "IS_PURCHASABLE")) === "Y",
-            min_stock_level: toNumOrZero(
-              pick(rowData, "MIN_STOCK_LEVEL", "MIN STOCK LEVEL"),
-            ),
-            max_stock_level: toNumOrZero(
-              pick(rowData, "MAX_STOCK_LEVEL", "MAX STOCK LEVEL"),
-            ),
-            reorder_level: toNumOrZero(
-              pick(rowData, "REORDER_LEVEL", "REORDER LEVEL"),
-            ),
+              rowData.SALES_ACCOUNT_CODE || rowData.SALES_ACCOUNT || "",
+            is_sellable: rowData.IS_SELLABLE === "Y",
+            is_purchasable: rowData.IS_PURCHASABLE === "Y",
+            min_stock_level: Number(rowData.MIN_STOCK_LEVEL) || 0,
+            max_stock_level: Number(rowData.MAX_STOCK_LEVEL) || 0,
+            reorder_level: Number(rowData.REORDER_LEVEL) || 0,
           };
         });
       if (payloadRows.length) {
@@ -864,62 +696,10 @@ export default function ItemsList() {
         if (!nextItemCode) {
           nextItemCode = await getNextItemCode(r.index || 0);
         }
-        const currencyLookup = String(
-          pick(rowData, "CURRENCY_ID", "CURRENCY_CODE", "CURRENCY CODE", "CURRENCY"),
-        ).toUpperCase();
-        const purchaseTaxLookup = String(
-          pick(
-            rowData,
-            "VAT_ON_PURCHASE_ID",
-            "VAT_ON_PURCHASE",
-            "VAT_PURCHASE",
-            "VAT_PURCHASE_CODE",
-            "TAX_ON_PURCHASE",
-            "TAX ON PURCHASE",
-            "PURCHASE_TAX",
-            "PURCHASE TAX",
-          ),
-        ).toUpperCase();
-        const salesTaxLookup = String(
-          pick(
-            rowData,
-            "VAT_ON_SALES_ID",
-            "VAT_ON_SALES",
-            "VAT_SALES",
-            "VAT_SALES_CODE",
-            "TAX_ON_SALES",
-            "TAX ON SALES",
-            "SALES_TAX",
-            "SALES TAX",
-          ),
-        ).toUpperCase();
-        const purchaseAccountLookup = String(
-          pick(
-            rowData,
-            "PURCHASE_ACCOUNT_ID",
-            "PURCHASE_ACCOUNT_CODE",
-            "PURCHASE ACCOUNT CODE",
-            "PURCHASE_ACCOUNT",
-            "PURCHASE ACCOUNT",
-          ),
-        ).toUpperCase();
-        const salesAccountLookup = String(
-          pick(
-            rowData,
-            "SALES_ACCOUNT_ID",
-            "SALES_ACCOUNT_CODE",
-            "SALES ACCOUNT CODE",
-            "SALES_ACCOUNT",
-            "SALES ACCOUNT",
-          ),
-        ).toUpperCase();
-        const priceTypeLookup = String(
-          pick(rowData, "PRICE_TYPE_ID", "PRICE_TYPE", "PRICE_TYPE_NAME"),
-        ).toUpperCase();
         const basePayload = {
           item_code: nextItemCode,
-          item_name: pick(rowData, "ITEM_NAME"),
-          item_type: r.preview.item_type || pick(rowData, "ITEM_TYPE"),
+          item_name: rowData.ITEM_NAME,
+          item_type: r.preview.item_type || rowData.ITEM_TYPE,
           category_id: r.preview.category_id || null,
           item_group_id: r.preview.item_group_id || null,
           group_id: r.preview.item_group_id || null,
@@ -928,100 +708,69 @@ export default function ItemsList() {
           category_name: r.preview.category_name,
           group_label: r.preview.group_label,
           group_name: r.preview.group_name,
-          category_code: pick(rowData, "ITEM_CATEGORY_CODE") || null,
-          group_code: pick(rowData, "ITEM_GROUP_CODE") || null,
-          currency_code:
-            pick(rowData, "CURRENCY_CODE", "CURRENCY CODE", "CURRENCY") || null,
+          category_code: rowData.ITEM_CATEGORY_CODE || null,
+          group_code: rowData.ITEM_GROUP_CODE || null,
+          currency_code: rowData.CURRENCY_CODE || rowData.CURRENCY || null,
           vat_on_purchase_code:
-            pick(
-              rowData,
-              "VAT_ON_PURCHASE",
-              "VAT_PURCHASE_CODE",
-              "TAX_ON_PURCHASE",
-              "TAX ON PURCHASE",
-              "PURCHASE_TAX",
-              "PURCHASE TAX",
-            ) || null,
+            rowData.VAT_ON_PURCHASE || rowData.VAT_PURCHASE_CODE || null,
           vat_on_sales_code:
-            pick(
-              rowData,
-              "VAT_ON_SALES",
-              "VAT_SALES_CODE",
-              "TAX_ON_SALES",
-              "TAX ON SALES",
-              "SALES_TAX",
-              "SALES TAX",
-            ) || null,
+            rowData.VAT_ON_SALES || rowData.VAT_SALES_CODE || null,
           purchase_account_code:
-            pick(
-              rowData,
-              "PURCHASE_ACCOUNT_CODE",
-              "PURCHASE ACCOUNT CODE",
-              "PURCHASE_ACCOUNT",
-              "PURCHASE ACCOUNT",
-            ) || null,
+            rowData.PURCHASE_ACCOUNT_CODE || rowData.PURCHASE_ACCOUNT || null,
           sales_account_code:
-            pick(
-              rowData,
-              "SALES_ACCOUNT_CODE",
-              "SALES ACCOUNT CODE",
-              "SALES_ACCOUNT",
-              "SALES ACCOUNT",
-            ) || null,
-          uom: pick(rowData, "BASE_UOM", "UOM"),
+            rowData.SALES_ACCOUNT_CODE || rowData.SALES_ACCOUNT || null,
+          uom: rowData.BASE_UOM,
           barcode: r.preview.barcode || null,
-          cost_price: toNumOrZero(
-            pick(
-              rowData,
-              "STANDARD_COST",
-              "COST_PRICE",
-              "COST PRICE",
-              "STANDARD COST",
-              "COST PRICE/STANDARD COST",
-            ),
-          ),
-          selling_price: toNumOrZero(
-            pick(rowData, "SELLING_PRICE", "SELLING PRICE"),
-          ),
+          cost_price: Number(rowData.STANDARD_COST) || 0,
+          selling_price: Number(rowData.SELLING_PRICE) || 0,
           currency_id:
-            toNumOrNull(pick(rowData, "CURRENCY_ID")) ||
-            currencyCodeToId.get(currencyLookup) ||
-            null,
+            currencyCodeToId.get(
+              String(
+                rowData.CURRENCY_ID ||
+                  rowData.CURRENCY_CODE ||
+                  rowData.CURRENCY ||
+                  "",
+              ).toUpperCase(),
+            ) || null,
           price_type_id:
-            toNumOrNull(pick(rowData, "PRICE_TYPE_ID")) ||
-            priceTypeNameToId.get(priceTypeLookup) ||
+            priceTypeNameToId.get(
+              String(
+                rowData.PRICE_TYPE || rowData.PRICE_TYPE_NAME || "",
+              ).toUpperCase(),
+            ) ||
+            Number(rowData.PRICE_TYPE_ID || 0) ||
             null,
-          image_url: pick(rowData, "IMAGE_URL", "IMAGE") || null,
+          image_url: rowData.IMAGE_URL || rowData.IMAGE || null,
           vat_on_purchase_id:
-            toNumOrNull(pick(rowData, "VAT_ON_PURCHASE_ID")) ||
-            taxCodeToId.get(purchaseTaxLookup) ||
-            null,
+            taxCodeToId.get(
+              String(
+                rowData.VAT_ON_PURCHASE_ID ||
+                  rowData.VAT_ON_PURCHASE ||
+                  rowData.VAT_PURCHASE ||
+                  rowData.VAT_PURCHASE_CODE ||
+                  "",
+              ).toUpperCase(),
+            ) || null,
           vat_on_sales_id:
-            toNumOrNull(pick(rowData, "VAT_ON_SALES_ID")) ||
-            taxCodeToId.get(salesTaxLookup) ||
-            null,
-          purchase_account_id:
-            toNumOrNull(pick(rowData, "PURCHASE_ACCOUNT_ID")) ||
-            accountCodeToId.get(purchaseAccountLookup) ||
-            null,
-          sales_account_id:
-            toNumOrNull(pick(rowData, "SALES_ACCOUNT_ID")) ||
-            accountCodeToId.get(salesAccountLookup) ||
-            null,
-          description: pick(rowData, "DESCRIPTION") || null,
-          is_stockable: toYN(pick(rowData, "IS_STOCKABLE")),
-          is_sellable: toYN(pick(rowData, "IS_SELLABLE")),
-          is_purchasable: toYN(pick(rowData, "IS_PURCHASABLE")),
-          min_stock_level: toNumOrZero(
-            pick(rowData, "MIN_STOCK_LEVEL", "MIN STOCK LEVEL"),
-          ),
-          max_stock_level: toNumOrZero(
-            pick(rowData, "MAX_STOCK_LEVEL", "MAX STOCK LEVEL"),
-          ),
-          reorder_level: toNumOrZero(
-            pick(rowData, "REORDER_LEVEL", "REORDER LEVEL"),
-          ),
-          safety_stock: toNumOrZero(pick(rowData, "SAFETY_STOCK", "SAFETY STOCK")),
+            taxCodeToId.get(
+              String(
+                rowData.VAT_ON_SALES_ID ||
+                  rowData.VAT_ON_SALES ||
+                  rowData.VAT_SALES ||
+                  rowData.VAT_SALES_CODE ||
+                  "",
+              ).toUpperCase(),
+            ) || null,
+          purchase_account_id: Number(rowData.PURCHASE_ACCOUNT_ID || 0) || null,
+          sales_account_id: Number(rowData.SALES_ACCOUNT_ID || 0) || null,
+          description: rowData.DESCRIPTION,
+          is_stockable: rowData.IS_STOCKABLE === "Y",
+          is_sellable: rowData.IS_SELLABLE === "Y",
+          is_purchasable: rowData.IS_PURCHASABLE === "Y",
+          min_stock_level: Number(rowData.MIN_STOCK_LEVEL) || 0,
+          max_stock_level: Number(rowData.MAX_STOCK_LEVEL) || 0,
+          reorder_level: Number(rowData.REORDER_LEVEL) || 0,
+          safety_stock: Number(rowData.SAFETY_STOCK) || 0,
           // let server auto-create missing categories/groups when possible
           bulk_import: true,
           auto_create_missing: true,
@@ -1198,7 +947,6 @@ export default function ItemsList() {
     samplePurchaseAccId = 36;
     sampleSalesAccId = 1;
     const headers = [
-      "ITEM_CODE",
       "ITEM_NAME*",
       "ITEM_TYPE*",
       "ITEM_CATEGORY",
@@ -1219,11 +967,9 @@ export default function ItemsList() {
       "MIN_STOCK_LEVEL",
       "MAX_STOCK_LEVEL",
       "REORDER_LEVEL",
-      "SAFETY_STOCK",
     ];
     const sample = [
       [
-        "000001",
         "Raw Material 1",
         "RAW_MATERIAL",
         "",
@@ -1244,10 +990,8 @@ export default function ItemsList() {
         "10",
         "100",
         "20",
-        "5",
       ],
       [
-        "000002",
         "Finished Good 1",
         "FINISHED_GOOD",
         "",
@@ -1268,7 +1012,6 @@ export default function ItemsList() {
         "5",
         "50",
         "10",
-        "3",
       ],
     ];
     const ws = XLSX.utils.aoa_to_sheet([headers, ...sample]);

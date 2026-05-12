@@ -3563,6 +3563,112 @@ router.get(
   },
 );
 
+// Get outstanding invoices for a customer based on account ID
+// This endpoint: 1) Gets account code from fin_accounts, 2) Finds customer by customer_code, 3) Returns their outstanding invoices
+router.get(
+  "/invoices/outstanding-by-account",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const companyId = Number(req.scope.companyId);
+      const branchId = Number(req.scope.branchId);
+      const { account_id } = req.query;
+
+      if (!account_id) {
+        return res.status(400).json({ error: "account_id is required" });
+      }
+
+      // Step 1: Get account code from fin_accounts table using account ID
+      const accountRows = await query(
+        `SELECT code FROM fin_accounts
+         WHERE id = ? AND company_id = ?`,
+        [account_id, companyId]
+      );
+
+      if (!accountRows || accountRows.length === 0) {
+        return res.json({ items: [] });
+      }
+
+      const accountCode = String(accountRows[0].code || "").trim();
+      if (!accountCode) {
+        return res.json({ items: [] });
+      }
+
+      // Step 2: Find customer using customer_code matching account code
+      let customerRows = await query(
+        `SELECT id, customer_code, customer_name
+         FROM sal_customers
+         WHERE company_id = ? AND customer_code = ?
+         LIMIT 1`,
+        [companyId, accountCode]
+      );
+
+      // Fallback: try customer_id if no match found
+      if (!customerRows || customerRows.length === 0) {
+        customerRows = await query(
+          `SELECT id, customer_code, customer_name
+           FROM sal_customers
+           WHERE company_id = ? AND CAST(customer_id AS CHAR) = ?
+           LIMIT 1`,
+          [companyId, accountCode]
+        );
+      }
+
+      if (!customerRows || customerRows.length === 0) {
+        return res.json({ items: [] });
+      }
+
+      // Use the matching customer
+      const customerId = customerRows[0].id;
+
+      // Step 3: Get outstanding invoices for this customer
+      // Query sal_invoices with payment_status UNPAID or PARTIALLY_PAID
+      const sql = `SELECT i.id, i.invoice_no, i.invoice_date, i.net_amount,
+                COALESCE(i.balance_amount, i.net_amount) as balance_amount,
+                i.payment_status, i.due_date, c.customer_name,
+                MAX(it.vat_on_sales_id) AS tax_code_id
+         FROM sal_invoices i
+         LEFT JOIN sal_customers c ON i.customer_id = c.id
+         LEFT JOIN sal_invoice_details d ON d.invoice_id = i.id
+         LEFT JOIN inv_items it ON it.id = d.item_id AND it.company_id = i.company_id
+         WHERE i.customer_id = ?
+           AND i.company_id = ?
+           AND (i.branch_id = ? OR i.branch_id IS NULL)
+           AND (i.payment_status = 'UNPAID' OR i.payment_status = 'PARTIALLY_PAID')
+           AND i.status = 'POSTED'
+         GROUP BY i.id, i.invoice_no, i.invoice_date, i.net_amount,
+                  i.balance_amount, i.payment_status, i.due_date, c.customer_name
+         ORDER BY i.invoice_date DESC`;
+      const invoiceParams = [customerId, companyId, branchId];
+      const invoiceRows = await query(sql, invoiceParams);
+
+      const invoices = (invoiceRows || []).map(row => ({
+        id: row.id,
+        invoice_no: row.invoice_no,
+        invoice_date: row.invoice_date,
+        net_amount: Number(row.net_amount || 0),
+        balance_amount: Number(row.balance_amount || row.net_amount || 0),
+        payment_status: row.payment_status,
+        due_date: row.due_date,
+        customer_name: row.customer_name,
+        tax_code_id: row.tax_code_id || null
+      }));
+
+      res.json({
+        items: invoices,
+        customer: customerRows[0],
+        account_code: accountCode
+      });
+    } catch (err) {
+      console.error("[outstanding-by-account] Error:", err?.message || err);
+      console.error("[outstanding-by-account] Stack:", err?.stack);
+      next(err);
+    }
+  }
+);
+
 router.get(
   "/invoices/:id",
   requireAuth,

@@ -152,17 +152,17 @@ export default function TaskForm() {
               </div>
             </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Execution Details</label>
-                <textarea 
-                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none font-medium text-sm min-h-[100px]"
-                  placeholder="Specify task scope and deliverables..."
-                  value={form.description}
-                  onChange={e => setForm({...form, description: e.target.value})}
-                />
-              </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Execution Details</label>
+              <textarea
+                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none font-medium text-sm min-h-[100px]"
+                placeholder="Specify task scope and deliverables..."
+                value={form.description}
+                onChange={e => setForm({...form, description: e.target.value})}
+              />
             </div>
-        </div>
+            </div>
+          </div>
 
         <div className="space-y-6">
           <div className="card p-6 space-y-4">

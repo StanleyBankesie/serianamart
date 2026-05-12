@@ -113,6 +113,7 @@ export default function AppShell() {
   const location = useLocation();
   const [queueOpen, setQueueOpen] = useState(false);
   const [savedToast, setSavedToast] = useState(false);
+  const lastChatToneAtRef = useRef(0);
   useEffect(() => {
     if (lastEvent === "queued") {
       setSavedToast(true);
@@ -143,6 +144,9 @@ export default function AppShell() {
       if ("serviceWorker" in navigator) {
         function playChatTone() {
           try {
+            const now = Date.now();
+            if (now - Number(lastChatToneAtRef.current || 0) < 800) return;
+            lastChatToneAtRef.current = now;
             const AudioCtx =
               window.AudioContext || window.webkitAudioContext || null;
             if (!AudioCtx) return;
@@ -171,29 +175,37 @@ export default function AppShell() {
         const handler = (e) => {
           const data = e?.data || {};
           if (data.type === "navigate" && typeof data.url === "string") {
-            if (data.url.startsWith("/chat?cid=")) {
-              try {
-                const m = data.url.match(/cid=(\d+)/);
-                const cid = m ? Number(m[1]) : null;
-                if (cid) {
-                  localStorage.setItem(
-                    "omni.chat.lastConversationId",
-                    String(cid),
-                  );
-                  window.dispatchEvent(new Event("omni.chat.open"));
-                }
-              } catch {}
-              navigate("/");
-            } else {
-              navigate(data.url);
-            }
+            const url = data.url;
+            setTimeout(() => {
+              if (url.startsWith("/chat?cid=")) {
+                try {
+                  const m = url.match(/cid=(\d+)/);
+                  const cid = m ? Number(m[1]) : null;
+                  if (cid) {
+                    localStorage.setItem(
+                      "omni.chat.lastConversationId",
+                      String(cid),
+                    );
+                    window.dispatchEvent(new Event("omni.chat.open"));
+                  }
+                } catch {}
+                navigate("/");
+              } else {
+                navigate(url);
+              }
+            }, 0);
           }
           if (data.type === "chat_push") {
             if (
               typeof document !== "undefined" &&
               document.visibilityState === "visible"
             ) {
-              playChatTone();
+              const run =
+                typeof window !== "undefined" &&
+                typeof window.requestIdleCallback === "function"
+                  ? window.requestIdleCallback
+                  : (fn) => setTimeout(fn, 0);
+              run(() => playChatTone());
             }
           }
         };

@@ -1599,7 +1599,7 @@ export const getVoucherById = async (req, res, next) => {
               v.narration AS remarks, v.total_debit, v.total_credit, v.balanced_amount,
               v.total_debit AS total_amount,
               v.voucher_type_id, vt.code AS voucher_type_code, vt.name AS voucher_type_name,
-              v.currency_id, c.code AS currency_code
+              v.currency_id, c.code AS currency_code, v.exchange_rate
          FROM fin_vouchers v
          JOIN fin_voucher_types vt
            ON vt.id = v.voucher_type_id
@@ -1653,6 +1653,7 @@ export const createVoucher = async (req, res, next) => {
       voucherNo,
       remarks,
       currencyId,
+      exchangeRate,
       status,
       lines,
       isDirectPayment,
@@ -1677,6 +1678,7 @@ export const createVoucher = async (req, res, next) => {
     }
 
     const voucherDateYmd = voucherDate || new Date().toISOString().slice(0, 10);
+    const finalExchangeRate = Number(exchangeRate || 1) || 1;
     const normalizedVoucherTypeCode = String(
       voucherTypeCode || "",
     ).toUpperCase();
@@ -1791,7 +1793,7 @@ export const createVoucher = async (req, res, next) => {
             voucherDate: voucherDateYmd,
             narration: remarks ? `Purchase via Payment: ${remarks}` : null,
             currencyId: currencyId || null,
-            exchangeRate: 1,
+            exchangeRate: finalExchangeRate,
             totalDebit: pvTotal,
             totalCredit: pvTotal,
             balancedAmount: pvTotal,
@@ -1862,7 +1864,7 @@ export const createVoucher = async (req, res, next) => {
             voucherDate: voucherDateYmd,
             narration: remarks ? `Sales via Receipt: ${remarks}` : null,
             currencyId: currencyId || null,
-            exchangeRate: 1,
+            exchangeRate: finalExchangeRate,
             totalDebit: svTotal,
             totalCredit: svTotal,
             balancedAmount: svTotal,
@@ -1943,7 +1945,7 @@ export const createVoucher = async (req, res, next) => {
         voucherDate: voucherDateYmd,
         narration: mainNarration,
         currencyId: currencyId || null,
-        exchangeRate: 1,
+        exchangeRate: finalExchangeRate,
         totalDebit: totalAmount,
         totalCredit: totalAmount,
         balancedAmount: totalAmount,
@@ -2143,11 +2145,12 @@ export const updateVoucher = async (req, res, next) => {
     const branchId = req.scope.branchId;
     const id = Number(req.params.id || 0);
     if (!id) return next(httpError(400, "VALIDATION_ERROR", "Invalid id"));
-    const { voucherDate, remarks, status } = req.body || {};
+    const { voucherDate, remarks, status, exchangeRate } = req.body || {};
     await query(
       `UPDATE fin_vouchers
           SET voucher_date = COALESCE(:voucherDate, voucher_date),
               narration = COALESCE(:remarks, narration),
+              exchange_rate = COALESCE(:exchangeRate, exchange_rate),
               status = COALESCE(:status, status)
         WHERE company_id = :companyId
           AND (:branchId IS NULL OR branch_id = :branchId)
@@ -2158,6 +2161,7 @@ export const updateVoucher = async (req, res, next) => {
         id,
         voucherDate: voucherDate || null,
         remarks: remarks || null,
+        exchangeRate: Number(exchangeRate || 0) || null,
         status: status || null,
       },
     );

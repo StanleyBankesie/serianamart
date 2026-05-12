@@ -1033,12 +1033,7 @@ export const bulkUpsertItems = async (req, res, next) => {
                 is_stockable = :isStockable,
                 is_sellable = :isSellable,
                 is_purchasable = :isPurchasable,
-                is_active = :isActive,
-                min_stock_level = :minStock,
-                max_stock_level = :maxStock,
-                reorder_level = :reorderLevel,
-                safety_stock = :safetyStock,
-                description = :description
+                is_active = :isActive
             WHERE id = :id AND company_id = :companyId
             `,
             {
@@ -1065,11 +1060,6 @@ export const bulkUpsertItems = async (req, res, next) => {
               isSellable,
               isPurchasable,
               isActive,
-              minStock,
-              maxStock,
-              reorderLevel,
-              safetyStock,
-              description,
             },
           );
           updated += 1;
