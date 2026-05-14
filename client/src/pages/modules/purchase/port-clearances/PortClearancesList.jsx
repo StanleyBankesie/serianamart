@@ -4,6 +4,8 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
 import { Trash2 } from "lucide-react";
 
@@ -128,6 +130,8 @@ export default function PortClearancesList() {
     });
   }, [items, searchTerm]);
 
+  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "clearance_no", "desc");
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -166,15 +170,15 @@ export default function PortClearancesList() {
           <table className="table">
             <thead>
               <tr>
-                <th>Clearance No</th>
-                <th>Date</th>
-                <th>PO</th>
-                <th>Supplier</th>
-                <th>Clearing Agent</th>
-                <th>Status</th>
+                <SortableHeader label="Clearance No" sortKey="clearance_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Date" sortKey="clearance_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="PO" sortKey="po_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Supplier" sortKey="supplier_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Clearing Agent" sortKey="clearing_agent" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 <th>Actions</th>
-                            <th>Created By</th>
-              <th>Created Date</th>
+                <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+              <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
               </tr>
             </thead>
             <tbody>
@@ -205,7 +209,7 @@ export default function PortClearancesList() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((r) => (
+                sortedFiltered.map((r) => (
                   <tr key={r.id}>
                     <td className="font-medium">{r.clearance_no}</td>
                     <td>

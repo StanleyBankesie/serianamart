@@ -6,6 +6,8 @@ import { useAuth } from "../../../../auth/AuthContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import { saveLocalSale } from "../../../../offline/posStore.js";
+import { toast } from "react-toastify";
 
 function FilterableSelect({
   value,

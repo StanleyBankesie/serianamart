@@ -6,6 +6,8 @@ import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import {
   ListPrintIconButton,
   ListPdfIconButton,
@@ -456,6 +458,8 @@ export default function QuotationList() {
     });
   })();
 
+  const { sorted: sortedQuotations, sortKey, sortDir, toggle } = useSort(filteredQuotations, "quotation_no", "desc");
+
   function safeDate(v) {
     const s = String(v || "").trim();
     if (!s) return "-";
@@ -807,18 +811,18 @@ export default function QuotationList() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Quotation No</th>
-                    <th>Date</th>
-                    <th>Customer</th>
-                    <th>Vilidity Date</th>
-                    <th>Amount</th>
+                    <SortableHeader label="Quotation No" sortKey="quotation_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Date" sortKey="quotation_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Vilidity Date" sortKey="valid_until" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Amount" sortKey="total_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                     <th className="text-right">Actions</th>
-                    <th>Created By</th>
-                    <th>Created Date</th>
+                    <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredQuotations.map((quot) => (
+                  {sortedQuotations.map((quot) => (
                     <tr key={quot.id}>
                       <td className="font-medium">{quot.quotation_no}</td>
                       <td>{safeDate(quot.quotation_date)}</td>
@@ -897,7 +901,7 @@ export default function QuotationList() {
                               <span className="list-approval-forwarded-pill">
                                 Forwarded to {quot.forwarded_to_username}
                               </span>
-                            ) : canForward(quot.status) && candidateWorkflow ? (
+                            ) : canForward(quot.status) ? (
                               <button
                                 type="button"
                                 className="list-approval-forward-btn"

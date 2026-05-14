@@ -44,7 +44,7 @@ export default function ReverseApprovalButton({
         "ml-2 text-indigo-700 hover:text-indigo-800 text-sm font-medium"
       }
     >
-      {children || (busy ? "Reversing..." : "Reverse Approval")}
+      {children || (busy ? "Reversing Approval..." : "Reverse Approval")}
     </button>
   );
 }

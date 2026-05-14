@@ -524,6 +524,20 @@ export const saveUserFeaturePermissions = async (req, res, next) => {
       throw httpError(400, "VALIDATION_ERROR", "permissions array required");
     }
 
+    // Delete stale entries first, then upsert current ones
+    const incomingPageIds = permissions
+      .map((p) => toNumber(p.page_id))
+      .filter(Boolean);
+    if (incomingPageIds.length > 0) {
+      const placeholders = incomingPageIds.map(() => "?").join(",");
+      await query(
+        `DELETE FROM adm_user_permissions WHERE user_id = ? AND page_id NOT IN (${placeholders})`,
+        [userId, ...incomingPageIds],
+      );
+    } else {
+      await query("DELETE FROM adm_user_permissions WHERE user_id = ?", [userId]);
+    }
+
     for (const p of permissions) {
       const pageId = toNumber(p.page_id);
       if (!pageId) continue;

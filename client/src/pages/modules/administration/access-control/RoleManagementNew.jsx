@@ -5,7 +5,6 @@ import {
   MODULES_REGISTRY,
   getAllModuleKeys,
   getModuleFeatures,
-  getModuleDashboards,
 } from "../../../../data/modulesRegistry.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
@@ -33,7 +32,6 @@ export default function RoleManagement() {
   // Permission states
   const [selectedModules, setSelectedModules] = useState(new Set());
   const [selectedFeatures, setSelectedFeatures] = useState(new Set());
-  const [selectedDashboards, setSelectedDashboards] = useState(new Set());
 
   function handleModuleSelectAll(moduleKey, checked) {
     // Ensure module is enabled when selecting all
@@ -42,22 +40,12 @@ export default function RoleManagement() {
     }
 
     const moduleFeatures = getModuleFeatures(moduleKey);
-    const moduleDashboards = getModuleDashboards(moduleKey);
 
     setSelectedFeatures((prev) => {
       const next = new Set(prev);
       for (const f of moduleFeatures) {
         if (checked) next.add(f.feature_key);
         else next.delete(f.feature_key);
-      }
-      return next;
-    });
-
-    setSelectedDashboards((prev) => {
-      const next = new Set(prev);
-      for (const d of moduleDashboards) {
-        if (checked) next.add(d.feature_key);
-        else next.delete(d.feature_key);
       }
       return next;
     });
@@ -136,25 +124,6 @@ export default function RoleManagement() {
         (featsRes?.data?.features || []).map(String),
       );
 
-      // Separate features and dashboards using registry
-      const assignedDashboards = new Set();
-      const featuresOnly = new Set();
-
-      assignedFeatures.forEach((featureKey) => {
-        const [moduleKey, itemKey] = featureKey.split(":");
-        const moduleInfo = MODULES_REGISTRY[moduleKey];
-        if (moduleInfo) {
-          const isDashboard = moduleInfo.dashboards.some(
-            (d) => d.key === itemKey,
-          );
-          if (isDashboard) {
-            assignedDashboards.add(featureKey);
-          } else {
-            featuresOnly.add(featureKey);
-          }
-        }
-      });
-
       setAssignRole(role);
       setEditRole({
         name: role.name || "",
@@ -162,8 +131,7 @@ export default function RoleManagement() {
         is_active: !!role.is_active,
       });
       setSelectedModules(assignedModules);
-      setSelectedFeatures(featuresOnly);
-      setSelectedDashboards(assignedDashboards);
+      setSelectedFeatures(assignedFeatures);
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to load role settings");
     }
@@ -191,14 +159,29 @@ export default function RoleManagement() {
         modules: Array.from(selectedModules),
       });
 
-      // Combine features and dashboards
-      const allPermissions = [
-        ...Array.from(selectedFeatures),
-        ...Array.from(selectedDashboards),
-      ];
+      const allPermissions = Array.from(selectedFeatures);
 
       await api.put(`/access/roles/${assignRole.id}/features`, {
         features: allPermissions,
+      });
+
+      // Sync adm_role_permissions for permByFeatureKey to work
+      const permPayload = [];
+      for (const fk of allPermissions) {
+        const parts = String(fk || "").split(":");
+        if (parts.length >= 2) {
+          permPayload.push({
+            module_key: parts[0],
+            feature_key: parts.slice(1).join(":"),
+            can_view: 1,
+            can_create: 1,
+            can_edit: 1,
+            can_delete: 1,
+          });
+        }
+      }
+      await api.put(`/access/roles/${assignRole.id}/permissions`, {
+        permissions: permPayload,
       });
 
       setSuccess("Role permissions updated successfully");
@@ -234,20 +217,13 @@ export default function RoleManagement() {
         next.add(moduleKey);
       } else {
         next.delete(moduleKey);
-        // Remove all features and dashboards when module is deselected
+        // Remove all features when module is deselected
         const moduleFeatures = getModuleFeatures(moduleKey);
-        const moduleDashboards = getModuleDashboards(moduleKey);
 
         setSelectedFeatures((featurePrev) => {
           const nextFeatures = new Set(featurePrev);
           moduleFeatures.forEach((f) => nextFeatures.delete(f.feature_key));
           return nextFeatures;
-        });
-
-        setSelectedDashboards((dashboardPrev) => {
-          const nextDashboards = new Set(dashboardPrev);
-          moduleDashboards.forEach((d) => nextDashboards.delete(d.feature_key));
-          return nextDashboards;
         });
       }
       return next;
@@ -273,32 +249,13 @@ export default function RoleManagement() {
     });
   }
 
-  // Handle dashboard selection with module dependency
-  function handleDashboardToggle(dashboardKey, checked) {
-    const [moduleKey] = dashboardKey.split(":");
-    if (!selectedModules.has(moduleKey)) {
-      // Auto-select module if dashboard is selected
-      handleModuleToggle(moduleKey, true);
-    }
-
-    setSelectedDashboards((prev) => {
-      const next = new Set(prev);
-      if (checked) {
-        next.add(dashboardKey);
-      } else {
-        next.delete(dashboardKey);
-      }
-      return next;
-    });
-  }
-
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Role Management</h1>
           <p className="text-sm text-slate-600">
-            Create roles and assign module, feature, and dashboard permissions
+            Create roles and assign module and feature permissions
           </p>
         </div>
         <div className="flex gap-2">
@@ -532,27 +489,22 @@ export default function RoleManagement() {
                 </div>
               </div>
 
-              {/* Features and Dashboards Section */}
+              {/* Features Section */}
               <div className="space-y-6">
                 {getAllModuleKeys().map((moduleKey) => {
                   const moduleInfo = MODULES_REGISTRY[moduleKey];
                   const isModuleSelected = selectedModules.has(moduleKey);
                   const moduleFeatures = getModuleFeatures(moduleKey);
-                  const moduleDashboards = getModuleDashboards(moduleKey);
-                  const allKeys = [
-                    ...moduleFeatures.map((f) => f.feature_key),
-                    ...moduleDashboards.map((d) => d.feature_key),
-                  ];
+                  const allKeys = moduleFeatures.map((f) => f.feature_key);
                   const selectedCount = allKeys.filter(
-                    (k) => selectedFeatures.has(k) || selectedDashboards.has(k),
+                    (k) => selectedFeatures.has(k),
                   ).length;
                   const isAllSelected =
                     allKeys.length > 0 && selectedCount === allKeys.length;
 
                   if (
                     !isModuleSelected &&
-                    moduleFeatures.length === 0 &&
-                    moduleDashboards.length === 0
+                    moduleFeatures.length === 0
                   ) {
                     return null;
                   }
@@ -575,7 +527,6 @@ export default function RoleManagement() {
                         </div>
                         <div className="flex items-center gap-4 text-sm text-slate-600">
                           <span>{moduleFeatures.length} features</span>
-                          <span>{moduleDashboards.length} dashboards</span>
                           {isModuleSelected && allKeys.length > 0 && (
                             <label className="flex items-center gap-2">
                               <input
@@ -595,77 +546,33 @@ export default function RoleManagement() {
                         </div>
                       </div>
 
-                      {isModuleSelected && (
-                        <div className="p-4 space-y-4">
-                          {/* Features */}
-                          {moduleFeatures.length > 0 && (
-                            <div>
-                              <h4 className="font-medium mb-3 flex items-center gap-2">
-                                <span>⚡</span>
-                                Features
-                              </h4>
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                {moduleFeatures.map((feature) => (
-                                  <label
-                                    key={feature.feature_key}
-                                    className="flex items-center gap-2 p-2 border rounded hover:bg-slate-50 cursor-pointer"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      className="checkbox checkbox-sm"
-                                      checked={selectedFeatures.has(
-                                        feature.feature_key,
-                                      )}
-                                      onChange={(e) =>
-                                        handleFeatureToggle(
-                                          feature.feature_key,
-                                          e.target.checked,
-                                        )
-                                      }
-                                    />
-                                    <span className="text-sm">
-                                      {feature.label}
-                                    </span>
-                                  </label>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Dashboards */}
-                          {moduleDashboards.length > 0 && (
-                            <div>
-                              <h4 className="font-medium mb-3 flex items-center gap-2">
-                                <span>📊</span>
-                                Dashboards
-                              </h4>
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                {moduleDashboards.map((dashboard) => (
-                                  <label
-                                    key={dashboard.feature_key}
-                                    className="flex items-center gap-2 p-2 border rounded hover:bg-slate-50 cursor-pointer"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      className="checkbox checkbox-sm"
-                                      checked={selectedDashboards.has(
-                                        dashboard.feature_key,
-                                      )}
-                                      onChange={(e) =>
-                                        handleDashboardToggle(
-                                          dashboard.feature_key,
-                                          e.target.checked,
-                                        )
-                                      }
-                                    />
-                                    <span className="text-sm">
-                                      {dashboard.label}
-                                    </span>
-                                  </label>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+                      {isModuleSelected && moduleFeatures.length > 0 && (
+                        <div className="p-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {moduleFeatures.map((feature) => (
+                              <label
+                                key={feature.feature_key}
+                                className="flex items-center gap-2 p-2 border rounded hover:bg-slate-50 cursor-pointer"
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="checkbox checkbox-sm"
+                                  checked={selectedFeatures.has(
+                                    feature.feature_key,
+                                  )}
+                                  onChange={(e) =>
+                                    handleFeatureToggle(
+                                      feature.feature_key,
+                                      e.target.checked,
+                                    )
+                                  }
+                                />
+                                <span className="text-sm">
+                                  {feature.label}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>

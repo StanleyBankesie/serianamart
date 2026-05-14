@@ -140,6 +140,10 @@ async function ensureSystemLogsTable() {
         ddl: "ALTER TABLE adm_system_logs ADD COLUMN message VARCHAR(255) NULL AFTER ref_no",
       },
       {
+        name: "ip_address",
+        ddl: "ALTER TABLE adm_system_logs ADD COLUMN ip_address VARCHAR(100) NULL AFTER branch_id",
+      },
+      {
         name: "url_path",
         ddl: "ALTER TABLE adm_system_logs ADD COLUMN url_path VARCHAR(255) NULL AFTER message",
       },
@@ -1935,11 +1939,9 @@ router.get("/system-status", requireAuth, async (req, res, next) => {
     );
     const recentLogins = await query(
       `
-      SELECT l.id, l.username, l.user_id, l.ip_address, l.user_agent, l.login_time,
-          l.created_at,
-          u.username AS created_by_name
+       SELECT l.id, l.username, l.user_id, l.ip_address, l.user_agent, l.login_time,
+          l.login_time AS created_at
          FROM adm_login_logs l
-        LEFT JOIN adm_users u ON u.id = l.created_by
          ORDER BY l.login_time DESC
       LIMIT 20
       `,
@@ -2069,14 +2071,17 @@ router.get("/reports/system-log-book", requireAuth, async (req, res, next) => {
           s.id,
           s.event_time,
           u.username AS user_name,
+          b.name AS branch_name,
           s.module_name,
           s.action,
           s.ref_no,
           s.message,
-          s.created_at,
-          u.username AS created_by_name
+          s.url_path AS page_name,
+          s.ip_address,
+          s.created_at
          FROM adm_system_logs s
         LEFT JOIN adm_users u ON s.user_id = u.id
+        LEFT JOIN adm_branches b ON s.branch_id = b.id
         ${whereSys}
          ORDER BY s.event_time DESC
         LIMIT 200
@@ -2089,15 +2094,15 @@ router.get("/reports/system-log-book", requireAuth, async (req, res, next) => {
           l.id,
           l.login_time AS event_time,
           l.username AS user_name,
+          b.name AS branch_name,
           'Authentication' AS module_name,
           'LOGIN' AS action,
-          l.ip_address AS ref_no,
-          l.user_agent AS message,
-          l.created_at,
-          u.username AS created_by_name
+          l.ip_address,
+          '' AS page_name,
+          l.user_agent AS message
          FROM adm_login_logs l
+        LEFT JOIN adm_branches b ON l.branch_id = b.id
         ${whereLogin}
-        LEFT JOIN adm_users u ON u.id = l.created_by
          ORDER BY l.login_time DESC
         LIMIT 200
         `,
@@ -2120,69 +2125,47 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureLoginLogsTable();
-      const { from, to, q, companyId, branchId } = req.query || {};
-      const params = {};
-      const clauses = [];
-      if (from) {
-        clauses.push("l.login_time >= :from");
-        params.from = new Date(String(from));
-      }
-      if (to) {
-        clauses.push("l.login_time < DATE_ADD(:to, INTERVAL 1 DAY)");
-        params.to = new Date(String(to));
-      }
-      if (companyId) {
-        clauses.push("l.company_id = :companyId");
-        params.companyId = Number(companyId);
-      }
-      if (branchId) {
-        clauses.push("l.branch_id = :branchId");
-        params.branchId = Number(branchId);
-      }
-      if (q && String(q).trim()) {
-        params.q = `%${String(q).trim()}%`;
-        clauses.push(
-          "(l.username LIKE :q OR u.full_name LIKE :q OR u.email LIKE :q OR l.ip_address LIKE :q)",
-        );
-      }
-      const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-      const items = await query(
-        `
-        SELECT 
-          l.id,
-          l.login_time,
-          l.username,
-          l.user_id,
-          l.ip_address,
-          l.user_agent,
-          u.full_name,
-          u.email,
-          c.name AS company_name,
-          b.name AS branch_name,
-          COALESCE(r.roles, '') AS roles,
-          COALESCE(r.role_codes, '') AS role_codes,
-          l.created_at,
-          u.username AS created_by_name
-         FROM adm_login_logs l
-        LEFT JOIN adm_users u ON u.id = l.user_id
-        LEFT JOIN adm_companies c ON c.id = l.company_id
-        LEFT JOIN adm_branches b ON b.id = l.branch_id
-        LEFT JOIN (
-          SELECT ur.user_id,
-                 GROUP_CONCAT(r.name ORDER BY r.name SEPARATOR ', ') AS roles,
-                 GROUP_CONCAT(r.code ORDER BY r.code SEPARATOR ',') AS role_codes
-          FROM adm_user_roles ur
-          JOIN adm_roles r ON r.id = ur.role_id
-         WHERE r.is_active = 1
-          GROUP BY ur.user_id
-        ) r ON r.user_id = l.user_id
-        ${where}
-        ORDER BY l.login_time DESC
-        LIMIT 500
-        `,
-        params,
-      );
-      res.json({ items });
+      await ensureSystemLogsTable();
+      const { from, to, user_id, filter } = req.query || {};
+      const sysParams = {};
+      const sysClauses = [];
+      if (from) { sysClauses.push("s.event_time >= :from"); sysParams.from = new Date(String(from)); }
+      if (to) { sysClauses.push("s.event_time < DATE_ADD(:to, INTERVAL 1 DAY)"); sysParams.to = new Date(String(to)); }
+      if (user_id) { sysClauses.push("s.user_id = :uid"); sysParams.uid = Number(user_id); }
+      const sysWhere = sysClauses.length ? `WHERE ${sysClauses.join(" AND ")}` : "";
+
+      const loginParams = {};
+      const loginClauses = [];
+      if (from) { loginClauses.push("l.login_time >= :from"); loginParams.from = new Date(String(from)); }
+      if (to) { loginClauses.push("l.login_time < DATE_ADD(:to, INTERVAL 1 DAY)"); loginParams.to = new Date(String(to)); }
+      if (user_id) { loginClauses.push("l.user_id = :uid"); loginParams.uid = Number(user_id); }
+      const loginWhere = loginClauses.length ? `WHERE ${loginClauses.join(" AND ")}` : "";
+
+      const pageItems = filter !== "login" ? await query(`
+        SELECT s.id, s.event_time, u.username AS user_name, s.module_name,
+               s.url_path AS page_name, s.ip_address, '' AS location,
+               'page' AS event_type
+          FROM adm_system_logs s
+          LEFT JOIN adm_users u ON s.user_id = u.id
+         ${sysWhere}
+         ORDER BY s.event_time DESC LIMIT 500
+      `, sysParams) : [];
+
+      const loginItems = filter !== "page" ? await query(`
+        SELECT l.id, l.login_time AS event_time, l.username AS user_name,
+               'Authentication' AS module_name, 'LOGIN' AS page_name,
+               l.ip_address, '' AS location, 'login' AS event_type
+          FROM adm_login_logs l
+         ${loginWhere}
+         ORDER BY l.login_time DESC LIMIT 200
+      `, loginParams) : [];
+
+      const combined = [...(pageItems || []), ...(loginItems || [])].sort((a, b) => {
+        const ta = new Date(a.event_time).getTime();
+        const tb = new Date(b.event_time).getTime();
+        return tb - ta;
+      });
+      res.json({ items: combined.slice(0, 500) });
     } catch (err) {
       next(err);
     }

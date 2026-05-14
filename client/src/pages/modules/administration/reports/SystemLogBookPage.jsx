@@ -4,15 +4,17 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 
 export default function SystemLogBookPage() {
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const today = new Date().toISOString().slice(0, 10);
+  const [from, setFrom] = useState(today);
+  const [to, setTo] = useState(today);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
   const [quickFilter, setQuickFilter] = useState("all");
   const [userId, setUserId] = useState("");
-  const [moduleCsv, setModuleCsv] = useState("");
-  const [actionCsv, setActionCsv] = useState("");
+  const [users, setUsers] = useState([]);
+  const [selectedModule, setSelectedModule] = useState("");
+  const [moduleOptions, setModuleOptions] = useState([]);
   const [status, setStatus] = useState({
     startedAt: "",
     uptimeSeconds: 0,
@@ -25,7 +27,17 @@ export default function SystemLogBookPage() {
     },
     recentLogins: [],
   });
-  const [textFilter, setTextFilter] = useState("");
+
+  useEffect(() => {
+    async function loadUsers() {
+      try {
+        const res = await api.get("/admin/users");
+        const items = res?.data?.data?.items || res?.data?.items || [];
+        setUsers(items);
+      } catch {}
+    }
+    loadUsers();
+  }, []);
 
   async function run() {
     try {
@@ -49,24 +61,16 @@ export default function SystemLogBookPage() {
           "TEST_SEND_SUCCESS",
           "TEST_SEND_FAIL",
         ].join(",");
-      }
-      if (moduleCsv && moduleCsv.trim()) {
-        params.module = moduleCsv
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .join(",");
-      }
-      if (actionCsv && actionCsv.trim()) {
-        params.action = actionCsv
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .join(",");
+      } else if (selectedModule) {
+        params.module = selectedModule;
       }
       if (userId) params.user_id = userId;
       const res = await api.get("/admin/reports/system-log-book", { params });
-      setItems(res.data?.items || []);
+      const data = res.data?.items || [];
+      setItems(data);
+      // Collect unique module names from results
+      const mods = [...new Set(data.map((r) => r.module_name).filter(Boolean))].sort();
+      setModuleOptions(mods);
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to load report");
     } finally {
@@ -74,9 +78,11 @@ export default function SystemLogBookPage() {
     }
   }
 
+  // Auto-filter when any filter changes (debounced)
   useEffect(() => {
-    run();
-  }, []);
+    const t = setTimeout(() => run(), 300);
+    return () => clearTimeout(t);
+  }, [from, to, userId, selectedModule, quickFilter]);
   useEffect(() => {
     let cancelled = false;
     let t = null;
@@ -199,7 +205,7 @@ export default function SystemLogBookPage() {
 
       <div className="card">
         <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
             <div>
               <label className="label">From</label>
               <input
@@ -219,6 +225,34 @@ export default function SystemLogBookPage() {
               />
             </div>
             <div>
+              <label className="label">User</label>
+              <select
+                className="input"
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+              >
+                <option value="">All Users</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.username || u.full_name || `User #${u.id}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Module</label>
+              <select
+                className="input"
+                value={selectedModule}
+                onChange={(e) => setSelectedModule(e.target.value)}
+              >
+                <option value="">All Modules</option>
+                {moduleOptions.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="label">Quick Filter</label>
               <select
                 className="input"
@@ -229,137 +263,62 @@ export default function SystemLogBookPage() {
                 <option value="email">Email Notifications</option>
               </select>
             </div>
-            <div className="md:col-span-1 flex items-end gap-2">
-              <button
-                type="button"
-                className="btn-success"
-                onClick={run}
-                disabled={loading}
-              >
-                {loading ? "Running..." : "Run Report"}
-              </button>
-              <button
-                type="button"
-                className="btn-success"
-                onClick={() => {
-                  setFrom("");
-                  setTo("");
-                }}
-                disabled={loading}
-              >
-                Clear
-              </button>
-            </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
-            <div>
-              <label className="label">Filter by User ID</label>
-              <input
-                className="input"
-                type="number"
-                value={userId}
-                onChange={(e) => setUserId(e.target.value)}
-                placeholder="e.g., 1"
-              />
-            </div>
-            <div>
-              <label className="label">Modules (CSV)</label>
-              <input
-                className="input"
-                type="text"
-                value={moduleCsv}
-                onChange={(e) => setModuleCsv(e.target.value)}
-                placeholder="e.g., WorkflowNotify,DocumentForward"
-              />
-            </div>
-            <div>
-              <label className="label">Actions (CSV)</label>
-              <input
-                className="input"
-                type="text"
-                value={actionCsv}
-                onChange={(e) => setActionCsv(e.target.value)}
-                placeholder="e.g., EMAIL_SENT,EMAIL_ERROR"
-              />
-            </div>
-            <div>
-              <label className="label">Text Contains</label>
-              <input
-                className="input"
-                type="text"
-                value={textFilter}
-                onChange={(e) => setTextFilter(e.target.value)}
-                placeholder="Search user/module/action/message"
-              />
-            </div>
-            <div className="flex items-end justify-end">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  setModuleCsv(
-                    "WorkflowNotify,DocumentForward,Email,Authentication,Inventory,EmailDiagnosis,Workflow",
-                  );
-                  setActionCsv(
-                    "EMAIL_SENT,EMAIL_ERROR,EMAIL_SKIPPED,EMAIL_MOCK,TEST_SEND_SUCCESS,TEST_SEND_FAIL",
-                  );
-                  setQuickFilter("email");
-                }}
-              >
-                Fill Email Filters
-              </button>
-            </div>
+          <div className="flex items-end gap-2 mb-4">
+            <button
+              type="button"
+              className="btn-success"
+              onClick={run}
+              disabled={loading}
+            >
+              {loading ? "Running..." : "Run Report"}
+            </button>
+            <button
+              type="button"
+              className="btn-success"
+              onClick={() => {
+                setFrom("");
+                setTo("");
+                setUserId("");
+                setSelectedModule("");
+                setQuickFilter("all");
+              }}
+              disabled={loading}
+            >
+              Clear
+            </button>
           </div>
 
           <div className="overflow-x-auto">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Date/Time</th>
+                  <th>Branch</th>
                   <th>User</th>
-                  <th>Module</th>
-                  <th>Action</th>
-                  <th>Reference</th>
-                  <th>Message</th>
+                  <th>Module Name</th>
+                  <th>Login Date</th>
+                  <th>Login Time</th>
+                  <th>TCP IP</th>
+                  <th>Page Name</th>
+                  <th>Messages</th>
                 </tr>
               </thead>
               <tbody>
-                {items
-                  .filter((r) => {
-                    if (!textFilter.trim()) return true;
-                    const t = textFilter.toLowerCase();
-                    return (
-                      String(r.user_name || "")
-                        .toLowerCase()
-                        .includes(t) ||
-                      String(r.module_name || "")
-                        .toLowerCase()
-                        .includes(t) ||
-                      String(r.action || "")
-                        .toLowerCase()
-                        .includes(t) ||
-                      String(r.ref_no || "")
-                        .toLowerCase()
-                        .includes(t) ||
-                      String(r.message || "")
-                        .toLowerCase()
-                        .includes(t)
-                    );
-                  })
-                  .map((r) => (
+                {items.map((r) => {
+                  const dt = r.event_time ? new Date(r.event_time) : null;
+                  return (
                     <tr key={r.id}>
-                      <td>
-                        {r.event_time
-                          ? new Date(r.event_time).toLocaleString()
-                          : "-"}
-                      </td>
+                      <td>{r.branch_name || "-"}</td>
                       <td>{r.user_name || "-"}</td>
                       <td>{r.module_name || "-"}</td>
-                      <td>{r.action || "-"}</td>
-                      <td className="font-medium">{r.ref_no || "-"}</td>
+                      <td>{dt ? dt.toLocaleDateString() : "-"}</td>
+                      <td>{dt ? dt.toLocaleTimeString() : "-"}</td>
+                      <td>{r.ip_address || "-"}</td>
+                      <td>{r.page_name || r.ref_no || "-"}</td>
                       <td>{r.message || "-"}</td>
                     </tr>
-                  ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

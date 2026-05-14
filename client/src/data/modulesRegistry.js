@@ -2,6 +2,9 @@
  * Module Features Registry
  * Centralized definition of all modules, their features, and dashboards
  * Used by Role Management UI and permission system
+ * 
+ * IMPORTANT: Keep this in sync with the module home page sections and
+ * server/data/featuresRegistry.js
  */
 
 export const MODULES_REGISTRY = {
@@ -41,6 +44,8 @@ export const MODULES_REGISTRY = {
       { key: "discount-schemes", label: "Discount Schemes", type: "feature" },
       { key: "customer-credit", label: "Customer Credit", type: "feature" },
       { key: "bulk-upload", label: "Bulk Customer Upload", type: "feature" },
+      { key: "prospect-customers", label: "Prospective Customers", type: "feature" },
+      { key: "prospect-conversion", label: "Prospect Conversion", type: "feature" },
     ],
     dashboards: [
       { key: "sales-overview", label: "Sales Overview Dashboard", type: "dashboard" },
@@ -54,6 +59,7 @@ export const MODULES_REGISTRY = {
     icon: "🛒",
     features: [
       { key: "direct-purchase", label: "Direct Purchase", type: "feature" },
+      { key: "general-requisitions", label: "General Requisition", type: "feature" },
       { key: "rfqs", label: "Request for Quotation", type: "feature" },
       { key: "supplier-quotations", label: "Supplier Quotations", type: "feature" },
       { key: "quotation-analysis", label: "Quotation Analysis", type: "feature" },
@@ -64,7 +70,9 @@ export const MODULES_REGISTRY = {
       { key: "purchase-bills-local", label: "Local Purchase Bills", type: "feature" },
       { key: "purchase-bills-import", label: "Import Purchase Bills", type: "feature" },
       { key: "suppliers", label: "Suppliers", type: "feature" },
+      { key: "purchase-returns", label: "Purchase Returns", type: "feature" },
       { key: "reports", label: "Reports", type: "feature" },
+      { key: "setup", label: "Purchase Setup", type: "feature" },
     ],
     dashboards: [
       { key: "procurement-overview", label: "Procurement Overview Dashboard", type: "dashboard" },
@@ -79,12 +87,21 @@ export const MODULES_REGISTRY = {
       { key: "material-requisitions", label: "Material Requisitions", type: "feature" },
       { key: "stock-upload", label: "Stock Upload", type: "feature" },
       { key: "stock-updation", label: "Stock Updation", type: "feature" },
-      { key: "stock-adjustment", label: "Stock Adjustment", type: "feature" },
-      { key: "stock-transfer", label: "Stock Transfer", type: "feature" },
+      { key: "stock-adjustments", label: "Stock Adjustment", type: "feature" },
+      { key: "stock-transfers", label: "Stock Transfer", type: "feature" },
+      { key: "stock-verification", label: "Stock Verification", type: "feature" },
+      { key: "return-to-stores", label: "Return to Stores Advice", type: "feature" },
+      { key: "issue-to-requirement", label: "Issue to Requirement Area", type: "feature" },
+      { key: "transfer-acceptance", label: "Transfer Acceptance", type: "feature" },
+      { key: "grn-local", label: "Material Receipt (GRN) - Local", type: "feature" },
+      { key: "grn-import", label: "Material Receipt (GRN) - Import", type: "feature" },
       { key: "items", label: "Item Management", type: "feature" },
-      { key: "categories", label: "Item Categories", type: "feature" },
+      { key: "item-groups", label: "Item Categories", type: "feature" },
+      { key: "unit-conversions", label: "Unit Conversion", type: "feature" },
       { key: "warehouses", label: "Warehouse Management", type: "feature" },
+      { key: "batches", label: "Item Batches Tracking", type: "feature" },
       { key: "stock-taking", label: "Stock Taking", type: "feature" },
+      { key: "stock-reorder", label: "Stock Reorder", type: "feature" },
       { key: "reports", label: "Inventory Reports", type: "feature" },
     ],
     dashboards: [
@@ -101,12 +118,22 @@ export const MODULES_REGISTRY = {
       { key: "payment-voucher", label: "Make Payment", type: "feature" },
       { key: "receipt-voucher", label: "Receive Payment", type: "feature" },
       { key: "contra-voucher", label: "Contra Entry", type: "feature" },
+      { key: "credit-note", label: "Credit Note", type: "feature" },
+      { key: "debit-note", label: "Debit Note", type: "feature" },
+      { key: "sales-voucher", label: "Sales Voucher", type: "feature" },
+      { key: "purchase-voucher", label: "Purchase Voucher", type: "feature" },
       { key: "chart-of-accounts", label: "Chart of Accounts", type: "feature" },
       { key: "account-groups", label: "Account Groups", type: "feature" },
+      { key: "cost-centers", label: "Cost Centers", type: "feature" },
+      { key: "tax-codes", label: "Tax Codes & Deductions", type: "feature" },
+      { key: "currencies", label: "Currencies", type: "feature" },
       { key: "fiscal-years", label: "Fiscal Years", type: "feature" },
       { key: "budget", label: "Budget Management", type: "feature" },
       { key: "bank-reconciliation", label: "Bank Reconciliation", type: "feature" },
       { key: "fixed-assets", label: "Fixed Assets", type: "feature" },
+      { key: "opening-balances", label: "Opening Balances", type: "feature" },
+      { key: "pdc-postings", label: "Post-Dated Cheques", type: "feature" },
+      { key: "reports", label: "Finance Reports", type: "feature" },
     ],
     dashboards: [
       { key: "financial-overview", label: "Financial Overview Dashboard", type: "dashboard" },
@@ -122,12 +149,25 @@ export const MODULES_REGISTRY = {
       { key: "employees", label: "Employee Setup", type: "feature" },
       { key: "departments", label: "Departments", type: "feature" },
       { key: "designations", label: "Designations", type: "feature" },
+      { key: "requisitions", label: "Job Requisitions", type: "feature" },
+      { key: "candidates", label: "Candidates", type: "feature" },
+      { key: "interviews", label: "Interviews", type: "feature" },
+      { key: "offers", label: "Offers", type: "feature" },
       { key: "attendance", label: "Attendance Management", type: "feature" },
+      { key: "work-schedules", label: "Work Schedule Management", type: "feature" },
+      { key: "roster", label: "Roster Management", type: "feature" },
       { key: "leave-setup", label: "Leave Setup", type: "feature" },
       { key: "leave-management", label: "Leave Management", type: "feature" },
       { key: "payroll", label: "Payroll Processing", type: "feature" },
+      { key: "payslips", label: "Payslips", type: "feature" },
+      { key: "salary-config", label: "Salary Configurations", type: "feature" },
+      { key: "tax-config", label: "Statutory Contributions", type: "feature" },
+      { key: "allowances", label: "Allowances", type: "feature" },
+      { key: "loans", label: "Employee Loans", type: "feature" },
       { key: "promotions", label: "Promotions", type: "feature" },
       { key: "medical-policies", label: "Medical Policies", type: "feature" },
+      { key: "policies", label: "Policies", type: "feature" },
+      { key: "setup", label: "HR Setup", type: "feature" },
       { key: "hr-reports", label: "HR Reports", type: "feature" },
     ],
     dashboards: [
@@ -142,9 +182,16 @@ export const MODULES_REGISTRY = {
     icon: "🔧",
     features: [
       { key: "assets", label: "Asset Management", type: "feature" },
+      { key: "equipment", label: "Equipment", type: "feature" },
+      { key: "contracts", label: "Maintenance Contracts", type: "feature" },
+      { key: "maintenance-requests", label: "Maintenance Requests", type: "feature" },
       { key: "work-orders", label: "Work Orders", type: "feature" },
+      { key: "job-orders", label: "Job Orders", type: "feature" },
       { key: "pm-schedules", label: "PM Schedules", type: "feature" },
+      { key: "schedules", label: "Maintenance Schedules", type: "feature" },
+      { key: "rosters", label: "Maintenance Rosters", type: "feature" },
       { key: "maintenance-reports", label: "Maintenance Reports", type: "feature" },
+      { key: "setup", label: "Maintenance Setup", type: "feature" },
     ],
     dashboards: [
       { key: "maintenance-overview", label: "Maintenance Overview Dashboard", type: "dashboard" },
@@ -156,11 +203,13 @@ export const MODULES_REGISTRY = {
     name: "Production",
     icon: "🏭",
     features: [
-      { key: "bom", label: "Bills of Materials", type: "feature" },
+      { key: "boms", label: "Bills of Materials", type: "feature" },
+      { key: "routings", label: "Routing & Operations", type: "feature" },
       { key: "work-orders", label: "Work Orders", type: "feature" },
       { key: "production-planning", label: "Production Planning", type: "feature" },
       { key: "job-cards", label: "Job Cards", type: "feature" },
       { key: "production-reports", label: "Production Reports", type: "feature" },
+      { key: "setup", label: "Manufacturing Setup", type: "feature" },
     ],
     dashboards: [
       { key: "production-overview", label: "Production Overview Dashboard", type: "dashboard" },
@@ -176,6 +225,8 @@ export const MODULES_REGISTRY = {
       { key: "tasks", label: "Task Management", type: "feature" },
       { key: "milestones", label: "Milestones", type: "feature" },
       { key: "resources", label: "Resource Management", type: "feature" },
+      { key: "timesheets", label: "Timesheets", type: "feature" },
+      { key: "expenses", label: "Project Expenses", type: "feature" },
       { key: "project-reports", label: "Project Reports", type: "feature" },
     ],
     dashboards: [
@@ -195,6 +246,10 @@ export const MODULES_REGISTRY = {
       { key: "post-to-finance", label: "Post to Finance", type: "feature" },
       { key: "returns", label: "POS Returns", type: "feature" },
       { key: "register", label: "POS Register", type: "feature" },
+      { key: "reports", label: "POS Reports", type: "feature" },
+      { key: "dashboard", label: "POS Dashboard", type: "feature" },
+      { key: "customer-history", label: "Customer History", type: "feature" },
+      { key: "reconciliation", label: "Sync Reconciliation", type: "feature" },
       { key: "setup", label: "POS Setup", type: "feature" },
     ],
     dashboards: [
@@ -211,9 +266,22 @@ export const MODULES_REGISTRY = {
       { key: "reports", label: "Custom Reports", type: "feature" },
       { key: "data-sources", label: "Data Sources", type: "feature" },
       { key: "analytics", label: "Analytics", type: "feature" },
+      { key: "bi-reports", label: "BI Reports", type: "feature" },
     ],
     dashboards: [
       { key: "bi-overview", label: "BI Overview Dashboard", type: "dashboard" },
+      { key: "executive-dashboard", label: "Executive Dashboard", type: "dashboard" },
+    ]
+  },
+
+  "executive-overview": {
+    name: "Executive Overview",
+    icon: "🎯",
+    features: [
+      { key: "dashboard", label: "Executive Dashboard", type: "feature" },
+      { key: "kpi-reports", label: "KPI Reports", type: "feature" },
+    ],
+    dashboards: [
       { key: "executive-dashboard", label: "Executive Dashboard", type: "dashboard" },
     ]
   },
@@ -223,9 +291,13 @@ export const MODULES_REGISTRY = {
     icon: "🔧",
     features: [
       { key: "service-requests", label: "Service Requests", type: "feature" },
+      { key: "service-orders", label: "Service Orders", type: "feature" },
+      { key: "service-executions", label: "Service Execution", type: "feature" },
       { key: "service-confirmations", label: "Service Confirmations", type: "feature" },
       { key: "billing", label: "Service Billing", type: "feature" },
       { key: "service-reports", label: "Service Reports", type: "feature" },
+      { key: "visitors-log", label: "Visitors Log Book", type: "feature" },
+      { key: "setup", label: "Service Setup", type: "feature" },
     ],
     dashboards: [
       { key: "service-overview", label: "Service Overview Dashboard", type: "dashboard" },
@@ -234,7 +306,6 @@ export const MODULES_REGISTRY = {
   }
 };
 
-// Helper functions for permission management
 export function getAllModuleKeys() {
   return Object.keys(MODULES_REGISTRY);
 }
@@ -278,7 +349,6 @@ export function getAllDashboards() {
 export function getModuleFeatures(moduleKey) {
   const moduleInfo = MODULES_REGISTRY[moduleKey];
   if (!moduleInfo) return [];
-  
   return moduleInfo.features.map(feature => ({
     module_key: moduleKey,
     feature_key: `${moduleKey}:${feature.key}`,
@@ -291,7 +361,6 @@ export function getModuleFeatures(moduleKey) {
 export function getModuleDashboards(moduleKey) {
   const moduleInfo = MODULES_REGISTRY[moduleKey];
   if (!moduleInfo) return [];
-  
   return moduleInfo.dashboards.map(dashboard => ({
     module_key: moduleKey,
     feature_key: `${moduleKey}:${dashboard.key}`,

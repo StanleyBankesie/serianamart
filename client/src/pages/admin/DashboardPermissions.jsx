@@ -20,78 +20,84 @@ export default function DashboardPermissions() {
       icon: val.icon,
       dashboards: val.dashboards || [],
     }));
-    // Add Home as a virtual module for homepage cards/tickers
     base.unshift({ key: "home", name: "Home", icon: "🏠", dashboards: [] });
     return base;
   }, []);
 
-  const KNOWN_CARDS = useMemo(
-    () => ({
-      home: [
-        { key: "today-sales", label: "Today Sales" },
-        { key: "total-customers", label: "Total Customers" },
-        { key: "average-order", label: "Average Order" },
-        { key: "monthly-revenue", label: "Monthly Revenue" },
-      ],
-      administration: [
-        { key: "total-users", label: "Total Users" },
-        { key: "active-sessions", label: "Active Sessions" },
-        { key: "pending-workflows", label: "Pending Workflows" },
-      ],
-      sales: [
-        { key: "total-sales", label: "Total Sales" },
-        { key: "open-orders", label: "Open Orders" },
-        { key: "pending-deliveries", label: "Pending Deliveries" },
-      ],
-      inventory: [
-        { key: "items-tracked", label: "Items Tracked" },
-        { key: "pending-requisitions", label: "Pending Requisitions" },
-        { key: "incoming-transfers", label: "Incoming Transfers" },
-      ],
-      finance: [
-        { key: "cash-balance", label: "Cash Balance" },
-        { key: "pending-vouchers", label: "Pending Vouchers" },
-        { key: "monthly-expenses", label: "Monthly Expenses" },
-      ],
-      "human-resources": [
-        { key: "active-employees", label: "Active Employees" },
-        { key: "on-leave", label: "On Leave" },
-        { key: "payroll-status", label: "Payroll Status" },
-      ],
-      maintenance: [
-        { key: "open-work-orders", label: "Open Work Orders" },
-        { key: "overdue-pms", label: "Overdue PMs" },
-        { key: "asset-health", label: "Asset Health" },
-      ],
-      production: [
-        { key: "active-work-orders", label: "Active Work Orders" },
-        { key: "efficiency", label: "Efficiency" },
-        { key: "active-boms", label: "Active BOMs" },
-      ],
-      "project-management": [
-        { key: "active-projects", label: "Active Projects" },
-        { key: "open-tasks", label: "Open Tasks" },
-        { key: "on-time-completion", label: "On Time Completion" },
-      ],
-      pos: [
-        { key: "today-sales", label: "Today Sales" },
-        { key: "total-customers", label: "Total Customers" },
-        { key: "average-order", label: "Average Order" },
-        { key: "monthly-revenue", label: "Monthly Revenue" },
-      ],
-      "business-intelligence": [
-        { key: "active-dashboards", label: "Active Dashboards" },
-        { key: "scheduled-reports", label: "Scheduled Reports" },
-        { key: "data-sources", label: "Data Sources" },
-      ],
-      "service-management": [
-        { key: "open-requests", label: "Open Requests" },
-        { key: "pending-bills", label: "Pending Bills" },
-        { key: "confirmed-services", label: "Confirmed Services" },
-      ],
-    }),
-    [],
-  );
+  const KNOWN_CARDS = useMemo(() => ({
+    home: [
+      { key: "today-sales", label: "Today Sales" },
+      { key: "total-customers", label: "Total Customers" },
+      { key: "average-order", label: "Average Order" },
+      { key: "monthly-revenue", label: "Monthly Revenue" },
+    ],
+    administration: [
+      { key: "total-users", label: "Total Users" },
+      { key: "active-sessions", label: "Active Sessions" },
+      { key: "pending-workflows", label: "Pending Workflows" },
+    ],
+    sales: [
+      { key: "total-sales", label: "Total Sales" },
+      { key: "open-orders", label: "Open Orders" },
+      { key: "pending-deliveries", label: "Pending Deliveries" },
+    ],
+    purchase: [
+      { key: "pending-orders", label: "Pending Orders" },
+      { key: "pending-grns", label: "Pending GRNs" },
+      { key: "active-suppliers", label: "Active Suppliers" },
+    ],
+    inventory: [
+      { key: "items-tracked", label: "Items Tracked" },
+      { key: "pending-requisitions", label: "Pending Requisitions" },
+      { key: "incoming-transfers", label: "Incoming Transfers" },
+    ],
+    finance: [
+      { key: "cash-balance", label: "Cash Balance" },
+      { key: "pending-vouchers", label: "Pending Vouchers" },
+      { key: "monthly-expenses", label: "Monthly Expenses" },
+    ],
+    "human-resources": [
+      { key: "active-employees", label: "Active Employees" },
+      { key: "on-leave", label: "On Leave" },
+      { key: "payroll-status", label: "Payroll Status" },
+    ],
+    maintenance: [
+      { key: "open-work-orders", label: "Open Work Orders" },
+      { key: "overdue-pms", label: "Overdue PMs" },
+      { key: "asset-health", label: "Asset Health" },
+    ],
+    production: [
+      { key: "active-work-orders", label: "Active Work Orders" },
+      { key: "efficiency", label: "Efficiency" },
+      { key: "active-boms", label: "Active BOMs" },
+    ],
+    "project-management": [
+      { key: "active-projects", label: "Active Projects" },
+      { key: "open-tasks", label: "Open Tasks" },
+      { key: "on-time-completion", label: "On Time Completion" },
+    ],
+    pos: [
+      { key: "today-sales", label: "Today Sales" },
+      { key: "total-customers", label: "Total Customers" },
+      { key: "average-order", label: "Average Order" },
+      { key: "monthly-revenue", label: "Monthly Revenue" },
+    ],
+    "business-intelligence": [
+      { key: "active-dashboards", label: "Active Dashboards" },
+      { key: "scheduled-reports", label: "Scheduled Reports" },
+      { key: "data-sources", label: "Data Sources" },
+    ],
+    "service-management": [
+      { key: "open-requests", label: "Open Requests" },
+      { key: "pending-bills", label: "Pending Bills" },
+      { key: "confirmed-services", label: "Confirmed Services" },
+    ],
+    "executive-overview": [
+      { key: "executive-metrics", label: "Executive Metrics" },
+      { key: "kpi-summary", label: "KPI Summary" },
+      { key: "goal-tracking", label: "Goal Tracking" },
+    ],
+  }), []);
 
   useEffect(() => {
     async function loadUsers() {
@@ -255,88 +261,104 @@ export default function DashboardPermissions() {
 
           {selectedUserId && (
             <div className="space-y-6">
-              {modules.map((m) => (
-                <div key={m.key} className="border rounded-lg">
-                  <div className="px-4 py-3 bg-slate-50 border-b">
-                    <div className="font-semibold">
-                      {m.icon} {m.name}
+              {modules.map((m) => {
+                const cards = KNOWN_CARDS[m.key] || [];
+                const hasDashboards = m.dashboards.length > 0;
+                const hasCards = cards.length > 0;
+                if (!hasDashboards && !hasCards && m.key !== "home") return null;
+
+                return (
+                  <div key={m.key} className="border rounded-lg">
+                    <div className="px-4 py-3 bg-slate-50 border-b flex items-center justify-between">
+                      <div className="font-semibold">
+                        {m.icon} {m.name}
+                      </div>
+                      {(hasDashboards || hasCards) && (
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="checkbox checkbox-sm"
+                            checked={
+                              (hasDashboards && m.dashboards.every((d) => getView(m.key, d.key))) &&
+                              (hasCards && cards.every((c) => getView(m.key, null, c.key, null)))
+                            }
+                            onChange={(e) => {
+                              const val = e.target.checked;
+                              m.dashboards.forEach((d) => {
+                                setView(m.key, d.key, null, null, val);
+                                persistPermission(m.key, "dashboard", d.key, val);
+                              });
+                              cards.forEach((c) => {
+                                setView(m.key, null, c.key, null, val);
+                                persistPermission(m.key, "card", c.key, val);
+                              });
+                            }}
+                          />
+                          <span>Select All</span>
+                        </label>
+                      )}
                     </div>
-                  </div>
-                  <div className="p-4 space-y-4">
-                    <div>
-                      <h4 className="font-medium mb-2">Dashboards</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                        {m.dashboards.map((d) => (
-                          <label
-                            key={d.key}
-                            className="flex items-center gap-2"
-                          >
+                    <div className="p-4 space-y-4">
+                      {m.dashboards.map((d) => (
+                        <div key={d.key}>
+                          <label className="flex items-center gap-2 font-medium mb-2">
                             <input
                               type="checkbox"
                               className="checkbox checkbox-sm"
                               checked={getView(m.key, d.key)}
                               onChange={(e) => {
-                                setView(
-                                  m.key,
-                                  d.key,
-                                  null,
-                                  null,
-                                  e.target.checked,
-                                );
-                                persistPermission(
-                                  m.key,
-                                  "dashboard",
-                                  d.key,
-                                  e.target.checked,
-                                );
+                                setView(m.key, d.key, null, null, e.target.checked);
+                                persistPermission(m.key, "dashboard", d.key, e.target.checked);
                               }}
                             />
-                            <span className="text-sm">{d.name || d.label}</span>
+                            <span>📊 {d.name || d.label}</span>
                           </label>
-                        ))}
-                      </div>
+                          <div className="ml-7 space-y-1">
+                            {(cards.length > 0) && cards.map((c) => (
+                              <label
+                                key={c.key}
+                                className="flex items-center gap-2 pl-2 border-l-2 border-slate-200"
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="checkbox checkbox-xs"
+                                  checked={getView(m.key, null, c.key, null)}
+                                  onChange={(e) => {
+                                    setView(m.key, null, c.key, null, e.target.checked);
+                                    persistPermission(m.key, "card", c.key, e.target.checked);
+                                  }}
+                                />
+                                <span className="text-sm text-slate-600">{c.label}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      {m.dashboards.length === 0 && cards.length > 0 && (
+                        <div>
+                          <h4 className="font-medium mb-2">📊 Dashboard Cards</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {cards.map((c) => (
+                              <label key={c.key} className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  className="checkbox checkbox-sm"
+                                  checked={getView(m.key, null, c.key, null)}
+                                  onChange={(e) => {
+                                    setView(m.key, null, c.key, null, e.target.checked);
+                                    persistPermission(m.key, "card", c.key, e.target.checked);
+                                  }}
+                                />
+                                <span className="text-sm">{c.label}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-
-                    <div>
-                      <h4 className="font-medium mb-2">Cards</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                        {(KNOWN_CARDS[m.key] || []).map((c) => (
-                          <label
-                            key={c.key}
-                            className="flex items-center gap-2"
-                          >
-                            <input
-                              type="checkbox"
-                              className="checkbox checkbox-sm"
-                              checked={getView(m.key, null, c.key, null)}
-                              onChange={(e) => {
-                                setView(
-                                  m.key,
-                                  null,
-                                  c.key,
-                                  null,
-                                  e.target.checked,
-                                );
-                                persistPermission(
-                                  m.key,
-                                  "card",
-                                  c.key,
-                                  e.target.checked,
-                                );
-                              }}
-                            />
-                            <span className="text-sm">{c.label}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-
                   </div>
-                </div>
-              ))}
-
-              {/* Immediate save on toggle; no bulk Save button needed */}
+                );
+              })}
             </div>
           )}
         </div>

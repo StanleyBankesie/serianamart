@@ -4,7 +4,9 @@ import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
-import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
+import { printDocument, downloadDocumentPdf } from "@/utils/pdfUtils.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import {
   ListPrintIconButton,
   ListPdfIconButton,
@@ -164,6 +166,8 @@ export default function GeneralRequisitionList() {
         String(r.requested_by || "").toLowerCase().includes(q),
     );
   }, [items, statusFilter, searchTerm]);
+
+  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "requisition_no", "desc");
 
   const openForwardModal = async (doc) => {
     setSelectedDoc(doc);
@@ -476,18 +480,18 @@ export default function GeneralRequisitionList() {
           <table className="table">
             <thead>
               <tr>
-                <th>Req. No</th>
-                <th>Date</th>
-                <th>Type</th>
-                <th>Department</th>
-                <th>Requested By</th>
-                <th>Priority</th>
-                <th className="text-center">Items</th>
-                <th className="text-right">Est. Cost</th>
-                <th>Status</th>
+                <SortableHeader label="Req. No" sortKey="requisition_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Date" sortKey="requisition_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Type" sortKey="requisition_type" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Department" sortKey="department" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Requested By" sortKey="requested_by" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Priority" sortKey="priority" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Items" sortKey="item_count" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-center" />
+                <SortableHeader label="Est. Cost" sortKey="total_estimated_cost" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 <th className="text-right">Actions</th>
-                <th>Created By</th>
-                <th>Created Date</th>
+                <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
               </tr>
             </thead>
             <tbody>
@@ -510,7 +514,7 @@ export default function GeneralRequisitionList() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((r) => (
+                sortedFiltered.map((r) => (
                   <tr key={r.id}>
                     <td className="font-mono text-sm text-brand">{r.requisition_no}</td>
                     <td className="text-sm">{String(r.requisition_date || "").slice(0, 10)}</td>
@@ -572,28 +576,14 @@ export default function GeneralRequisitionList() {
                         {/* Slot 3: Print */}
                         <div className="min-w-[80px]">
                           <ListPrintIconButton
-                            onClick={() =>
-                              window.open(
-                                `/purchase/general-requisitions/${r.id}`,
-                                "_blank",
-                                "noopener,noreferrer",
-                              )
-                            }
+                            onClick={() => printDocument(api, "general-requisition", r.id, toast)}
                           />
                         </div>
 
                         {/* Slot 4: PDF */}
                         <div className="min-w-[80px]">
                           <ListPdfIconButton
-                            onClick={async () => {
-                              try {
-                                const res = await api.post(`/documents/general-requisition/${r.id}/render`, { format: "html" });
-                                const html = typeof res.data === "string" ? res.data : String(res.data || "");
-                                await renderHtmlToPdf(html, `GenReq-${r.requisition_no || r.id}.pdf`);
-                              } catch (e) {
-                                toast.error("Failed to download PDF");
-                              }
-                            }}
+                            onClick={() => downloadDocumentPdf(api, "general-requisition", r.id, `GenReq-${r.requisition_no || r.id}.pdf`, toast)}
                           />
                         </div>
 
@@ -615,14 +605,14 @@ export default function GeneralRequisitionList() {
                                 <span className="list-approval-approved-pill">
                                   Approved
                                 </span>
-                                {/* Slot 7: Reverse Approval (Cancel) */}
+                                {/* Slot 7: Reverse Approval */}
                                 {normalizeStatus(r.status) === "APPROVED" && canReverseApproval() && (
                                   <button
                                     type="button"
                                     className="list-approval-reverse-btn"
                                     onClick={() => reverseApproval(r.id)}
                                   >
-                                    Cancel
+                                    Reverse Approval
                                   </button>
                                 )}
                               </div>

@@ -225,7 +225,8 @@ export default function DocumentTemplatesPage() {
         { format: "html" },
         { headers: { "Content-Type": "application/json" } },
       );
-      const html = typeof resp.data === "string" ? resp.data : String(resp.data || "");
+      const html =
+        typeof resp.data === "string" ? resp.data : String(resp.data || "");
       const fileName = `${docType}-${!isSample ? idNum : "preview"}.pdf`;
       await renderHtmlToPdf(html, fileName);
     } catch (e) {
@@ -378,7 +379,9 @@ export default function DocumentTemplatesPage() {
                 <div className="absolute inset-0 bg-white/60 dark:bg-slate-900/60 z-10 flex items-center justify-center backdrop-blur-[1px]">
                   <div className="flex flex-col items-center gap-2">
                     <div className="w-8 h-8 border-4 border-brand border-t-transparent rounded-full animate-spin"></div>
-                    <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Loading Template...</span>
+                    <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Loading Template...
+                    </span>
                   </div>
                 </div>
               )}
@@ -420,7 +423,7 @@ export default function DocumentTemplatesPage() {
                       }
                     />
                   </div>
-                  <div className="md:col-span-2">
+                  <div>
                     <label className="label">Header Address</label>
                     <input
                       className="input"
@@ -433,7 +436,7 @@ export default function DocumentTemplatesPage() {
                       }
                     />
                   </div>
-                  <div className="md:col-span-2">
+                  <div>
                     <label className="label">Header Address 2</label>
                     <input
                       className="input"

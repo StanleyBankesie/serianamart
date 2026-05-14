@@ -4,7 +4,7 @@ import { toast } from "react-toastify";
 import { api } from "api/client";
 import { usePermission } from "../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
-import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
+import { printDocument, downloadDocumentPdf } from "@/utils/pdfUtils.js";
 import {
   ListPrintIconButton,
   ListPdfIconButton,
@@ -187,28 +187,14 @@ export default function JournalVoucherList() {
                         {/* Slot 3: Print */}
                         <div className="min-w-[80px]">
                           <ListPrintIconButton
-                            onClick={() =>
-                              window.open(
-                                `/finance/journal-voucher/${voucher.id}?mode=view`,
-                                "_blank",
-                                "noopener,noreferrer",
-                              )
-                            }
+                            onClick={() => printDocument(api, "voucher", voucher.id, toast)}
                           />
                         </div>
 
                         {/* Slot 4: PDF */}
                         <div className="min-w-[80px]">
                           <ListPdfIconButton
-                            onClick={async () => {
-                              try {
-                                const res = await api.post(`/documents/voucher/${voucher.id}/render`, { format: "html" });
-                                const html = typeof res.data === "string" ? res.data : String(res.data || "");
-                                await renderHtmlToPdf(html, `JV-${voucher.voucher_no || voucher.id}.pdf`);
-                              } catch (e) {
-                                toast.error("Failed to download PDF");
-                              }
-                            }}
+                            onClick={() => downloadDocumentPdf(api, "voucher", voucher.id, `JV-${voucher.voucher_no || voucher.id}.pdf`, toast)}
                           />
                         </div>
 

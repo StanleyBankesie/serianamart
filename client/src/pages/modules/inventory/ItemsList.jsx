@@ -5,6 +5,7 @@ import { api } from "../../../api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import * as XLSX from "xlsx";
 import { autosizeWorksheetColumns } from "../../../utils/xlsxUtils";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function ItemsList() {
   const [items, setItems] = useState([]);
@@ -1205,27 +1206,79 @@ export default function ItemsList() {
             <table className="table">
               <thead>
                 <tr>
-                  <th onClick={() => onSort("item_code")}>Item Code</th>
-                  <th onClick={() => onSort("item_name")}>Item Name</th>
-                  <th onClick={() => onSort("item_type")}>Type</th>
-                  <th onClick={() => onSort("category_name")}>Category</th>
-                  <th onClick={() => onSort("group_name")}>Group</th>
-                  <th onClick={() => onSort("uom")}>UOM</th>
+                  <SortableHeader
+                    label="Item Code"
+                    sortKey="item_code"
+                    currentKey={sort.key}
+                    direction={sort.asc ? "asc" : "desc"}
+                    onToggle={onSort}
+                  />
+                  <SortableHeader
+                    label="Item Name"
+                    sortKey="item_name"
+                    currentKey={sort.key}
+                    direction={sort.asc ? "asc" : "desc"}
+                    onToggle={onSort}
+                  />
+                  <SortableHeader
+                    label="Type"
+                    sortKey="item_type"
+                    currentKey={sort.key}
+                    direction={sort.asc ? "asc" : "desc"}
+                    onToggle={onSort}
+                  />
+                  <SortableHeader
+                    label="Category"
+                    sortKey="category_name"
+                    currentKey={sort.key}
+                    direction={sort.asc ? "asc" : "desc"}
+                    onToggle={onSort}
+                  />
+                  <SortableHeader
+                    label="Group"
+                    sortKey="group_name"
+                    currentKey={sort.key}
+                    direction={sort.asc ? "asc" : "desc"}
+                    onToggle={onSort}
+                  />
+                  <SortableHeader
+                    label="UOM"
+                    sortKey="uom"
+                    currentKey={sort.key}
+                    direction={sort.asc ? "asc" : "desc"}
+                    onToggle={onSort}
+                  />
                   <th>Barcode</th>
-                  <th onClick={() => onSort("stock_level")}>Stock Level</th>
-                  <th
+                  <SortableHeader
+                    label="Stock Level"
+                    sortKey="stock_level"
+                    currentKey={sort.key}
+                    direction={sort.asc ? "asc" : "desc"}
+                    onToggle={onSort}
+                  />
+                  <SortableHeader
+                    label="Std Cost"
+                    sortKey="cost_price"
+                    currentKey={sort.key}
+                    direction={sort.asc ? "asc" : "desc"}
+                    onToggle={onSort}
                     className="text-right"
-                    onClick={() => onSort("cost_price")}
-                  >
-                    Std Cost
-                  </th>
-                  <th
+                  />
+                  <SortableHeader
+                    label="Sell Price"
+                    sortKey="selling_price"
+                    currentKey={sort.key}
+                    direction={sort.asc ? "asc" : "desc"}
+                    onToggle={onSort}
                     className="text-right"
-                    onClick={() => onSort("selling_price")}
-                  >
-                    Sell Price
-                  </th>
-                  <th onClick={() => onSort("is_active")}>Status</th>
+                  />
+                  <SortableHeader
+                    label="Status"
+                    sortKey="is_active"
+                    currentKey={sort.key}
+                    direction={sort.asc ? "asc" : "desc"}
+                    onToggle={onSort}
+                  />
                   <th>Created By</th>
                   <th>Created Date</th>
                   <th>Actions</th>

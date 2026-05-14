@@ -3,13 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 
 import { useAuth } from "../auth/AuthContext.jsx";
-import {
-  readRememberedCredentials,
-  readRememberMePreference,
-  saveRememberMePreference,
-  saveRememberedCredentials,
-  clearRememberedCredentials,
-} from "../auth/authStorage.js";
+import * as authStorage from "../auth/authStorage.js";
 import api from "../api/client.js";
 import logoClear from "../assets/resources/OMNISUITE_LOGO_CLEAR.png";
 import backgroundImage from "../assets/resources/BACKGROUND.jpg";
@@ -26,7 +20,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(() =>
-    readRememberMePreference(),
+    authStorage.readRememberMePreference(),
   );
   const handledStartupRedirect = useRef(false);
 
@@ -37,7 +31,7 @@ export default function LoginPage() {
 
   // Load remembered credentials on mount
   useEffect(() => {
-    const creds = readRememberedCredentials();
+    const creds = authStorage.readRememberedCredentials?.() || null;
     if (creds?.username) {
       setSavedCreds(creds);
       setRememberMe(true);
@@ -142,11 +136,14 @@ export default function LoginPage() {
 
       // ── Save or clear remembered credentials ──────────────
       if (rememberMe) {
-        saveRememberedCredentials(submittedUsername, submittedPassword);
-        saveRememberMePreference(true);
+        authStorage.saveRememberedCredentials(
+          submittedUsername,
+          submittedPassword,
+        );
+        authStorage.saveRememberMePreference(true);
       } else {
-        clearRememberedCredentials();
-        saveRememberMePreference(false);
+        authStorage.clearRememberedCredentials();
+        authStorage.saveRememberMePreference(false);
       }
 
       const branches = Array.isArray(data?.user?.branchIds)
@@ -247,7 +244,7 @@ export default function LoginPage() {
             method="post"
           >
             {/* ── Username field with suggestion dropdown ── */}
-            <div style={{ position: "relative" }}>
+            <div className="relative w-full">
               <label className="label" htmlFor="username">
                 Username
               </label>
@@ -255,7 +252,7 @@ export default function LoginPage() {
                 id="username"
                 name="username"
                 type="text"
-                className="input login-input"
+                className="input w-full"
                 ref={usernameRef}
                 autoComplete="username"
                 required
@@ -348,16 +345,16 @@ export default function LoginPage() {
               )}
             </div>
 
-            <div>
+            <div className="w-full">
               <label className="label" htmlFor="password">
                 Password
               </label>
-              <div className="relative">
+              <div className="relative w-full">
                 <input
                   id="password"
                   name="password"
                   type={showPassword ? "text" : "password"}
-                  className="input login-input pr-10"
+                  className="input w-full pr-20"
                   ref={passwordRef}
                   autoComplete="current-password"
                   required
@@ -381,7 +378,7 @@ export default function LoginPage() {
                 onChange={(e) => {
                   const checked = e.target.checked;
                   setRememberMe(checked);
-                  saveRememberMePreference(checked);
+                  authStorage.saveRememberMePreference(checked);
                 }}
               />
               Remember me

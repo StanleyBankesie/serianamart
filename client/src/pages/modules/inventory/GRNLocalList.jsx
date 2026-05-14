@@ -7,7 +7,7 @@ import {
   ListAttachmentIconButton,
 } from "@/components/list/ListDocActionIconButtons.jsx";
 import { toast } from "react-toastify";
-import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
+import { printDocument, downloadDocumentPdf } from "@/utils/pdfUtils.js";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
 import { api } from "api/client";
@@ -16,7 +16,7 @@ import { usePermission } from "@/auth/PermissionContext.jsx";
 
 export default function GRNLocalList() {
   const location = useLocation();
-  const { canReverseApproval, exceptionalPerms } = usePermission();
+  const { canReverseApproval, exceptionalPerms, hasExceptional } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [grns, setGrns] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -539,40 +539,14 @@ export default function GRNLocalList() {
                         {/* Slot 3: Print */}
                         <div className="min-w-[80px]">
                           <ListPrintIconButton
-                            onClick={() =>
-                              window.open(
-                                `/inventory/grn-local/${g.id}?mode=view`,
-                                "_blank",
-                                "noopener,noreferrer",
-                              )
-                            }
+                            onClick={() => printDocument(api, "grn", g.id, toast)}
                           />
                         </div>
 
                         {/* Slot 4: PDF */}
                         <div className="min-w-[80px]">
                           <ListPdfIconButton
-                            onClick={async () => {
-                              try {
-                                const res = await api.post(
-                                  `/documents/grn/${g.id}/render`,
-                                  { format: "html" },
-                                  {
-                                    headers: { "Content-Type": "application/json" },
-                                  },
-                                );
-                                const html =
-                                  typeof res.data === "string"
-                                    ? res.data
-                                    : String(res.data || "");
-                                await renderHtmlToPdf(
-                                  html,
-                                  `GRN-${g.grn_no || g.id}.pdf`,
-                                );
-                              } catch (e) {
-                                toast.error("Failed to download PDF");
-                              }
-                            }}
+                            onClick={() => downloadDocumentPdf(api, "grn", g.id, `GRN-${g.grn_no || g.id}.pdf`, toast)}
                           />
                         </div>
 
@@ -594,8 +568,8 @@ export default function GRNLocalList() {
                                 <span className="list-approval-approved-pill">
                                   Approved
                                 </span>
-                                {/* Slot 7: Reverse Approval (Cancel) */}
-                                {String(g.status || "").toUpperCase() === "APPROVED" && typeof canReverseApproval !== "undefined" && canReverseApproval() && (
+                                {/* Slot 7: Reverse Approval */}
+                                {String(g.status || "").toUpperCase() === "APPROVED" && typeof canReverseApproval !== "undefined" && (canReverseApproval() || hasExceptional("PURCHASE.GRN.REVERSE")) && (
                                   <button
                                     type="button"
                                     className="list-approval-reverse-btn"
@@ -609,7 +583,7 @@ export default function GRNLocalList() {
                                       }
                                     }}
                                   >
-                                    Cancel
+                                    Reverse Approval
                                   </button>
                                 )}
                               </div>

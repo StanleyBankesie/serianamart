@@ -488,6 +488,10 @@ async function ensureDeliveryTables() {
     await query(
       `ALTER TABLE ${details} ADD COLUMN uom VARCHAR(20) NULL AFTER unit_price`,
     ).catch(() => null);
+  if (!(await hasColumn(deliveries, "created_by")))
+    await query(
+      `ALTER TABLE ${deliveries} ADD COLUMN created_by BIGINT UNSIGNED NULL AFTER invoice_id`,
+    ).catch(() => null);
 }
 async function ensureDeliverySequenceTableTx(conn) {
   await conn
@@ -1864,14 +1868,15 @@ router.post(
             });
           }
         }
-        const [ins] = await conn.execute(
+          const userId = Number(req.user?.sub || req.user?.id);
+          const [ins] = await conn.execute(
           `
           INSERT INTO sal_deliveries
             (company_id, branch_id, delivery_no, delivery_date, customer_id, sales_order_id, invoice_id, remarks, status,
-             delivery_instructions, terms_and_conditions, total_tax, invoice_amount)
+             delivery_instructions, terms_and_conditions, total_tax, invoice_amount, created_by)
           VALUES
             (:companyId, :branchId, :delivery_no, DATE(:delivery_date), :customer_id, :sales_order_id, :invoice_id, :remarks, :status,
-             :delivery_instructions, :terms_and_conditions, :total_tax, :invoice_amount)
+             :delivery_instructions, :terms_and_conditions, :total_tax, :invoice_amount, :created_by)
           `,
           {
             companyId,
@@ -1887,6 +1892,7 @@ router.post(
             terms_and_conditions: req.body.terms_and_conditions || null,
             total_tax: Number(req.body.total_tax || 0),
             invoice_amount: Number(req.body.invoice_amount || 0),
+            created_by: userId || null,
           },
         );
         const deliveryId = ins.insertId;

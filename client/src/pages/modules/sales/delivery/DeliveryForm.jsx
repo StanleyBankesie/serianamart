@@ -493,6 +493,20 @@ export default function DeliveryForm() {
               </div>
             </div>
 
+            <div className="flex justify-end mb-2">
+              <button
+                type="button"
+                className="btn-primary text-sm"
+                onClick={() => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    items: prev.items.map((item) => ({ ...item, batch_id: "" })),
+                  }));
+                }}
+              >
+                Auto Allocate (FIFO)
+              </button>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="bg-gray-50 text-gray-700">

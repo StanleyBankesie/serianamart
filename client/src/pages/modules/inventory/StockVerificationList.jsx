@@ -4,8 +4,10 @@ import { Search, Plus } from "lucide-react";
 import { toast } from "react-toastify";
 import { api } from "../../../api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 export default function StockVerificationList() {
+  const { canReverseApproval } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [verifications, setVerifications] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -309,9 +311,33 @@ export default function StockVerificationList() {
                           
                           <div className="list-approval-slot">
                             {verification.status === "APPROVED" || verification.status === "POSTED" ? (
-                              <span className="list-approval-approved-pill">
-                                Approved
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="list-approval-approved-pill">
+                                  Approved
+                                </span>
+                                {canReverseApproval() && (
+                                  <button
+                                    type="button"
+                                    className="list-approval-reverse-btn"
+                                    onClick={async () => {
+                                      if (!window.confirm("Reverse approval?")) return;
+                                      try {
+                                        await api.post("/workflows/reverse-by-document", {
+                                          document_type: "STOCK_VERIFICATION",
+                                          document_id: verification.id,
+                                          desired_status: "DRAFT",
+                                        });
+                                        toast.success("Approval reversed");
+                                        fetchVerifications();
+                                      } catch (e) {
+                                        toast.error(e?.response?.data?.message || "Failed to reverse");
+                                      }
+                                    }}
+                                  >
+                                    Reverse Approval
+                                  </button>
+                                )}
+                              </div>
                             ) : verification.forwarded_to_username ? (
                               <span
                                 className="list-approval-forwarded-pill"

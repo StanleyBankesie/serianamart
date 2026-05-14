@@ -307,7 +307,7 @@ export default function StockUpdationList() {
                                       }
                                     }}
                                   >
-                                    Cancel
+                                    Reverse Approval
                                   </button>
                                 )}
                               </div>

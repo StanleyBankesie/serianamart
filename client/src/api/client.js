@@ -1,7 +1,6 @@
 import axios from "axios";
 import {
   queueMutation,
-  startSyncEngine,
   getQueueSnapshot,
 } from "../offline/syncEngine.js";
 import { putCache, getCache } from "../offline/cache.js";
@@ -55,7 +54,12 @@ if (!normalizedBase) {
 }
 api.defaults.baseURL = normalizedBase || "/api";
 
-startSyncEngine();
+let _syncStarted = false;
+function ensureSyncEngine() {
+  if (_syncStarted) return;
+  _syncStarted = true;
+  import("../offline/syncEngine.js").then(({ startSyncEngine }) => startSyncEngine());
+}
 
 let refreshPromise = null;
 
@@ -181,6 +185,7 @@ api.interceptors.request.use(
 api.interceptors.request.use(
   (config) => {
     const token = readStoredAuth()?.token || null;
+    if (token) ensureSyncEngine();
     if (token && !isUnauthenticatedEndpoint(config.url)) {
       config.headers.Authorization = `Bearer ${token}`;
     }

@@ -576,6 +576,10 @@ router.put(
           { id, mk: String(mk) },
         );
       }
+      // Cascade: remove permission and feature rows for modules no longer assigned
+      await query("DELETE FROM adm_role_permissions WHERE role_id = :id", { id });
+      await query("DELETE FROM adm_role_features WHERE role_id = :id", { id });
+      // Re-insert features for remaining modules (handled by the features endpoint)
       res.json({ success: true });
     } catch (err) {
       next(err);

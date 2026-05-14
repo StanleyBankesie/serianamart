@@ -1440,16 +1440,16 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                                     <span className="list-approval-approved-pill">
                                       Approved
                                     </span>
-                                    {/* Slot 7: Reverse Approval (Cancel) */}
+                                    {/* Slot 7: Reverse Approval */}
                                     {((isRV || isCV || isJV || isPAYV) &&
-                                      !isSV && !isPV && (isPAYV ? canPerformAction("finance:payment-voucher", "reverse") : true)) && (
+                                      !isSV && !isPV) && (
                                       <ReverseApprovalButton
                                         docType={isRV ? "RECEIPT_VOUCHER" : isCV ? "CONTRA_VOUCHER" : isPAYV ? "PAYMENT_VOUCHER" : "JOURNAL_VOUCHER"}
                                         docId={v.id}
                                         className="list-approval-reverse-btn"
                                         onDone={() => setItems((prev) => prev.map((x) => x.id === v.id ? { ...x, status: "RETURNED", forwarded_to_username: null } : x))}
                                       >
-                                        Cancel
+                                        Reverse Approval
                                       </ReverseApprovalButton>
                                     )}
                                   </div>

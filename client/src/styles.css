@@ -209,17 +209,20 @@
   /* Approval column — same height/padding as “Forward for approval” */
   .list-approval-forward-btn {
     @apply w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg text-white transition-colors whitespace-nowrap h-9 disabled:opacity-50 disabled:cursor-not-allowed;
-    background-color: #3c3e6e;
+    background-color: #0E3646;
   }
   .list-approval-forward-btn:hover:not(:disabled) {
-    background-color: #2c2e5e;
+    background-color: #215876;
   }
   .list-approval-forwarded-pill {
     @apply w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-amber-500 text-white whitespace-nowrap overflow-hidden text-ellipsis h-9 cursor-default select-none;
   }
   .list-approval-approved-pill {
     @apply w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg text-white cursor-default h-9;
-    background-color: #10b981;
+    background-color: var(--success-color-hover);
+  }
+  .list-approval-approved-pill:hover {
+    background-color: var(--success-color);
   }
   .list-approval-reverse-btn {
     @apply inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg transition-colors h-9 shrink-0 disabled:opacity-50;

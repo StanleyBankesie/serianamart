@@ -589,7 +589,7 @@ export default function MaterialRequisitionList() {
                                 <span className="list-approval-approved-pill">
                                   Approved
                                 </span>
-                                {/* Slot 7: Reverse Approval (Cancel) */}
+                                {/* Slot 7: Reverse Approval */}
                                 {req.status === "APPROVED" && canReverseApproval() && (
                                   <button
                                     type="button"
@@ -604,7 +604,7 @@ export default function MaterialRequisitionList() {
                                       }
                                     }}
                                   >
-                                    Cancel
+                                    Reverse Approval
                                   </button>
                                 )}
                               </div>

@@ -594,7 +594,7 @@ export default function StockAdjustmentList() {
                                     )
                                   }
                                 >
-                                  Cancel
+                                  Reverse Approval
                                 </ReverseApprovalButton>
                               </div>
                             ) : adj.forwarded_to_username ? (

@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { toast } from "react-toastify";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import useSort from "../../../../hooks/useSort.js";
+import SortableHeader from "../../../../components/SortableHeader.jsx";
 import addNotification from "react-push-notification";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 import {
@@ -16,7 +18,7 @@ import {
 export default function SalesOrderList() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { canPerformAction, hasExceptional, canReverseApproval } = usePermission();
+  const { canPerformAction, canCreateOnPage, canDeleteOnPage, hasExceptional, canReverseApproval } = usePermission();
   const [orders, setOrders] = useState([]);
   const [exceptionalAllowed, setExceptionalAllowed] = useState(false);
   const [cancelDenied, setCancelDenied] = useState(false);
@@ -670,7 +672,7 @@ export default function SalesOrderList() {
     return <span className={statusClasses[status] || "badge"}>{status}</span>;
   };
 
-  const filteredOrders = (() => {
+  const filteredBase = useMemo(() => {
     const base =
       statusFilter === "ALL"
         ? orders.slice()
@@ -680,7 +682,9 @@ export default function SalesOrderList() {
       query: searchTerm,
       getKeys: (order) => [order.order_no, order.customer_name],
     });
-  })();
+  }, [orders, statusFilter, searchTerm]);
+
+  const { sorted: filteredOrders, sortKey, sortDir, toggle } = useSort(filteredBase, "order_no", "desc");
 
   const openForwardModal = async (order) => {
     setSelectedOrder(order);
@@ -978,9 +982,11 @@ export default function SalesOrderList() {
               <Link to="/sales" className="btn btn-secondary">
                 Return to Menu
               </Link>
-              <Link to="/sales/sales-orders/new" className="btn-success">
-                + New Sales Order
-              </Link>
+              {canCreateOnPage() && (
+                <Link to="/sales/sales-orders/new" className="btn-success">
+                  + New Sales Order
+                </Link>
+              )}
             </div>
           </div>
         </div>
@@ -1033,15 +1039,15 @@ export default function SalesOrderList() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Order No</th>
-                    <th>Order Date</th>
-                    <th>Customer</th>
-                    <th>Priority</th>
-                    <th>Status</th>
-                    <th>Amount</th>
+                    <SortableHeader label="Order No" sortKey="order_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Order Date" sortKey="order_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Priority" sortKey="priority" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Amount" sortKey="total_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <th className="text-right">Actions</th>
-                    <th>Created By</th>
-                    <th>Created Date</th>
+                    <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   </tr>
                 </thead>
                 <tbody>
@@ -1121,14 +1127,14 @@ export default function SalesOrderList() {
                                 <span className="list-approval-approved-pill">
                                   Approved
                                 </span>
-                                {/* Slot 7: Reverse Approval (Cancel) */}
+                                {/* Slot 7: Reverse Approval */}
                                 {canReverseApproval() && (
                                   <button
                                     type="button"
                                     className="list-approval-reverse-btn"
                                     onClick={() => reverseSalesOrder(order.id)}
                                   >
-                                    Cancel
+                                    Reverse Approval
                                   </button>
                                 )}
                               </div>
@@ -1136,7 +1142,7 @@ export default function SalesOrderList() {
                               <span className="list-approval-forwarded-pill">
                                 Forwarded to {order.forwarded_to_username || forwardedTo[order.id] || "Approver"}
                               </span>
-                            ) : ["DRAFT", "REJECTED"].includes(String(order.status || "").toUpperCase()) ? (
+                            ) : (
                               <button
                                 type="button"
                                 className="list-approval-forward-btn"
@@ -1145,8 +1151,6 @@ export default function SalesOrderList() {
                               >
                                 Forward for Approval
                               </button>
-                            ) : (
-                              <div className="w-full h-9" />
                             )}
                           </div>
                         </div>

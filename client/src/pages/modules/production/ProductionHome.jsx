@@ -283,7 +283,7 @@ export default function ProductionHome() {
       <Route path="execution/material-requisition/new" element={<MaterialRequisitionForm />} />
       <Route path="execution/transfer" element={<ProductionTransferList />} />
       <Route path="execution/transfer/new" element={<ProductionTransferForm />} />
-      <Route path="execution/quality" element={<QualityInspectionList />} />
+      <Route path="execution/quality" element={<ProductionPlaceholder title="Quality Inspections" />} />
 
       {/* Reports Routes */}
       <Route path="reports" element={<ProductionReports />} />
@@ -295,7 +295,7 @@ export default function ProductionHome() {
       {/* New Inventory & Setup Routes */}
       <Route path="inventory/journal" element={<StockJournalList />} />
       <Route path="inventory/journal/new" element={<StockJournalForm />} />
-      <Route path="inventory/updation" element={<StockUpdationList />} />
+      <Route path="inventory/updation" element={<ProductionPlaceholder title="Inventory Updation" />} />
       <Route path="setup" element={<ProductionSetup />} />
       <Route path="setup/processes" element={<ProcessList />} />
       <Route path="setup/machines" element={<MachineList />} />

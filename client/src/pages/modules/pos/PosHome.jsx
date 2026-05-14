@@ -15,6 +15,8 @@ import api from "../../../api/client.js";
 import PosDayManagement from "./day/PosDayManagement.jsx";
 import PosDashboard from "./dashboard/PosDashboard.jsx";
 import { useAuth } from "../../../auth/AuthContext.jsx";
+import useOfflineQueue from "../../../offline/useOfflineQueue.js";
+import PosReconciliation from "./PosReconciliation.jsx";
 
 function PosLanding() {
   const [overview, setOverview] = useState(null);
@@ -159,17 +161,19 @@ function PosLanding() {
           description: "View customer purchase history by date range",
           icon: "🕑",
         },
+        {
+          name: "Sync Reconciliation",
+          path: "/pos/reconciliation",
+          description: "Manage offline sales that haven't synced",
+          icon: "🔄",
+        },
       ],
     },
   ];
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end">
-        <a href="/pos/dashboard" className="btn-primary">
-          Dashboard
-        </a>
-      </div>
+      <PosSyncStatus />
       <ModuleDashboard
         title="Point of Sale"
         description="Retail sales and transaction management"
@@ -177,6 +181,35 @@ function PosLanding() {
         sections={sections}
         features={posFeatures}
       />
+    </div>
+  );
+}
+
+function PosSyncStatus() {
+  const { pending, failed } = useOfflineQueue();
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
+  if (online && pending === 0 && failed === 0) return null;
+  return (
+    <div className={`p-3 rounded-lg border text-sm flex items-center justify-between ${online ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200"}`}>
+      <div className="flex items-center gap-2">
+        <span>{online ? "\u26A0\uFE0F" : "\uD83D\uDD34"}</span>
+        <span>
+          {online
+            ? `${pending} item${pending !== 1 ? "s" : ""} pending sync`
+            : "You are offline — sales saved locally, will sync when reconnected"}
+        </span>
+        {failed > 0 && <span className="font-semibold text-red-600">({failed} failed)</span>}
+      </div>
+      {(failed > 0 || pending > 0) && (
+        <Link to="/pos/reconciliation" className="text-brand hover:text-brand-600 text-xs font-medium underline">View Sync Queue</Link>
+      )}
     </div>
   );
 }
@@ -199,6 +232,7 @@ export default function PosHome() {
       <Route path="/customer-history" element={<PosCustomerHistory />} />
       <Route path="/setup" element={<PosSetup />} />
       <Route path="/dashboard" element={<PosDashboard />} />
+      <Route path="/reconciliation" element={<PosReconciliation />} />
     </Routes>
   );
 }
@@ -212,6 +246,7 @@ export const posFeatures = [
   { module_key: "pos", label: "POS Returns", path: "/pos/returns", type: "feature" },
   { module_key: "pos", label: "POS Register", path: "/pos/register", type: "feature" },
   { module_key: "pos", label: "POS Setup", path: "/pos/setup", type: "feature" },
+  { module_key: "pos", label: "Sync Reconciliation", path: "/pos/reconciliation", type: "feature" },
   { module_key: "pos", label: "POS Reports", path: "/pos/reports", type: "dashboard" },
   { module_key: "pos", label: "Dashboard", path: "/pos/dashboard", type: "dashboard" },
   { module_key: "pos", label: "Customer History", path: "/pos/customer-history", type: "dashboard" },

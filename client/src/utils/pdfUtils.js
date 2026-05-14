@@ -86,3 +86,58 @@ export function joinHeaderAndBody(headerHtml, bodyHtml) {
   // Naive join: place header above body
   return `${headerHtml || ""}\n${bodyHtml || ""}`;
 }
+
+export async function renderDocumentHtml(api, docType, id) {
+  const resp = await api.post(
+    `/documents/${docType}/${id}/render`,
+    { format: "html" },
+    { headers: { "Content-Type": "application/json" } },
+  );
+  return typeof resp.data === "string" ? resp.data : String(resp.data || "");
+}
+
+export async function printDocument(api, docType, id, toast) {
+  try {
+    const html = await renderDocumentHtml(api, docType, id);
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document || iframe.contentDocument || null;
+    if (!doc) {
+      document.body.removeChild(iframe);
+      return;
+    }
+    doc.open();
+    const patchCss = `<style>@media print{img{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>`;
+    doc.write(patchCss + html);
+    doc.close();
+    const win = iframe.contentWindow || window;
+    const doPrint = () => {
+      win.focus();
+      try { win.print(); } catch {}
+      setTimeout(() => { document.body.removeChild(iframe); }, 100);
+    };
+    setTimeout(doPrint, 200);
+  } catch (err) {
+    if (toast) {
+      toast.error(err?.response?.data?.message || "Failed to print document");
+    }
+  }
+}
+
+export async function downloadDocumentPdf(api, docType, id, filename, toast) {
+  try {
+    const html = await renderDocumentHtml(api, docType, id);
+    await renderHtmlToPdf(html, filename);
+  } catch (err) {
+    console.error("PDF Download Error:", err);
+    if (toast) {
+      toast.error(err?.response?.data?.message || `Failed to download ${filename}`);
+    }
+  }
+}

@@ -720,7 +720,7 @@ export default function ReturnToStoresList() {
                                       )
                                     }
                                   >
-                                    Cancel
+                                    Reverse Approval
                                   </ReverseApprovalButton>
                                 )}
                               </div>

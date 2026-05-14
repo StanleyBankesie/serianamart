@@ -1480,6 +1480,10 @@ async function loadData(type, id, companyId, branchId) {
         })),
       },
     };
+    try {
+      const qrPayload = encodeURIComponent(`PURCHASE_ORDER|${po.id}|${po.po_no || ""}|${po.po_date || ""}|${po.supplier_name || ""}`);
+      poObj.purchase_order.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
+    } catch {}
     poObj.document = poObj.purchase_order;
     poObj.items = poObj.purchase_order.items;
     return poObj;
@@ -1555,6 +1559,10 @@ async function loadData(type, id, companyId, branchId) {
         })),
       },
     };
+    try {
+      const qrPayload = encodeURIComponent(`DIRECT_PURCHASE|${hdr.id}|${hdr.dp_no || ""}|${hdr.dp_date || ""}|${hdr.supplier_name || ""}`);
+      dpObj.direct_purchase.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
+    } catch {}
     dpObj.document = dpObj.direct_purchase;
     dpObj.items = dpObj.direct_purchase.items;
     return dpObj;
@@ -1633,6 +1641,10 @@ async function loadData(type, id, companyId, branchId) {
         })),
       },
     };
+    try {
+      const qrPayload = encodeURIComponent(`PURCHASE_BILL|${hdr.id}|${hdr.bill_no || ""}|${hdr.bill_date || ""}|${hdr.supplier_name || ""}`);
+      billObj.purchase_bill.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
+    } catch {}
     billObj.document = billObj.purchase_bill;
     billObj.items = billObj.purchase_bill.items;
     billObj.tax_summary = tax_summary;
@@ -1707,6 +1719,10 @@ async function loadData(type, id, companyId, branchId) {
         })),
       },
     };
+    try {
+      const qrPayload = encodeURIComponent(`GRN|${hdr.id}|${hdr.grn_no || ""}|${hdr.grn_date || ""}|${hdr.supplier_name || ""}`);
+      grnObj.grn.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
+    } catch {}
     grnObj.document = grnObj.grn;
     grnObj.items = grnObj.grn.items;
     return grnObj;
@@ -2912,10 +2928,10 @@ router.get(
             req.query.format || req.body?.format || "html",
           ).toLowerCase();
           if (fmt === "pdf") {
-            let browser = null;
+            let page = null;
             try {
-              browser = await launchBrowser();
-              const page = await browser.newPage();
+              const browser = await launchBrowser();
+              page = await browser.newPage();
               await page.setContent(
                 "<!DOCTYPE html><html><head></head><body></body></html>",
                 { waitUntil: "domcontentloaded" },
@@ -2937,7 +2953,7 @@ router.get(
               res.send(Buffer.from(pdf));
               return;
             } finally {
-              if (browser) await browser.close().catch(() => {});
+              if (page) await page.close().catch(() => {});
             }
           }
           res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -2987,16 +3003,39 @@ router.get(
         if (Array.isArray(anyItems) && anyItems.length) tplObj = anyItems[0];
       }
 
-      // If no template, return blank output without altering UI
+      // If no specific template found, fall back to general-template (report header)
+      if (!tplObj) {
+        try {
+          const aliasesFallback = docTypeSynonymsLower("general-template");
+          const placeholdersFb = aliasesFallback.map((_, i) => `:gfb${i}`).join(", ");
+          const paramsFb = { companyId };
+          aliasesFallback.forEach((val, i) => (paramsFb[`gfb${i}`] = val));
+          const [fbRow] = await query(`SELECT id, html_content,
+                    header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                    document_type,
+            created_at,
+            u.username AS created_by_name
+           FROM document_templates
+          LEFT JOIN adm_users u ON u.id = created_by
+           WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersFb})
+             ORDER BY is_default DESC, updated_at DESC
+             LIMIT 1`,
+            paramsFb,
+          ).catch(() => []);
+          if (fbRow) tplObj = fbRow;
+        } catch {}
+      }
+
+      // If still no template, return blank
       if (!tplObj) {
         const fmt = String(
           req.query.format || req.body?.format || "html",
         ).toLowerCase();
         if (fmt === "pdf") {
-          let browser = null;
+          let page = null;
           try {
-            browser = await launchBrowser();
-            const page = await browser.newPage();
+            const browser = await launchBrowser();
+            page = await browser.newPage();
             await page.setContent(
               "<!DOCTYPE html><html><head></head><body></body></html>",
               {
@@ -3020,7 +3059,7 @@ router.get(
             res.send(Buffer.from(pdf));
             return;
           } finally {
-            if (browser) await browser.close().catch(() => {});
+            if (page) await page.close().catch(() => {});
           }
         }
         res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -3270,10 +3309,10 @@ router.get(
           </style>`;
           const doc = `<!DOCTYPE html><html><head>${head}</head><body>${cleaned}</body></html>`;
           let pdf = null;
-          let browser = null;
+          let page = null;
           try {
-            browser = await launchBrowser();
-            const page = await browser.newPage();
+            const browser = await launchBrowser();
+            page = await browser.newPage();
             page.setDefaultNavigationTimeout(30000);
             page.setDefaultTimeout(30000);
             await page.setContent(doc, {
@@ -3299,7 +3338,7 @@ router.get(
               `Failed to render PDF: ${renderErr.message}`,
             );
           } finally {
-            if (browser) await browser.close().catch(() => {});
+            if (page) await page.close().catch(() => {});
           }
           res.setHeader("Content-Type", "application/pdf");
           res.setHeader("Content-Length", Buffer.byteLength(Buffer.from(pdf)));
@@ -3404,6 +3443,12 @@ router.post(
         "salary-slip": "Salary Slip",
         "payment-voucher": "Payment voucher",
         "receipt-voucher": "Receipt Voucher",
+        quotation: "Quotation",
+        "purchase-bill": "Purchase Bill",
+        grn: "Goods Receipt Note",
+        "purchase-order": "Purchase Order",
+        "direct-purchase": "Direct Purchase",
+        "general-template": "Default General Template",
       };
       const strictName = nameMap[canonical] || null;
       if (strictName) {
@@ -3462,15 +3507,39 @@ router.post(
         if (Array.isArray(anyItems) && anyItems.length) tplObj = anyItems[0];
       }
 
+      // If no specific template found, fall back to general-template (report header)
+      if (!tplObj) {
+        try {
+          const aliasesFallback = docTypeSynonymsLower("general-template");
+          const placeholdersFb = aliasesFallback.map((_, i) => `:gfb${i}`).join(", ");
+          const paramsFb = { companyId };
+          aliasesFallback.forEach((val, i) => (paramsFb[`gfb${i}`] = val));
+          const [fbRow] = await query(`SELECT id, html_content,
+                    header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                    document_type,
+            created_at,
+            u.username AS created_by_name
+           FROM document_templates
+          LEFT JOIN adm_users u ON u.id = created_by
+           WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersFb})
+             ORDER BY is_default DESC, updated_at DESC
+             LIMIT 1`,
+            paramsFb,
+          ).catch(() => []);
+          if (fbRow) tplObj = fbRow;
+        } catch {}
+      }
+
+      // If still no template, return blank
       if (!tplObj) {
         const fmt = String(
           req.query.format || req.body?.format || "html",
         ).toLowerCase();
         if (fmt === "pdf") {
-          let browser = null;
+          let page = null;
           try {
-            browser = await launchBrowser();
-            const page = await browser.newPage();
+            const browser = await launchBrowser();
+            page = await browser.newPage();
             await page.setContent(
               "<!DOCTYPE html><html><head></head><body></body></html>",
               { waitUntil: "domcontentloaded" },
@@ -3492,7 +3561,7 @@ router.post(
             res.send(Buffer.from(pdf));
             return;
           } finally {
-            if (browser) await browser.close().catch(() => {});
+            if (page) await page.close().catch(() => {});
           }
         }
         res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -3625,10 +3694,10 @@ router.post(
               ? html
               : `<!DOCTYPE html><html><head></head><body>${html || ""}</body></html>`;
           let pdf = null;
-          let browser = null;
+          let page = null;
           try {
-            browser = await launchBrowser();
-            const page = await browser.newPage();
+            const browser = await launchBrowser();
+            page = await browser.newPage();
             await page.setContent(content, { waitUntil: "domcontentloaded" });
             pdf = await page.pdf({
               preferCSSPageSize: true,
@@ -3636,7 +3705,7 @@ router.post(
               margin: { top: "0", bottom: "0", left: "0", right: "0" },
             });
           } finally {
-            if (browser) await browser.close().catch(() => {});
+            if (page) await page.close().catch(() => {});
           }
           res.setHeader("Content-Type", "application/pdf");
           res.setHeader("Content-Length", Buffer.byteLength(Buffer.from(pdf)));
@@ -3718,6 +3787,12 @@ router.post(
         "salary-slip": "Salary Slip",
         "payment-voucher": "Payment voucher",
         "receipt-voucher": "Receipt Voucher",
+        quotation: "Quotation",
+        "purchase-bill": "Purchase Bill",
+        grn: "Goods Receipt Note",
+        "purchase-order": "Purchase Order",
+        "direct-purchase": "Direct Purchase",
+        "general-template": "Default General Template",
       };
       const strictName = nameMap[canonical] || null;
 
@@ -3779,10 +3854,10 @@ router.post(
           req.query.format || req.body?.format || "html",
         ).toLowerCase();
         if (fmt === "pdf") {
-          let browser = null;
+          let page = null;
           try {
-            browser = await launchBrowser();
-            const page = await browser.newPage();
+            const browser = await launchBrowser();
+            page = await browser.newPage();
             await page.setContent(
               "<!DOCTYPE html><html><head></head><body></body></html>",
               {
@@ -3806,7 +3881,7 @@ router.post(
             res.send(Buffer.from(pdf));
             return;
           } finally {
-            if (browser) await browser.close().catch(() => {});
+            if (page) await page.close().catch(() => {});
           }
         }
         res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -3947,10 +4022,10 @@ router.post(
               ? html
               : `<!DOCTYPE html><html><head></head><body>${html || ""}</body></html>`;
           let pdf = null;
-          let browser = null;
+          let page = null;
           try {
-            browser = await launchBrowser();
-            const page = await browser.newPage();
+            const browser = await launchBrowser();
+            page = await browser.newPage();
             await page.setContent(content, { waitUntil: "domcontentloaded" });
             pdf = await page.pdf({
               preferCSSPageSize: true,
@@ -3958,7 +4033,7 @@ router.post(
               margin: { top: "0", bottom: "0", left: "0", right: "0" },
             });
           } finally {
-            if (browser) await browser.close().catch(() => {});
+            if (page) await page.close().catch(() => {});
           }
           res.setHeader("Content-Type", "application/pdf");
           res.setHeader("Content-Length", Buffer.byteLength(Buffer.from(pdf)));
@@ -4320,10 +4395,10 @@ router.post("/raw-html-to-pdf", requireAuth, async (req, res, next) => {
         : `<!DOCTYPE html><html><head>${colorAdjustStyle}${styleTags.join("")}</head><body>${html || ""}</body></html>`;
 
     let pdf = null;
-    let browser = null;
+    let page = null;
     try {
-      browser = await launchBrowser();
-      const page = await browser.newPage();
+      const browser = await launchBrowser();
+      page = await browser.newPage();
       await page.setContent(doc, { waitUntil: "domcontentloaded" });
       pdf = await page.pdf({
         preferCSSPageSize: true,
@@ -4334,7 +4409,7 @@ router.post("/raw-html-to-pdf", requireAuth, async (req, res, next) => {
       console.error("raw-html-to-pdf error:", err);
       throw httpError(500, "RENDER_ERROR", "Failed to generate PDF from HTML");
     } finally {
-      if (browser) await browser.close().catch(() => {});
+      if (page) await page.close().catch(() => {});
     }
 
     if (!pdf) throw httpError(500, "RENDER_FAILED", "Failed to generate PDF");

@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../../../../api/client.js";
-import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
+import { printDocument, downloadDocumentPdf } from "@/utils/pdfUtils.js";
 import { toast } from "react-toastify";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { useNavigate, useLocation } from "react-router-dom";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { Link } from "react-router-dom";
@@ -57,6 +59,8 @@ export default function DirectPurchaseList() {
     })}`;
   }
 
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "dp_no", "desc");
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
@@ -93,18 +97,18 @@ export default function DirectPurchaseList() {
               <table className="table w-full">
                 <thead>
                   <tr>
-                    <th>No</th>
-                    <th>Date</th>
-                    <th style={{ width: '250px' }}>Supplier</th>
-                    <th className="text-right">Amount</th>
-                    <th>Status</th>
+                    <SortableHeader label="No" sortKey="dp_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Date" sortKey="purchase_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Supplier" sortKey="supplier_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Amount" sortKey="grand_total" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                    <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <th className="text-right">Actions</th>
-                    <th>Created By</th>
-                    <th>Created Date</th>
+                    <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((it, idx) => (
+                  {sortedItems.map((it, idx) => (
                     <tr key={it.id || idx}>
                       <td>{it.dp_no || it.document_no || it.id}</td>
                       <td>
@@ -160,28 +164,14 @@ export default function DirectPurchaseList() {
                         {/* Slot 3: Print */}
                         <div className="min-w-[80px]">
                           <ListPrintIconButton
-                            onClick={() =>
-                              window.open(
-                                `/purchase/direct-purchase/${it.id}?mode=view`,
-                                "_blank",
-                                "noopener,noreferrer",
-                              )
-                            }
+                            onClick={() => printDocument(api, "direct-purchase", it.id, toast)}
                           />
                         </div>
 
                         {/* Slot 4: PDF */}
                         <div className="min-w-[80px]">
                           <ListPdfIconButton
-                            onClick={async () => {
-                              try {
-                                const res = await api.post(`/documents/direct-purchase/${it.id}/render`, { format: "html" });
-                                const html = typeof res.data === "string" ? res.data : String(res.data || "");
-                                await renderHtmlToPdf(html, `DirectPurchase-${it.dp_no || it.id}.pdf`);
-                              } catch (e) {
-                                toast.error("Failed to download PDF");
-                              }
-                            }}
+                            onClick={() => downloadDocumentPdf(api, "direct-purchase", it.id, `DirectPurchase-${it.dp_no || it.id}.pdf`, toast)}
                           />
                         </div>
 

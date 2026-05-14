@@ -18,6 +18,7 @@ export default function UserPermissions() {
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [roleId, setRoleId] = useState(null);
+  const [roleName, setRoleName] = useState("");
   const [roleModules, setRoleModules] = useState([]);
   const [rolePermissions, setRolePermissions] = useState({});
   const [userFeatureOverrides, setUserFeatureOverrides] = useState({});
@@ -29,10 +30,7 @@ export default function UserPermissions() {
   const [moduleFilter, setModuleFilter] = useState(new Set());
   const [availableModules, setAvailableModules] = useState([]);
   const [features, setFeatures] = useState([]);
-  const [dashboards, setDashboards] = useState([]);
-  const [lowStockPush, setLowStockPush] = useState(false);
-  const [lowStockEmail, setLowStockEmail] = useState(false);
-  const [lowStockLoading, setLowStockLoading] = useState(false);
+
 
   async function loadUsers() {
     setError("");
@@ -100,6 +98,14 @@ export default function UserPermissions() {
       setRoleId(rId || null);
 
       if (rId) {
+        // Load role name
+        try {
+          const roleRes = await api.get(`/access/roles/${rId}`);
+          const role = roleRes?.data?.role || roleRes?.data || {};
+          setRoleName(String(role.name || role.role_name || ""));
+        } catch {
+          setRoleName("");
+        }
         // Load role features and existing user permissions
         const [featsRes, roleFeatsRes, userPermsRes, userOverridesRes] =
           await Promise.all([
@@ -134,23 +140,12 @@ export default function UserPermissions() {
           roleFeatSet.has(String(f.feature_key)),
         );
 
-        // Separate features and dashboards
-        const featuresOnly = [];
-        const dashboardsOnly = [];
-
-        filteredFeatures.forEach((feature) => {
+        // Features only (dashboards excluded from user permissions page)
+        const featuresOnly = filteredFeatures.filter((feature) => {
           const [moduleKey, itemKey] = feature.feature_key.split(":");
           const moduleInfo = MODULES_REGISTRY[moduleKey];
-          if (moduleInfo) {
-            const isDashboard = moduleInfo.dashboards.some(
-              (d) => d.key === itemKey,
-            );
-            if (isDashboard) {
-              dashboardsOnly.push(feature);
-            } else {
-              featuresOnly.push(feature);
-            }
-          }
+          if (!moduleInfo) return true;
+          return !moduleInfo.dashboards.some((d) => d.key === itemKey);
         });
 
         // Store role defaults + pages from context for later save (keyed by feature_key)
@@ -195,7 +190,6 @@ export default function UserPermissions() {
           Array.from(new Set(filteredFeatures.map((f) => f.module_key))),
         );
         setFeatures(featuresOnly);
-        setDashboards(dashboardsOnly);
         setModuleFilter(new Set());
       } else {
         setRoleModules([]);
@@ -203,7 +197,6 @@ export default function UserPermissions() {
         setUserFeatureOverrides({});
         setFeatureContextByKey(new Map());
         setFeatures([]);
-        setDashboards([]);
         setAvailableModules([]);
         setModuleFilter(new Set());
       }
@@ -217,12 +210,12 @@ export default function UserPermissions() {
   function resetSelection() {
     setSelectedUser(null);
     setRoleId(null);
+    setRoleName("");
     setRoleModules([]);
     setRolePermissions({});
     setUserFeatureOverrides({});
     setFeatureContextByKey(new Map());
     setFeatures([]);
-    setDashboards([]);
     setAvailableModules([]);
     setModuleFilter(new Set());
   }
@@ -266,50 +259,12 @@ export default function UserPermissions() {
     } catch {}
   }
 
-  useEffect(() => {
-    async function loadLowStockPref() {
-      if (!selectedUser) return;
-      try {
-        setLowStockLoading(true);
-        const res = await api.get(
-          `/access/notification-prefs?key=low-stock&user_id=${selectedUser}`,
-        );
-        const item = res?.data?.item || null;
-        setLowStockPush(Boolean(item?.push_enabled));
-        setLowStockEmail(Boolean(item?.email_enabled));
-      } catch {
-        setLowStockPush(false);
-        setLowStockEmail(false);
-      } finally {
-        setLowStockLoading(false);
-      }
-    }
-    loadLowStockPref();
-  }, [selectedUser]);
-
-  async function saveLowStockPref() {
-    if (!selectedUser) return;
-    try {
-      setLowStockLoading(true);
-      await api.put(`/access/notification-prefs/low-stock`, {
-        user_id: Number(selectedUser),
-        push_enabled: lowStockPush ? 1 : 0,
-        email_enabled: lowStockEmail ? 1 : 0,
-      });
-    } catch {}
-    setLowStockLoading(false);
-  }
-
   async function save() {
     try {
       if (!selectedUser) throw new Error("Select a user first");
 
       setSaving(true);
       setError("");
-
-      const dashboardKeySet = new Set(
-        dashboards.map((d) => String(d.feature_key)),
-      );
 
       // Build per-page payload only for features with explicit overrides
       const payload = [];
@@ -331,20 +286,10 @@ export default function UserPermissions() {
         const pages = Array.isArray(ctx?.pages) ? ctx.pages : [];
         if (!pages.length) continue;
 
-        const isDashboard =
-          dashboardKeySet.has(featureKey) ||
-          String(ctx?.type || "").toLowerCase() === "dashboard";
-
         const can_view = getEffective(featureKey, "can_view");
-        const can_create = isDashboard
-          ? false
-          : getEffective(featureKey, "can_create");
-        const can_edit = isDashboard
-          ? false
-          : getEffective(featureKey, "can_edit");
-        const can_delete = isDashboard
-          ? false
-          : getEffective(featureKey, "can_delete");
+        const can_create = getEffective(featureKey, "can_create");
+        const can_edit = getEffective(featureKey, "can_edit");
+        const can_delete = getEffective(featureKey, "can_delete");
 
         for (const pg of pages) {
           payload.push({
@@ -408,19 +353,15 @@ export default function UserPermissions() {
     moduleFilter.size === 0 ? true : moduleFilter.has(f.module_key),
   );
 
-  const visibleDashboards = dashboards.filter((d) =>
-    moduleFilter.size === 0 ? true : moduleFilter.has(d.module_key),
-  );
-
   const visibleFeatureKeys = visibleFeatures.map((f) => String(f.feature_key));
-  const visibleDashboardKeys = visibleDashboards.map((d) =>
-    String(d.feature_key),
-  );
-  const visibleAllKeys = visibleFeatureKeys.concat(visibleDashboardKeys);
+  const visibleAllKeys = visibleFeatureKeys;
 
   function getEffective(fk, action) {
     const row = userFeatureOverrides[String(fk)] || {};
     if (typeof row[action] === "boolean") return row[action];
+    const ctx = featureContextByKey.get(String(fk)) || {};
+    const defaultKey = `default_${action}`;
+    if (typeof ctx[defaultKey] === "boolean") return ctx[defaultKey];
     return false;
   }
 
@@ -593,14 +534,6 @@ export default function UserPermissions() {
                         can_delete: true,
                       };
                     }
-                    for (const d of visibleDashboards) {
-                      next[d.feature_key] = {
-                        can_view: true,
-                        can_create: false,
-                        can_edit: false,
-                        can_delete: false,
-                      };
-                    }
                     return next;
                   });
                 }}
@@ -700,47 +633,6 @@ export default function UserPermissions() {
             </div>
           ) : (
             <>
-              <div className="card">
-                <div className="card-body">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-semibold">
-                        Low Stock Notifications
-                      </h3>
-                      <p className="text-sm text-slate-600">
-                        Choose how this user receives low stock alerts
-                      </p>
-                    </div>
-                    <button
-                      className="btn btn-success"
-                      disabled={lowStockLoading}
-                      onClick={saveLowStockPref}
-                    >
-                      {lowStockLoading ? "Saving…" : "Save Preference"}
-                    </button>
-                  </div>
-                  <div className="mt-3 flex items-center gap-6">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="checkbox"
-                        checked={lowStockPush}
-                        onChange={(e) => setLowStockPush(e.target.checked)}
-                      />
-                      <span>Push notification + app notification</span>
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="checkbox"
-                        checked={lowStockEmail}
-                        onChange={(e) => setLowStockEmail(e.target.checked)}
-                      />
-                      <span>Email notification</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="label">Select User</label>
@@ -771,7 +663,7 @@ export default function UserPermissions() {
                 <div>
                   <label className="label">Assigned Role</label>
                   <div className="p-3 border rounded bg-slate-50 dark:bg-slate-800">
-                    {roleId ? `Role #${roleId}` : "No role assigned"}
+                    {roleId ? (roleName || `Role #${roleId}`) : "No role assigned"}
                   </div>
                 </div>
                 <div>
@@ -950,66 +842,7 @@ export default function UserPermissions() {
                     </div>
                   )}
 
-                  {/* Dashboards Section */}
-                  {visibleDashboards.length > 0 && (
-                    <div>
-                      <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                        <span>📊</span>
-                        Dashboards ({visibleDashboards.length})
-                      </h3>
-                      <div className="overflow-x-auto">
-                        <table className="table w-full">
-                          <thead>
-                            <tr>
-                              <th>Dashboard</th>
-                              <th>Module</th>
-                              <th className="text-center w-24">View</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {visibleDashboards.map((dashboard) => {
-                              const ctx =
-                                featureContextByKey.get(
-                                  String(dashboard.feature_key),
-                                ) || {};
-                              const overrideRow =
-                                userFeatureOverrides[dashboard.feature_key] ||
-                                {};
 
-                              return (
-                                <tr key={dashboard.feature_key}>
-                                  <td className="p-3 font-medium">
-                                    {dashboard.label}
-                                  </td>
-                                  <td className="p-3">
-                                    {dashboard.module_key}
-                                  </td>
-                                  <td className="p-3 text-center">
-                                    <input
-                                      type="checkbox"
-                                      className="checkbox checkbox-sm"
-                                      checked={getEffective(
-                                        dashboard.feature_key,
-                                        "can_view",
-                                      )}
-                                      disabled={saving}
-                                      onChange={(e) =>
-                                        setFeatureOverride(
-                                          dashboard.feature_key,
-                                          "can_view",
-                                          e.target.checked,
-                                        )
-                                      }
-                                    />
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </>

@@ -12,6 +12,8 @@ import {
   makeSelectCustomersBySearch,
 } from "../../../../modules/customers/customerSelectors.js";
 import { useAfterSaveRefresh } from "../../../../hooks/useAfterSaveRefresh.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function CustomerList() {
   const navigate = useNavigate();
@@ -114,6 +116,8 @@ export default function CustomerList() {
       )
     : filteredCustomers;
 
+  const { sorted: sortedBranchFiltered, sortKey, sortDir, toggle } = useSort(branchFiltered, "customer_code", "asc");
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -208,21 +212,21 @@ export default function CustomerList() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Code</th>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Price Type</th>
-                  <th>Contact</th>
-                  <th>Email/Phone</th>
-                  <th>Credit Limit</th>
-                  <th>Status</th>
+                  <SortableHeader label="Code" sortKey="customer_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Name" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Type" sortKey="customer_type" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Price Type" sortKey="price_type_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Contact" sortKey="contact_person" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Email/Phone" sortKey="email" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Credit Limit" sortKey="credit_limit" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Status" sortKey="is_active" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <th>Actions</th>
-                                <th>Created By</th>
-                <th>Created Date</th>
+                  <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {branchFiltered.map((r) => (
+                {sortedBranchFiltered.map((r) => (
                   <tr key={r.id}>
                     <td className="font-medium">{r.customer_code}</td>
                     <td>

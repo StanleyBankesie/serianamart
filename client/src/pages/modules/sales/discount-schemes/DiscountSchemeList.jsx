@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { toast } from "react-toastify";
 import "./DiscountSchemeList.css";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 const initialFormState = {
   scheme_code: "",
@@ -75,6 +77,8 @@ export default function DiscountSchemeList() {
       return matchesStatus && matchesType && matchesSearch;
     });
   }, [schemes, filterStatus, filterType, searchTerm]);
+
+  const { sorted: sortedSchemes, sortKey, sortDir, toggle } = useSort(filteredSchemes, "scheme_code", "asc");
 
   const stats = useMemo(() => {
     const total = schemes.length;
@@ -281,16 +285,16 @@ export default function DiscountSchemeList() {
           <table className="ds-table">
             <thead>
               <tr>
-                <th>Code</th>
-                <th>Scheme Name</th>
-                <th>Type</th>
-                <th>Value</th>
-                <th>Valid From</th>
-                <th>Valid To</th>
-                <th>Status</th>
+                <SortableHeader label="Code" sortKey="scheme_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Scheme Name" sortKey="scheme_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Type" sortKey="discount_type" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Value" sortKey="discount_value" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Valid From" sortKey="effective_from" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Valid To" sortKey="effective_to" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Status" sortKey="is_active" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 <th>Actions</th>
-                            <th>Created By</th>
-              <th>Created Date</th>
+                <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+              <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
               </tr>
             </thead>
             <tbody>
@@ -301,7 +305,7 @@ export default function DiscountSchemeList() {
                   </td>
                 </tr>
               ) : (
-                filteredSchemes.map((scheme) => (
+                sortedSchemes.map((scheme) => (
                   <tr key={scheme.id}>
                     <td>
                       <strong>{scheme.scheme_code}</strong>

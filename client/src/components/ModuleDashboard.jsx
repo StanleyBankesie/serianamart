@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { usePermission } from "../auth/PermissionContext.jsx";
+import { MODULES_REGISTRY } from "../data/modulesRegistry.js";
 
 const ModuleDashboard = ({
   title,
@@ -11,11 +12,24 @@ const ModuleDashboard = ({
   features = [],
   headerActions = [],
   showAll = false,
+  moduleKey,
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { canAccessPath, canAccessFeatureKey, canViewDashboardElement } =
     usePermission();
+
+  // Auto-inject a Dashboard button if the module has registered dashboards
+  const resolvedHeaderActions = useMemo(() => {
+    const actions = Array.isArray(headerActions) ? [...headerActions] : [];
+    const mk = moduleKey || (location.pathname.split("/").filter(Boolean)[0] || "");
+    const moduleInfo = MODULES_REGISTRY[mk];
+    const hasDashboards = moduleInfo && moduleInfo.dashboards && moduleInfo.dashboards.length > 0;
+    if (mk && hasDashboards && !actions.some((a) => String(a.path || "") === `/${mk}/dashboard`)) {
+      actions.push({ label: "Dashboard", path: `/${mk}/dashboard`, icon: "📊" });
+    }
+    return actions;
+  }, [headerActions, moduleKey, location.pathname]);
   const [searchTerm, setSearchTerm] = useState("");
 
   const handleNavigate = (path, e) => {
@@ -246,15 +260,13 @@ const ModuleDashboard = ({
         sItems.forEach((it) => addItem(it));
       }
     }
-    if (Array.isArray(headerActions)) {
-      headerActions.forEach((a) =>
-        addItem({
-          title: a.label || "Dashboard",
-          path: a.path,
-          icon: a.icon || "📊",
-        }),
-      );
-    }
+    resolvedHeaderActions.forEach((a) =>
+      addItem({
+        title: a.label || "Dashboard",
+        path: a.path,
+        icon: a.icon || "📊",
+      }),
+    );
     const seen = new Set();
     return items.filter((it) => {
       const k = `${it.title}|${it.path}`;
@@ -262,7 +274,7 @@ const ModuleDashboard = ({
       seen.add(k);
       return true;
     });
-  }, [overlayType, allSections, headerActions]);
+  }, [overlayType, allSections, resolvedHeaderActions]);
 
   const closeOverlay = React.useCallback(() => {
     const search = new URLSearchParams(location.search || "");
@@ -289,9 +301,9 @@ const ModuleDashboard = ({
             {description}
           </p>
         </div>
-        {Array.isArray(headerActions) && headerActions.length > 0 && (
+        {resolvedHeaderActions.length > 0 && (
           <div className="flex items-center gap-2">
-            {headerActions.map((a, i) => (
+            {resolvedHeaderActions.map((a, i) => (
               <button
                 key={i}
                 onClick={(e) => handleNavigate(a.path, e)}

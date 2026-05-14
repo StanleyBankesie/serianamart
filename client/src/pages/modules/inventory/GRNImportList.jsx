@@ -7,7 +7,7 @@ import {
   ListAttachmentIconButton,
 } from "@/components/list/ListDocActionIconButtons.jsx";
 import { toast } from "react-toastify";
-import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
+import { printDocument, downloadDocumentPdf } from "@/utils/pdfUtils.js";
 
 import { api } from "api/client";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
@@ -17,7 +17,7 @@ import { filterAndSort } from "@/utils/searchUtils.js";
 export default function GRNImportList() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { canReverseApproval, exceptionalPerms } = usePermission();
+  const { canReverseApproval, exceptionalPerms, hasExceptional } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [grns, setGrns] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -544,40 +544,14 @@ export default function GRNImportList() {
                         {/* Slot 3: Print */}
                         <div className="min-w-[80px]">
                           <ListPrintIconButton
-                            onClick={() =>
-                              window.open(
-                                `/inventory/grn-import/${g.id}?mode=view`,
-                                "_blank",
-                                "noopener,noreferrer",
-                              )
-                            }
+                            onClick={() => printDocument(api, "grn", g.id, toast)}
                           />
                         </div>
 
                         {/* Slot 4: PDF */}
                         <div className="min-w-[80px]">
                           <ListPdfIconButton
-                            onClick={async () => {
-                              try {
-                                const res = await api.post(
-                                  `/documents/grn/${g.id}/render`,
-                                  { format: "html" },
-                                  {
-                                    headers: { "Content-Type": "application/json" },
-                                  },
-                                );
-                                const html =
-                                  typeof res.data === "string"
-                                    ? res.data
-                                    : String(res.data || "");
-                                await renderHtmlToPdf(
-                                  html,
-                                  `GRN-Import-${g.grn_no || g.id}.pdf`,
-                                );
-                              } catch (e) {
-                                toast.error("Failed to download PDF");
-                              }
-                            }}
+                            onClick={() => downloadDocumentPdf(api, "grn", g.id, `GRN-Import-${g.grn_no || g.id}.pdf`, toast)}
                           />
                         </div>
 
@@ -599,8 +573,8 @@ export default function GRNImportList() {
                                 <span className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-[#10B981] text-white cursor-default h-9">
                                   Approved
                                 </span>
-                                {/* Slot 7: Reverse Approval (Cancel) */}
-                                {String(g.status || "").toUpperCase() === "APPROVED" && typeof canReverseApproval !== "undefined" && canReverseApproval() && (
+                                {/* Slot 7: Reverse Approval */}
+                                {String(g.status || "").toUpperCase() === "APPROVED" && typeof canReverseApproval !== "undefined" && (canReverseApproval() || hasExceptional("PURCHASE.GRN.REVERSE")) && (
                                   <button
                                     type="button"
                                     className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-white bg-[#990000] rounded-lg hover:bg-[#770000] transition-colors h-9"
@@ -614,7 +588,7 @@ export default function GRNImportList() {
                                       }
                                     }}
                                   >
-                                    Cancel
+                                    Reverse Approval
                                   </button>
                                 )}
                               </div>
@@ -625,7 +599,7 @@ export default function GRNImportList() {
                             ) : (
                               <button
                                 type="button"
-                                className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-[#3C3E6E] text-white hover:bg-[#2C2E5E] transition-colors whitespace-nowrap h-9"
+                                className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-[#0E3646] text-white hover:bg-[#215876] transition-colors whitespace-nowrap h-9"
                                 onClick={() => openForwardModal(g)}
                                 disabled={
                                   submittingId === g.id ||

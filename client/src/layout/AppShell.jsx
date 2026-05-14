@@ -101,6 +101,7 @@ export default function AppShell() {
   const { token, user, scope, setScope, logout } = useAuth();
   const {
     isModuleEnabled,
+    canViewModule,
     canPerformAction,
     globalOverrides,
     canPerformPageAction,
@@ -1003,7 +1004,7 @@ export default function AppShell() {
   }, [location.pathname, canPerformAction, globalOverrides]);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100 flex flex-col">
+    <div className="min-h-screen  bg-slate-50 (#f8fafc)  text-slate-900 dark:bg-slate-900 dark:text-slate-100 flex flex-col">
       {!sidebarOpen && (
         <button
           type="button"
@@ -1359,8 +1360,8 @@ export default function AppShell() {
             </NavLink>
             {modules
               .filter((m) => {
-                // Use PermissionContext to check if module is enabled
-                return isModuleEnabled(m.key);
+                // Use PermissionContext to check if module should appear in sidebar
+                return canViewModule(m.key);
               })
               .map((m) => (
                 <NavLink
@@ -1385,7 +1386,7 @@ export default function AppShell() {
           </nav>
         </aside>
 
-        <main className="bg-slate-50 dark:bg-slate-900">
+        <main className=" bg-slate-50 (#f8fafc)  dark:bg-slate-900">
           <div className="w-full max-w-full lg:max-w-[1200px] mx-auto p-2 md:p-2 lg:p-3">
             {pushPromptVisible ? (
               <div className="mb-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 flex items-center justify-between">

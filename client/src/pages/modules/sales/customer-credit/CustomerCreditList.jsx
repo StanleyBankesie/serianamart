@@ -1,8 +1,11 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function CustomerCreditList() {
   const items = [{ id: 1, customer: 'ABC Corporation', creditLimit: 50000, currency: 'GHS' }];
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "customer", "asc");
 
   return (
     <div className="space-y-4">
@@ -12,11 +15,11 @@ export default function CustomerCreditList() {
       </div></div>
 
       <div className="card"><div className="card-body overflow-x-auto">
-        <table className="table"><thead><tr><th>Customer</th><th className="text-right">Credit Limit</th><th>Currency</th><th />                    <th>Created By</th>
-                    <th>Created Date</th>
+        <table className="table"><thead><tr><SortableHeader label="Customer" sortKey="customer" currentKey={sortKey} direction={sortDir} onToggle={toggle} /><SortableHeader label="Credit Limit" sortKey="creditLimit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" /><SortableHeader label="Currency" sortKey="currency" currentKey={sortKey} direction={sortDir} onToggle={toggle} /><th />                    <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     </tr></thead>
           <tbody>
-            {items.map((r) => (
+            {sortedItems.map((r) => (
               <tr key={r.id}>
                 <td className="font-medium">{r.customer}</td>
                 <td className="text-right">{Number(r.creditLimit).toFixed(2)}</td>

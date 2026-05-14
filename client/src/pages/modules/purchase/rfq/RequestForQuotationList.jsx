@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function RequestForQuotationList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -57,6 +59,8 @@ export default function RequestForQuotationList() {
       getKeys: (rfq) => [rfq.rfq_no, rfq.delivery_terms],
     });
   }, [rfqs, searchTerm, statusFilter]);
+
+  const { sorted: sortedRfqs, sortKey, sortDir, toggle } = useSort(filteredRfqs, "rfq_no", "desc");
 
   return (
     <div className="space-y-6">

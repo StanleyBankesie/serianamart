@@ -5,10 +5,12 @@ import { api } from "api/client";
 import { toast } from "react-toastify";
 // Use direct reverse flow (like vouchers) for POs
 import { filterAndSort } from "@/utils/searchUtils.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import addNotification from "react-push-notification";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
-import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
+import { printDocument, downloadDocumentPdf } from "@/utils/pdfUtils.js";
 import {
   ListPrintIconButton,
   ListPdfIconButton,
@@ -365,6 +367,8 @@ export default function PurchaseOrdersImportList() {
     });
   }, [purchaseOrders, searchTerm, statusFilter]);
 
+  const { sorted: sortedOrders, sortKey, sortDir, toggle } = useSort(filteredOrders, "po_no", "desc");
+
   const openForwardModal = async (doc) => {
     setSelectedDoc(doc);
     setShowForwardModal(true);
@@ -692,14 +696,14 @@ export default function PurchaseOrdersImportList() {
           <table className="table">
             <thead>
               <tr>
-                <th>PO No</th>
-                <th>PO Date</th>
-                <th>Supplier</th>
-                <th className="text-right">Total Amount</th>
-                <th>Status</th>
+                <SortableHeader label="PO No" sortKey="po_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="PO Date" sortKey="po_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Supplier" sortKey="supplier_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Total Amount" sortKey="total_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 <th className="text-right">Actions</th>
-                <th>Created By</th>
-                <th>Created Date</th>
+                <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
               </tr>
             </thead>
             <tbody>
@@ -730,7 +734,7 @@ export default function PurchaseOrdersImportList() {
                   </td>
                 </tr>
               ) : (
-                filteredOrders.map((po) => (
+                sortedOrders.map((po) => (
                   <tr key={po.id}>
                     <td className="font-medium">{po.po_no}</td>
                     <td>
@@ -778,28 +782,14 @@ export default function PurchaseOrdersImportList() {
                         {/* Slot 3: Print */}
                         <div className="min-w-[80px]">
                           <ListPrintIconButton
-                            onClick={() =>
-                              window.open(
-                                `/purchase/purchase-orders-import/${po.id}`,
-                                "_blank",
-                                "noopener,noreferrer",
-                              )
-                            }
+                            onClick={() => printDocument(api, "purchase-order", po.id, toast)}
                           />
                         </div>
 
                         {/* Slot 4: PDF */}
                         <div className="min-w-[80px]">
                           <ListPdfIconButton
-                            onClick={async () => {
-                              try {
-                                const res = await api.post(`/documents/purchase-order/${po.id}/render`, { format: "html" });
-                                const html = typeof res.data === "string" ? res.data : String(res.data || "");
-                                await renderHtmlToPdf(html, `PO-Import-${po.po_no || po.id}.pdf`);
-                              } catch (e) {
-                                toast.error("Failed to download PDF");
-                              }
-                            }}
+                            onClick={() => downloadDocumentPdf(api, "purchase-order", po.id, `PO-Import-${po.po_no || po.id}.pdf`, toast)}
                           />
                         </div>
 
@@ -827,7 +817,7 @@ export default function PurchaseOrdersImportList() {
                                     className="list-approval-reverse-btn"
                                     onClick={() => reversePo(po.id)}
                                   >
-                                    Cancel
+                                    Reverse Approval
                                   </button>
                                 )}
                               </div>

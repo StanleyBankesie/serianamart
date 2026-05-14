@@ -72,14 +72,6 @@ export default function FinanceHome() {
     };
   }, []);
 
-  const quickActions = [
-    {
-      label: "Dashboard",
-      icon: "📊",
-      path: "/finance/dashboard",
-    },
-  ];
-
   const sections = [
     {
       title: "Voucher Management",
@@ -327,7 +319,6 @@ export default function FinanceHome() {
       headerActions={[
         { label: "Dashboard", path: "/finance/dashboard", icon: "📊" },
       ]}
-      quickActions={quickActions}
       sections={sections}
       features={financeFeatures}
     />

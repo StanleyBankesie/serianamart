@@ -4,6 +4,8 @@ import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function SuppliersList() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -59,6 +61,8 @@ export default function SuppliersList() {
     });
   }, [suppliers, searchTerm]);
 
+  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "supplier_code", "asc");
+
   return (
     <div className="space-y-6">
       <div className="card">
@@ -102,14 +106,14 @@ export default function SuppliersList() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Code</th>
-                  <th>Name</th>
-                  <th>Phone</th>
-                  <th>Email</th>
-                  <th>Status</th>
+                  <SortableHeader label="Code" sortKey="supplier_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Name" sortKey="supplier_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Phone" sortKey="phone" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Email" sortKey="email" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Status" sortKey="is_active" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <th>Actions</th>
-                                <th>Created By</th>
-                <th>Created Date</th>
+                  <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
@@ -135,7 +139,7 @@ export default function SuppliersList() {
                   </tr>
                 ) : null}
 
-                {filtered.map((s) => (
+                {sortedFiltered.map((s) => (
                   <tr key={s.id}>
                     <td className="font-medium text-brand-700 dark:text-brand-300">
                       {s.supplier_code || "-"}

@@ -3,6 +3,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useAuth } from "../auth/AuthContext.jsx";
@@ -404,12 +405,29 @@ export const PermissionProvider = ({ children }) => {
   };
 
   /**
+   * Check if a module should appear in sidebar navigation.
+   * Unlike isModuleEnabled, this respects the role's explicit module assignments
+   * even for superadmins. If modules have been configured (non-empty set),
+   * only those modules are shown. Falls back to isSuper when no configuration exists
+   * to prevent accidental lockout.
+   */
+  const canViewModule = (moduleKey) => {
+    const mk = String(moduleKey || "");
+    if (!mk) return false;
+    if (modules.size > 0) return modules.has(mk);
+    return isSuper;
+  };
+
+  /**
    * Check if feature is enabled
    */
+  const hasExplicitRoleConfig = roleFeatures.size > 0 || permissions.length > 0;
+
   const isFeatureEnabled = (moduleKey, featureKey) => {
     if (!isModuleEnabled(moduleKey)) return false;
-    if (isSuper) return true;
     const fk = `${moduleKey}:${featureKey}`;
+    if (hasExplicitRoleConfig) return permByFeatureKey.has(fk);
+    if (isSuper) return true;
     return permByFeatureKey.has(fk);
   };
 
@@ -418,56 +436,70 @@ export const PermissionProvider = ({ children }) => {
    */
   const isDashboardEnabled = (moduleKey, dashboardKey) => {
     if (!isModuleEnabled(moduleKey)) return false;
-    if (isSuper) return true;
     const fk = `${moduleKey}:${dashboardKey}`;
+    if (hasExplicitRoleConfig) return permByFeatureKey.has(fk);
+    if (isSuper) return true;
     return permByFeatureKey.has(fk);
   };
 
   /**
-   * Check if user can access a specific path
+   * Check if user can access a specific feature path
    */
   const canAccessFeatureKey = (moduleKey, featureKey) => {
     const mk = String(moduleKey || "");
     const seg = String(featureKey || "");
     if (!mk || !seg) return false;
-    if (isSuper) return true;
     if (!isModuleEnabled(mk)) return false;
 
     const allowKey = `${mk}:${seg}`;
     if (roleFeatures.has(allowKey)) return true;
+    if (permByFeatureKey.has(allowKey)) return true;
     if (mk === "purchase") {
       if (
         seg === "direct-purchase" &&
-        roleFeatures.has("purchase:direct-purchases")
+        (roleFeatures.has("purchase:direct-purchases") ||
+          permByFeatureKey.has("purchase:direct-purchases"))
       )
         return true;
       if (
         seg === "direct-purchases" &&
-        roleFeatures.has("purchase:direct-purchase")
+        (roleFeatures.has("purchase:direct-purchase") ||
+          permByFeatureKey.has("purchase:direct-purchase"))
       )
         return true;
     }
     if (mk === "inventory") {
-      if (seg === "items" && roleFeatures.has("inventory:item-master"))
+      if (
+        seg === "items" &&
+        (roleFeatures.has("inventory:item-master") ||
+          permByFeatureKey.has("inventory:item-master"))
+      )
         return true;
-      if (seg === "item-master" && roleFeatures.has("inventory:items"))
+      if (
+        seg === "item-master" &&
+        (roleFeatures.has("inventory:items") ||
+          permByFeatureKey.has("inventory:items"))
+      )
         return true;
     }
-    return false;
+    if (hasExplicitRoleConfig) return false;
+    return isSuper;
   };
 
   const hasRoleFeature = (allowKey) => {
     const k = String(allowKey || "").trim();
     if (!k) return false;
+    if (hasExplicitRoleConfig) return roleFeatures.has(k) || permByFeatureKey.has(k);
     if (isSuper) return true;
-    return roleFeatures.has(k);
+    return roleFeatures.has(k) || permByFeatureKey.has(k);
   };
 
   const canAccessPath = (path, action = "view") => {
     const p = String(path || "");
     if (!p) return false;
     if (p === "/" || p === "/dashboard") return true;
-    if (isSuper || globalOverrides.view) return true;
+    if (hasExplicitRoleConfig && globalOverrides.view) return true;
+    if (!hasExplicitRoleConfig && (isSuper || globalOverrides.view)) return true;
 
     const parts = p.split("/").filter(Boolean);
     if (parts[0] === "home") {
@@ -501,7 +533,7 @@ export const PermissionProvider = ({ children }) => {
   const canPerformAction = (featureKey, action = "view") => {
     const fk = String(featureKey || "").trim();
     if (!fk) return false;
-    if (isSuper) return true;
+    if (isSuper && !hasExplicitRoleConfig) return true;
     try {
       const path =
         (typeof window !== "undefined" &&
@@ -573,6 +605,39 @@ export const PermissionProvider = ({ children }) => {
   };
 
   /**
+   * Derive feature key from a URL path (e.g. /sales/invoices/new -> sales:invoices)
+   */
+  const featureKeyFromPath = (path) => {
+    const parts = String(path || window?.location?.pathname || "").split("/").filter(Boolean);
+    if (parts.length < 2) return null;
+    const last = parts[parts.length - 1];
+    // Strip /new, /create, /edit/:id, numeric IDs
+    if (last === "new" || last === "create") parts.pop();
+    else if (/^[0-9]+$/.test(last) || /^[0-9a-fA-F-]{8,}$/.test(last)) parts.pop();
+    // Re-check after stripping
+    if (parts.length < 2) return null;
+    return `${parts[0]}:${parts[1]}`;
+  };
+
+  /**
+   * Check if current user can create on the current page's feature
+   */
+  const canCreateOnPage = (path) => {
+    const fk = featureKeyFromPath(path);
+    if (!fk) return true;
+    return canPerformAction(fk, "create");
+  };
+
+  /**
+   * Check if current user can delete on the current page's feature
+   */
+  const canDeleteOnPage = (path) => {
+    const fk = featureKeyFromPath(path);
+    if (!fk) return true;
+    return canPerformAction(fk, "delete");
+  };
+
+  /**
    * Get enabled modules for sidebar
    */
   const getEnabledModules = () =>
@@ -585,9 +650,20 @@ export const PermissionProvider = ({ children }) => {
     if (!isModuleEnabled(moduleKey)) return [];
     const module = MODULES_REGISTRY[moduleKey];
     if (!module) return [];
+    // If role features or permissions have been explicitly configured, respect them
+    // even for superadmins (same as canViewModule sidebar logic).
+    if (roleFeatures.size > 0 || permissions.length > 0) {
+      return (module.features || []).filter(
+        (f) =>
+          roleFeatures.has(`${moduleKey}:${f.key}`) ||
+          permByFeatureKey.has(`${moduleKey}:${f.key}`),
+      );
+    }
     if (isSuper) return module.features || [];
-    return (module.features || []).filter((f) =>
-      roleFeatures.has(`${moduleKey}:${f.key}`),
+    return (module.features || []).filter(
+      (f) =>
+        roleFeatures.has(`${moduleKey}:${f.key}`) ||
+        permByFeatureKey.has(`${moduleKey}:${f.key}`),
     );
   };
 
@@ -598,9 +674,18 @@ export const PermissionProvider = ({ children }) => {
     if (!isModuleEnabled(moduleKey)) return [];
     const module = MODULES_REGISTRY[moduleKey];
     if (!module) return [];
+    if (roleFeatures.size > 0 || permissions.length > 0) {
+      return (module.dashboards || []).filter(
+        (d) =>
+          roleFeatures.has(`${moduleKey}:${d.key}`) ||
+          permByFeatureKey.has(`${moduleKey}:${d.key}`),
+      );
+    }
     if (isSuper) return module.dashboards || [];
-    return (module.dashboards || []).filter((d) =>
-      roleFeatures.has(`${moduleKey}:${d.key}`),
+    return (module.dashboards || []).filter(
+      (d) =>
+        roleFeatures.has(`${moduleKey}:${d.key}`) ||
+        permByFeatureKey.has(`${moduleKey}:${d.key}`),
     );
   };
 
@@ -661,9 +746,9 @@ export const PermissionProvider = ({ children }) => {
     try {
       if (typeof document !== "undefined" && document.body) {
         if (exceptionalPerms.has("SALES.DISCOUNT.ALLOW")) {
-          document.body.classList.remove("discount-guard-disabled");
-        } else {
           document.body.classList.add("discount-guard-disabled");
+        } else {
+          document.body.classList.remove("discount-guard-disabled");
         }
         const guards = [
           'input[name="discount_percent"]',
@@ -674,8 +759,12 @@ export const PermissionProvider = ({ children }) => {
           ".discount-guard select",
           ".discount-guard textarea",
         ];
-        const all = document.querySelectorAll(guards.join(","));
-        if (!exceptionalPerms.has("SALES.DISCOUNT.ALLOW")) {
+
+        const guardEnabled = exceptionalPerms.has("SALES.DISCOUNT.ALLOW");
+
+        // Apply guard immediately to existing elements
+        if (guardEnabled) {
+          const all = document.querySelectorAll(guards.join(","));
           all.forEach((el) => {
             try {
               if (!el.hasAttribute("data-discount-guard")) {
@@ -684,21 +773,15 @@ export const PermissionProvider = ({ children }) => {
               el.setAttribute("disabled", "true");
             } catch {}
           });
-        } else {
-          all.forEach((el) => {
-            try {
-              if (el.getAttribute("data-discount-guard") === "1") {
-                el.removeAttribute("disabled");
-                el.removeAttribute("data-discount-guard");
-              }
-            } catch {}
-          });
         }
-        let obs;
-        try {
-          if (typeof MutationObserver !== "undefined") {
-            const applyGuard = () => {
-              if (exceptionalPerms.has("SALES.DISCOUNT.ALLOW")) return;
+
+        // Only observe when guard is active; debounce to avoid layout thrashing
+        if (guardEnabled && typeof MutationObserver !== "undefined") {
+          let timer = null;
+          const applyGuard = () => {
+            if (timer) return;
+            timer = requestAnimationFrame(() => {
+              timer = null;
               const nodes = document.querySelectorAll(guards.join(","));
               nodes.forEach((el) => {
                 try {
@@ -708,20 +791,93 @@ export const PermissionProvider = ({ children }) => {
                   el.setAttribute("disabled", "true");
                 } catch {}
               });
-            };
-            obs = new MutationObserver(() => applyGuard());
-            obs.observe(document.body, { childList: true, subtree: true });
-            applyGuard();
-          }
-        } catch {}
-        return () => {
-          try {
-            if (obs && typeof obs.disconnect === "function") obs.disconnect();
-          } catch {}
-        };
+            });
+          };
+          const obs = new MutationObserver(() => applyGuard());
+          obs.observe(document.body, { childList: true, subtree: true });
+          return () => {
+            if (timer) cancelAnimationFrame(timer);
+            obs.disconnect();
+          };
+        }
       }
     } catch {}
   }, [exceptionalPerms]);
+
+  // Centralized create/delete button guard across all list pages
+  const guardCleanupRef = useRef(null);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    function runGuard() {
+      if (guardCleanupRef.current) guardCleanupRef.current();
+
+      const canCreate = canCreateOnPage();
+      const canDelete = canDeleteOnPage();
+      document.body.classList.toggle("create-guard-disabled", !canCreate);
+      document.body.classList.toggle("delete-guard-disabled", !canDelete);
+      if (canCreate && canDelete) { guardCleanupRef.current = null; return; }
+
+      let timer = null;
+      const createSelectors = 'a[href*="/new"], a[href*="/create"], .btn-success, .btn-primary';
+      const applyGuards = () => {
+        if (timer) return;
+        timer = requestAnimationFrame(() => {
+          timer = null;
+          if (!canCreate) {
+            document.querySelectorAll(createSelectors).forEach((el) => {
+              const text = (el.textContent || "").trim();
+              const href = (el.getAttribute("href") || "").toLowerCase();
+              if (href.includes("/new") || href.includes("/create") || /^\+/.test(text) || /\bNew\b/.test(text) || /\bCreate\b/.test(text)) {
+                if (!el.hasAttribute("data-create-guard")) {
+                  el.setAttribute("data-create-guard", el.style.display === "none" ? "hidden" : "visible");
+                  el.style.display = "none";
+                }
+              }
+            });
+          }
+          if (!canDelete) {
+            document.querySelectorAll('.btn-danger, a[href*="/delete"]').forEach((el) => {
+              const text = (el.textContent || "").trim().toLowerCase();
+              const href = (el.getAttribute("href") || "").toLowerCase();
+              if (href.includes("delete") || text === "delete" || (text.includes("delete") && text.length < 15)) {
+                if (!el.hasAttribute("data-delete-guard")) {
+                  el.setAttribute("data-delete-guard", el.style.display === "none" ? "hidden" : "visible");
+                  el.style.display = "none";
+                }
+              }
+            });
+          }
+        });
+      };
+
+      applyGuards();
+      const obs = new MutationObserver(() => applyGuards());
+      obs.observe(document.body, { childList: true, subtree: true });
+      guardCleanupRef.current = () => {
+        if (timer) cancelAnimationFrame(timer);
+        obs.disconnect();
+        document.querySelectorAll("[data-create-guard]").forEach((el) => {
+          if (el.getAttribute("data-create-guard") === "visible") el.style.display = "";
+          el.removeAttribute("data-create-guard");
+        });
+        document.querySelectorAll("[data-delete-guard]").forEach((el) => {
+          if (el.getAttribute("data-delete-guard") === "visible") el.style.display = "";
+          el.removeAttribute("data-delete-guard");
+        });
+      };
+    }
+
+    runGuard();
+    const onNav = () => runGuard();
+    window.addEventListener("popstate", onNav);
+    window.addEventListener("rbac:updated", onNav);
+    return () => {
+      window.removeEventListener("popstate", onNav);
+      window.removeEventListener("rbac:updated", onNav);
+      if (guardCleanupRef.current) guardCleanupRef.current();
+    };
+  }, [permissions, roleFeatures, exceptionalPerms]);
 
   useEffect(() => {
     function onChanged() {
@@ -739,12 +895,16 @@ export const PermissionProvider = ({ children }) => {
     loading,
     error,
     isModuleEnabled,
+    canViewModule,
     isFeatureEnabled,
     isDashboardEnabled,
     canAccessPath,
     canAccessFeatureKey,
     hasRoleFeature,
     canPerformAction,
+    canCreateOnPage,
+    canDeleteOnPage,
+    featureKeyFromPath,
     getEnabledModules,
     getEnabledFeatures,
     getEnabledDashboards,
@@ -761,7 +921,6 @@ export const PermissionProvider = ({ children }) => {
     canPerformPageAction,
     basePathFrom,
     canViewDashboardElement: (moduleKey, type, key) => {
-      if (isSuper) return true;
       const mk = String(moduleKey || "");
       const t = String(type || "");
       const rawKey = String(key || "");
@@ -770,14 +929,16 @@ export const PermissionProvider = ({ children }) => {
         .trim()
         .replace(/\s+/g, "-")
         .replace(/[^a-z0-9-]/g, "");
-      if (!dashboardViewLoaded) return true;
-      // Backward compatibility: if a user has never been configured,
-      // keep existing behavior (allow all dashboard elements).
-      if (dashboardViewMap.size === 0) return true;
-      // Once any dashboard permission entries exist for a user, treat the
-      // checklist as authoritative: checked = show, unchecked/missing = hide.
-      const comp = `${mk}|${t}|${normKey}`;
-      return dashboardViewMap.get(comp) === true;
+      // Wait for dashboard permissions to load before showing elements
+      if (!dashboardViewLoaded) return false;
+      // If dashboard permissions have been explicitly configured, respect them
+      // even for superadmins (same as canViewModule sidebar logic).
+      if (dashboardViewMap.size > 0) {
+        const comp = `${mk}|${t}|${normKey}`;
+        return dashboardViewMap.get(comp) === true;
+      }
+      // No dashboard permissions configured yet — fall back to isSuper
+      return isSuper;
     },
     setActionSessionOverride: (fk, action, value) => {
       const key =

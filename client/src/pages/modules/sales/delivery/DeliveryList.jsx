@@ -9,6 +9,8 @@ import {
 } from "@/components/list/ListDocActionIconButtons.jsx";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 function escapeHtml(v) {
   return String(v ?? "")
@@ -273,6 +275,8 @@ export default function DeliveryList() {
       getKeys: (r) => [r.delivery_no, r.customer_name],
     });
   }, [filtered, search]);
+
+  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filteredSorted, "delivery_no", "desc");
 
   async function markDelivered(id) {
     try {
@@ -602,17 +606,17 @@ export default function DeliveryList() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Delivery No</th>
-                    <th>Date</th>
-                    <th>Customer</th>
-                    <th>Status</th>
+                    <SortableHeader label="Delivery No" sortKey="delivery_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Date" sortKey="delivery_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <th>Actions</th>
-                                    <th>Created By</th>
-                  <th>Created Date</th>
+                    <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredSorted.map((r) => (
+                  {sortedFiltered.map((r) => (
                     <tr key={r.id}>
                       <td className="font-medium">{r.delivery_no}</td>
                       <td>{new Date(r.delivery_date).toLocaleDateString()}</td>

@@ -6,6 +6,8 @@ import { toast } from "react-toastify";
 import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
 import { Search } from "lucide-react";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function SalesReturnList() {
   const navigate = useNavigate();
@@ -123,6 +125,8 @@ export default function SalesReturnList() {
       getKeys: (r) => [r.return_no, r.customer_name, r.invoice_id],
     });
   }, [items, searchTerm]);
+
+  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "return_no", "desc");
 
   const stats = useMemo(() => {
     const total = items.length;
@@ -479,18 +483,18 @@ export default function SalesReturnList() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Return No</th>
-                    <th>Return Date</th>
-                    <th>Customer</th>
-                    <th className="text-right">Amount</th>
-                    <th>Status</th>
+                    <SortableHeader label="Return No" sortKey="return_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Return Date" sortKey="return_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Amount" sortKey="total_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                    <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <th className="text-right">Actions</th>
-                                    <th>Created By</th>
-                  <th>Created Date</th>
+                    <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((r) => (
+                  {sortedFiltered.map((r) => (
                     <tr key={r.id}>
                       <td className="font-medium">{r.return_no}</td>
                       <td>
@@ -556,7 +560,7 @@ export default function SalesReturnList() {
                                       )
                                     }
                                   >
-                                    Cancel
+                                    Reverse Approval
                                   </ReverseApprovalButton>
                                 )}
                               </div>

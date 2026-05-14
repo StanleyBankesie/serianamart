@@ -8,6 +8,8 @@ import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmen
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function PurchaseBillsList() {
   const location = useLocation();
@@ -129,6 +131,8 @@ export default function PurchaseBillsList() {
     });
   }, [items, searchTerm]);
 
+  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "bill_no", "desc");
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -177,20 +181,20 @@ export default function PurchaseBillsList() {
           <table className="table">
             <thead>
               <tr>
-                <th>Bill No</th>
-                <th>Date</th>
-                <th>Supplier</th>
-                <th>PO</th>
-                <th>GRN</th>
-                <th className="text-right">NET</th>
-                <th className="text-right">Tax</th>
-                <th className="text-right">TOTAL</th>
-                <th>Payment Status</th>
-                <th>Status</th>
+                <SortableHeader label="Bill No" sortKey="bill_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Date" sortKey="bill_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Supplier" sortKey="supplier_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="PO" sortKey="po_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="GRN" sortKey="grn_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="NET" sortKey="total_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                <SortableHeader label="Tax" sortKey="tax_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                <SortableHeader label="TOTAL" sortKey="net_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                <SortableHeader label="Payment Status" sortKey="payment_status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 <th>Attachments</th>
                 <th>Actions</th>
-                <th>Created By</th>
-                <th>Created Date</th>
+                <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
               </tr>
             </thead>
             <tbody>
@@ -221,7 +225,7 @@ export default function PurchaseBillsList() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((r) => (
+                sortedFiltered.map((r) => (
                   <tr key={r.id}>
                     <td className="font-medium">{r.bill_no}</td>
                     <td>

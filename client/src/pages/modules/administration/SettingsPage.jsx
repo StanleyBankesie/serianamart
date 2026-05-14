@@ -506,6 +506,15 @@ export default function SettingsPage() {
       </div>
       <div className="card">
         <div className="card-body space-y-3">
+          <div className="text-lg font-semibold">Low Stock Notifications</div>
+          <div className="text-sm text-slate-500 dark:text-slate-400">
+            Configure how users receive low stock alerts
+          </div>
+          <LowStockNotificationSection />
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-body space-y-3">
           <div className="text-lg font-semibold">Cloudinary Storage</div>
           <div className="text-sm text-slate-500 dark:text-slate-400">
             Store attachments in Cloudinary; links are saved to document
@@ -583,6 +592,95 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function LowStockNotificationSection() {
+  const [users, setUsers] = useState([]);
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [emailEnabled, setEmailEnabled] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await api.get("/admin/users");
+        const items = res?.data?.data?.items || res?.data?.items || [];
+        setUsers(items);
+      } catch {}
+    }
+    load();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedUserId) return;
+    async function loadPref() {
+      try {
+        setLoading(true);
+        const res = await api.get(`/access/notification-prefs?key=low-stock&user_id=${selectedUserId}`);
+        const item = res?.data?.item || null;
+        setPushEnabled(Boolean(item?.push_enabled));
+        setEmailEnabled(Boolean(item?.email_enabled));
+      } catch {
+        setPushEnabled(false);
+        setEmailEnabled(false);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadPref();
+  }, [selectedUserId]);
+
+  async function save() {
+    if (!selectedUserId) return;
+    try {
+      setSaving(true);
+      await api.put(`/access/notification-prefs/low-stock`, {
+        user_id: Number(selectedUserId),
+        push_enabled: pushEnabled ? 1 : 0,
+        email_enabled: emailEnabled ? 1 : 0,
+      });
+    } catch {}
+    setSaving(false);
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="max-w-md">
+        <label className="text-xs font-medium text-slate-700">User</label>
+        <select className="input w-full" value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}>
+          <option value="">Choose a user…</option>
+          {users.map((u) => (
+            <option key={u.id} value={u.id}>{u.username || u.full_name || `User #${u.id}`}</option>
+          ))}
+        </select>
+      </div>
+      {selectedUserId && (
+        <div className="space-y-3">
+          {loading ? (
+            <div className="text-sm text-slate-500">Loading preferences...</div>
+          ) : (
+            <>
+              <div className="flex items-center gap-6">
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" className="checkbox" checked={pushEnabled} onChange={(e) => setPushEnabled(e.target.checked)} />
+                  <span className="text-sm">Push notification + app notification</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" className="checkbox" checked={emailEnabled} onChange={(e) => setEmailEnabled(e.target.checked)} />
+                  <span className="text-sm">Email notification</span>
+                </label>
+              </div>
+              <button className="btn-primary" disabled={saving} onClick={save}>
+                {saving ? "Saving..." : "Save Preference"}
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -197,7 +197,7 @@ export default function DeliveryRegisterReportPage() {
                   <th>Delivery No</th>
                   <th>Customer</th>
                   <th>Item</th>
-                  <th className="text-right">Quantity</th>
+                  <th className="text-right w-24">Quantity</th>
                 </tr>
               </thead>
               <tbody>

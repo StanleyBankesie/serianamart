@@ -1,0 +1,68 @@
+[1mdiff --git a/client/src/pages/LoginPage.jsx b/client/src/pages/LoginPage.jsx[m
+[1mindex 58812678..b7fe7927 100644[m
+[1m--- a/client/src/pages/LoginPage.jsx[m
+[1m+++ b/client/src/pages/LoginPage.jsx[m
+[36m@@ -4,18 +4,23 @@[m [mimport { toast } from "react-toastify";[m
+ [m
+ import { useAuth } from "../auth/AuthContext.jsx";[m
+ import {[m
+[31m-  readRememberedCredentials,[m
+[31m-  readRememberMePreference,[m
+[31m-  saveRememberMePreference,[m
+   saveRememberedCredentials,[m
+   clearRememberedCredentials,[m
+[32m+[m[32m  readStoredAuth,[m
+[32m+[m[32m  readRememberMePreference,[m
+ } from "../auth/authStorage.js";[m
+ import api from "../api/client.js";[m
+ import logoClear from "../assets/resources/OMNISUITE_LOGO_CLEAR.png";[m
+[31m-import backgroundImage from "../assets/resources/BACKGROUND.jpg";[m
+[32m+[m[32mconst BACKGROUND_JPG = new URL("../assets/resources/BACKGROUND.jpg", import.meta.url).href;[m
+ import { Eye, EyeOff } from "lucide-react";[m
+ [m
+ export default function LoginPage() {[m
+[32m+[m[32m  const [bgLoaded, setBgLoaded] = useState(false);[m
+[32m+[m[32m  useEffect(() => {[m
+[32m+[m[32m    const img = new Image();[m
+[32m+[m[32m    img.onload = () => setBgLoaded(true);[m
+[32m+[m[32m    img.src = BACKGROUND_JPG;[m
+[32m+[m[32m  }, []);[m
+   const navigate = useNavigate();[m
+   const location = useLocation();[m
+   const { login, setScope, token, initialized } = useAuth();[m
+[36m@@ -133,6 +138,26 @@[m [mexport default function LoginPage() {[m
+     setError(null);[m
+     setLoading(true);[m
+ [m
+[32m+[m[32m    // Offline login: use cached auth token if available[m
+[32m+[m[32m    if (!navigator.onLine) {[m
+[32m+[m[32m      const stored = readStoredAuth();[m
+[32m+[m[32m      if (stored && stored.token) {[m
+[32m+[m[32m        try {[m
+[32m+[m[32m          const payload = JSON.parse(atob(stored.token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));[m
+[32m+[m[32m          const exp = Number(payload?.exp || 0);[m
+[32m+[m[32m          if (exp * 1000 > Date.now()) {[m
+[32m+[m[32m            toast.info("Using cached credentials — you are offline");[m
+[32m+[m[32m            setLoading(false);[m
+[32m+[m[32m            window.location.href = "/pos";[m
+[32m+[m[32m            return;[m
+[32m+[m[32m          }[m
+[32m+[m[32m        } catch {}[m
+[32m+[m[32m      }[m
+[32m+[m[32m      setError("Cannot login while offline. Please check your internet connection.");[m
+[32m+[m[32m      setLoading(false);[m
+[32m+[m[32m      return;[m
+[32m+[m[32m    }[m
+[32m+[m
+     try {[m
+       const data = await login({[m
+         username: submittedUsername,[m
+[36m@@ -213,7 +238,7 @@[m [mexport default function LoginPage() {[m
+     <div[m
+       className="min-h-screen grid place-items-center bg-gradient-to-br from-brand-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-6"[m
+       style={{[m
+[31m-        backgroundImage: `url(${backgroundImage})`,[m
+[32m+[m[32m        backgroundImage: bgLoaded ? `url(${BACKGROUND_JPG})` : undefined,[m
+         backgroundSize: "cover",[m
+         backgroundPosition: "center",[m
+       }}[m

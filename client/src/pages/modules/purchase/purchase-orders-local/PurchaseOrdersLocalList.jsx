@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "api/client";
-import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
+import { printDocument, downloadDocumentPdf } from "@/utils/pdfUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
 import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import addNotification from "react-push-notification";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 import {
@@ -249,6 +251,8 @@ export default function PurchaseOrdersLocalList() {
       getKeys: (po) => [po.po_no, po.supplier_name],
     });
   }, [purchaseOrders, searchTerm, statusFilter]);
+
+  const { sorted: sortedOrders, sortKey, sortDir, toggle } = useSort(filteredOrders, "po_no", "desc");
 
   const openForwardModal = async (po) => {
     setSelectedPO(po);
@@ -615,14 +619,14 @@ export default function PurchaseOrdersLocalList() {
           <table className="table">
             <thead>
               <tr>
-                <th>PO No</th>
-                <th>PO Date</th>
-                <th>Supplier</th>
-                <th className="text-right">Total Amount</th>
-                <th>Status</th>
+                <SortableHeader label="PO No" sortKey="po_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="PO Date" sortKey="po_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Supplier" sortKey="supplier_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Total Amount" sortKey="total_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 <th className="text-right">Actions</th>
-                <th>Created By</th>
-                <th>Created Date</th>
+                <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
               </tr>
             </thead>
             <tbody>
@@ -652,7 +656,7 @@ export default function PurchaseOrdersLocalList() {
                   </td>
                 </tr>
               ) : (
-                filteredOrders.map((po) => (
+                sortedOrders.map((po) => (
                   <tr key={po.id}>
                     <td className="font-medium">{po.po_no}</td>
                     <td>
@@ -700,28 +704,14 @@ export default function PurchaseOrdersLocalList() {
                         {/* Slot 3: Print */}
                         <div className="min-w-[80px]">
                           <ListPrintIconButton
-                            onClick={() =>
-                              window.open(
-                                `/purchase/purchase-orders-local/${po.id}`,
-                                "_blank",
-                                "noopener,noreferrer",
-                              )
-                            }
+                            onClick={() => printDocument(api, "purchase-order", po.id, toast)}
                           />
                         </div>
 
                         {/* Slot 4: PDF */}
                         <div className="min-w-[80px]">
                           <ListPdfIconButton
-                            onClick={async () => {
-                              try {
-                                const res = await api.post(`/documents/purchase-order/${po.id}/render`, { format: "html" });
-                                const html = typeof res.data === "string" ? res.data : String(res.data || "");
-                                await renderHtmlToPdf(html, `PO-${po.po_no || po.id}.pdf`);
-                              } catch (e) {
-                                toast.error("Failed to download PDF");
-                              }
-                            }}
+                            onClick={() => downloadDocumentPdf(api, "purchase-order", po.id, `PO-${po.po_no || po.id}.pdf`, toast)}
                           />
                         </div>
 
@@ -762,7 +752,7 @@ export default function PurchaseOrdersLocalList() {
                                       )
                                     }
                                   >
-                                    Cancel
+                                    Reverse Approval
                                   </ReverseApprovalButton>
                                 )}
                               </div>

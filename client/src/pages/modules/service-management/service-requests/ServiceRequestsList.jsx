@@ -250,7 +250,7 @@ export default function ServiceRequestsList() {
                                   <span className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-[#10B981] text-white cursor-default h-9">
                                     Approved
                                   </span>
-                                  {/* Slot 7: Reverse Approval (Cancel) */}
+                                  {/* Slot 7: Reverse Approval */}
                                   <button
                                     type="button"
                                     className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-white bg-[#990000] rounded-lg hover:bg-[#770000] transition-colors h-9"
@@ -272,7 +272,7 @@ export default function ServiceRequestsList() {
                                       }
                                     }}
                                   >
-                                    Cancel
+                                    Reverse Approval
                                   </button>
                                 </div>
                               ) : r.forwarded_to_username ? (
