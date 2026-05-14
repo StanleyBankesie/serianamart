@@ -13,6 +13,8 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function ProductionTransferList() {
   const [items, setItems] = useState([]);
@@ -33,6 +35,8 @@ export default function ProductionTransferList() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "transfer_no", "desc");
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">

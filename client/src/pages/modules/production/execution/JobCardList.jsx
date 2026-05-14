@@ -14,6 +14,8 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function JobCardList() {
   const [items, setItems] = useState([]);
@@ -59,11 +61,13 @@ export default function JobCardList() {
     }
   };
 
-  const filtered = items.filter(r => 
+  const filteredItems = items.filter(r => 
     String(r.item_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
     String(r.process_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
     String(r.machine_name || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const { sorted: filtered, sortKey, sortDir, toggle } = useSort(filteredItems, "item_name", "asc");
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
@@ -103,10 +107,10 @@ export default function JobCardList() {
           <table className="table">
             <thead>
               <tr>
-                <th>Task / Item</th>
-                <th>Resource</th>
-                <th className="text-center">Progress</th>
-                <th className="text-center">Status</th>
+                <SortableHeader label="Task / Item" sortKey="item_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Resource" sortKey="machine_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Progress" sortKey="planned_qty" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-center" />
+                <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-center" />
                 <th className="text-right">Action</th>
               </tr>
             </thead>

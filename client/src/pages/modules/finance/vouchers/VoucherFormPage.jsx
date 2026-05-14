@@ -824,6 +824,12 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       { debit: 0, credit: 0 },
     );
   }, [lines, rvForm, pvForm, cvForm, isRV, isPAYV, isCV, taxCodes]);
+  const pvAmountInBase = useMemo(() => {
+    if (!isPAYV) return 0;
+    const amount = Number(totals.grand || 0);
+    const rate = Number(pvExchangeRate || 1) || 1;
+    return Math.round(amount * rate * 100) / 100;
+  }, [isPAYV, totals.grand, pvExchangeRate]);
 
   const balanced =
     Math.round(totals.debit * 100) === Math.round(totals.credit * 100);
@@ -1713,10 +1719,18 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
 
     try {
       setLoading(true);
+      const firstPvPaymentItem =
+        pvForm.items.find(
+          (item) =>
+            Number(item?.accountId || 0) && Number(item?.amount || 0) > 0,
+        ) ||
+        pvForm.items[0] ||
+        {};
       const payload = {
         voucherTypeId: effVoucherTypeId,
         voucherTypeCode: voucherTypeCode,
         voucherDate,
+        isDirectPayment: isPAYV && paymentType === "DIRECT",
         ...(isRV
           ? {
               currencyId: rvVoucherCurrencyId || null,
@@ -1740,14 +1754,13 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         ...(isPAYV && paymentType === "DIRECT"
           ? {
               paymentDetails: {
-                accountId: pvForm.items[0]?.accountId || null,
+                accountId: firstPvPaymentItem.accountId || null,
                 paymentAccountId: pvForm.paymentAccountId || null,
-                totalAmount: pvForm.items.reduce(
-                  (sum, item) => sum + Number(item.amount || 0),
-                  0,
-                ),
+                totalAmount: Number(totals.grand || 0),
+                baseAmount: Number(pvAmountInBase || 0),
+                baseCurrencyCode: baseCurrency?.code || "USD",
                 currencyCode: effectivePaymentCurrencyCode || "USD",
-                description: pvForm.items[0]?.description || "Direct Payment",
+                description: firstPvPaymentItem.description || "Direct Payment",
               },
             }
           : {}),
@@ -1815,47 +1828,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         const res = await api.post("/finance/vouchers", payload);
         const newId = Number(res?.data?.id || 0) || null;
         const newRef = String(res?.data?.voucherNo || "") || null;
-
-        // Create Purchase Voucher when Payment Voucher is saved (for posting lines)
-        if (isPAYV && paymentType === "DIRECT" && lines.length > 0) {
-          try {
-            // Include all fields from posting lines for purchase voucher
-            const purchaseLines = lines
-              .map((l) => ({
-                accountId: Number(l.accountId || 0),
-                description: l.description || null,
-                debit: Number(l.debit || 0),
-                credit: Number(l.credit || 0),
-                // Include additional fields if present in posting lines
-                accountName: l.accountName || null,
-                accountCode: l.accountCode || null,
-                referenceNo: l.referenceNo || null,
-                chequeNumber: l.chequeNumber || null,
-                chequeDate: l.chequeDate || null,
-                paymentMethod: l.paymentMethod || null,
-              }))
-              .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0));
-
-            if (purchaseLines.length >= 2) {
-              const pvPayload = {
-                voucherTypeCode: "PV",
-                voucherDate,
-                narration: `Purchase entry from Payment Voucher ${newRef || res.data?.voucherNo || ""}`,
-                lines: purchaseLines,
-                // Include payment voucher reference for tracking
-                sourceVoucherNo: newRef || res.data?.voucherNo || null,
-                sourceVoucherType: "PAYV",
-              };
-              await api.post("/finance/vouchers", pvPayload);
-              // Purchase voucher created silently without success message
-            }
-          } catch (pvError) {
-            console.warn("Failed to create purchase voucher:", pvError);
-            toast.warning(
-              "Payment voucher saved but purchase voucher creation failed",
-            );
-          }
-        }
 
         toast.success(`Created ${res.data?.voucherNo || "voucher"}`);
         navigate(
@@ -3068,7 +3040,15 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     return () => {
       cancelled = true;
     };
-  }, [isRV, rvForm.items, accounts, baseCurrency, getExchangeRate, currencies, voucherDate]);
+  }, [
+    isRV,
+    rvForm.items,
+    accounts,
+    baseCurrency,
+    getExchangeRate,
+    currencies,
+    voucherDate,
+  ]);
   useEffect(() => {
     if (!isRV) return;
     if (!rvForm.payerAccountId) {
@@ -4593,9 +4573,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                 value={getRvItemExchangeRateValue(it, idx)}
                                 onChange={(e) =>
                                   updateRvItem(idx, {
-                                    exchangeRate: String(
-                                      e.target.value || "",
-                                    ),
+                                    exchangeRate: String(e.target.value || ""),
                                   })
                                 }
                                 disabled={readOnly}
@@ -5952,12 +5930,13 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                           AMOUNT in {baseCurrency?.code || "USD"}
                         </span>
                         <span className="font-bold">
-                          {Number(
-                            (totals.grand || 0) * (Number(pvExchangeRate) || 1),
-                          ).toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
+                          {Number(pvAmountInBase || 0).toLocaleString(
+                            undefined,
+                            {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            },
+                          )}
                         </span>
                       </div>
                     )}

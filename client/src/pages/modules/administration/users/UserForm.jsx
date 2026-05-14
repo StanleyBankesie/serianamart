@@ -44,7 +44,10 @@ export default function UserForm() {
       const [compRes, branchRes, roleRes] = await Promise.all([
         api.get("/admin/companies"),
         api.get("/admin/branches"),
-        api.get("/admin/roles").catch(() => ({ data: { items: [] } })), // Handle if roles endpoint fails or empty
+        api
+          .get("/access/roles")
+          .catch(() => api.get("/admin/roles"))
+          .catch(() => ({ data: { items: [] } })),
       ]);
       setCompanies(
         (compRes.data && compRes.data.data && compRes.data.data.items) ||
@@ -57,9 +60,20 @@ export default function UserForm() {
           [],
       );
       setRoles(
-        (roleRes.data && roleRes.data.data && roleRes.data.data.items) ||
+        (
+          (roleRes.data && roleRes.data.data && roleRes.data.data.items) ||
           roleRes.data?.items ||
-          [],
+          []
+        ).map((role) => ({
+          id: String(role.id ?? ""),
+          company_id:
+            role.company_id === null || role.company_id === undefined
+              ? ""
+              : String(role.company_id),
+          name: role.name || role.role_name || role.code || `Role #${role.id}`,
+          code: role.code || "",
+          is_active: role.is_active,
+        })),
       );
     } catch (err) {
       console.error("Error fetching dependencies:", err);
@@ -74,7 +88,7 @@ export default function UserForm() {
       if (response.data?.data?.item) {
         const u = response.data.data.item;
         setForm({
-          companyId: u.company_id || "",
+          companyId: u.company_id ? String(u.company_id) : "",
           branchIds: u.branch_id ? [String(u.branch_id)] : [],
           username: u.username || "",
           email: u.email || "",
@@ -86,7 +100,7 @@ export default function UserForm() {
           userType: u.user_type || "Internal",
           validFrom: u.valid_from ? u.valid_from.split("T")[0] : "",
           validTo: u.valid_to ? u.valid_to.split("T")[0] : "",
-          roleId: u.role_id || "",
+          roleId: u.role_id ? String(u.role_id) : "",
         });
         try {
           const br = await api.get(`/admin/users/${id}/branches`);
@@ -172,7 +186,7 @@ export default function UserForm() {
 
     try {
       const payload = {
-        company_id: form.companyId,
+        company_id: form.companyId ? Number(form.companyId) : null,
         branch_id: form.branchIds?.[0] ? Number(form.branchIds[0]) : undefined,
         branch_ids: form.branchIds.map((x) => Number(x)),
         username: form.username,
@@ -184,7 +198,7 @@ export default function UserForm() {
         user_type: form.userType,
         valid_from: form.validFrom || null,
         valid_to: form.validTo || null,
-        role_id: form.roleId || null,
+        role_id: form.roleId ? Number(form.roleId) : null,
       };
 
       if (!payload.branch_id) {
@@ -216,9 +230,11 @@ export default function UserForm() {
     : [];
 
   // Filter roles based on selected company (assuming roles are company-specific)
-  const filteredRoles = form.companyId
-    ? roles.filter((r) => String(r.company_id) === String(form.companyId))
-    : [];
+  const filteredRoles = roles.filter((r) => {
+    if (Number(r.is_active) === 0) return false;
+    if (!form.companyId) return true;
+    return String(r.company_id || "") === String(form.companyId);
+  });
 
   return (
     <div className="space-y-6">
@@ -455,7 +471,9 @@ export default function UserForm() {
                     type="button"
                     className="absolute inset-y-0 right-2 flex items-center text-slate-500"
                     onClick={() => setShowPassword((v) => !v)}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-label={
+                      showPassword ? "Hide password" : "Show password"
+                    }
                   >
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>

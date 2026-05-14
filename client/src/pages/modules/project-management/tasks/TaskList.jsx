@@ -16,6 +16,8 @@ import {
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 const StatusBadge = ({ status }) => {
   const styles = {
@@ -71,6 +73,8 @@ export default function TaskList() {
     i.project_name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(filteredItems, "task_title", "asc");
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -109,17 +113,17 @@ export default function TaskList() {
           <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-50/50 dark:bg-slate-900/30">
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Task Information</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Timeline</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">Resources</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Status</th>
+                <SortableHeader label="Task Information" sortKey="task_title" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider" />
+                <SortableHeader label="Timeline" sortKey="due_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider" />
+                <SortableHeader label="Resources" sortKey="estimated_hours" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-center" />
+                <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-right" />
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
               {loading ? (
                 <tr><td colSpan="5" className="px-6 py-20 text-center animate-pulse text-slate-400 font-semibold tracking-wider">Loading Workboard...</td></tr>
-              ) : filteredItems.length > 0 ? filteredItems.map((item) => (
+              ) : sortedItems.length > 0 ? sortedItems.map((item) => (
                 <tr key={item.id} className="group hover:bg-slate-50 dark:hover:bg-slate-900/20 transition-all duration-300">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-4">

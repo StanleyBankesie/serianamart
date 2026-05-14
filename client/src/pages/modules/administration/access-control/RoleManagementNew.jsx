@@ -7,6 +7,8 @@ import {
   getModuleFeatures,
 } from "../../../../data/modulesRegistry.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function RoleManagement() {
   const navigate = useNavigate();
@@ -298,14 +300,14 @@ export default function RoleManagement() {
             <table className="table w-full">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Code</th>
-                  <th>Status</th>
+                  <SortableHeader label="Name" sortKey="name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Code" sortKey="code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Status" sortKey="is_active" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <th className="text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {roles.map((r) => (
+                {rolesSorted.map((r) => (
                   <tr key={r.id}>
                     <td>{r.name}</td>
                     <td>{r.code}</td>

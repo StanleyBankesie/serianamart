@@ -12,6 +12,8 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function RoutingList() {
   const [items, setItems] = useState([]);
@@ -34,11 +36,13 @@ export default function RoutingList() {
     fetchRoutings();
   }, []);
 
-  const filteredItems = items.filter(item => 
+  const searchFilteredItems = items.filter(item => 
     item.routing_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.item_code.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const { sorted: filteredItems, sortKey, sortDir, toggle } = useSort(searchFilteredItems, "routing_name", "asc");
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
@@ -86,9 +90,9 @@ export default function RoutingList() {
           <table className="table">
             <thead>
               <tr>
-                <th>Routing Name</th>
-                <th>Target Item</th>
-                <th className="text-center">Status</th>
+                <SortableHeader label="Routing Name" sortKey="routing_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Target Item" sortKey="item_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Status" sortKey="is_default" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-center" />
                 <th className="text-right">Actions</th>
               </tr>
             </thead>

@@ -11,6 +11,8 @@ import {
   ListAttachmentIconButton,
 } from "@/components/list/ListDocActionIconButtons.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function ReturnToStoresList() {
   const location = useLocation();
@@ -156,6 +158,8 @@ export default function ReturnToStoresList() {
       getKeys: (d) => [d.rts_no, d.warehouse_name],
     });
   }, [docs, searchTerm]);
+
+  const { sorted: sortedDocs, sortKey, sortDir, toggle } = useSort(filtered, "rts_no", "desc");
 
   const openForwardModal = async (doc) => {
     setSelectedDoc(doc);
@@ -582,16 +586,16 @@ export default function ReturnToStoresList() {
             <table className="w-full text-left border-collapse">
               <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 text-xs uppercase font-semibold">
                 <tr>
-                  <th className="px-6 py-4">Advice No</th>
-                  <th className="px-6 py-4">Date</th>
-                  <th className="px-6 py-4">Type</th>
-                  <th className="px-6 py-4">Department</th>
-                  <th className="px-6 py-4">Warehouse</th>
-                  <th className="px-6 py-4 text-center">Items</th>
-                  <th className="px-6 py-4">Status</th>
+                  <SortableHeader label="Advice No" sortKey="rts_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="rts_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Type" sortKey="return_type" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Department" sortKey="department_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Warehouse" sortKey="warehouse_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Items" sortKey="item_count" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-center" />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <th className="px-6 py-4 text-right">Actions</th>
-                  <th className="px-6 py-4">Created By</th>
-                  <th className="px-6 py-4">Created Date</th>
+                  <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700">

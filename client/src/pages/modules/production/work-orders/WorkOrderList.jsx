@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { api } from "api/client";
 import { toast } from "react-toastify";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 const StatusBadge = ({ status }) => {
   const styles = {
@@ -49,11 +51,13 @@ export default function WorkOrderList() {
     fetchOrders();
   }, []);
 
-  const filteredOrders = orders.filter(o => 
+  const searchFilteredOrders = orders.filter(o => 
     String(o.work_order_no || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
     String(o.bom_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
     String(o.item_name || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const { sorted: filteredOrders, sortKey, sortDir, toggle } = useSort(searchFilteredOrders, "work_order_no", "desc");
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
@@ -93,11 +97,11 @@ export default function WorkOrderList() {
           <table className="table">
             <thead>
               <tr>
-                <th>Order No</th>
-                <th>Product / BOM</th>
-                <th className="text-center">Target Qty</th>
-                <th>Date</th>
-                <th>Status</th>
+                <SortableHeader label="Order No" sortKey="work_order_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Product / BOM" sortKey="item_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Target Qty" sortKey="qty_to_produce" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-center" />
+                <SortableHeader label="Date" sortKey="work_order_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 <th className="text-right">Actions</th>
               </tr>
             </thead>

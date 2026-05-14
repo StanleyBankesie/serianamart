@@ -9,6 +9,8 @@ import {
   ListPrintIconButton,
   ListPdfIconButton,
 } from "@/components/list/ListDocActionIconButtons.jsx";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function JournalVoucherList() {
   const { canPerformAction } = usePermission();
@@ -61,6 +63,8 @@ export default function JournalVoucherList() {
       getKeys: (v) => [v.voucher_no, v.description, v.narration, v.remarks],
     });
   })();
+
+  const { sorted: sortedVouchers, sortKey, sortDir, toggle } = useSort(filteredVouchers, "voucher_no", "asc");
 
   if (loading) {
     return <div className="text-center py-8">Loading vouchers...</div>;
@@ -122,19 +126,19 @@ export default function JournalVoucherList() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Voucher No</th>
-                  <th>Date</th>
-                  <th>Description</th>
-                  <th>Debit</th>
-                  <th>Credit</th>
-                  <th>Status</th>
+                  <SortableHeader label="Voucher No" sortKey="voucher_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="voucher_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Description" sortKey="description" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Debit" sortKey="total_debit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Credit" sortKey="total_credit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <th>Actions</th>
-                                <th>Created By</th>
-                <th>Created Date</th>
+                  <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {filteredVouchers.map((voucher) => (
+                {sortedVouchers.map((voucher) => (
                   <tr key={voucher.id}>
                     <td className="font-medium">{voucher.voucher_no}</td>
                     <td>
@@ -222,7 +226,7 @@ export default function JournalVoucherList() {
             </table>
           </div>
 
-          {filteredVouchers.length === 0 && (
+          {sortedVouchers.length === 0 && (
             <div className="text-center py-12 text-slate-500 dark:text-slate-400">
               No journal vouchers found
             </div>

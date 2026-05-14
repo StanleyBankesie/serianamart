@@ -11,6 +11,8 @@ import {
 } from "@/components/list/ListDocActionIconButtons.jsx";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
 function StatusBadge({ status }) {
@@ -290,6 +292,8 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
       getKeys: (v) => [v.voucher_no, v.description, v.narration, v.remarks],
     });
   }, [items, search, status]);
+
+  const { sorted: sortedVouchers, sortKey, sortDir, toggle } = useSort(filtered, "voucher_no", "asc");
 
   const accountNameByCode = useMemo(() => {
     const m = new Map();
@@ -1329,25 +1333,25 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
               <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-brand" />
               <div className="mt-2">Loading...</div>
             </div>
-          ) : filtered.length === 0 ? (
+          ) : sortedVouchers.length === 0 ? (
             <div className="text-center py-12">No vouchers found.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Voucher No</th>
-                    <th>Date</th>
-                    <th>Description</th>
-                    <th className="text-right">Amount</th>
-                    <th>Status</th>
+                    <SortableHeader label="Voucher No" sortKey="voucher_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Date" sortKey="voucher_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Description" sortKey="description" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Amount" sortKey="balanced_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                    <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <th className="text-right">Actions</th>
-                    {(isPAYV || isRV || isJV) && <th>Created By</th>}
-                    {(isPAYV || isRV || isJV) && <th>Created Date</th>}
+                    {(isPAYV || isRV || isJV) && <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />}
+                    {(isPAYV || isRV || isJV) && <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />}
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((v) => (
+                  {sortedVouchers.map((v) => (
                     <tr key={v.id}>
                       <td className="font-medium">
                         {formatVoucherNoDisplay(

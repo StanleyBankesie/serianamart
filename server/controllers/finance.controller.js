@@ -459,6 +459,232 @@ async function resolveFiscalYearIdForDate(conn, { companyId, dateYmd }) {
   return newId;
 }
 
+async function loadTaxComponentsByCodeTx(conn, { companyId, taxCodeId }) {
+  const [rows] = await conn.execute(
+    `SELECT c.tax_detail_id,
+            COALESCE(c.rate_percent, d.rate_percent, 0) AS rate_percent,
+            COALESCE(c.compound_level, 0) AS compound_level,
+            COALESCE(c.sort_order, 100) AS sort_order,
+            d.component_name
+       FROM fin_tax_components c
+       JOIN fin_tax_details d
+         ON d.id = c.tax_detail_id
+      WHERE c.company_id = :companyId
+        AND c.tax_code_id = :taxCodeId
+        AND c.is_active = 1
+      ORDER BY c.compound_level ASC, c.sort_order ASC, d.component_name ASC`,
+    { companyId, taxCodeId },
+  );
+  return Array.isArray(rows) ? rows : [];
+}
+
+function allocateTaxComponents(baseAmount, taxAmount, components) {
+  const base = Math.max(0, Number(baseAmount || 0));
+  const expectedTax = Math.max(0, Number(taxAmount || 0));
+  const list = Array.isArray(components) ? components : [];
+  if (!list.length || !(expectedTax > 0)) return [];
+  const grouped = new Map();
+  for (const comp of list) {
+    const level = Number(comp.compound_level || 0);
+    if (!grouped.has(level)) grouped.set(level, []);
+    grouped.get(level).push(comp);
+  }
+  const levels = Array.from(grouped.keys()).sort((a, b) => a - b);
+  let currentBase = base;
+  const raw = [];
+  for (const level of levels) {
+    const comps = grouped.get(level) || [];
+    let levelTotal = 0;
+    for (const comp of comps) {
+      const amt = (currentBase * Number(comp.rate_percent || 0)) / 100;
+      raw.push({ ...comp, amount: amt });
+      levelTotal += amt;
+    }
+    currentBase += levelTotal;
+  }
+  const rounded = raw.map((r) => ({
+    ...r,
+    amount: Math.round(Number(r.amount || 0) * 100) / 100,
+  }));
+  const totalRounded = rounded.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const diff = Math.round((expectedTax - totalRounded) * 100) / 100;
+  if (rounded.length && Math.abs(diff) > 0.00001) {
+    rounded[rounded.length - 1].amount =
+      Math.round(
+        (Number(rounded[rounded.length - 1].amount || 0) + diff) * 100,
+      ) / 100;
+  }
+  return rounded.filter((r) => Number(r.amount || 0) > 0);
+}
+
+async function ensureTaxComponentAccountTx(
+  conn,
+  { companyId, taxDetailId, componentName, isPurchase },
+) {
+  const safeName = String(componentName || "").trim();
+  if (!safeName) return 0;
+
+  let groupCode, groupName, nature, codePrefix;
+  if (isPurchase) {
+    groupCode = "TAXREC";
+    groupName = "Tax Receivables";
+    nature = "ASSET";
+    codePrefix = "PTAX";
+  } else {
+    groupCode = "TAXPAY";
+    groupName = "Tax Payables";
+    nature = "LIABILITY";
+    codePrefix = "TAX";
+  }
+
+  const groupId = await ensureGroupIdTx(conn, {
+    companyId,
+    code: groupCode,
+    name: groupName,
+    nature,
+  });
+
+  const baseCurrencyId =
+    (await (async () => {
+      try {
+        const [curRows] = await conn.execute(
+          "SELECT id FROM fin_currencies WHERE company_id = :companyId AND is_base = 1 LIMIT 1",
+          { companyId },
+        );
+        return Number(curRows?.[0]?.id || 0) || null;
+      } catch { return null; }
+    })()) || null;
+
+  const code = `${codePrefix}-${String(Number(taxDetailId || 0)).padStart(4, "0")}`;
+  const [existingRows] = await conn.execute(
+    "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
+    { companyId, code },
+  );
+  const existingId = Number(existingRows?.[0]?.id || 0) || 0;
+  let finalAccountId = existingId;
+
+  if (existingId) {
+    await conn.execute(
+      `UPDATE fin_accounts
+          SET group_id = :groupId,
+              name = :name,
+              currency_id = :currencyId,
+              is_active = 1
+        WHERE company_id = :companyId AND id = :id`,
+      { companyId, id: existingId, groupId, name: safeName, currencyId: baseCurrencyId },
+    );
+  } else {
+    const [ins] = await conn.execute(
+      `INSERT INTO fin_accounts
+        (company_id, group_id, code, name, currency_id, is_control_account, is_postable, is_active)
+       VALUES
+        (:companyId, :groupId, :code, :name, :currencyId, 0, 1, 1)`,
+      { companyId, groupId, code, name: safeName, currencyId: baseCurrencyId },
+    );
+    finalAccountId = Number(ins?.insertId || 0) || 0;
+  }
+
+  if (finalAccountId) {
+    await conn.execute(
+      "UPDATE fin_tax_details SET account_id = :accountId WHERE id = :taxDetailId",
+      { accountId: finalAccountId, taxDetailId },
+    ).catch(() => null);
+  }
+  return finalAccountId;
+}
+
+async function processVoucherTaxSplitTx(
+  conn,
+  { voucherId, companyId, branchId, lines, voucherType, exchangeRate },
+) {
+  const isPurchase = voucherType === "PV";
+  const rate = Number(exchangeRate || 1) || 1;
+  let lineNo = (Array.isArray(lines) ? lines.length : 0) + 1;
+  let totalDebitAdj = 0;
+  let totalCreditAdj = 0;
+
+  if (!Array.isArray(lines) || !lines.length) return { totalDebitAdj, totalCreditAdj };
+
+  for (const line of lines) {
+    const taxCodeId = Number(line.taxCodeId || line.tax_code_id || 0);
+    if (!taxCodeId) continue;
+    const debit = Number(line.debit || 0);
+    const credit = Number(line.credit || 0);
+    const lineAmount = Math.max(debit, credit);
+    if (!(lineAmount > 0)) continue;
+
+    const components = await loadTaxComponentsByCodeTx(conn, {
+      companyId,
+      taxCodeId,
+    });
+    if (!components.length) continue;
+
+    const totalRatePct = components.reduce(
+      (s, c) => s + Number(c.rate_percent || 0),
+      0,
+    );
+    if (!(totalRatePct > 0)) continue;
+
+    const baseAmount =
+      Math.round((lineAmount * 100) / (100 + totalRatePct) * 100) / 100;
+    const taxAmount = Math.round((lineAmount - baseAmount) * 100) / 100;
+    if (!(taxAmount > 0)) continue;
+
+    const savedLineNo = Array.isArray(lines) ? lines.indexOf(line) + 1 : 0;
+    if (debit > 0 && savedLineNo > 0) {
+      await conn.execute(
+        "UPDATE fin_voucher_lines SET debit = :newAmt WHERE voucher_id = :vid AND line_no = :ln",
+        { vid: voucherId, ln: savedLineNo, newAmt: baseAmount },
+      );
+      totalDebitAdj -= taxAmount;
+    } else if (credit > 0 && savedLineNo > 0) {
+      await conn.execute(
+        "UPDATE fin_voucher_lines SET credit = :newAmt WHERE voucher_id = :vid AND line_no = :ln",
+        { vid: voucherId, ln: savedLineNo, newAmt: baseAmount },
+      );
+      totalCreditAdj -= taxAmount;
+    }
+
+    const allocations = allocateTaxComponents(baseAmount, taxAmount, components);
+    for (const alloc of allocations) {
+      const allocAmount =
+        Math.round(Number(alloc.amount || 0) * 100) / 100;
+      if (!(allocAmount > 0)) continue;
+
+      const taxAccId = await ensureTaxComponentAccountTx(conn, {
+        companyId,
+        taxDetailId: alloc.tax_detail_id,
+        componentName: alloc.component_name,
+        isPurchase,
+      });
+      if (!taxAccId) continue;
+
+      await conn.execute(
+        `INSERT INTO fin_voucher_lines
+          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no)
+         VALUES
+          (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :ref)`,
+        {
+          companyId,
+          voucherId,
+          lineNo: lineNo++,
+          accountId: taxAccId,
+          description: `${alloc.component_name} on ${line.description || "voucher"}`,
+          debit: isPurchase ? allocAmount : 0,
+          credit: isPurchase ? 0 : allocAmount,
+          taxCodeId,
+          ref: line.referenceNo || null,
+        },
+      );
+
+      if (isPurchase) totalDebitAdj += allocAmount;
+      else totalCreditAdj += allocAmount;
+    }
+  }
+
+  return { totalDebitAdj, totalCreditAdj };
+}
+
 async function ensureGroupIdTx(
   conn,
   { companyId, code, name, nature, parentId },
@@ -1366,7 +1592,7 @@ export const getAccountBalance = async (req, res, next) => {
        WHERE vl.account_id = :id 
          AND v.company_id = :companyId 
          AND v.status IN ('POSTED', 'APPROVED')`,
-      { id, companyId }
+      { id, companyId },
     );
 
     const openingBalance = Number(account.opening_balance || 0);
@@ -1377,7 +1603,7 @@ export const getAccountBalance = async (req, res, next) => {
       ...account,
       balance: currentBalance,
       opening_balance: openingBalance,
-      ledger_movement: ledgerBalance
+      ledger_movement: ledgerBalance,
     });
   } catch (e) {
     next(e);
@@ -1637,13 +1863,13 @@ export const createVoucher = async (req, res, next) => {
     await ensurePurBillsPaymentStatusObjects();
     conn = await pool.getConnection();
     await conn.beginTransaction();
-    
+
     // Helper to execute queries within transaction
     const txQuery = async (sql, params) => {
       const [rows] = await conn.execute(sql, params);
       return rows;
     };
-    
+
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId || null;
     const {
@@ -1708,34 +1934,45 @@ export const createVoucher = async (req, res, next) => {
     const isRvDirect =
       String(voucherTypeCode).toUpperCase() === "RV" && isDirectPayment;
     const isRv = String(voucherTypeCode).toUpperCase() === "RV";
-    
-    // For PAYV Direct Payment: use client-provided lines if available (includes tax), otherwise auto-generate
-    let autoGeneratedLines = [];
-    const clientLines = Array.isArray(lines) ? lines.filter((line) => Number(line?.accountId || 0)) : [];
-    
-    if (isPayvDirect && clientLines.length === 0 && paymentDetails) {
-      const { accountId, paymentAccountId, totalAmount, description } = paymentDetails;
-      if (accountId && paymentAccountId && totalAmount > 0) {
-        // Line 1: DEBIT the account (expense/asset)
-        autoGeneratedLines.push({
-          accountId: Number(accountId),
-          description: description || "Direct Payment",
-          debit: Number(totalAmount),
-          credit: 0,
-        });
-        // Line 2: CREDIT the payment account (bank/cash)
-        autoGeneratedLines.push({
-          accountId: Number(paymentAccountId),
-          description: description || "Direct Payment",
-          debit: 0,
-          credit: Number(totalAmount),
-        });
-      }
-    }
-    
-    const postingLines = clientLines.length > 0 
-      ? clientLines 
-      : autoGeneratedLines;
+
+    // For PAYV direct payment:
+    // - save the two settlement lines on the payment voucher itself
+    // - keep linked purchase-voucher lines limited to the posting-lines section
+    const clientLines = Array.isArray(lines)
+      ? lines.filter((line) => Number(line?.accountId || 0))
+      : [];
+    const payvDirectBaseAmount = Number(
+      paymentDetails?.baseAmount ||
+        paymentDetails?.amountInBase ||
+        paymentDetails?.totalAmount ||
+        0,
+    );
+    const payvDirectDescription =
+      String(paymentDetails?.description || "").trim() || "Direct Payment";
+    const payvDirectSettlementLines =
+      isPayvDirect &&
+      Number(paymentDetails?.accountId || 0) &&
+      Number(paymentDetails?.paymentAccountId || 0) &&
+      payvDirectBaseAmount > 0
+        ? [
+            {
+              accountId: Number(paymentDetails.accountId),
+              description: payvDirectDescription,
+              debit: payvDirectBaseAmount,
+              credit: 0,
+            },
+            {
+              accountId: Number(paymentDetails.paymentAccountId),
+              description: payvDirectDescription,
+              debit: 0,
+              credit: payvDirectBaseAmount,
+            },
+          ]
+        : [];
+
+    const postingLines = clientLines;
+    const payvLinesToSave = isPayvDirect ? payvDirectSettlementLines : [];
+    const purchaseVoucherPostingLines = postingLines;
     const firstLineDescription = Array.isArray(lines)
       ? String(
           (lines.find((l) => String(l?.description || "").trim()) || {})
@@ -1748,10 +1985,11 @@ export const createVoucher = async (req, res, next) => {
       isDirectPayment,
       isPayvDirect,
       linesCount: lines?.length,
-      autoGeneratedCount: autoGeneratedLines.length,
+      autoGeneratedCount: 0,
+      settlementLinesCount: payvDirectSettlementLines.length,
     });
 
-    if (isPayvDirect && postingLines.length >= 1) {
+    if (isPayvDirect && purchaseVoucherPostingLines.length >= 1) {
       // Get PV voucher type ID
       const pvVtRows = await query(
         `SELECT id FROM fin_voucher_types WHERE company_id = :companyId AND code = 'PV' LIMIT 1`,
@@ -1768,11 +2006,11 @@ export const createVoucher = async (req, res, next) => {
         });
 
         // Calculate PV totals from posting lines (same pattern as RV->SV)
-        const pvTotalDebit = postingLines.reduce(
+        const pvTotalDebit = purchaseVoucherPostingLines.reduce(
           (sum, l) => sum + Number(l?.debit || 0),
           0,
         );
-        const pvTotalCredit = postingLines.reduce(
+        const pvTotalCredit = purchaseVoucherPostingLines.reduce(
           (sum, l) => sum + Number(l?.credit || 0),
           0,
         );
@@ -1805,8 +2043,8 @@ export const createVoucher = async (req, res, next) => {
         console.log("DEBUG PV created:", { purchaseVoucherId, pvVoucherNo });
 
         // Save posting lines to PV
-        for (let i = 0; i < postingLines.length; i++) {
-          const line = postingLines[i];
+        for (let i = 0; i < purchaseVoucherPostingLines.length; i++) {
+          const line = purchaseVoucherPostingLines[i];
           await txQuery(
             `INSERT INTO fin_voucher_lines
                (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no, cheque_number, cheque_date, payment_method)
@@ -1898,9 +2136,11 @@ export const createVoucher = async (req, res, next) => {
       }
     }
 
-    // For direct PAYV/RV, calculate total from posting lines
-    const totalAmount =
-      isPayvDirect || isRvDirect
+    // For direct PAYV, save exactly the two settlement lines on the payment voucher.
+    // For direct RV, continue calculating totals from posting lines.
+    const totalAmount = isPayvDirect
+      ? payvLinesToSave.reduce((sum, l) => sum + Number(l?.debit || 0), 0)
+      : isRvDirect
         ? postingLines.reduce((sum, l) => sum + Number(l?.debit || 0), 0)
         : Array.isArray(lines)
           ? lines.reduce((sum, l) => sum + Number(l?.debit || 0), 0)
@@ -1954,19 +2194,23 @@ export const createVoucher = async (req, res, next) => {
       },
     );
 
-    // For non-direct payment, save the lines to the voucher
-    // For direct payment, save the auto-generated posting lines
-    const linesToSave = (isPayvDirect || isRvDirect)
-      ? postingLines
-      : Array.isArray(lines) ? lines : [];
+    // For direct PAYV, persist only the two settlement lines on the payment voucher.
+    // For direct RV, keep saving the generated posting lines.
+    const linesToSave = isPayvDirect
+      ? payvLinesToSave
+      : isRvDirect
+        ? postingLines
+        : Array.isArray(lines)
+          ? lines
+          : [];
     if (linesToSave.length > 0) {
       for (let i = 0; i < linesToSave.length; i++) {
         const line = linesToSave[i];
         await txQuery(
           `INSERT INTO fin_voucher_lines
-             (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no, cheque_number, cheque_date, payment_method)
+             (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no, cheque_number, cheque_date, payment_method)
            VALUES
-             (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod)`,
+             (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod)`,
           {
             companyId,
             voucherId: result.insertId,
@@ -1975,10 +2219,44 @@ export const createVoucher = async (req, res, next) => {
             description: line.description || null,
             debit: Number(line.debit || 0),
             credit: Number(line.credit || 0),
+            taxCodeId: line.taxCodeId || line.tax_code_id || null,
             referenceNo: line.referenceNo || null,
             chequeNumber: line.chequeNumber || null,
             chequeDate: line.chequeDate || null,
             paymentMethod: line.paymentMethod || null,
+          },
+        );
+      }
+    }
+
+    if (
+      !isPayvDirect &&
+      !isRvDirect &&
+      (isPurchaseVoucherMain || normalizedVoucherTypeCode === "SV") &&
+      linesToSave.length > 0
+    ) {
+      const { totalDebitAdj, totalCreditAdj } = await processVoucherTaxSplitTx(
+        conn,
+        {
+          voucherId: result.insertId,
+          companyId,
+          branchId,
+          lines: linesToSave,
+          voucherType: isPurchaseVoucherMain ? "PV" : "SV",
+          exchangeRate: finalExchangeRate,
+        },
+      );
+      if (totalDebitAdj !== 0 || totalCreditAdj !== 0) {
+        const newTotalDebit = totalAmount + totalDebitAdj;
+        const newTotalCredit = totalAmount + totalCreditAdj;
+        const newBalanced = Math.max(newTotalDebit, newTotalCredit);
+        await txQuery(
+          "UPDATE fin_vouchers SET total_debit = :td, total_credit = :tc, balanced_amount = :ba WHERE id = :id",
+          {
+            td: newTotalDebit,
+            tc: newTotalCredit,
+            ba: newBalanced,
+            id: result.insertId,
           },
         );
       }
@@ -2129,12 +2407,16 @@ export const createVoucher = async (req, res, next) => {
     });
   } catch (e) {
     if (conn) {
-      try { await conn.rollback(); } catch {}
+      try {
+        await conn.rollback();
+      } catch {}
     }
     next(e);
   } finally {
     if (conn) {
-      try { conn.release(); } catch {}
+      try {
+        conn.release();
+      } catch {}
     }
   }
 };
@@ -2236,7 +2518,11 @@ export const paymentDueReport = async (req, res, next) => {
     let maintPaidExpr = "0";
     try {
       conn = await pool.getConnection();
-      const hasMaintAmountPaid = await hasColumn(conn, "maint_bills", "amount_paid");
+      const hasMaintAmountPaid = await hasColumn(
+        conn,
+        "maint_bills",
+        "amount_paid",
+      );
       maintPaidExpr = hasMaintAmountPaid ? "COALESCE(mb.amount_paid, 0)" : "0";
     } catch {
       maintPaidExpr = "0";
@@ -4196,7 +4482,10 @@ export const createBankReconciliation = async (req, res, next) => {
     const payload = req.body || {};
     const bankAccountId = Number(payload.bankAccountId || 0);
     const reconciliationDate = String(
-      payload.reconciliationDate || payload.statementTo || payload.statementFrom || "",
+      payload.reconciliationDate ||
+        payload.statementTo ||
+        payload.statementFrom ||
+        "",
     );
     const bankStatementBalance = Number(
       payload.bankStatementBalance ?? payload.statementEndingBalance ?? 0,
@@ -4229,7 +4518,8 @@ export const getBankReconciliation = async (req, res, next) => {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
     const id = Number(req.params.id || 0);
-    if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid reconciliation id");
+    if (!id)
+      throw httpError(400, "VALIDATION_ERROR", "Invalid reconciliation id");
     const rows = await query(
       `SELECT r.id, r.company_id, r.branch_id, r.bank_account_id,
               r.reconciliation_date,
@@ -4269,11 +4559,13 @@ export const updateBankReconciliation = async (req, res, next) => {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
     const id = Number(req.params.id || 0);
-    if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid reconciliation id");
+    if (!id)
+      throw httpError(400, "VALIDATION_ERROR", "Invalid reconciliation id");
     const body = req.body || {};
     const statementTo = body.statementTo ? String(body.statementTo) : null;
     const statementEndingBalance =
-      body.statementEndingBalance === undefined || body.statementEndingBalance === null
+      body.statementEndingBalance === undefined ||
+      body.statementEndingBalance === null
         ? null
         : Number(body.statementEndingBalance);
     const status = body.status ? String(body.status).toUpperCase() : null;
@@ -4305,7 +4597,8 @@ export const getBankReconciliationSummary = async (req, res, next) => {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
     const id = Number(req.params.id || 0);
-    if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid reconciliation id");
+    if (!id)
+      throw httpError(400, "VALIDATION_ERROR", "Invalid reconciliation id");
     const rows = await query(
       `SELECT r.id, r.bank_account_id, r.reconciliation_date, r.bank_statement_balance,
               ba.gl_account_id
@@ -4367,7 +4660,8 @@ export const getBankReconciliationTransactions = async (req, res, next) => {
     const branchId = req.scope.branchId;
     const id = Number(req.params.id || 0);
     const status = String(req.query.status || "BOTH").toUpperCase();
-    if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid reconciliation id");
+    if (!id)
+      throw httpError(400, "VALIDATION_ERROR", "Invalid reconciliation id");
     const rows = await query(
       `SELECT r.id, r.bank_account_id, r.reconciliation_date, ba.gl_account_id
          FROM fin_bank_reconciliations r
@@ -4430,7 +4724,11 @@ export const addBankReconciliationLine = async (req, res, next) => {
     const id = Number(req.params.id || 0);
     const voucherId = Number(req.body?.voucherId || 0);
     if (!id || !voucherId) {
-      throw httpError(400, "VALIDATION_ERROR", "Invalid reconciliation id or voucher id");
+      throw httpError(
+        400,
+        "VALIDATION_ERROR",
+        "Invalid reconciliation id or voucher id",
+      );
     }
     const recRows = await query(
       `SELECT r.id, ba.gl_account_id
@@ -4534,7 +4832,9 @@ export const getSupplierBillsByAccount = async (req, res, next) => {
           "supplier_code",
         );
         if (hasSupplierExternalId) {
-          supplierWhereParts.unshift("CAST(supplier_id AS CHAR) = :accountCode");
+          supplierWhereParts.unshift(
+            "CAST(supplier_id AS CHAR) = :accountCode",
+          );
         }
         if (hasSupplierCode) {
           supplierWhereParts.unshift("supplier_code = :accountCode");

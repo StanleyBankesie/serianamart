@@ -9,6 +9,8 @@ import {
 import { toast } from "react-toastify";
 import { printDocument, downloadDocumentPdf } from "@/utils/pdfUtils.js";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 import { api } from "api/client";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
@@ -141,6 +143,8 @@ export default function GRNLocalList() {
       getKeys: (g) => [g.grn_no, g.supplier_name, g.warehouse_name, g.status],
     });
   }, [grns, searchTerm]);
+
+  const { sorted: sortedGrns, sortKey, sortDir, toggle } = useSort(filtered, "grn_no", "desc");
 
   const canForward = (status) => {
     const s = String(status || "").toUpperCase();
@@ -462,14 +466,14 @@ export default function GRNLocalList() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>GRN No</th>
-                  <th>Date</th>
-                  <th>Supplier</th>
-                  <th>Warehouse</th>
-                  <th>Status</th>
+                  <SortableHeader label="GRN No" sortKey="grn_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="grn_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Supplier" sortKey="supplier_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Warehouse" sortKey="warehouse_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <th className="text-right">Actions</th>
-                  <th>Created By</th>
-                  <th>Created Date</th>
+                  <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>

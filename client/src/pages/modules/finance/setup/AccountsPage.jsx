@@ -5,6 +5,8 @@ import { toast } from "react-toastify";
 import { api } from "api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function AccountsPage() {
   const [items, setItems] = useState([]);
@@ -251,6 +253,8 @@ export default function AccountsPage() {
     });
   }, [items, searchTerm]);
   
+  const filteredItems = rankedItems;
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(filteredItems, "code", "asc");
   const baseCurrencyCode = useMemo(() => {
     return currencies.find(c => Number(c.is_base) === 1 || c.is_base === true)?.code || "Base";
   }, [currencies]);
@@ -400,20 +404,20 @@ export default function AccountsPage() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>ID</th>
-                    <th>Code</th>
-                    <th>Name</th>
-                    <th>Group</th>
-                    <th>Nature</th>
-                    <th>Currency</th>
-                    <th>Rate</th>
-                    <th>Postable</th>
-                    <th>Active</th>
+                    <SortableHeader label="ID" sortKey="id" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Code" sortKey="code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Name" sortKey="name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Group" sortKey="group_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Nature" sortKey="nature" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Currency" sortKey="currency_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Rate" sortKey="exchange_rate" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Postable" sortKey="is_postable" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Active" sortKey="is_active" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rankedItems.map((a) => (
+                  {sortedItems.map((a) => (
                     <tr key={a.id}>
                       {String(editId) === String(a.id) ? (
                         <>

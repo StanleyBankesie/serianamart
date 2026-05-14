@@ -11,6 +11,8 @@ import {
   ListAttachmentIconButton,
 } from "@/components/list/ListDocActionIconButtons.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function StockAdjustmentList() {
   const location = useLocation();
@@ -144,6 +146,8 @@ export default function StockAdjustmentList() {
       getKeys: (adj) => [adj.adjustment_no, adj.status],
     });
   }, [adjustments, searchTerm]);
+
+  const { sorted: sortedAdjustments, sortKey, sortDir, toggle } = useSort(filteredAdjustments, "adjustment_no", "desc");
 
   const formatDateOnly = (v) => {
     if (!v) return "";
@@ -454,14 +458,14 @@ export default function StockAdjustmentList() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Adjustment No</th>
-                  <th>Date</th>
-                  <th>Type</th>
-                  <th>Warehouse</th>
-                  <th>Status</th>
+                  <SortableHeader label="Adjustment No" sortKey="adjustment_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="adjustment_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Type" sortKey="adjustment_type" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Warehouse" sortKey="warehouse_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <th className="text-right">Actions</th>
-                  <th>Created By</th>
-                  <th>Created Date</th>
+                  <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
@@ -481,7 +485,7 @@ export default function StockAdjustmentList() {
                     </td>
                   </tr>
                 ) : null}
-                {filteredAdjustments.map((adj) => (
+                {sortedAdjustments.map((adj) => (
                   <tr key={adj.id}>
                     <td className="font-medium text-brand-700 dark:text-brand-300">
                       {adj.adjustment_no}

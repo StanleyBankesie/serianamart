@@ -4,6 +4,8 @@ import { api } from "api/client";
 import { toast } from "react-toastify";
 import { getUnsyncedSales, getFailedSales, deleteLocalSale } from "../../../offline/posStore.js";
 import { retryItem, retryAllFailed, getQueueSnapshot, onQueueUpdate } from "../../../offline/syncEngine.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function PosReconciliation() {
   const [items, setItems] = useState([]);
@@ -54,6 +56,7 @@ export default function PosReconciliation() {
   };
 
   const filtered = filter === "all" ? items : items.filter((i) => i.syncStatus === filter);
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(filtered, "createdAt", "desc");
   const hasFailed = items.some((i) => i.syncStatus === "failed");
 
   return (
@@ -101,16 +104,16 @@ export default function PosReconciliation() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Date/Time</th>
-                    <th>Customer</th>
+                    <SortableHeader label="Date/Time" sortKey="createdAt" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <th>Items</th>
-                    <th>Total</th>
-                    <th>Status</th>
+                    <SortableHeader label="Total" sortKey="total" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Status" sortKey="syncStatus" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <th className="w-48">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((item) => (
+                  {sortedItems.map((item) => (
                     <tr key={item.id}>
                       <td>{item.createdAt ? new Date(item.createdAt).toLocaleString() : "-"}</td>
                       <td>{item.customer_name || "Walk-in"}</td>

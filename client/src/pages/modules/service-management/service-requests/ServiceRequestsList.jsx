@@ -5,6 +5,8 @@ import { api } from "../../../../api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function ServiceRequestsList() {
   const location = useLocation();
@@ -116,6 +118,8 @@ export default function ServiceRequestsList() {
     });
   }, [items, searchTerm]);
 
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(filtered, "request_no", "asc");
+
   return (
     <div className="p-6 space-y-6">
       <div className="card">
@@ -155,15 +159,15 @@ export default function ServiceRequestsList() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>No</th>
-                  <th>Date</th>
-                  <th>Customer</th>
-                  <th>Service</th>
-                  <th>Priority</th>
-                  <th>Status</th>
+                  <SortableHeader label="No" sortKey="request_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="request_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Customer" sortKey="requester_company" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Service" sortKey="service_type" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Priority" sortKey="priority" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <th className="text-right">Actions</th>
-                  <th>Created By</th>
-                  <th>Created Date</th>
+                  <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <th>Attachments</th>
                 </tr>
               </thead>
@@ -188,7 +192,7 @@ export default function ServiceRequestsList() {
                 ) : null}
 
                 {!loading &&
-                  filtered.map((r) => (
+                  sortedItems.map((r) => (
                     <tr key={r.id}>
                       <td>{r.request_no}</td>
                       <td>{r.request_date}</td>

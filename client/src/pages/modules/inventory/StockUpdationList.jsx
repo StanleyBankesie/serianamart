@@ -5,6 +5,8 @@ import { toast } from "react-toastify";
 import { api } from "api/client";
 import { usePermission } from "@/auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 import {
   ListPrintIconButton,
@@ -127,6 +129,8 @@ export default function StockUpdationList() {
     });
   }, [adjustments, searchTerm]);
 
+  const { sorted: sortedAdjustments, sortKey, sortDir, toggle } = useSort(filteredAdjustments, "updation_no", "desc");
+
   const formatDateOnly = (v) => {
     if (!v) return "";
     let d = new Date(v);
@@ -180,14 +184,14 @@ export default function StockUpdationList() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Document No</th>
-                  <th>Date</th>
+                  <SortableHeader label="Document No" sortKey="updation_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="updation_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <th>Type</th>
-                  <th>Items</th>
-                  <th>Status</th>
+                  <SortableHeader label="Items" sortKey="item_count" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <th className="text-right">Actions</th>
-                  <th>Created By</th>
-                  <th>Created Date</th>
+                  <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
@@ -208,7 +212,7 @@ export default function StockUpdationList() {
                   </tr>
                 ) : null}
 
-                {filteredAdjustments.map((adj) => (
+                {sortedAdjustments.map((adj) => (
                   <tr key={adj.id}>
                     <td className="font-medium text-brand-700 dark:text-brand-300">
                       {adj.updation_no}

@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { api } from "api/client";
 import { toast } from "react-toastify";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function BomList() {
   const [boms, setBoms] = useState([]);
@@ -35,11 +37,13 @@ export default function BomList() {
     fetchBoms();
   }, []);
 
-  const filteredBoms = boms.filter(b => 
+  const searchFilteredBoms = boms.filter(b => 
     String(b.bom_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
     String(b.item_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
     String(b.item_code || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const { sorted: sortedBoms, sortKey, sortDir, toggle } = useSort(searchFilteredBoms, "bom_name", "asc");
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
@@ -79,10 +83,10 @@ export default function BomList() {
           <table className="table">
             <thead>
               <tr>
-                <th>Product Information</th>
-                <th>BOM Name</th>
-                <th className="text-center">Output Qty</th>
-                <th>Status</th>
+                <SortableHeader label="Product Information" sortKey="item_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="BOM Name" sortKey="bom_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Output Qty" sortKey="output_qty" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-center" />
+                <SortableHeader label="Status" sortKey="is_active" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 <th className="text-right">Actions</th>
               </tr>
             </thead>
@@ -91,7 +95,7 @@ export default function BomList() {
                 <tr>
                   <td colSpan="5" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Fetching Recipes...</td>
                 </tr>
-              ) : filteredBoms.length > 0 ? filteredBoms.map((bom) => (
+              ) : sortedBoms.length > 0 ? sortedBoms.map((bom) => (
                 <tr key={bom.id} className="group">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
