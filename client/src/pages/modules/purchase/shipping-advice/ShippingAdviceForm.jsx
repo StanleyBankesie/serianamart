@@ -195,12 +195,12 @@ export default function ShippingAdviceForm() {
             shipped_qty: i.qty_shipped,
             uom: "pcs", // Default or fetch
             remarks: i.remarks || "",
-          }))
+          })),
         );
         // setTimeline(loadedTimeline);
       })
       .catch((e) =>
-        setError(e?.response?.data?.message || "Failed to load data")
+        setError(e?.response?.data?.message || "Failed to load data"),
       )
       .finally(() => setLoading(false));
   }, [id, isNew]);
@@ -243,10 +243,10 @@ export default function ShippingAdviceForm() {
           setItems((prev) =>
             prev.map((item) => {
               const poItem = details.find(
-                (d) => String(d.item_id) === String(item.item_id)
+                (d) => String(d.item_id) === String(item.item_id),
               );
               return poItem ? { ...item, ordered_qty: poItem.qty } : item;
-            })
+            }),
           );
         }
       })
@@ -392,13 +392,6 @@ export default function ShippingAdviceForm() {
           <Link to="/purchase/shipping-advice" className="btn btn-outline">
             Cancel
           </Link>
-          <button
-            onClick={printAdvice}
-            className="btn btn-outline"
-            type="button"
-          >
-            Print
-          </button>
           <button
             onClick={handleSubmit}
             className="btn btn-primary"
@@ -673,7 +666,7 @@ export default function ShippingAdviceForm() {
                             handleItemChange(
                               idx,
                               "package_numbers",
-                              e.target.value
+                              e.target.value,
                             )
                           }
                           placeholder="e.g. 1-10"
@@ -712,151 +705,6 @@ export default function ShippingAdviceForm() {
                   )}
                 </tbody>
               </table>
-            </div>
-          </div>
-
-          {/* Timeline & Remarks */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Timeline */}
-            <div className="card p-6">
-              <div className="flex justify-between items-center mb-4 border-b pb-2">
-                <h3 className="text-lg font-semibold">Tracking Timeline</h3>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-primary"
-                  onClick={addTimelineEvent}
-                >
-                  + Add Event
-                </button>
-              </div>
-              <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
-                {timeline.map((t, idx) => (
-                  <div
-                    key={idx}
-                    className="flex gap-4 items-start p-3 bg-slate-50 dark:bg-slate-800 rounded-lg border"
-                  >
-                    <div className="flex-1 space-y-2">
-                      <input
-                        type="text"
-                        className="input input-sm font-semibold"
-                        placeholder="Status (e.g. Departed)"
-                        value={t.status_title}
-                        onChange={(e) =>
-                          handleTimelineChange(
-                            idx,
-                            "status_title",
-                            e.target.value
-                          )
-                        }
-                      />
-                      <div className="flex gap-2">
-                        <input
-                          type="datetime-local"
-                          className="input input-sm w-full"
-                          value={
-                            t.status_date
-                              ? new Date(t.status_date)
-                                  .toISOString()
-                                  .slice(0, 16)
-                              : ""
-                          }
-                          onChange={(e) =>
-                            handleTimelineChange(
-                              idx,
-                              "status_date",
-                              e.target.value
-                            )
-                          }
-                        />
-                        <input
-                          type="text"
-                          className="input input-sm w-full"
-                          placeholder="Location"
-                          value={t.location}
-                          onChange={(e) =>
-                            handleTimelineChange(
-                              idx,
-                              "location",
-                              e.target.value
-                            )
-                          }
-                        />
-                      </div>
-                      <textarea
-                        className="input input-sm w-full"
-                        placeholder="Description / Notes"
-                        rows="2"
-                        value={t.description}
-                        onChange={(e) =>
-                          handleTimelineChange(
-                            idx,
-                            "description",
-                            e.target.value
-                          )
-                        }
-                      ></textarea>
-                    </div>
-                    <button
-                      type="button"
-                      className="text-red-500"
-                      onClick={() => removeTimeline(idx)}
-                    >
-                      &times;
-                    </button>
-                  </div>
-                ))}
-                {timeline.length === 0 && (
-                  <p className="text-center text-slate-500 py-4">
-                    No tracking updates yet.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Remarks & Actions */}
-            <div className="card p-6 space-y-6">
-              <div>
-                <h3 className="text-lg font-semibold mb-4 border-b pb-2">
-                  Additional Remarks
-                </h3>
-                <textarea
-                  className="input w-full h-32"
-                  name="remarks"
-                  value={formData.remarks}
-                  onChange={handleChange}
-                  placeholder="Any internal notes or instructions..."
-                ></textarea>
-              </div>
-
-              <div className="pt-6 border-t">
-                <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    className="btn btn-info w-full sm:w-auto"
-                    onClick={notifyArrival}
-                  >
-                    📬 Send Arrival Notification
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary w-full sm:w-auto"
-                    onClick={() =>
-                      setTimeline((prev) => [
-                        {
-                          status_title: "Arrived at Port",
-                          status_date: new Date().toISOString(),
-                          location: formData.port_of_discharge || "Port",
-                          description: "Vessel has arrived at discharge port.",
-                        },
-                        ...prev,
-                      ])
-                    }
-                  >
-                    ⚓ Mark as Arrived
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         </form>

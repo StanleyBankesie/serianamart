@@ -57,7 +57,7 @@ export default function WorkOrderList() {
     String(o.item_name || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const { sorted: filteredOrders, sortKey, sortDir, toggle } = useSort(searchFilteredOrders, "work_order_no", "desc");
+  const { sorted: filteredOrders, sortKey, sortDir, toggle } = useSort(searchFilteredOrders, "created_at", "desc");
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">

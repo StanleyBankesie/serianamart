@@ -139,7 +139,7 @@ export default function StockVerificationList() {
     });
   }, [verifications, searchTerm, filterStatus]);
 
-  const { sorted: sortedVerifications, sortKey, sortDir, toggle } = useSort(filteredVerifications, "verification_no", "desc");
+  const { sorted: sortedVerifications, sortKey, sortDir, toggle } = useSort(filteredVerifications, "created_at", "desc");
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -205,7 +205,7 @@ export default function StockVerificationList() {
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead>
+               <thead className="bg-[#0E3646] text-white">
                 <tr>
                   <SortableHeader label="Verification #" sortKey="verification_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <SortableHeader label="Date" sortKey="verification_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />

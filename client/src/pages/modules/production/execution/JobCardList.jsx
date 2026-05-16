@@ -67,7 +67,7 @@ export default function JobCardList() {
     String(r.machine_name || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const { sorted: filtered, sortKey, sortDir, toggle } = useSort(filteredItems, "item_name", "asc");
+  const { sorted: filtered, sortKey, sortDir, toggle } = useSort(filteredItems, "created_at", "desc");
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">

@@ -464,7 +464,7 @@ export default function InvoiceList() {
     });
   }, [invoices, statusFilter, searchTerm]);
 
-  const { sorted: filteredInvoices, sortKey, sortDir, toggle } = useSort(filteredBase, "invoice_no", "desc");
+  const { sorted: filteredInvoices, sortKey, sortDir, toggle } = useSort(filteredBase, "created_at", "desc");
 
   return (
     <div className="space-y-4">

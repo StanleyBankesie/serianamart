@@ -5,6 +5,7 @@ import { format } from "date-fns";
 import { Printer, Download } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 
 export default function RequestForQuotationForm() {
   const { id } = useParams();
@@ -33,6 +34,7 @@ export default function RequestForQuotationForm() {
   const [allSuppliers, setAllSuppliers] = useState([]);
   const [allItems, setAllItems] = useState([]);
   const [uoms, setUoms] = useState([]);
+  const [itemQueries, setItemQueries] = useState({});
 
   // Modal State
   const [showSupplierModal, setShowSupplierModal] = useState(false);
@@ -104,7 +106,7 @@ export default function RequestForQuotationForm() {
           required_date: i.required_date
             ? format(new Date(i.required_date), "yyyy-MM-dd")
             : "",
-        }))
+        })),
       );
 
       setSelectedSuppliers(
@@ -113,7 +115,7 @@ export default function RequestForQuotationForm() {
           supplier_name: s.supplier_name,
           email: s.email,
           phone: s.phone,
-        }))
+        })),
       );
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to load RFQ");
@@ -168,7 +170,7 @@ export default function RequestForQuotationForm() {
     const exists = selectedSuppliers.find((s) => s.id === supplier.id);
     if (exists) {
       setSelectedSuppliers(
-        selectedSuppliers.filter((s) => s.id !== supplier.id)
+        selectedSuppliers.filter((s) => s.id !== supplier.id),
       );
     } else {
       setSelectedSuppliers([...selectedSuppliers, supplier]);
@@ -181,7 +183,7 @@ export default function RequestForQuotationForm() {
       (s) =>
         s.supplier_name.toLowerCase().includes(supplierSearch.toLowerCase()) ||
         (s.email &&
-          s.email.toLowerCase().includes(supplierSearch.toLowerCase()))
+          s.email.toLowerCase().includes(supplierSearch.toLowerCase())),
     );
   }, [allSuppliers, supplierSearch]);
 
@@ -232,7 +234,7 @@ export default function RequestForQuotationForm() {
     }
 
     const invalidItems = items.filter(
-      (item) => !item.item_name || !item.qty || Number(item.qty) <= 0
+      (item) => !item.item_name || !item.qty || Number(item.qty) <= 0,
     );
 
     if (invalidItems.length > 0) {
@@ -304,9 +306,9 @@ export default function RequestForQuotationForm() {
           </button>
           <button
             onClick={() => navigate("/purchase/rfqs")}
-            className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition flex items-center gap-2 ml-auto"
+            className="px-4 py-2  text-white rounded transition flex items-center gap-2 ml-auto btn-success"
           >
-            📄 View List
+            Back
           </button>
           <div className="flex items-center gap-3 ml-4">
             <button
@@ -510,20 +512,85 @@ export default function RequestForQuotationForm() {
                       <tr key={idx} className="hover:bg-gray-50 transition">
                         <td className="p-3">{idx + 1}</td>
                         <td className="p-3">
-                          <select
-                            value={item.item_id || ""}
-                            onChange={(e) =>
-                              handleItemSelect(idx, e.target.value)
-                            }
-                            className="w-full p-1 border border-gray-300 rounded focus:ring-2 focus:ring-[#0E3646] focus:border-transparent outline-none"
-                          >
-                            <option value="">Select Item</option>
-                            {allItems.map((i) => (
-                              <option key={i.id} value={i.id}>
-                                {i.item_name} ({i.item_code})
-                              </option>
-                            ))}
-                          </select>
+                          <div className="relative">
+                            <input
+                              id={`rfq-item-search-${idx}`} autoComplete="off"
+                              className="w-full p-1 border border-gray-300 rounded focus:ring-2 focus:ring-[#0E3646] focus:border-transparent outline-none"
+                              placeholder="Type to search items"
+                              value={itemQueries[idx] || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setItemQueries((prev) => ({
+                                  ...prev,
+                                  [idx]: val,
+                                }));
+                                if (!val && item.item_id) {
+                                  const newItems = [...items];
+                                  newItems[idx] = {
+                                    ...newItems[idx],
+                                    item_id: "",
+                                    item_name: "",
+                                    uom: "PCS",
+                                  };
+                                  setItems(newItems);
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  const query = (itemQueries[idx] || "").trim();
+                                  const results = query
+                                    ? filterByPrefix(allItems, {
+                                        query,
+                                        searchFields: [
+                                          "item_code",
+                                          "item_name",
+                                          "barcode",
+                                        ],
+                                      })
+                                    : [];
+                                  if (!query || !results.length) return;
+                                  handleItemSelect(idx, String(results[0].id));
+                                  setItemQueries((prev) => ({
+                                    ...prev,
+                                    [idx]: "",
+                                  }));
+                                }
+                              }}
+                            />
+                            {(() => {
+                              const query = (itemQueries[idx] || "").trim();
+                              const results = query
+                                ? filterByPrefix(allItems, {
+                                    query,
+                                    searchFields: [
+                                      "item_code",
+                                      "item_name",
+                                      "barcode",
+                                    ],
+                                  })
+                                : [];
+                              return results.length ? (
+                                <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto">
+                                  {results.map((o) => (
+                                    <button
+                                      type="button"
+                                      key={o.id}
+                                      className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                                      onClick={() => {
+                                        handleItemSelect(idx, String(o.id));
+                                        setItemQueries((prev) => ({
+                                          ...prev,
+                                          [idx]: "",
+                                        }));
+                                      }}
+                                    >
+                                      {o.item_code} - {o.item_name}
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null;
+                            })()}
+                          </div>
                         </td>
                         <td className="p-3">
                           <input
@@ -559,7 +626,7 @@ export default function RequestForQuotationForm() {
                               handleItemChange(
                                 idx,
                                 "required_date",
-                                e.target.value
+                                e.target.value,
                               )
                             }
                             className="w-full p-1 border border-gray-300 rounded"
@@ -573,7 +640,7 @@ export default function RequestForQuotationForm() {
                               handleItemChange(
                                 idx,
                                 "specifications",
-                                e.target.value
+                                e.target.value,
                               )
                             }
                             className="w-full p-1 border border-gray-300 rounded"
@@ -656,7 +723,7 @@ export default function RequestForQuotationForm() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {filteredSuppliers.map((supplier) => {
                     const isSelected = selectedSuppliers.some(
-                      (s) => s.id === supplier.id
+                      (s) => s.id === supplier.id,
                     );
                     return (
                       <div

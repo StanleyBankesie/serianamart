@@ -5,7 +5,7 @@ import api from "../../../../api/client.js";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
-import { filterAndSort } from "@/utils/searchUtils.js";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 import { saveLocalSale } from "../../../../offline/posStore.js";
 import { toast } from "react-toastify";
 
@@ -46,8 +46,6 @@ export default function PosSalesEntry() {
   const [saving, setSaving] = useState(false);
   const [receiptNo, setReceiptNo] = useState("");
   const [entryBarcode, setEntryBarcode] = useState("");
-  const [entryItemId, setEntryItemId] = useState("");
-  const [entryItemQuery, setEntryItemQuery] = useState("");
   const [entryQty, setEntryQty] = useState(1);
   const [entryPriceType, setEntryPriceType] = useState("");
   const [selectedItems, setSelectedItems] = useState([]);
@@ -107,13 +105,21 @@ export default function PosSalesEntry() {
     }));
   }, [products]);
   const itemSearchResults = useMemo(() => {
-    const q = String(entryItemQuery || "").trim();
+    const q = String(entryBarcode || "").trim();
     if (!q) return [];
-    return filterAndSort(itemSelectOptions, {
+    const exactMatch = products.find((p) => {
+      const code = String(p.code || "").toLowerCase();
+      const name = String(p.name || "").toLowerCase();
+      const barcode = String(p.barcode || "").toLowerCase();
+      const query = q.toLowerCase();
+      return code === query || name === query || barcode === query;
+    });
+    if (exactMatch) return [];
+    return filterByPrefix(itemSelectOptions, {
       query: q,
       getKeys: (o) => [o.label],
-    }).slice(0, 10);
-  }, [entryItemQuery, itemSelectOptions]);
+    });
+  }, [entryBarcode, itemSelectOptions, products]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
@@ -611,7 +617,6 @@ export default function PosSalesEntry() {
     setSelectedItems((prev) =>
       prev.some((p) => p.id === prod.id) ? prev : [...prev, prod],
     );
-    setEntryItemId(String(prod.id));
     setEntryBarcode("");
     setEntryQty(1);
     if (barcodeInputRef.current) {
@@ -628,7 +633,7 @@ export default function PosSalesEntry() {
   function handleSelectItemById(idStr) {
     const prod = products.find((p) => String(p.id) === String(idStr)) || null;
     if (prod) addEntryToCartForProduct(prod, 1);
-    setEntryItemQuery("");
+    setEntryBarcode("");
   }
 
   async function addProductsToCartForIds(ids, qtyOverride) {
@@ -688,7 +693,6 @@ export default function PosSalesEntry() {
       return additions.length ? [...existing, ...additions] : existing;
     });
 
-    setEntryItemId(String(prods[prods.length - 1].id));
     setEntryBarcode("");
     setEntryQty(1);
     if (barcodeInputRef.current) {
@@ -727,10 +731,7 @@ export default function PosSalesEntry() {
           (p) => !removedNums.includes(p.id),
         ),
       );
-      if (removed.includes(String(entryItemId || ""))) {
-        setEntryItemId("");
-        setEntryQty(1);
-      }
+      setEntryQty(1);
     }
 
     if (added.length) {
@@ -739,19 +740,17 @@ export default function PosSalesEntry() {
   }
 
   function addEntryToCart() {
-    const idCandidate = Number(entryItemId || 0);
     const barcodeCandidate = String(entryBarcode || "")
       .trim()
       .toLowerCase();
     let prod = null;
-    if (idCandidate) {
-      prod = products.find((p) => p.id === idCandidate) || null;
-    } else if (barcodeCandidate) {
+    if (barcodeCandidate) {
       prod =
         products.find(
           (p) =>
             String(p.code || "").toLowerCase() === barcodeCandidate ||
-            String(p.name || "").toLowerCase() === barcodeCandidate,
+            String(p.name || "").toLowerCase() === barcodeCandidate ||
+            String(p.barcode || "").toLowerCase() === barcodeCandidate,
         ) || null;
     }
     if (!prod) return;
@@ -818,10 +817,7 @@ export default function PosSalesEntry() {
   function removeFromCart(id) {
     setCart((prev) => prev.filter((p) => p.id !== id));
     setSelectedItems((prev) => prev.filter((p) => p.id !== id));
-    if (Number(entryItemId || 0) === id) {
-      setEntryItemId("");
-      setEntryQty(1);
-    }
+    setEntryQty(1);
   }
 
   function removeSelectedItem(id) {
@@ -861,18 +857,6 @@ export default function PosSalesEntry() {
       }
     };
   }, [entryBarcode, products]);
-
-  useEffect(() => {
-    const id = Number(entryItemId || 0);
-    if (!id) return;
-    const item = cart.find((p) => p.id === id);
-    if (!item) {
-      setEntryQty(1);
-      return;
-    }
-    const q = Number(item.quantity || 0);
-    setEntryQty(q || 0);
-  }, [cart, entryItemId]);
 
   useEffect(() => {
     setSelectedItems((prev) =>
@@ -947,7 +931,12 @@ export default function PosSalesEntry() {
         tax_type: taxActive ? taxType : "Exclusive",
         tax_code_id: taxActive && taxCodeId ? Number(taxCodeId) : null,
         tax_components: (() => {
-          if (!taxActive || !Array.isArray(taxComponents) || !taxComponents.length) return [];
+          if (
+            !taxActive ||
+            !Array.isArray(taxComponents) ||
+            !taxComponents.length
+          )
+            return [];
           let currentBase = subtotal;
           const res = [];
           for (const comp of taxComponents) {
@@ -961,7 +950,7 @@ export default function PosSalesEntry() {
             res.push({
               id: comp.id,
               name: comp.component_name || comp.name,
-              amount: Math.round(compTax * 100) / 100
+              amount: Math.round(compTax * 100) / 100,
             });
             currentBase += compTax;
           }
@@ -992,7 +981,6 @@ export default function PosSalesEntry() {
     setAmountPaid("");
     setSelectedCustomerId("");
     setEntryBarcode("");
-    setEntryItemId("");
     setEntryQty(1);
     setSaleTimestamp(null);
     if (Array.isArray(paymentModes) && paymentModes.length) {
@@ -1337,41 +1325,29 @@ export default function PosSalesEntry() {
           ) : null}
           <div className="card">
             <div className="card-body space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-7 gap-2">
-                <div className="md:col-span-2">
-                  <label className="label">Barcode</label>
-                  <input
-                    className="input"
-                    placeholder="Scan or type barcode"
-                    value={entryBarcode}
-                    onChange={(e) => setEntryBarcode(e.target.value)}
-                    ref={barcodeInputRef}
-                    autoFocus
-                    disabled={false}
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="label">Item</label>
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                <div className="md:col-span-5">
+                  <label className="label">Barcode / Item Search</label>
                   <div className="relative">
                     <input
-                      className="input"
-                      placeholder={
-                        itemsLoading
-                          ? "Loading items..."
-                          : "Type to search items"
-                      }
-                      value={entryItemQuery}
-                      onChange={(e) => setEntryItemQuery(e.target.value)}
+                      className="input w-full"
+                      placeholder="Scan barcode or type item name"
+                      value={entryBarcode}
+                      onChange={(e) => setEntryBarcode(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           if (itemSearchResults.length) {
                             handleSelectItemById(itemSearchResults[0].value);
+                          } else {
+                            addEntryToCart();
                           }
                         }
                       }}
-                      disabled={itemsLoading || !products.length}
+                      ref={barcodeInputRef}
+                      autoFocus
+                      disabled={false}
                     />
-                    {entryItemQuery && itemSearchResults.length ? (
+                    {entryBarcode && itemSearchResults.length ? (
                       <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto">
                         {itemSearchResults.map((o) => (
                           <button
@@ -1387,25 +1363,24 @@ export default function PosSalesEntry() {
                     ) : null}
                   </div>
                 </div>
-                <div>
+                <div className="md:col-span-2">
                   <label className="label">Quantity</label>
                   <input
                     type="number"
-                    className="input"
+                    className="input w-full"
                     min={1}
                     value={entryQty}
                     onChange={(e) => {
                       const v = e.target.value;
                       setEntryQty(v);
-                      const id = Number(entryItemId || 0);
-                      if (id) {
-                        updateCartField(id, "quantity", v);
+                      if (selectedItems.length === 1) {
+                        updateCartField(selectedItems[0].id, "quantity", v);
                       }
                     }}
                     disabled={false}
                   />
                 </div>
-                <div>
+                <div className="md:col-span-3">
                   <label className="label">Price Type</label>
                   <FilterableSelect
                     value={entryPriceType}
@@ -1423,21 +1398,20 @@ export default function PosSalesEntry() {
                     filterPlaceholder="Filter price types..."
                   />
                 </div>
-                <div className="discount-guard">
+                <div className="md:col-span-2 discount-guard">
                   <label className="label">Discount</label>
                   <input
                     name="discount"
                     type="number"
-                    className={`input ${!canEditDiscount() ? "disabled-light-blue" : ""}`}
+                    className={`input w-full ${!canEditDiscount() ? "disabled-light-blue" : ""}`}
                     min={0}
                     step="0.01"
                     value={headerDiscount}
                     onChange={(e) => {
                       const v = e.target.value;
                       setHeaderDiscount(v);
-                      const id = Number(entryItemId || 0);
-                      if (id && canEditDiscount()) {
-                        updateCartField(id, "discount", v);
+                      if (selectedItems.length === 1 && canEditDiscount()) {
+                        updateCartField(selectedItems[0].id, "discount", v);
                       }
                     }}
                     disabled={!canEditDiscount()}
@@ -1548,8 +1522,7 @@ export default function PosSalesEntry() {
                   </div>
                 ) : (
                   <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-sm text-slate-600">
-                    Select an item by barcode or from the item filter to view
-                    details
+                    Scan barcode or search item to add to cart
                   </div>
                 )}
               </div>

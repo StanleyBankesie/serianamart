@@ -35,7 +35,7 @@ export default function DailyPlanList() {
     fetchPlans();
   }, []);
 
-  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "plan_no", "desc");
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "created_at", "desc");
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">

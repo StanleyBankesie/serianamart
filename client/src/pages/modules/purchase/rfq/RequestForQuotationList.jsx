@@ -60,7 +60,7 @@ export default function RequestForQuotationList() {
     });
   }, [rfqs, searchTerm, statusFilter]);
 
-  const { sorted: sortedRfqs, sortKey, sortDir, toggle } = useSort(filteredRfqs, "rfq_no", "desc");
+  const { sorted: sortedRfqs, sortKey, sortDir, toggle } = useSort(filteredRfqs, "created_at", "desc");
 
   return (
     <div className="space-y-6">

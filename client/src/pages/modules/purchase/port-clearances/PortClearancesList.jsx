@@ -130,7 +130,7 @@ export default function PortClearancesList() {
     });
   }, [items, searchTerm]);
 
-  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "clearance_no", "desc");
+  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "created_at", "desc");
 
   return (
     <div className="space-y-6">

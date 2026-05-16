@@ -15,6 +15,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 
 // Ghana Regions and Countries data
 const GHANA_REGIONS = [
@@ -111,6 +112,7 @@ export default function QuotationForm() {
     tax_type: "",
     remarks: "",
   });
+  const [itemQuery, setItemQuery] = useState("");
 
   const [customers, setCustomers] = useState([]);
   const [prospects, setProspects] = useState([]);
@@ -119,11 +121,17 @@ export default function QuotationForm() {
   const [currencies, setCurrencies] = useState([]);
 
   const baseCurrencyCode = useMemo(() => {
-    return currencies.find(c => Number(c.is_base) === 1 || c.is_base === true)?.code || "GHS";
+    return (
+      currencies.find((c) => Number(c.is_base) === 1 || c.is_base === true)
+        ?.code || "GHS"
+    );
   }, [currencies]);
 
   const selectedCurrencyCode = useMemo(() => {
-    return currencies.find(c => String(c.id) === String(formData.currency_id))?.code || "";
+    return (
+      currencies.find((c) => String(c.id) === String(formData.currency_id))
+        ?.code || ""
+    );
   }, [currencies, formData.currency_id]);
 
   const [taxes, setTaxes] = useState([]);
@@ -281,9 +289,7 @@ export default function QuotationForm() {
   const ensureTaxComponentsLoaded = async () => {
     const uniqueTaxIds = Array.from(
       new Set(
-        items
-          .map((i) => i.tax_type)
-          .filter((id) => id && id !== "undefined"),
+        items.map((i) => i.tax_type).filter((id) => id && id !== "undefined"),
       ),
     );
     const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
@@ -330,18 +336,22 @@ export default function QuotationForm() {
 
   useEffect(() => {
     if (!formData.currency_id || currencies.length === 0) return;
-    const selected = currencies.find(c => String(c.id) === String(formData.currency_id));
-    const base = currencies.find(c => Number(c.is_base) === 1 || c.is_base === true);
+    const selected = currencies.find(
+      (c) => String(c.id) === String(formData.currency_id),
+    );
+    const base = currencies.find(
+      (c) => Number(c.is_base) === 1 || c.is_base === true,
+    );
     if (!selected || !base) return;
 
     if (selected.code === base.code) {
-      setFormData(p => ({ ...p, exchange_rate: 1 }));
+      setFormData((p) => ({ ...p, exchange_rate: 1 }));
       return;
     }
 
-    getExchangeRate(selected.code, base.code).then(rate => {
+    getExchangeRate(selected.code, base.code).then((rate) => {
       if (rate) {
-        setFormData(p => ({ ...p, exchange_rate: rate }));
+        setFormData((p) => ({ ...p, exchange_rate: rate }));
       }
     });
   }, [formData.currency_id, currencies]);
@@ -567,9 +577,7 @@ export default function QuotationForm() {
         date: formData.quotation_date,
         price_type: formData.price_type || "RETAIL",
         only_standard: true,
-        ...(formData.customer_id
-          ? { customer_id: formData.customer_id }
-          : {}),
+        ...(formData.customer_id ? { customer_id: formData.customer_id } : {}),
       });
       const price = Number(res.data?.price);
       if (Number.isFinite(price)) {
@@ -871,6 +879,7 @@ export default function QuotationForm() {
         )?.rate || undefined,
       remarks: "",
     });
+    setItemQuery("");
   };
 
   const removeItem = (lineId) => {
@@ -1474,27 +1483,30 @@ export default function QuotationForm() {
                 onChange={handleInputChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
               >
-                  {currencies.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.code || c.currency_code} - {c.name || c.currency_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Exchange Rate {selectedCurrencyCode ? `(${baseCurrencyCode} per ${selectedCurrencyCode})` : ""}
-                </label>
-                <input
-                  type="number"
-                  step="0.000001"
-                  name="exchange_rate"
-                  value={formData.exchange_rate}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                  readOnly
-                />
-              </div>
+                {currencies.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code || c.currency_code} - {c.name || c.currency_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Exchange Rate{" "}
+                {selectedCurrencyCode
+                  ? `(${baseCurrencyCode} per ${selectedCurrencyCode})`
+                  : ""}
+              </label>
+              <input
+                type="number"
+                step="0.000001"
+                name="exchange_rate"
+                value={formData.exchange_rate}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                readOnly
+              />
+            </div>
             <div className="md:col-span-3">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Terms & Conditions
@@ -1538,19 +1550,95 @@ export default function QuotationForm() {
                   <label className="block text-xs font-medium text-gray-700 mb-1">
                     Item *
                   </label>
-                  <select
-                    name="item_id"
-                    value={newItem.item_id}
-                    onChange={handleNewItemChange}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                  >
-                    <option value="">Select Item</option>
-                    {inventoryItems.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.item_code} - {p.item_name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <input
+                      id="quotation-item-search"
+                      name="item_id"
+                      autoComplete="off"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                      placeholder="Type to search items"
+                      value={itemQuery}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setItemQuery(val);
+                        if (!val && newItem.item_id) {
+                          setNewItem((prev) => ({
+                            ...prev,
+                            item_id: "",
+                            item_name: "",
+                            unit_price: "",
+                          }));
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const query = itemQuery.trim();
+                          const results = query
+                            ? filterByPrefix(inventoryItems, {
+                                query,
+                                searchFields: ["item_code", "item_name", "barcode"],
+                              })
+                            : [];
+                          if (!query || !results.length) return;
+                          const prod = inventoryItems.find(
+                            (p) => String(p.id) === String(results[0].id),
+                          );
+                          setNewItem((prev) => ({
+                            ...prev,
+                            item_id: results[0].id,
+                            item_name: prod?.item_name || "",
+                            unit_price: prod?.selling_price || 0,
+                            qty: 1,
+                          }));
+                          setItemQuery("");
+                        }
+                      }}
+                    />
+                    {(() => {
+                      const query = itemQuery.trim();
+                      const results = query
+                        ? filterByPrefix(inventoryItems, {
+                            query,
+                            searchFields: ["item_code", "item_name", "barcode"],
+                          })
+                        : [];
+                      return results.length ? (
+                        (() => {
+                          const el = document.getElementById("quotation-item-search");
+                          const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
+                          return (
+                            <div
+                              className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
+                              style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
+                            >
+                              {results.map((o) => (
+                                <button
+                                  type="button"
+                                  key={o.id}
+                                  className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-xs"
+                                  onClick={() => {
+                                    const prod = inventoryItems.find(
+                                      (p) => String(p.id) === String(o.id),
+                                    );
+                                    setNewItem((prev) => ({
+                                      ...prev,
+                                      item_id: o.id,
+                                      item_name: prod?.item_name || "",
+                                      unit_price: prod?.selling_price || 0,
+                                      qty: 1,
+                                    }));
+                                    setItemQuery("");
+                                  }}
+                                >
+                                  {o.item_code} - {o.item_name}
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })()
+                      ) : null;
+                    })()}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -1623,99 +1711,99 @@ export default function QuotationForm() {
             </div>
             {items.length > 0 && (
               <>
-              <div className="overflow-x-auto rounded-lg border border-gray-200">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-100">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                        Item
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                        Qty
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                        Price
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                        Disc%
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                        Net
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                        Tax
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                        Total
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider print:hidden">
-                        Action
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200 bg-white">
-                    {items.map((i) => (
-                      <tr key={i.line_id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-gray-900">
-                          {i.item_name}
-                        </td>
-                        <td className="px-4 py-3 text-gray-900">{i.qty}</td>
-                        <td className="px-4 py-3 text-gray-900">
-                          {parseFloat(i.unit_price).toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-gray-900">
-                          {parseFloat(i.discount_percent || 0).toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-gray-900">
-                          {i.net.toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-gray-900">
-                          {i.taxAmt.toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 font-medium text-gray-900">
-                          {i.total.toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 print:hidden">
-                          <button
-                            type="button"
-                            onClick={() => removeItem(i.line_id)}
-                            className="text-red-600 hover:text-red-900 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
+                <div className="overflow-x-auto rounded-lg border border-gray-200">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Item
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Qty
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Price
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Disc%
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Net
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Tax
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Total
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider print:hidden">
+                          Action
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="mt-4 ml-auto w-full max-w-md rounded-md bg-gray-100 px-4 py-3 space-y-2">
-                <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
-                  <span>Subtotal:</span>
-                  <span>{calcAggregates().netSub.toFixed(2)}</span>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 bg-white">
+                      {items.map((i) => (
+                        <tr key={i.line_id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-gray-900">
+                            {i.item_name}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">{i.qty}</td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {parseFloat(i.unit_price).toFixed(2)}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {parseFloat(i.discount_percent || 0).toFixed(2)}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {i.net.toFixed(2)}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {i.taxAmt.toFixed(2)}
+                          </td>
+                          <td className="px-4 py-3 font-medium text-gray-900">
+                            {i.total.toFixed(2)}
+                          </td>
+                          <td className="px-4 py-3 print:hidden">
+                            <button
+                              type="button"
+                              onClick={() => removeItem(i.line_id)}
+                              className="text-red-600 hover:text-red-900 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
-                  <span>Total Discount:</span>
-                  <span>{calcAggregates().discountTotal.toFixed(2)}</span>
-                </div>
-                {calcAggregates().components.map((c) => (
-                  <div
-                    key={c.name}
-                    className="flex items-center justify-between text-sm italic text-slate-600"
-                  >
-                    <span>{c.name}</span>
-                    <span>{c.amount.toFixed(2)}</span>
+                <div className="mt-4 ml-auto w-full max-w-md rounded-md bg-gray-100 px-4 py-3 space-y-2">
+                  <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                    <span>Subtotal:</span>
+                    <span>{calcAggregates().netSub.toFixed(2)}</span>
                   </div>
-                ))}
-                <div className="flex items-center justify-between text-base font-bold text-slate-800 pt-1">
-                  <span>Total Tax:</span>
-                  <span>{calcAggregates().taxTotal.toFixed(2)}</span>
+                  <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                    <span>Total Discount:</span>
+                    <span>{calcAggregates().discountTotal.toFixed(2)}</span>
+                  </div>
+                  {calcAggregates().components.map((c) => (
+                    <div
+                      key={c.name}
+                      className="flex items-center justify-between text-sm italic text-slate-600"
+                    >
+                      <span>{c.name}</span>
+                      <span>{c.amount.toFixed(2)}</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between text-base font-bold text-slate-800 pt-1">
+                    <span>Total Tax:</span>
+                    <span>{calcAggregates().taxTotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xl font-bold text-slate-900 pt-1">
+                    <span>Grand Total:</span>
+                    <span>{calcAggregates().grand.toFixed(2)}</span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between text-xl font-bold text-slate-900 pt-1">
-                  <span>Grand Total:</span>
-                  <span>{calcAggregates().grand.toFixed(2)}</span>
-                </div>
-              </div>
               </>
             )}
             {items.length === 0 && (

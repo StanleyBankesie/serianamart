@@ -5,11 +5,12 @@ import { api } from "api/client";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import { filterAndSort } from "../../../../utils/searchUtils.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function DebtorsLedgerReportPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [order, setOrder] = useState("old");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState([]);
@@ -52,6 +53,8 @@ export default function DebtorsLedgerReportPage() {
     return { debit, credit, balance };
   }, [items]);
 
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "voucher_date", "asc");
+
   async function run() {
     try {
       setLoading(true);
@@ -62,8 +65,7 @@ export default function DebtorsLedgerReportPage() {
       const openRow =
         rows.length && rows[0]?.doc_no === "OPEN" ? rows[0] : null;
       const body = openRow ? rows.slice(1) : rows;
-      const ordered = order === "new" ? body.slice().reverse() : body;
-      setItems(openRow ? [openRow, ...ordered] : ordered);
+      setItems(openRow ? [openRow, ...body] : body);
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to load report");
     } finally {
@@ -82,7 +84,7 @@ export default function DebtorsLedgerReportPage() {
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, order, accountId]);
+  }, [from, to, accountId]);
 
   return (
     <div className="space-y-4">
@@ -144,18 +146,6 @@ export default function DebtorsLedgerReportPage() {
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
               />
-            </div>
-            <div className="flex items-end">
-              <button
-                type="button"
-                className="btn-secondary"
-                title={
-                  order === "new" ? "New entries first" : "Old entries first"
-                }
-                onClick={() => setOrder(order === "new" ? "old" : "new")}
-              >
-                {order === "new" ? "🔽" : "🔼"}
-              </button>
             </div>
             <div className="md:col-span-2 flex items-end gap-2">
               <button
@@ -276,17 +266,17 @@ export default function DebtorsLedgerReportPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th>Voucher Date</th>
-                  <th>Voucher No</th>
-                  <th>Narration</th>
-                  <th className="text-right">Debit</th>
-                  <th className="text-right">Credit</th>
-                  <th className="text-right">Running Balance</th>
+                  <SortableHeader label="Voucher Date" sortKey="voucher_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Voucher No" sortKey="voucher_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Narration" sortKey="narration" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Debit" sortKey="debit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Credit" sortKey="credit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Running Balance" sortKey="balance" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                   <th>Bal Type</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, idx) => {
+                {sortedItems.map((r, idx) => {
                   const running = items
                     .slice(0, idx + 1)
                     .reduce(

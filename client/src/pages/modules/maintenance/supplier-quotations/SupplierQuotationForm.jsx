@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 
 const STATUSES = ["DRAFT","UNDER_REVIEW","APPROVED","REJECTED"];
 
@@ -28,8 +29,10 @@ export default function SupplierQuotationForm() {
   });
   const [suppliers, setSuppliers] = useState([]);
   const [rfqs, setRfqs] = useState([]);
+  const [inventoryItems, setInventoryItems] = useState([]);
   const [taxCodes, setTaxCodes] = useState([]);
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
+  const [itemQueries, setItemQueries] = useState({});
   const [saving, setSaving] = useState(false);
   const update = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
@@ -37,6 +40,7 @@ export default function SupplierQuotationForm() {
     let mounted = true;
     api.get("/purchase/suppliers").then(r => { if (mounted) setSuppliers(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
     api.get("/maintenance/rfqs").then(r => { if (mounted) setRfqs(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
+    api.get("/inventory/items").then(r => { if (mounted) setInventoryItems(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
     api.get("/finance/tax-codes").then(r => { if (mounted) setTaxCodes(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
     if (isEdit) {
       api.get(`/maintenance/supplier-quotations/${id}`).then(r => {
@@ -227,12 +231,44 @@ export default function SupplierQuotationForm() {
               <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-3">
                 <div className="md:col-span-2">
                   <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Description *</label>
-                  <input
-                    className="input text-sm"
-                    value={newItem.description}
-                    onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
-                    placeholder="Enter item details"
-                  />
+                  <div className="relative">
+                    <input
+                      autoComplete="off"
+                      className="input text-sm w-full"
+                      placeholder="Type to search items"
+                      value={itemQueries.new || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setItemQueries((prev) => ({ ...prev, new: val }));
+                        if (!val && newItem.description) {
+                          setNewItem((prev) => ({ ...prev, description: "" }));
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const query = (itemQueries.new || "").trim();
+                          const results = query ? filterByPrefix(inventoryItems, { query, searchFields: ["item_code", "item_name", "barcode"] }) : [];
+                          if (!query || !results.length) return;
+                          const sel = results[0];
+                          setNewItem((prev) => ({ ...prev, description: `${sel.item_code} - ${sel.item_name}` }));
+                          setItemQueries((prev) => ({ ...prev, new: "" }));
+                        }
+                      }}
+                    />
+                    {(() => {
+                      const query = (itemQueries.new || "").trim();
+                      const results = query ? filterByPrefix(inventoryItems, { query, searchFields: ["item_code", "item_name", "barcode"] }) : [];
+                      return results.length ? (
+                        <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto">
+                          {results.map((o) => (
+                            <button type="button" key={o.id} className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs" onClick={() => { setNewItem((prev) => ({ ...prev, description: `${o.item_code} - ${o.item_name}` })); setItemQueries((prev) => ({ ...prev, new: "" })); }}>
+                              {o.item_code} - {o.item_name}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
                 </div>
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Qty</label>

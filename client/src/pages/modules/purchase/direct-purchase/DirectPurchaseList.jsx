@@ -59,7 +59,7 @@ export default function DirectPurchaseList() {
     })}`;
   }
 
-  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "dp_no", "desc");
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "created_at", "desc");
 
   return (
     <div className="p-6 space-y-4">
@@ -102,7 +102,7 @@ export default function DirectPurchaseList() {
                     <SortableHeader label="Supplier" sortKey="supplier_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <SortableHeader label="Amount" sortKey="grand_total" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                     <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <th className="text-right">Actions</th>
+                     <th className="text-right" style={{ width: '320px' }}>Actions</th>
                     <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   </tr>
@@ -133,92 +133,92 @@ export default function DirectPurchaseList() {
                           {it.status || "DRAFT"}
                         </span>
                       </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {/* Slot 1: View */}
-                        <div className="min-w-[80px]">
-                          <button
-                            type="button"
-                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
-                            onClick={() => navigate(`/purchase/direct-purchase/${it.id}?mode=view`)}
-                          >
-                            View
-                          </button>
-                        </div>
+                     <td className="px-6 py-4 text-right">
+                       <div className="flex items-center justify-end gap-2">
+                         {/* Slot 1: View */}
+                         <div className="min-w-[60px]">
+                           <button
+                             type="button"
+                             className="w-full inline-flex items-center justify-center px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-8"
+                             onClick={() => navigate(`/purchase/direct-purchase/${it.id}?mode=view`)}
+                           >
+                             View
+                           </button>
+                         </div>
 
-                        {/* Slot 2: Edit */}
-                        <div className="min-w-[80px]">
-                          {!["POST", "POSTED"].includes(String(it.status).toUpperCase()) ? (
-                            <button
-                              type="button"
-                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
-                              onClick={() => navigate(`/purchase/direct-purchase/${it.id}?mode=edit`)}
-                            >
-                              Edit
-                            </button>
-                          ) : (
-                            <div className="w-full h-9" />
-                          )}
-                        </div>
+                         {/* Slot 2: Edit */}
+                         <div className="min-w-[60px]">
+                           {!["POST", "POSTED"].includes(String(it.status).toUpperCase()) ? (
+                             <button
+                               type="button"
+                               className="w-full inline-flex items-center justify-center px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-8"
+                               onClick={() => navigate(`/purchase/direct-purchase/${it.id}?mode=edit`)}
+                             >
+                               Edit
+                             </button>
+                           ) : (
+                             <div className="w-full h-8" />
+                           )}
+                         </div>
 
-                        {/* Slot 3: Print */}
-                        <div className="min-w-[80px]">
-                          <ListPrintIconButton
-                            onClick={() => printDocument(api, "direct-purchase", it.id, toast)}
-                          />
-                        </div>
+                         {/* Slot 3: Print */}
+                         <div className="min-w-[36px]">
+                           <ListPrintIconButton
+                             onClick={() => printDocument(api, "direct-purchase", it.id, toast)}
+                           />
+                         </div>
 
-                        {/* Slot 4: PDF */}
-                        <div className="min-w-[80px]">
-                          <ListPdfIconButton
-                            onClick={() => downloadDocumentPdf(api, "direct-purchase", it.id, `DirectPurchase-${it.dp_no || it.id}.pdf`, toast)}
-                          />
-                        </div>
+                         {/* Slot 4: PDF */}
+                         <div className="min-w-[36px]">
+                           <ListPdfIconButton
+                             onClick={() => downloadDocumentPdf(api, "direct-purchase", it.id, `DirectPurchase-${it.dp_no || it.id}.pdf`, toast)}
+                           />
+                         </div>
 
-                        {/* Slot 5: Attachments */}
-                        <div className="w-9">
-                          <ListAttachmentIconButton
-                            onClick={() => {
-                              setActiveDocId(it.id);
-                              setShowAttach(true);
-                            }}
-                          />
-                        </div>
+                         {/* Slot 5: Attachments */}
+                         <div className="w-8">
+                           <ListAttachmentIconButton
+                             onClick={() => {
+                               setActiveDocId(it.id);
+                               setShowAttach(true);
+                             }}
+                           />
+                         </div>
 
-                        {/* Slot 6: Workflow / Status */}
-                        <div className="min-w-[160px]">
-                          <div className="list-approval-slot">
-                            {["POST", "POSTED"].includes(String(it.status).toUpperCase()) ? (
-                              <div className="flex items-center gap-2">
-                                <span className="list-approval-approved-pill">
-                                  Posted
-                                </span>
-                                {canReverseApproval() && (
-                                  <button
-                                    type="button"
-                                    className="list-approval-reverse-btn"
-                                    onClick={async () => {
-                                      if (!window.confirm("Cancel this purchase?")) return;
-                                      try {
-                                        await api.post(`/purchase/direct-purchase/${it.id}/cancel`);
-                                        toast.success("Purchase cancelled");
-                                        setItems(prev => prev.map(x => x.id === it.id ? { ...x, status: 'CANCELLED' } : x));
-                                      } catch (e) {
-                                        toast.error("Failed to cancel");
-                                      }
-                                    }}
-                                  >
-                                    Cancel
-                                  </button>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="w-full h-9" />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
+                         {/* Slot 6: Workflow / Status */}
+                         <div className="min-w-[120px]">
+                           <div className="list-approval-slot">
+                             {["POST", "POSTED"].includes(String(it.status).toUpperCase()) ? (
+                               <div className="flex items-center gap-2">
+                                 <span className="list-approval-approved-pill">
+                                   Posted
+                                 </span>
+                                 {canReverseApproval() && (
+                                   <button
+                                     type="button"
+                                     className="list-approval-reverse-btn"
+                                     onClick={async () => {
+                                       if (!window.confirm("Cancel this purchase?")) return;
+                                       try {
+                                         await api.post(`/purchase/direct-purchase/${it.id}/cancel`);
+                                         toast.success("Purchase cancelled");
+                                         setItems(prev => prev.map(x => x.id === it.id ? { ...x, status: 'CANCELLED' } : x));
+                                       } catch (e) {
+                                         toast.error("Failed to cancel");
+                                       }
+                                     }}
+                                   >
+                                     Cancel
+                                   </button>
+                                 )}
+                               </div>
+                             ) : (
+                               <div className="w-full h-8" />
+                             )}
+                           </div>
+                         </div>
+                       </div>
+                     </td>
                     <td>{it.created_by_username || it.created_by_name || "-"}</td>
                     <td>{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
                     </tr>

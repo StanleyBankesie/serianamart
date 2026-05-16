@@ -10,6 +10,7 @@ import { api } from "api/client";
 
 import { useUoms } from "@/hooks/useUoms";
 import UnitConversionModal from "@/components/UnitConversionModal";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 
 export default function StockAdjustmentForm() {
   const { uoms, loading: uomsLoading } = useUoms();
@@ -37,6 +38,7 @@ export default function StockAdjustmentForm() {
   });
 
   const [items, setItems] = useState([]);
+  const [itemQueries, setItemQueries] = useState({});
   const [unitConversions, setUnitConversions] = useState([]);
   const [convModal, setConvModal] = useState({
     open: false,
@@ -63,7 +65,6 @@ export default function StockAdjustmentForm() {
     }
     return m;
   }, [unitConversions]);
-
   useEffect(() => {
     let mounted = true;
     Promise.all([
@@ -109,10 +110,10 @@ export default function StockAdjustmentForm() {
   }, [isNew]);
   useEffect(() => {
     if (isNew) {
-      // Initialize with one empty row
+      const id = Date.now();
       setItems([
         {
-          id: Date.now(),
+          id,
           item_id: "",
           itemCode: "",
           itemName: "",
@@ -123,6 +124,7 @@ export default function StockAdjustmentForm() {
           remarks: "",
         },
       ]);
+      setItemQueries({ [id]: "" });
       return;
     }
 
@@ -152,21 +154,25 @@ export default function StockAdjustmentForm() {
           status: a.status || "DRAFT",
         });
 
-        setItems(
-          details.length
-            ? details.map((d) => ({
-                id: d.id || Date.now() + Math.random(),
-                item_id: d.item_id ? String(d.item_id) : "",
-                itemCode: d.item_code || "",
-                itemName: d.item_name || "",
-                currentStock: Number(d.current_stock) || 0,
-                adjustedStock: Number(d.adjusted_stock) || 0,
-                uom: d.uom || "PCS",
-                unitCost: Number(d.unit_cost) || 0,
-                remarks: d.remarks || "",
-              }))
-            : [],
-        );
+        const mappedItems = details.length
+          ? details.map((d) => ({
+              id: d.id || Date.now() + Math.random(),
+              item_id: d.item_id ? String(d.item_id) : "",
+              itemCode: d.item_code || "",
+              itemName: d.item_name || "",
+              currentStock: Number(d.current_stock) || 0,
+              adjustedStock: Number(d.adjusted_stock) || 0,
+              uom: d.uom || "PCS",
+              unitCost: Number(d.unit_cost) || 0,
+              remarks: d.remarks || "",
+            }))
+          : [];
+        setItems(mappedItems);
+        const initQueries = {};
+        mappedItems.forEach((i) => {
+          initQueries[i.id] = "";
+        });
+        setItemQueries(initQueries);
       })
       .catch((e) => {
         if (!mounted) return;
@@ -233,10 +239,11 @@ export default function StockAdjustmentForm() {
   };
 
   const addItem = () => {
+    const newId = Date.now();
     setItems([
       ...items,
       {
-        id: Date.now(),
+        id: newId,
         item_id: "",
         itemCode: "",
         itemName: "",
@@ -247,6 +254,7 @@ export default function StockAdjustmentForm() {
         remarks: "",
       },
     ]);
+    setItemQueries((prev) => ({ ...prev, [newId]: "" }));
   };
 
   const removeItem = (id) => {
@@ -552,8 +560,8 @@ export default function StockAdjustmentForm() {
                   Adjustment Reason <span className="text-red-500">*</span>
                 </label>
                 <textarea
-                  className="input"
-                  rows="2"
+                  className="input min-w-96"
+                  rows="4"
                   placeholder="Provide detailed reason for this adjustment..."
                   value={formData.reason}
                   onChange={(e) =>
@@ -603,19 +611,21 @@ export default function StockAdjustmentForm() {
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left">
+                  <table className="table w-full text-sm text-left">
                     <thead className="bg-slate-100 text-slate-700 uppercase font-bold">
                       <tr>
-                        <th className="p-3 w-96">Item</th>
-                        <th className="p-3 w-28">Item Code</th>
-                        <th className="p-3 w-24">Current Stock</th>
-                        <th className="p-3 w-40">Adjusted Stock</th>
-                        <th className="p-3 w-24">Diff</th>
-                        <th className="p-3 w-20">UOM</th>
-                        <th className="p-3 w-24">Unit Cost</th>
-                        <th className="p-3 w-28">Impact</th>
-                        <th className="p-3">Remarks</th>
-                        <th className="p-3 w-16"></th>
+                        <th className="w-1/2 min-w-[280px] p-3">Item</th>
+                        <th className="w-24 min-w-[100px] p-3">Item Code</th>
+                        <th className="w-16 min-w-[60px] p-3">Current Stock</th>
+                        <th className="w-32 min-w-[130px] p-3">
+                          Adjusted Stock
+                        </th>
+                        <th className="w-20 min-w-[80px] p-3">Diff</th>
+                        <th className="w-20 min-w-[80px] p-3">UOM</th>
+                        <th className="w-24 min-w-[90px] p-3">Unit Cost</th>
+                        <th className="w-28 min-w-[100px] p-3">Impact</th>
+                        <th className="w-48 min-w-[200px] p-3">Remarks</th>
+                        <th className="w-16 p-3"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
@@ -624,30 +634,105 @@ export default function StockAdjustmentForm() {
                           Number(item.adjustedStock) -
                           Number(item.currentStock);
                         const impact = diff * Number(item.unitCost);
+                        const itemQuery = itemQueries[item.id] || "";
+                        const searchResults = itemQuery.trim()
+                          ? filterByPrefix(availableItems, {
+                              query: itemQuery,
+                              searchFields: [
+                                "item_code",
+                                "item_name",
+                                "barcode",
+                              ],
+                            })
+                          : [];
 
                         return (
                           <tr key={item.id} className="hover:bg-slate-50">
                             <td className="p-2">
-                              <select
-                                className="input text-sm py-1"
-                                value={item.item_id}
-                                onChange={(e) =>
-                                  updateItem(item.id, "item_id", e.target.value)
-                                }
-                                required
-                              >
-                                <option value="">Select Item</option>
-                                {availableItems.map((ai) => (
-                                  <option key={ai.id} value={ai.id}>
-                                    {ai.item_code} - {ai.item_name}
-                                  </option>
-                                ))}
-                              </select>
+                              <div className="relative">
+                                <input
+                                  id={`sa-item-search-${item.id}`} autoComplete="off"
+                                  className="input text-sm py-1 w-full"
+                                  placeholder="Type to search items"
+                                  value={itemQueries[item.id] || ""}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setItemQueries((prev) => ({
+                                      ...prev,
+                                      [item.id]: val,
+                                    }));
+                                    if (!val && item.item_id) {
+                                      updateItem(item.id, "item_id", "");
+                                    }
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      const query = (
+                                        itemQueries[item.id] || ""
+                                      ).trim();
+                                      if (!query || !searchResults.length)
+                                        return;
+                                      updateItem(
+                                        item.id,
+                                        "item_id",
+                                        String(searchResults[0].id),
+                                      );
+                                      setItemQueries((prev) => ({
+                                        ...prev,
+                                        [item.id]: "",
+                                      }));
+                                    }
+                                  }}
+                                />
+                                {searchResults.length
+                                  ? (() => {
+                                      const el = document.getElementById(
+                                        `sa-item-search-${item.id}`,
+                                      );
+                                      const r = el
+                                        ? el.getBoundingClientRect()
+                                        : { bottom: 0, left: 0, width: 0 };
+                                      return (
+                                        <div
+                                          className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                          style={{
+                                            position: "fixed",
+                                            top: `${r.bottom + 4}px`,
+                                            left: `${r.left}px`,
+                                            width: `${r.width}px`,
+                                            zIndex: 9999,
+                                          }}
+                                        >
+                                          {searchResults.map((o) => (
+                                            <button
+                                              type="button"
+                                              key={o.id}
+                                              className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                                              onClick={() => {
+                                                updateItem(
+                                                  item.id,
+                                                  "item_id",
+                                                  String(o.id),
+                                                );
+                                                setItemQueries((prev) => ({
+                                                  ...prev,
+                                                  [item.id]: "",
+                                                }));
+                                              }}
+                                            >
+                                              {o.item_code} - {o.item_name}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      );
+                                    })()
+                                  : null}
+                              </div>
                             </td>
                             <td className="p-2">
                               <input
                                 type="text"
-                                className="input text-sm py-1 bg-slate-50"
+                                className="input text-sm py-1 bg-slate-50 w-24"
                                 value={item.itemCode || ""}
                                 readOnly
                               />
@@ -655,7 +740,7 @@ export default function StockAdjustmentForm() {
                             <td className="p-2">
                               <input
                                 type="number"
-                                className="input text-sm py-1 bg-slate-50"
+                                className="input text-sm py-1 bg-slate-50 w-16"
                                 value={item.currentStock}
                                 readOnly
                               />

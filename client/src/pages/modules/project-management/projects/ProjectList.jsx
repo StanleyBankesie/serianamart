@@ -63,7 +63,7 @@ export default function ProjectList() {
     p.project_code.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(filteredItems, "project_name", "asc");
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(filteredItems, "created_at", "desc");
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../api/client.js";
 import { useNavigate, useParams, useLocation, Link } from "react-router-dom";
 import { toast } from "react-toastify";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 
 export default function GeneralRequisitionForm() {
   const navigate = useNavigate();
@@ -39,6 +40,7 @@ export default function GeneralRequisitionForm() {
       remarks: "",
     },
   ]);
+  const [itemQueries, setItemQueries] = useState({});
 
   const [headerData, setHeaderData] = useState(null);
 
@@ -434,36 +436,93 @@ export default function GeneralRequisitionForm() {
                       <tr key={i}>
                         {form.requisition_type === "ITEM" && (
                           <td>
-                            <select
-                              className="input text-sm"
-                              value={l.item_id}
-                              onChange={(e) => onItemChange(i, e.target.value)}
-                              disabled={disabled}
-                            >
-                              <option value="">Select item</option>
-                              {itemOptions.map((it) => (
-                                <option key={it.id} value={it.id}>
-                                  {it.item_code} - {it.item_name}
-                                </option>
-                              ))}
-                            </select>
+                            <div className="relative">
+                              <input
+                                id={`gr-item-search-${i}`} autoComplete="off"
+                                className="input text-sm w-full"
+                                placeholder="Type to search items"
+                                value={itemQueries[`item-${i}`] || ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setItemQueries((prev) => ({ ...prev, [`item-${i}`]: val }));
+                                  if (!val && lines[i].item_id) {
+                                    updateLine(i, "item_id", "");
+                                    updateLine(i, "description", "");
+                                    updateLine(i, "uom", "");
+                                    updateLine(i, "estimated_unit_cost", "");
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    const query = (itemQueries[`item-${i}`] || "").trim();
+                                    const results = query ? filterByPrefix(itemOptions, { query, searchFields: ["item_code", "item_name", "barcode"] }) : [];
+                                    if (!query || !results.length) return;
+                                    onItemChange(i, String(results[0].id));
+                                    setItemQueries((prev) => ({ ...prev, [`item-${i}`]: "" }));
+                                  }
+                                }}
+                                disabled={disabled}
+                              />
+                              {(() => {
+                                const query = (itemQueries[`item-${i}`] || "").trim();
+                                const results = query ? filterByPrefix(itemOptions, { query, searchFields: ["item_code", "item_name", "barcode"] }) : [];
+                                return results.length ? (
+                                  <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto">
+                                    {results.map((o) => (
+                                      <button type="button" key={o.id} className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs" onClick={() => { onItemChange(i, String(o.id)); setItemQueries((prev) => ({ ...prev, [`item-${i}`]: "" })); }}>
+                                        {o.item_code} - {o.item_name}
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : null;
+                              })()}
+                            </div>
                           </td>
                         )}
                         {form.requisition_type === "SERVICE" && (
                           <td>
-                            <select
-                              className="input text-sm"
-                              value={l.item_id}
-                              onChange={(e) => onItemChange(i, e.target.value)}
-                              disabled={disabled}
-                            >
-                              <option value="">Select service</option>
-                              {serviceOptions.map((it) => (
-                                <option key={it.id} value={it.id}>
-                                  {it.item_name}
-                                </option>
-                              ))}
-                            </select>
+                            <div className="relative">
+                              <input
+                                id={`gr-svc-search-${i}`}
+                                autoComplete="off"
+                                className="input text-sm w-full"
+                                placeholder="Type to search services"
+                                value={itemQueries[`svc-${i}`] || ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setItemQueries((prev) => ({ ...prev, [`svc-${i}`]: val }));
+                                  if (!val && lines[i].item_id) {
+                                    updateLine(i, "item_id", "");
+                                    updateLine(i, "description", "");
+                                    updateLine(i, "uom", "");
+                                    updateLine(i, "estimated_unit_cost", "");
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    const query = (itemQueries[`svc-${i}`] || "").trim();
+                                    const results = query ? filterByPrefix(serviceOptions, { query, searchFields: ["item_code", "item_name", "barcode"] }) : [];
+                                    if (!query || !results.length) return;
+                                    onItemChange(i, String(results[0].id));
+                                    setItemQueries((prev) => ({ ...prev, [`svc-${i}`]: "" }));
+                                  }
+                                }}
+                                disabled={disabled}
+                              />
+                              {(() => {
+                                const query = (itemQueries[`svc-${i}`] || "").trim();
+                                const results = query ? filterByPrefix(serviceOptions, { query, searchFields: ["item_code", "item_name", "barcode"] }) : [];
+                                return results.length ? (
+                                  <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto">
+                                    {results.map((o) => (
+                                      <button type="button" key={o.id} className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs" onClick={() => { onItemChange(i, String(o.id)); setItemQueries((prev) => ({ ...prev, [`svc-${i}`]: "" })); }}>
+                                        {o.item_name}
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : null;
+                              })()}
+                            </div>
                           </td>
                         )}
                         <td>

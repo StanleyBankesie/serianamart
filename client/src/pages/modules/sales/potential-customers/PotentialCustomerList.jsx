@@ -79,7 +79,7 @@ export default function PotentialCustomerList() {
       )
     : filteredCustomers;
 
-  const { sorted: sortedBranchFiltered, sortKey, sortDir, toggle } = useSort(branchFiltered, "customer_code", "asc");
+  const { sorted: sortedBranchFiltered, sortKey, sortDir, toggle } = useSort(branchFiltered, "created_at", "desc");
 
   if (loading && customers.length === 0) {
     return (

@@ -4,6 +4,7 @@ import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
 import UnitConversionModal from "@/components/UnitConversionModal";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 import { Printer, Download, Plus } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -65,6 +66,7 @@ export default function InvoiceForm() {
     remarks: "",
     uom: "",
   });
+  const [itemQuery, setItemQuery] = useState("");
   const pdfRef = useRef(null);
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
   const [companyInfo, setCompanyInfo] = useState({
@@ -103,27 +105,37 @@ export default function InvoiceForm() {
   const [autoDelivery, setAutoDelivery] = useState(false);
 
   const baseCurrencyCode = React.useMemo(() => {
-    return currencies.find(c => Number(c.is_base) === 1 || c.is_base === true)?.code || "GHS";
+    return (
+      currencies.find((c) => Number(c.is_base) === 1 || c.is_base === true)
+        ?.code || "GHS"
+    );
   }, [currencies]);
 
   const selectedCurrencyCode = React.useMemo(() => {
-    return currencies.find(c => String(c.id) === String(form.currency_id))?.code || "";
+    return (
+      currencies.find((c) => String(c.id) === String(form.currency_id))?.code ||
+      ""
+    );
   }, [currencies, form.currency_id]);
 
   useEffect(() => {
     if (!form.currency_id || currencies.length === 0) return;
-    const selected = currencies.find(c => String(c.id) === String(form.currency_id));
-    const base = currencies.find(c => Number(c.is_base) === 1 || c.is_base === true);
+    const selected = currencies.find(
+      (c) => String(c.id) === String(form.currency_id),
+    );
+    const base = currencies.find(
+      (c) => Number(c.is_base) === 1 || c.is_base === true,
+    );
     if (!selected || !base) return;
-    
+
     if (selected.code === base.code) {
-      setForm(p => ({ ...p, exchange_rate: 1 }));
+      setForm((p) => ({ ...p, exchange_rate: 1 }));
       return;
     }
 
-    getExchangeRate(selected.code, base.code).then(rate => {
+    getExchangeRate(selected.code, base.code).then((rate) => {
       if (rate) {
-        setForm(p => ({ ...p, exchange_rate: rate }));
+        setForm((p) => ({ ...p, exchange_rate: rate }));
       }
     });
   }, [form.currency_id, currencies]);
@@ -249,7 +261,7 @@ export default function InvoiceForm() {
   const fetchCustomers = async () => {
     try {
       const response = await api.get("/sales/customers", {
-        params: { active: "true" }
+        params: { active: "true" },
       });
       setCustomers(
         Array.isArray(response.data?.items) ? response.data.items : [],
@@ -375,9 +387,7 @@ export default function InvoiceForm() {
   useEffect(() => {
     const uniqueTaxIds = Array.from(
       new Set(
-        lines
-          .map((i) => i.tax_type)
-          .filter((id) => id && id !== "undefined"),
+        lines.map((i) => i.tax_type).filter((id) => id && id !== "undefined"),
       ),
     );
     const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
@@ -520,7 +530,7 @@ export default function InvoiceForm() {
     if (!origin) return u;
     if (u.startsWith("/")) return origin + u;
     return origin + "/" + u;
-  };
+  }
 
   // Removed old document template fetch/print/download; using CSS-based on-page layout instead
 
@@ -942,6 +952,7 @@ export default function InvoiceForm() {
       available_qty: undefined,
       uom: defaultUomCode,
     });
+    setItemQuery("");
   }
 
   async function fetchAndApplyBestPrice(idx, itemId) {
@@ -1585,7 +1596,10 @@ export default function InvoiceForm() {
               </div>
               <div>
                 <label className="label">
-                  Exchange Rate {selectedCurrencyCode ? `(${baseCurrencyCode} per ${selectedCurrencyCode})` : ""}
+                  Exchange Rate{" "}
+                  {selectedCurrencyCode
+                    ? `(${baseCurrencyCode} per ${selectedCurrencyCode})`
+                    : ""}
                 </label>
                 <input
                   type="number"
@@ -1648,19 +1662,97 @@ export default function InvoiceForm() {
                     <label className="block text-xs font-medium text-gray-700 mb-1">
                       Item *
                     </label>
-                    <select
-                      name="item_id"
-                      value={newItem.item_id}
-                      onChange={handleNewItemChange}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                    >
-                      <option value="">Select Item</option>
-                      {itemsCatalog.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.item_code} - {p.item_name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="relative">
+                      <input
+                        id="invoice-item-search"
+                        name="item_id"
+                        autoComplete="off"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                        placeholder="Type to search items"
+                        value={itemQuery}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setItemQuery(val);
+                          if (!val && newItem.item_id) {
+                            setNewItem((prev) => ({
+                              ...prev,
+                              item_id: "",
+                              item_name: "",
+                              unit_price: "",
+                            }));
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const query = itemQuery.trim();
+                            const results = query
+                              ? filterByPrefix(itemsCatalog, {
+                                  query,
+                                  searchFields: ["item_code", "item_name", "barcode"],
+                                })
+                              : [];
+                            if (!query || !results.length) return;
+                            const prod = itemsCatalog.find(
+                              (p) => String(p.id) === String(results[0].id),
+                            );
+                            setNewItem((prev) => ({
+                              ...prev,
+                              item_id: results[0].id,
+                              item_name: prod?.item_name || "",
+                              unit_price: prod?.selling_price || "",
+                              qty: 1,
+                              uom: String(prod?.uom || "") || defaultUomCode,
+                            }));
+                            setItemQuery("");
+                          }
+                        }}
+                      />
+                      {(() => {
+                        const query = itemQuery.trim();
+                        const results = query
+                          ? filterByPrefix(itemsCatalog, {
+                              query,
+                              searchFields: ["item_code", "item_name", "barcode"],
+                            })
+                          : [];
+                        return results.length ? (
+                          (() => {
+                            const el = document.getElementById("invoice-item-search");
+                            const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
+                            return (
+                              <div
+                                className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
+                              >
+                                {results.map((o) => (
+                                  <button
+                                    type="button"
+                                    key={o.id}
+                                    className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-xs"
+                                    onClick={() => {
+                                      const prod = itemsCatalog.find(
+                                        (p) => String(p.id) === String(o.id),
+                                      );
+                                      setNewItem((prev) => ({
+                                        ...prev,
+                                        item_id: o.id,
+                                        item_name: prod?.item_name || "",
+                                        unit_price: prod?.selling_price || "",
+                                        qty: 1,
+                                        uom: String(prod?.uom || "") || defaultUomCode,
+                                      }));
+                                      setItemQuery("");
+                                    }}
+                                  >
+                                    {o.item_code} - {o.item_name}
+                                  </button>
+                                ))}
+                              </div>
+                            );
+                          })()
+                        ) : null;
+                      })()}
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -2370,9 +2462,7 @@ export default function InvoiceForm() {
                 </div>
                 {calcAggregates().components.map((c) => (
                   <React.Fragment key={c.name}>
-                    <div className="px-2 py-1">
-                      {c.name}
-                    </div>
+                    <div className="px-2 py-1">{c.name}</div>
                     <div className="px-2 py-1 text-right">
                       {c.amount.toFixed(2)}
                     </div>
@@ -2512,9 +2602,7 @@ export default function InvoiceForm() {
                 </div>
                 {calcAggregates().components.map((c) => (
                   <div key={c.name} className="contents">
-                    <div className="px-2 py-1">
-                      {c.name}
-                    </div>
+                    <div className="px-2 py-1">{c.name}</div>
                     <div className="px-2 py-1 text-right">
                       {c.amount.toFixed(2)}
                     </div>

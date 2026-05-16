@@ -5,11 +5,12 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function VoucherRegisterReportPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [order, setOrder] = useState("new");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -17,7 +18,7 @@ export default function VoucherRegisterReportPage() {
     try {
       setLoading(true);
       const res = await api.get("/finance/reports/voucher-register", {
-        params: { from: from || null, to: to || null, order },
+        params: { from: from || null, to: to || null },
       });
       setItems(res.data?.items || []);
     } catch (e) {
@@ -39,7 +40,9 @@ export default function VoucherRegisterReportPage() {
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, order]);
+  }, [from, to]);
+
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "voucher_date", "asc");
 
   return (
     <div className="space-y-4">
@@ -80,18 +83,6 @@ export default function VoucherRegisterReportPage() {
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
               />
-            </div>
-            <div className="flex items-end">
-              <button
-                type="button"
-                className="btn-secondary"
-                title={
-                  order === "new" ? "New entries first" : "Old entries first"
-                }
-                onClick={() => setOrder(order === "new" ? "old" : "new")}
-              >
-                {order === "new" ? "🔽" : "🔼"}
-              </button>
             </div>
             <div className="md:col-span-2 flex items-end gap-2">
               <button
@@ -189,17 +180,17 @@ export default function VoucherRegisterReportPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th>Date</th>
-                  <th>Voucher No</th>
-                  <th>Type</th>
-                  <th>Narration</th>
-                  <th className="text-right">Debit</th>
-                  <th className="text-right">Credit</th>
-                  <th>Status</th>
+                  <SortableHeader label="Date" sortKey="voucher_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Voucher No" sortKey="voucher_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Type" sortKey="voucher_type_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Narration" sortKey="narration" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Debit" sortKey="total_debit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Credit" sortKey="total_credit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r) => (
+                {sortedItems.map((r) => (
                   <tr key={r.id}>
                     <td>{new Date(r.voucher_date).toLocaleDateString()}</td>
                     <td className="font-medium">{r.voucher_no}</td>

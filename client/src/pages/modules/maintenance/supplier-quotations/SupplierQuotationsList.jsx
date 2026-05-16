@@ -93,7 +93,7 @@ export default function SupplierQuotationsList() {
     return items.filter(r => String(r.quotation_no || "").toLowerCase().includes(q) || String(r.supplier_name || "").toLowerCase().includes(q) || String(r.status || "").toLowerCase().includes(q));
   }, [items, search]);
 
-  const { sorted: filtered, sortKey, sortDir, toggle } = useSort(filteredBase, "quotation_no", "desc");
+  const { sorted: filtered, sortKey, sortDir, toggle } = useSort(filteredBase, "created_at", "desc");
 
   const canForward = (status) => {
     const s = String(status || "").toUpperCase();

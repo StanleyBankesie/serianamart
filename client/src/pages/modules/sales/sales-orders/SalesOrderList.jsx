@@ -684,7 +684,7 @@ export default function SalesOrderList() {
     });
   }, [orders, statusFilter, searchTerm]);
 
-  const { sorted: filteredOrders, sortKey, sortDir, toggle } = useSort(filteredBase, "order_no", "desc");
+  const { sorted: filteredOrders, sortKey, sortDir, toggle } = useSort(filteredBase, "created_at", "desc");
 
   const openForwardModal = async (order) => {
     setSelectedOrder(order);

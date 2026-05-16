@@ -129,7 +129,7 @@ export default function StockUpdationList() {
     });
   }, [adjustments, searchTerm]);
 
-  const { sorted: sortedAdjustments, sortKey, sortDir, toggle } = useSort(filteredAdjustments, "updation_no", "desc");
+  const { sorted: sortedAdjustments, sortKey, sortDir, toggle } = useSort(filteredAdjustments, "created_at", "desc");
 
   const formatDateOnly = (v) => {
     if (!v) return "";

@@ -116,7 +116,7 @@ export default function CustomerList() {
       )
     : filteredCustomers;
 
-  const { sorted: sortedBranchFiltered, sortKey, sortDir, toggle } = useSort(branchFiltered, "customer_code", "asc");
+  const { sorted: sortedBranchFiltered, sortKey, sortDir, toggle } = useSort(branchFiltered, "created_at", "desc");
 
   return (
     <div className="space-y-4">

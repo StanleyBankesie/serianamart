@@ -4,11 +4,12 @@ import { api } from "api/client";
 import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function CashFlowReportPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [order, setOrder] = useState("new");
   const [items, setItems] = useState([]);
   const [totals, setTotals] = useState({ inflow: 0, outflow: 0, net: 0 });
   const [loading, setLoading] = useState(false);
@@ -40,7 +41,9 @@ export default function CashFlowReportPage() {
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, order]);
+  }, [from, to]);
+
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "bank_name", "asc");
 
   return (
     <div className="space-y-6 p-4">
@@ -204,14 +207,6 @@ export default function CashFlowReportPage() {
             Reset
           </button>
           <div className="flex-grow"></div>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm text-slate-500"
-            title={order === "new" ? "Showing newest first" : "Showing oldest first"}
-            onClick={() => setOrder(order === "new" ? "old" : "new")}
-          >
-            Sort: {order === "new" ? "Newest First 🔽" : "Oldest First 🔼"}
-          </button>
           {loading && <span className="loading loading-spinner loading-sm text-brand"></span>}
         </div>
 
@@ -220,15 +215,15 @@ export default function CashFlowReportPage() {
             <table className="table table-zebra w-full">
               <thead className="bg-slate-50 dark:bg-slate-700/50">
                 <tr>
-                  <th className="text-xs font-bold uppercase tracking-wider text-slate-500">Bank / Institution</th>
-                  <th className="text-xs font-bold uppercase tracking-wider text-slate-500">Account Details</th>
-                  <th className="text-right text-xs font-bold uppercase tracking-wider text-emerald-600">Inflow</th>
-                  <th className="text-right text-xs font-bold uppercase tracking-wider text-rose-600">Outflow</th>
-                  <th className="text-right text-xs font-bold uppercase tracking-wider text-slate-500">Net Flow</th>
+                  <SortableHeader label="Bank / Institution" sortKey="bank_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-xs font-bold uppercase tracking-wider text-slate-500" />
+                  <SortableHeader label="Account Details" sortKey="account_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-xs font-bold uppercase tracking-wider text-slate-500" />
+                  <SortableHeader label="Inflow" sortKey="inflow" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right text-xs font-bold uppercase tracking-wider text-emerald-600" />
+                  <SortableHeader label="Outflow" sortKey="outflow" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right text-xs font-bold uppercase tracking-wider text-rose-600" />
+                  <SortableHeader label="Net Flow" sortKey="net" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right text-xs font-bold uppercase tracking-wider text-slate-500" />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, idx) => (
+                {sortedItems.map((r, idx) => (
                   <tr key={`${r.bank_account_id}-${r.account_id}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
                     <td className="font-bold text-slate-700 dark:text-slate-200 py-4">{r.bank_name}</td>
                     <td>

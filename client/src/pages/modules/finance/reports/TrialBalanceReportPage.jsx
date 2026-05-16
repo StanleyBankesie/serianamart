@@ -5,11 +5,12 @@ import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
 import jsPDF from "jspdf";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function TrialBalanceReportPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [order, setOrder] = useState("new");
   const [groupId, setGroupId] = useState("");
   const [groups, setGroups] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -107,6 +108,8 @@ export default function TrialBalanceReportPage() {
     },
   );
 
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(transformedItems, "account_code", "asc");
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -179,18 +182,6 @@ export default function TrialBalanceReportPage() {
                     </option>
                   ))}
               </select>
-            </div>
-            <div className="flex items-end">
-              <button
-                type="button"
-                className="btn-secondary"
-                title={
-                  order === "new" ? "New entries first" : "Old entries first"
-                }
-                onClick={() => setOrder(order === "new" ? "old" : "new")}
-              >
-                {order === "new" ? "🔽" : "🔼"}
-              </button>
             </div>
             <div className="md:col-span-2 flex items-end gap-2">
               <button
@@ -284,19 +275,19 @@ export default function TrialBalanceReportPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th>Account Type</th>
-                  <th>Account Category</th>
-                  <th>Account</th>
-                  <th className="text-right">Opening Balance</th>
+                  <SortableHeader label="Account Type" sortKey="account_type" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Account Category" sortKey="account_category" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Account" sortKey="account_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Opening Balance" sortKey="opening_balance" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                   <th className="text-center">Type</th>
-                  <th className="text-right">Debit Amount</th>
-                  <th className="text-right">Credit Amount</th>
-                  <th className="text-right">Closing Balance</th>
+                  <SortableHeader label="Debit Amount" sortKey="debit_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Credit Amount" sortKey="credit_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Closing Balance" sortKey="closing_balance" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                   <th className="text-center">Type</th>
                 </tr>
               </thead>
               <tbody>
-                {transformedItems.map((r) => (
+                {sortedItems.map((r) => (
                   <tr key={r.account_id}>
                     <td>{r.account_type || "-"}</td>
                     <td>{r.account_category || "-"}</td>

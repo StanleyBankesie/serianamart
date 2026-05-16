@@ -2,8 +2,22 @@ import React from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import FinanceHome from "./FinanceHome.jsx";
-import VoucherListPage from "./vouchers/VoucherListPage.jsx";
-import VoucherFormPage from "./vouchers/VoucherFormPage.jsx";
+import JournalVoucherList from "./vouchers/JournalVoucherList.jsx";
+import JournalVoucherForm from "./vouchers/JournalVoucherForm.jsx";
+import ReceiptVoucherList from "./vouchers/ReceiptVoucherList.jsx";
+import ReceiptVoucherForm from "./vouchers/ReceiptVoucherForm.jsx";
+import PaymentVoucherList from "./vouchers/PaymentVoucherList.jsx";
+import PaymentVoucherForm from "./vouchers/PaymentVoucherForm.jsx";
+import ContraVoucherList from "./vouchers/ContraVoucherList.jsx";
+import ContraVoucherForm from "./vouchers/ContraVoucherForm.jsx";
+import SalesVoucherList from "./vouchers/SalesVoucherList.jsx";
+import SalesVoucherForm from "./vouchers/SalesVoucherForm.jsx";
+import PurchaseVoucherList from "./vouchers/PurchaseVoucherList.jsx";
+import PurchaseVoucherForm from "./vouchers/PurchaseVoucherForm.jsx";
+import DebitNoteList from "./vouchers/DebitNoteList.jsx";
+import DebitNoteForm from "./vouchers/DebitNoteForm.jsx";
+import CreditNoteList from "./vouchers/CreditNoteList.jsx";
+import CreditNoteForm from "./vouchers/CreditNoteForm.jsx";
 import VoucherRegisterReportPage from "./reports/VoucherRegisterReportPage.jsx";
 import TrialBalanceReportPage from "./reports/TrialBalanceReportPage.jsx";
 import JournalReportPage from "./reports/JournalReportPage.jsx";
@@ -44,136 +58,136 @@ export default function FinanceRoutes() {
 
       <Route
         path="journal-voucher"
-        element={<VoucherListPage voucherTypeCode="JV" title="Journal Entry" />}
+        element={<JournalVoucherList />}
       />
       <Route
         path="journal-voucher/create"
         element={
-          <VoucherFormPage voucherTypeCode="JV" title="New Journal Entry" />
+          <JournalVoucherForm />
         }
       />
       <Route
         path="journal-voucher/:id"
-        element={<VoucherFormPage voucherTypeCode="JV" title="Journal Entry" />}
+        element={<JournalVoucherForm />}
       />
 
       <Route
         path="payment-voucher"
-        element={<VoucherListPage voucherTypeCode="PAYV" title="Make Payment" />}
+        element={<PaymentVoucherList />}
       />
       <Route
         path="payment-voucher/create"
-        element={<VoucherFormPage voucherTypeCode="PAYV" title="Make Payment" />}
+        element={<PaymentVoucherForm />}
       />
       <Route
         path="payment-voucher/:id"
-        element={<VoucherFormPage voucherTypeCode="PAYV" title="Make Payment" />}
+        element={<PaymentVoucherForm />}
       />
 
       <Route
         path="receipt-voucher"
         element={
-          <VoucherListPage voucherTypeCode="RV" title="Receive Payment" />
+          <ReceiptVoucherList />
         }
       />
       <Route
         path="receipt-voucher/create"
         element={
-          <VoucherFormPage voucherTypeCode="RV" title="Receive Payment" />
+          <ReceiptVoucherForm />
         }
       />
       <Route
         path="receipt-voucher/:id"
         element={
-          <VoucherFormPage voucherTypeCode="RV" title="Receive Payment" />
+          <ReceiptVoucherForm />
         }
       />
 
       <Route
         path="contra-voucher"
         element={
-          <VoucherListPage voucherTypeCode="CV" title="Account Transfer" />
+          <ContraVoucherList />
         }
       />
       <Route
         path="contra-voucher/create"
         element={
-          <VoucherFormPage voucherTypeCode="CV" title="Account Transfer" />
+          <ContraVoucherForm />
         }
       />
       <Route
         path="contra-voucher/:id"
         element={
-          <VoucherFormPage voucherTypeCode="CV" title="Account Transfer" />
+          <ContraVoucherForm />
         }
       />
 
       <Route
         path="sales-voucher"
         element={
-          <VoucherListPage voucherTypeCode="SV" title="Sales Vouchers" />
+          <SalesVoucherList />
         }
       />
       <Route
         path="sales-voucher/create"
         element={
-          <VoucherFormPage voucherTypeCode="SV" title="New Sales Voucher" />
+          <SalesVoucherForm />
         }
       />
       <Route
         path="sales-voucher/:id"
         element={
-          <VoucherFormPage voucherTypeCode="SV" title="Sales Vouchers" />
+          <SalesVoucherForm />
         }
       />
 
       <Route
         path="purchase-voucher"
         element={
-          <VoucherListPage voucherTypeCode="PV" title="Purchase Vouchers" />
+          <PurchaseVoucherList />
         }
       />
       <Route
         path="purchase-voucher/create"
         element={
-          <VoucherFormPage voucherTypeCode="PV" title="New Purchase Voucher" />
+          <PurchaseVoucherForm />
         }
       />
       <Route
         path="purchase-voucher/:id"
         element={
-          <VoucherFormPage voucherTypeCode="PV" title="Purchase Vouchers" />
+          <PurchaseVoucherForm />
         }
       />
 
       <Route
         path="debit-note"
-        element={<VoucherListPage voucherTypeCode="DN" title="Debit Notes" />}
+        element={<DebitNoteList />}
       />
       <Route
         path="debit-note/create"
         element={
-          <VoucherFormPage voucherTypeCode="DN" title="New Debit Note" />
+          <DebitNoteForm />
         }
       />
       <Route
         path="debit-note/:id"
-        element={<VoucherFormPage voucherTypeCode="DN" title="Debit Notes" />}
+        element={<DebitNoteForm />}
       />
 
       <Route
         path="credit-note"
-        element={<VoucherListPage voucherTypeCode="CN" title="Credit Notes" />}
+        element={<CreditNoteList />}
       />
       <Route
         path="credit-note/create"
         element={
-          <VoucherFormPage voucherTypeCode="CN" title="New Credit Note" />
+          <CreditNoteForm />
         }
       />
       <Route
         path="credit-note/:id"
-        element={<VoucherFormPage voucherTypeCode="CN" title="Credit Notes" />}
+        element={<CreditNoteForm />}
       />
 
       <Route path="account-groups" element={<AccountGroupsPage />} />

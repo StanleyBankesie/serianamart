@@ -167,7 +167,7 @@ export default function GeneralRequisitionList() {
     );
   }, [items, statusFilter, searchTerm]);
 
-  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "requisition_no", "desc");
+  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "created_at", "desc");
 
   const openForwardModal = async (doc) => {
     setSelectedDoc(doc);

@@ -367,7 +367,7 @@ export default function PurchaseOrdersImportList() {
     });
   }, [purchaseOrders, searchTerm, statusFilter]);
 
-  const { sorted: sortedOrders, sortKey, sortDir, toggle } = useSort(filteredOrders, "po_no", "desc");
+  const { sorted: sortedOrders, sortKey, sortDir, toggle } = useSort(filteredOrders, "created_at", "desc");
 
   const openForwardModal = async (doc) => {
     setSelectedDoc(doc);
@@ -394,6 +394,8 @@ export default function PurchaseOrdersImportList() {
     if (!workflowsCache || !workflowsCache.length) {
       setCandidateWorkflow(null);
       setFirstApprover(null);
+      setWorkflowSteps([]);
+      setTargetApproverId(null);
       setWfError("");
       return;
     }
@@ -415,6 +417,8 @@ export default function PurchaseOrdersImportList() {
       null;
     setCandidateWorkflow(chosen || null);
     setFirstApprover(null);
+    setWorkflowSteps([]);
+    setTargetApproverId(null);
     if (!chosen) return;
     try {
       setWfLoading(true);
@@ -456,6 +460,8 @@ export default function PurchaseOrdersImportList() {
     if (!items || !items.length) {
       setCandidateWorkflow(null);
       setFirstApprover(null);
+      setWorkflowSteps([]);
+      setTargetApproverId(null);
       setWfError("");
       return;
     }
@@ -477,6 +483,8 @@ export default function PurchaseOrdersImportList() {
       null;
     setCandidateWorkflow(chosen || null);
     setFirstApprover(null);
+    setWorkflowSteps([]);
+    setTargetApproverId(null);
     if (!chosen) return;
     try {
       setWfLoading(true);
@@ -496,6 +504,15 @@ export default function PurchaseOrdersImportList() {
             }
           : null,
       );
+      if (first) {
+        const defaultTarget =
+          (Array.isArray(first.approvers) && first.approvers.length
+            ? first.approvers[0].id
+            : first.approver_user_id) || null;
+        setTargetApproverId(defaultTarget);
+      } else {
+        setTargetApproverId(null);
+      }
     } catch (e) {
       setWfError(
         e?.response?.data?.message || "Failed to load workflow details",

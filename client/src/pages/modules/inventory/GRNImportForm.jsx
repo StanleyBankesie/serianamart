@@ -16,6 +16,7 @@ import { toast } from "react-toastify";
 import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
 import UnitConversionModal from "@/components/UnitConversionModal";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 
 function toISODate(v) {
   if (!v) return "";
@@ -56,6 +57,7 @@ export default function GRNImportForm() {
   const [standardPrices, setStandardPrices] = useState([]);
   const [unitConversions, setUnitConversions] = useState([]);
   const [shippingAdvices, setShippingAdvices] = useState([]);
+  const [itemQueries, setItemQueries] = useState({});
   const adviceById = useMemo(() => {
     const m = new Map();
     for (const sa of Array.isArray(shippingAdvices) ? shippingAdvices : []) {
@@ -113,6 +115,17 @@ export default function GRNImportForm() {
     if (pcs && pcs.uom_code) return pcs.uom_code;
     return "PCS";
   }, [uoms]);
+
+  const itemSelectOptions = useMemo(
+    () =>
+      Array.isArray(items)
+        ? items.map((i) => ({
+            value: String(i.id),
+            label: `${i.item_code || ""} - ${i.item_name || ""}`,
+          }))
+        : [],
+    [items],
+  );
 
   const pickStandardCost = useCallback(
     (productId, uom) => {
@@ -518,25 +531,23 @@ export default function GRNImportForm() {
   }, [standardPrices]);
 
   const addLine = () => {
+    const newIdx = formData.details.length;
     setFormData((prev) => ({
       ...prev,
       details: [
         ...prev.details,
         {
-          item_id: items[0]?.id ? String(items[0].id) : "",
+          item_id: "",
           qty_ordered: "",
           input_qty: "",
-          input_uom:
-            (items[0]?.uom && String(items[0].uom)) ||
-            (defaultUomCode ? String(defaultUomCode) : ""),
+          input_uom: defaultUomCode ? String(defaultUomCode) : "",
           qty_received: "",
-          uom:
-            (items[0]?.uom && String(items[0].uom)) ||
-            (defaultUomCode ? String(defaultUomCode) : ""),
-          unit_price: String(items[0]?.cost_price ?? ""),
+          uom: defaultUomCode ? String(defaultUomCode) : "",
+          unit_price: "",
         },
       ],
     }));
+    setItemQueries((prev) => ({ ...prev, [newIdx]: "" }));
   };
 
   const removeLine = (idx) => {
@@ -1279,8 +1290,8 @@ export default function GRNImportForm() {
               <div>
                 <label className="label">Remarks</label>
                 <textarea
-                  className="input"
-                  rows="3"
+                  className="input w-96"
+                  rows="4"
                   value={formData.remarks}
                   onChange={(e) =>
                     setFormData({ ...formData, remarks: e.target.value })
@@ -1341,28 +1352,92 @@ export default function GRNImportForm() {
                           const label = it
                             ? `${it.item_code} - ${it.item_name}`
                             : "Select item...";
+                           const itemQuery = itemQueries[idx] || "";
+                           const searchResults = itemQuery.trim()
+                             ? filterByPrefix(items, {
+                                 query: itemQuery,
+                                 searchFields: ["item_code", "item_name"],
+                               })
+                             : [];
 
                           return (
                             <tr key={idx}>
-                              <td>
-                                <select
-                                  className="input min-w-[256px] w-[384px]"
-                                  value={d.item_id}
-                                  onChange={(e) =>
-                                    updateLine(idx, { item_id: e.target.value })
-                                  }
-                                >
-                                  <option value="">Select item...</option>
-                                  {items.map((i) => (
-                                    <option key={i.id} value={String(i.id)}>
-                                      {i.item_name}
-                                    </option>
-                                  ))}
-                                </select>
-                                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                  {label}
-                                </div>
-                              </td>
+                               <td>
+                                 <div className="relative">
+                                   <input
+                                     id={`grni-item-search-${idx}`} autoComplete="off"
+                                     className="input min-w-[256px] w-[384px]"
+                                     placeholder="Type to search items"
+                                     value={itemQueries[idx] || ""}
+                                     onChange={(e) => {
+                                       const val = e.target.value;
+                                       setItemQueries((prev) => ({
+                                         ...prev,
+                                         [idx]: val,
+                                       }));
+                                       if (!val && d.item_id) {
+                                         updateLine(idx, {
+                                           item_id: "",
+                                           uom: defaultUomCode
+                                             ? String(defaultUomCode)
+                                             : "",
+                                           input_uom: defaultUomCode
+                                             ? String(defaultUomCode)
+                                             : "",
+                                           unit_price: "",
+                                         });
+                                       }
+                                     }}
+                                     onKeyDown={(e) => {
+                                       if (e.key === "Enter") {
+                                         const query = (
+                                           itemQueries[idx] || ""
+                                         ).trim();
+                                         if (!query || !searchResults.length)
+                                           return;
+                                         updateLine(idx, {
+                                           item_id: searchResults[0].id,
+                                         });
+                                         setItemQueries((prev) => ({
+                                           ...prev,
+                                           [idx]: "",
+                                         }));
+                                       }
+                                     }}
+                                   />
+                                   {searchResults.length ? (
+                                     (() => {
+                                       const el = document.getElementById(`grni-item-search-${idx}`);
+                                       const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
+                                       return (
+                                         <div
+                                           className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                           style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
+                                         >
+                                           {searchResults.map((o) => (
+                                             <button
+                                               type="button"
+                                               key={o.id}
+                                               className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                                               onClick={() => {
+                                                 updateLine(idx, {
+                                                   item_id: o.id,
+                                                 });
+                                                 setItemQueries((prev) => ({
+                                                   ...prev,
+                                                   [idx]: "",
+                                                 }));
+                                               }}
+                                             >
+                                               {o.item_code} - {o.item_name}
+                                             </button>
+                                           ))}
+                                         </div>
+                                       );
+                                     })()
+                                   ) : null}
+                                 </div>
+                               </td>
                               <td>
                                 <input
                                   type="number"

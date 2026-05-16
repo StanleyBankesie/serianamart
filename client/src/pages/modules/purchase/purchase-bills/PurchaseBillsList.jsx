@@ -131,7 +131,7 @@ export default function PurchaseBillsList() {
     });
   }, [items, searchTerm]);
 
-  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "bill_no", "desc");
+  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "created_at", "desc");
 
   return (
     <div className="space-y-6">

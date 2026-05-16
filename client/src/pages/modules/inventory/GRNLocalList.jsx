@@ -144,7 +144,7 @@ export default function GRNLocalList() {
     });
   }, [grns, searchTerm]);
 
-  const { sorted: sortedGrns, sortKey, sortDir, toggle } = useSort(filtered, "grn_no", "desc");
+  const { sorted: sortedGrns, sortKey, sortDir, toggle } = useSort(filtered, "created_at", "desc");
 
   const canForward = (status) => {
     const s = String(status || "").toUpperCase();

@@ -252,7 +252,7 @@ export default function PurchaseOrdersLocalList() {
     });
   }, [purchaseOrders, searchTerm, statusFilter]);
 
-  const { sorted: sortedOrders, sortKey, sortDir, toggle } = useSort(filteredOrders, "po_no", "desc");
+  const { sorted: sortedOrders, sortKey, sortDir, toggle } = useSort(filteredOrders, "created_at", "desc");
 
   const openForwardModal = async (po) => {
     setSelectedPO(po);
@@ -279,6 +279,8 @@ export default function PurchaseOrdersLocalList() {
     if (!workflowsCache || !workflowsCache.length) {
       setCandidateWorkflow(null);
       setFirstApprover(null);
+      setWorkflowSteps([]);
+      setTargetApproverId(null);
       setWfError("");
       setHasInactiveWorkflow(false);
       return;
@@ -308,6 +310,8 @@ export default function PurchaseOrdersLocalList() {
     setCandidateWorkflow(chosen || null);
     setHasInactiveWorkflow(!chosen && hasInactive);
     setFirstApprover(null);
+    setWorkflowSteps([]);
+    setTargetApproverId(null);
     if (!chosen) return;
     try {
       setWfLoading(true);
@@ -349,6 +353,8 @@ export default function PurchaseOrdersLocalList() {
     if (!items || !items.length) {
       setCandidateWorkflow(null);
       setFirstApprover(null);
+      setWorkflowSteps([]);
+      setTargetApproverId(null);
       setWfError("");
       setHasInactiveWorkflow(false);
       return;
@@ -378,6 +384,8 @@ export default function PurchaseOrdersLocalList() {
     setCandidateWorkflow(chosen || null);
     setHasInactiveWorkflow(!chosen && hasInactive);
     setFirstApprover(null);
+    setWorkflowSteps([]);
+    setTargetApproverId(null);
     if (!chosen) return;
     try {
       setWfLoading(true);

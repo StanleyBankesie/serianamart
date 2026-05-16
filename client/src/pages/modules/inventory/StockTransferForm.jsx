@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 
 export default function StockTransferForm() {
   const { uoms, loading: uomsLoading } = useUoms();
@@ -47,6 +48,7 @@ export default function StockTransferForm() {
       remarks: "",
     },
   ]);
+  const [itemQueries, setItemQueries] = useState({ 1: "" });
 
   const getEffectiveFromWarehouseId = () => {
     if (formData.transferType === "INTER_WAREHOUSE") {
@@ -204,35 +206,37 @@ export default function StockTransferForm() {
           status: t.status || "DRAFT",
         });
 
-        setItems(
-          details.length
-            ? details.map((d) => ({
-                id: d.id || Date.now() + Math.random(),
-                item_id: d.item_id ? String(d.item_id) : "",
-                itemCode: d.item_code || "",
-                itemName: d.item_name || "",
-                qty: Number(d.qty) || "",
-                uom: d.uom || "PCS",
-                batchNumber: d.batch_number || "",
+        const mappedItems = details.length
+          ? details.map((d) => ({
+              id: d.id || Date.now() + Math.random(),
+              item_id: d.item_id ? String(d.item_id) : "",
+              itemCode: d.item_code || "",
+              itemName: d.item_name || "",
+              qty: Number(d.qty) || "",
+              uom: d.uom || "PCS",
+              batchNumber: d.batch_number || "",
+              availableQty: "",
+              batchOptions: [],
+              remarks: d.remarks || "",
+            }))
+          : [
+              {
+                id: 1,
+                item_id: "",
+                itemCode: "",
+                itemName: "",
+                qty: "",
+                uom: "PCS",
                 availableQty: "",
                 batchOptions: [],
-                remarks: d.remarks || "",
-              }))
-            : [
-                {
-                  id: 1,
-                  item_id: "",
-                  itemCode: "",
-                  itemName: "",
-                  qty: "",
-                  uom: "PCS",
-                  availableQty: "",
-                  batchOptions: [],
-                  batchNumber: "",
-                  remarks: "",
-                },
-              ],
-        );
+                batchNumber: "",
+                remarks: "",
+              },
+            ];
+        setItems(mappedItems);
+        const initQueries = {};
+        mappedItems.forEach((i) => { initQueries[i.id] = ""; });
+        setItemQueries(initQueries);
       })
       .catch((e) => {
         if (!mounted) return;
@@ -394,10 +398,11 @@ export default function StockTransferForm() {
   };
 
   const addItem = () => {
+    const newId = Date.now();
     setItems([
       ...items,
       {
-        id: Date.now(),
+        id: newId,
         item_id: "",
         itemCode: "",
         itemName: "",
@@ -409,6 +414,23 @@ export default function StockTransferForm() {
         remarks: "",
       },
     ]);
+    setItemQueries((prev) => ({ ...prev, [newId]: "" }));
+  };
+
+  const handleSelectItem = (rowId, item) => {
+    setItems(items.map(i =>
+      i.id === rowId
+        ? {
+            ...i,
+            item_id: String(item.id),
+            itemCode: item.item_code || "",
+            itemName: item.item_name || "",
+            uom: item.uom || "PCS",
+          }
+        : i
+    ));
+    setItemQueries((prev) => ({ ...prev, [rowId]: "" }));
+    refreshRowBatchOptions(rowId, item.id);
   };
 
   const removeItem = (id) => {
@@ -448,7 +470,7 @@ export default function StockTransferForm() {
             {loading ? <div className="text-sm">Loading...</div> : null}
             {error ? <div className="text-sm text-red-600">{error}</div> : null}
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="label">Transfer No</label>
                 <input
@@ -575,7 +597,7 @@ export default function StockTransferForm() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="label">Driver Name</label>
                 <input
@@ -732,8 +754,8 @@ export default function StockTransferForm() {
             <div>
               <label className="label">Remarks</label>
               <textarea
-                className="input"
-                rows="3"
+                className="input w-96"
+                rows="4"
                 value={formData.remarks}
                 onChange={(e) =>
                   setFormData({ ...formData, remarks: e.target.value })
@@ -757,7 +779,7 @@ export default function StockTransferForm() {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="table">
+                <table className="table w-full">
                   <thead>
                     <tr>
                       <th className="w-1/2 min-w-[300px]">Item Name</th>
@@ -770,43 +792,69 @@ export default function StockTransferForm() {
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((item) => (
+                    {items.map((item) => {
+                      const itemQuery = itemQueries[item.id] || "";
+                      const searchResults = itemQuery.trim()
+                        ? filterByPrefix(availableItems, {
+                            query: itemQuery,
+                            searchFields: ["item_code", "item_name", "barcode"],
+                          })
+                        : [];
+                      return (
                       <tr key={item.id}>
                         <td>
-                          <select
-                            className="input"
-                            value={item.item_id}
-                            onChange={(e) => {
-                              const selectedId = e.target.value;
-                              const selected = availableItems.find(
-                                (ai) => String(ai.id) === String(selectedId),
-                              );
-                              setItems((prev) =>
-                                prev.map((i) =>
-                                  i.id === item.id
-                                    ? {
-                                        ...i,
-                                        item_id: selectedId,
-                                        itemCode: selected?.item_code || "",
-                                        itemName: selected?.item_name || "",
-                                        uom: selected?.uom || "PCS",
-                                        batchNumber: "",
-                                        availableQty: "",
-                                      }
-                                    : i,
-                                ),
-                              );
-                              refreshRowBatchOptions(item.id, selectedId);
-                            }}
-                            required
-                          >
-                            <option value="">Select Item Name</option>
-                            {availableItems.map((ai) => (
-                              <option key={ai.id} value={ai.id}>
-                                {ai.item_name || ai.id}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="relative">
+                            <input
+                              id={`st-item-search-${item.id}`} autoComplete="off"
+                              className="input w-full"
+                              placeholder="Type to search items"
+                              value={itemQueries[item.id] || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setItemQueries((prev) => ({
+                                  ...prev,
+                                  [item.id]: val,
+                                }));
+                                if (!val && item.item_id) {
+                                  setItems(items.map(i =>
+                                    i.id === item.id ? { ...i, item_id: "", itemCode: "", itemName: "", uom: "PCS" } : i
+                                  ));
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  const query = (itemQueries[item.id] || "").trim();
+                                  if (!query || !searchResults.length) return;
+                                  handleSelectItem(item.id, searchResults[0]);
+                                }
+                              }}
+                            />
+                            {searchResults.length ? (
+                              (() => {
+                                const el = document.getElementById(`st-item-search-${item.id}`);
+                                const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
+                                return (
+                                  <div
+                                    className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                    style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
+                                  >
+                                    {searchResults.map((o) => (
+                                      <button
+                                        type="button"
+                                        key={o.id}
+                                        className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                                        onClick={() => {
+                                          handleSelectItem(item.id, o);
+                                        }}
+                                      >
+                                        {o.item_code} - {o.item_name}
+                                      </button>
+                                    ))}
+                                  </div>
+                                );
+                              })()
+                            ) : null}
+                          </div>
                         </td>
                         <td>
                           <select
@@ -919,7 +967,8 @@ export default function StockTransferForm() {
                           </button>
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                   </tbody>
                 </table>
               </div>

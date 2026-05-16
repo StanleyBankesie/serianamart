@@ -276,7 +276,7 @@ export default function DeliveryList() {
     });
   }, [filtered, search]);
 
-  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filteredSorted, "delivery_no", "desc");
+  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filteredSorted, "created_at", "desc");
 
   async function markDelivered(id) {
     try {

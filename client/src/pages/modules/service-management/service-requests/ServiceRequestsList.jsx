@@ -118,7 +118,7 @@ export default function ServiceRequestsList() {
     });
   }, [items, searchTerm]);
 
-  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(filtered, "request_no", "asc");
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(filtered, "created_at", "desc");
 
   return (
     <div className="p-6 space-y-6">

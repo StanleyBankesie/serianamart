@@ -860,7 +860,11 @@ router.post("/uoms", requireAuth, async (req, res, next) => {
     const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
 
     if (!uomCode || !uomName) {
-      throw httpError(400, "VALIDATION_ERROR", "uom_code and uom_name are required");
+      throw httpError(
+        400,
+        "VALIDATION_ERROR",
+        "uom_code and uom_name are required",
+      );
     }
 
     const ins = await query(
@@ -888,7 +892,11 @@ router.put("/uoms/:id", requireAuth, async (req, res, next) => {
     const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
 
     if (!uomCode || !uomName) {
-      throw httpError(400, "VALIDATION_ERROR", "uom_code and uom_name are required");
+      throw httpError(
+        400,
+        "VALIDATION_ERROR",
+        "uom_code and uom_name are required",
+      );
     }
 
     const upd = await query(
@@ -921,7 +929,13 @@ router.delete("/uoms/:id", requireAuth, async (req, res, next) => {
     res.json({ ok: true });
   } catch (e) {
     if (e.code === "ER_ROW_IS_REFERENCED_2") {
-      return next(httpError(400, "CONSTRAINT_ERROR", "Cannot delete UOM because it is in use."));
+      return next(
+        httpError(
+          400,
+          "CONSTRAINT_ERROR",
+          "Cannot delete UOM because it is in use.",
+        ),
+      );
     }
     next(e);
   }
@@ -987,83 +1001,115 @@ router.get(
   },
 );
 
-router.post("/item-types", requireAuth, requireCompanyScope, async (req, res, next) => {
-  try {
-    await ensureItemTypesTable();
-    const { companyId } = req.scope;
-    const body = req.body || {};
-    const typeCode = String(body.type_code || "").trim();
-    const typeName = String(body.type_name || "").trim();
-    const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
+router.post(
+  "/item-types",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureItemTypesTable();
+      const { companyId } = req.scope;
+      const body = req.body || {};
+      const typeCode = String(body.type_code || "").trim();
+      const typeName = String(body.type_name || "").trim();
+      const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
 
-    if (!typeCode || !typeName) {
-      throw httpError(400, "VALIDATION_ERROR", "type_code and type_name are required");
+      if (!typeCode || !typeName) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "type_code and type_name are required",
+        );
+      }
+
+      const ins = await query(
+        `INSERT INTO inv_item_types (company_id, type_code, type_name, is_active) VALUES (:companyId, :typeCode, :typeName, :isActive)`,
+        { companyId, typeCode, typeName, isActive },
+      );
+      res.status(201).json({ id: ins.insertId });
+    } catch (e) {
+      next(e);
     }
+  },
+);
 
-    const ins = await query(
-      `INSERT INTO inv_item_types (company_id, type_code, type_name, is_active) VALUES (:companyId, :typeCode, :typeName, :isActive)`,
-      { companyId, typeCode, typeName, isActive },
-    );
-    res.status(201).json({ id: ins.insertId });
-  } catch (e) {
-    next(e);
-  }
-});
+router.put(
+  "/item-types/:id",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureItemTypesTable();
+      const { companyId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      }
 
-router.put("/item-types/:id", requireAuth, requireCompanyScope, async (req, res, next) => {
-  try {
-    await ensureItemTypesTable();
-    const { companyId } = req.scope;
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) {
-      throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const body = req.body || {};
+      const typeCode = String(body.type_code || "").trim();
+      const typeName = String(body.type_name || "").trim();
+      const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
+
+      if (!typeCode || !typeName) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "type_code and type_name are required",
+        );
+      }
+
+      const upd = await query(
+        `UPDATE inv_item_types SET type_code = :typeCode, type_name = :typeName, is_active = :isActive WHERE id = :id AND company_id = :companyId`,
+        { id, companyId, typeCode, typeName, isActive },
+      );
+
+      if (!upd.affectedRows) {
+        throw httpError(404, "NOT_FOUND", "Item type not found");
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      next(e);
     }
+  },
+);
 
-    const body = req.body || {};
-    const typeCode = String(body.type_code || "").trim();
-    const typeName = String(body.type_name || "").trim();
-    const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
+router.delete(
+  "/item-types/:id",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureItemTypesTable();
+      const { companyId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      }
 
-    if (!typeCode || !typeName) {
-      throw httpError(400, "VALIDATION_ERROR", "type_code and type_name are required");
+      const del = await query(
+        `DELETE FROM inv_item_types WHERE id = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
+
+      if (!del.affectedRows) {
+        throw httpError(404, "NOT_FOUND", "Item type not found");
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      if (e.code === "ER_ROW_IS_REFERENCED_2") {
+        return next(
+          httpError(
+            400,
+            "CONSTRAINT_ERROR",
+            "Cannot delete item type because it is in use.",
+          ),
+        );
+      }
+      next(e);
     }
-
-    const upd = await query(
-      `UPDATE inv_item_types SET type_code = :typeCode, type_name = :typeName, is_active = :isActive WHERE id = :id AND company_id = :companyId`,
-      { id, companyId, typeCode, typeName, isActive },
-    );
-
-    if (!upd.affectedRows) {
-      throw httpError(404, "NOT_FOUND", "Item type not found");
-    }
-    res.json({ ok: true });
-  } catch (e) {
-    next(e);
-  }
-});
-
-router.delete("/item-types/:id", requireAuth, requireCompanyScope, async (req, res, next) => {
-  try {
-    await ensureItemTypesTable();
-    const { companyId } = req.scope;
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) {
-      throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    }
-
-    const del = await query(`DELETE FROM inv_item_types WHERE id = :id AND company_id = :companyId`, { id, companyId });
-
-    if (!del.affectedRows) {
-      throw httpError(404, "NOT_FOUND", "Item type not found");
-    }
-    res.json({ ok: true });
-  } catch (e) {
-    if (e.code === "ER_ROW_IS_REFERENCED_2") {
-      return next(httpError(400, "CONSTRAINT_ERROR", "Cannot delete item type because it is in use."));
-    }
-    next(e);
-  }
-});
+  },
+);
 
 router.get(
   "/item-setup-lookups",
@@ -1452,7 +1498,9 @@ router.get(
     try {
       await ensureWarehousesTable();
       const { companyId, branchId } = req.scope;
-      const activeParam = String(req.query.active || "").trim().toLowerCase();
+      const activeParam = String(req.query.active || "")
+        .trim()
+        .toLowerCase();
       const activeOnly = !["0", "false", "all"].includes(activeParam);
       const rows = await query(
         `
@@ -4393,85 +4441,132 @@ router.get(
   },
 );
 
-router.post("/item-groups", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
-  try {
-    await ensureItemGroupTables();
-    const { companyId, branchId } = req.scope;
-    const body = req.body || {};
-    const groupCode = String(body.group_code || "").trim();
-    const groupName = String(body.group_name || "").trim();
-    const parentGroupId = body.parent_group_id ? Number(body.parent_group_id) : null;
-    const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
+router.post(
+  "/item-groups",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureItemGroupTables();
+      const { companyId, branchId } = req.scope;
+      const body = req.body || {};
+      const groupCode = String(body.group_code || "").trim();
+      const groupName = String(body.group_name || "").trim();
+      const parentGroupId = body.parent_group_id
+        ? Number(body.parent_group_id)
+        : null;
+      const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
 
-    if (!groupCode || !groupName) {
-      throw httpError(400, "VALIDATION_ERROR", "group_code and group_name are required");
+      if (!groupCode || !groupName) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "group_code and group_name are required",
+        );
+      }
+
+      const ins = await query(
+        `INSERT INTO inv_item_groups (company_id, branch_id, group_code, group_name, parent_group_id, is_active) VALUES (:companyId, :branchId, :groupCode, :groupName, :parentGroupId, :isActive)`,
+        { companyId, branchId, groupCode, groupName, parentGroupId, isActive },
+      );
+      res.status(201).json({ id: ins.insertId });
+    } catch (e) {
+      next(e);
     }
+  },
+);
 
-    const ins = await query(
-      `INSERT INTO inv_item_groups (company_id, branch_id, group_code, group_name, parent_group_id, is_active) VALUES (:companyId, :branchId, :groupCode, :groupName, :parentGroupId, :isActive)`,
-      { companyId, branchId, groupCode, groupName, parentGroupId, isActive },
-    );
-    res.status(201).json({ id: ins.insertId });
-  } catch (e) {
-    next(e);
-  }
-});
+router.put(
+  "/item-groups/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureItemGroupTables();
+      const { companyId, branchId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      }
 
-router.put("/item-groups/:id", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
-  try {
-    await ensureItemGroupTables();
-    const { companyId, branchId } = req.scope;
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) {
-      throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const body = req.body || {};
+      const groupCode = String(body.group_code || "").trim();
+      const groupName = String(body.group_name || "").trim();
+      const parentGroupId = body.parent_group_id
+        ? Number(body.parent_group_id)
+        : null;
+      const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
+
+      if (!groupCode || !groupName) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "group_code and group_name are required",
+        );
+      }
+
+      const upd = await query(
+        `UPDATE inv_item_groups SET group_code = :groupCode, group_name = :groupName, parent_group_id = :parentGroupId, is_active = :isActive WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        {
+          id,
+          companyId,
+          branchId,
+          groupCode,
+          groupName,
+          parentGroupId,
+          isActive,
+        },
+      );
+
+      if (!upd.affectedRows) {
+        throw httpError(404, "NOT_FOUND", "Item group not found");
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      next(e);
     }
+  },
+);
 
-    const body = req.body || {};
-    const groupCode = String(body.group_code || "").trim();
-    const groupName = String(body.group_name || "").trim();
-    const parentGroupId = body.parent_group_id ? Number(body.parent_group_id) : null;
-    const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
+router.delete(
+  "/item-groups/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureItemGroupTables();
+      const { companyId, branchId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      }
 
-    if (!groupCode || !groupName) {
-      throw httpError(400, "VALIDATION_ERROR", "group_code and group_name are required");
+      const del = await query(
+        `DELETE FROM inv_item_groups WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
+      );
+
+      if (!del.affectedRows) {
+        throw httpError(404, "NOT_FOUND", "Item group not found");
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      if (e.code === "ER_ROW_IS_REFERENCED_2") {
+        return next(
+          httpError(
+            400,
+            "CONSTRAINT_ERROR",
+            "Cannot delete item group because it is in use.",
+          ),
+        );
+      }
+      next(e);
     }
-
-    const upd = await query(
-      `UPDATE inv_item_groups SET group_code = :groupCode, group_name = :groupName, parent_group_id = :parentGroupId, is_active = :isActive WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-      { id, companyId, branchId, groupCode, groupName, parentGroupId, isActive },
-    );
-
-    if (!upd.affectedRows) {
-      throw httpError(404, "NOT_FOUND", "Item group not found");
-    }
-    res.json({ ok: true });
-  } catch (e) {
-    next(e);
-  }
-});
-
-router.delete("/item-groups/:id", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
-  try {
-    await ensureItemGroupTables();
-    const { companyId, branchId } = req.scope;
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) {
-      throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    }
-
-    const del = await query(`DELETE FROM inv_item_groups WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`, { id, companyId, branchId });
-
-    if (!del.affectedRows) {
-      throw httpError(404, "NOT_FOUND", "Item group not found");
-    }
-    res.json({ ok: true });
-  } catch (e) {
-    if (e.code === "ER_ROW_IS_REFERENCED_2") {
-      return next(httpError(400, "CONSTRAINT_ERROR", "Cannot delete item group because it is in use."));
-    }
-    next(e);
-  }
-});
+  },
+);
 
 // ─── Expiry monitor: runs periodically to push notifications ──────────────────
 let __batchExpiryMonitorStarted = false;
@@ -4586,85 +4681,139 @@ router.get(
   },
 );
 
-router.post("/item-categories", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
-  try {
-    await ensureItemGroupTables();
-    const { companyId, branchId } = req.scope;
-    const body = req.body || {};
-    const categoryCode = String(body.category_code || "").trim();
-    const categoryName = String(body.category_name || "").trim();
-    const parentCategoryId = body.parent_category_id ? Number(body.parent_category_id) : null;
-    const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
+router.post(
+  "/item-categories",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureItemGroupTables();
+      const { companyId, branchId } = req.scope;
+      const body = req.body || {};
+      const categoryCode = String(body.category_code || "").trim();
+      const categoryName = String(body.category_name || "").trim();
+      const parentCategoryId = body.parent_category_id
+        ? Number(body.parent_category_id)
+        : null;
+      const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
 
-    if (!categoryCode || !categoryName) {
-      throw httpError(400, "VALIDATION_ERROR", "category_code and category_name are required");
+      if (!categoryCode || !categoryName) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "category_code and category_name are required",
+        );
+      }
+
+      const ins = await query(
+        `INSERT INTO inv_item_categories (company_id, branch_id, category_code, category_name, parent_category_id, is_active) VALUES (:companyId, :branchId, :categoryCode, :categoryName, :parentCategoryId, :isActive)`,
+        {
+          companyId,
+          branchId,
+          categoryCode,
+          categoryName,
+          parentCategoryId,
+          isActive,
+        },
+      );
+      res.status(201).json({ id: ins.insertId });
+    } catch (e) {
+      next(e);
     }
+  },
+);
 
-    const ins = await query(
-      `INSERT INTO inv_item_categories (company_id, branch_id, category_code, category_name, parent_category_id, is_active) VALUES (:companyId, :branchId, :categoryCode, :categoryName, :parentCategoryId, :isActive)`,
-      { companyId, branchId, categoryCode, categoryName, parentCategoryId, isActive },
-    );
-    res.status(201).json({ id: ins.insertId });
-  } catch (e) {
-    next(e);
-  }
-});
+router.put(
+  "/item-categories/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureItemGroupTables();
+      const { companyId, branchId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      }
 
-router.put("/item-categories/:id", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
-  try {
-    await ensureItemGroupTables();
-    const { companyId, branchId } = req.scope;
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) {
-      throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const body = req.body || {};
+      const categoryCode = String(body.category_code || "").trim();
+      const categoryName = String(body.category_name || "").trim();
+      const parentCategoryId = body.parent_category_id
+        ? Number(body.parent_category_id)
+        : null;
+      const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
+
+      if (!categoryCode || !categoryName) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "category_code and category_name are required",
+        );
+      }
+
+      const upd = await query(
+        `UPDATE inv_item_categories SET category_code = :categoryCode, category_name = :categoryName, parent_category_id = :parentCategoryId, is_active = :isActive WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        {
+          id,
+          companyId,
+          branchId,
+          categoryCode,
+          categoryName,
+          parentCategoryId,
+          isActive,
+        },
+      );
+
+      if (!upd.affectedRows) {
+        throw httpError(404, "NOT_FOUND", "Item category not found");
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      next(e);
     }
+  },
+);
 
-    const body = req.body || {};
-    const categoryCode = String(body.category_code || "").trim();
-    const categoryName = String(body.category_name || "").trim();
-    const parentCategoryId = body.parent_category_id ? Number(body.parent_category_id) : null;
-    const isActive = body.is_active === 0 || body.is_active === false ? 0 : 1;
+router.delete(
+  "/item-categories/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureItemGroupTables();
+      const { companyId, branchId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      }
 
-    if (!categoryCode || !categoryName) {
-      throw httpError(400, "VALIDATION_ERROR", "category_code and category_name are required");
+      const del = await query(
+        `DELETE FROM inv_item_categories WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
+      );
+
+      if (!del.affectedRows) {
+        throw httpError(404, "NOT_FOUND", "Item category not found");
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      if (e.code === "ER_ROW_IS_REFERENCED_2") {
+        return next(
+          httpError(
+            400,
+            "CONSTRAINT_ERROR",
+            "Cannot delete item category because it is in use.",
+          ),
+        );
+      }
+      next(e);
     }
-
-    const upd = await query(
-      `UPDATE inv_item_categories SET category_code = :categoryCode, category_name = :categoryName, parent_category_id = :parentCategoryId, is_active = :isActive WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-      { id, companyId, branchId, categoryCode, categoryName, parentCategoryId, isActive },
-    );
-
-    if (!upd.affectedRows) {
-      throw httpError(404, "NOT_FOUND", "Item category not found");
-    }
-    res.json({ ok: true });
-  } catch (e) {
-    next(e);
-  }
-});
-
-router.delete("/item-categories/:id", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
-  try {
-    await ensureItemGroupTables();
-    const { companyId, branchId } = req.scope;
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) {
-      throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    }
-
-    const del = await query(`DELETE FROM inv_item_categories WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`, { id, companyId, branchId });
-
-    if (!del.affectedRows) {
-      throw httpError(404, "NOT_FOUND", "Item category not found");
-    }
-    res.json({ ok: true });
-  } catch (e) {
-    if (e.code === "ER_ROW_IS_REFERENCED_2") {
-      return next(httpError(400, "CONSTRAINT_ERROR", "Cannot delete item category because it is in use."));
-    }
-    next(e);
-  }
-});
+  },
+);
 
 // Stock adjustments (shared by multiple screens)
 async function ensureStockAdjustmentTables() {
@@ -7679,7 +7828,9 @@ router.post(
             itemCode = `ITM-${String(currentMax).padStart(6, "0")}`;
           }
 
-          const itemName = item.item_name ? String(item.item_name).trim() : null;
+          const itemName = item.item_name
+            ? String(item.item_name).trim()
+            : null;
           if (!itemName) {
             failed++;
             continue;
@@ -7691,10 +7842,15 @@ router.post(
           const itemGroupId = toNumber(item.item_group_id);
           const costPrice = Number(item.cost_price || 0);
           const sellingPrice = Number(item.selling_price || 0);
-          const isActive = item.is_active === false || item.is_active === 0 ? 0 : 1;
-          const barcode = item.barcode ? String(item.barcode).trim() || null : null;
+          const isActive =
+            item.is_active === false || item.is_active === 0 ? 0 : 1;
+          const barcode = item.barcode
+            ? String(item.barcode).trim() || null
+            : null;
           const currencyId = toNumber(item.currency_id);
-          const imageUrl = item.image_url ? String(item.image_url).trim() || null : null;
+          const imageUrl = item.image_url
+            ? String(item.image_url).trim() || null
+            : null;
           const vatOnPurchaseId = toNumber(item.vat_on_purchase_id);
           const vatOnSalesId = toNumber(item.vat_on_sales_id);
           const purchaseAccountId = toNumber(item.purchase_account_id);
@@ -7706,12 +7862,16 @@ router.post(
           const isSellable =
             String(item.is_sellable ?? "Y").toUpperCase() === "Y" ? "Y" : "N";
           const isPurchasable =
-            String(item.is_purchasable ?? "Y").toUpperCase() === "Y" ? "Y" : "N";
+            String(item.is_purchasable ?? "Y").toUpperCase() === "Y"
+              ? "Y"
+              : "N";
           const minStockLevel = Number(item.min_stock_level || 0);
           const maxStockLevel = Number(item.max_stock_level || 0);
           const reorderLevel = Number(item.reorder_level || 0);
           const safetyStock = Number(item.safety_stock || 0);
-          const description = item.description ? String(item.description).trim() || null : null;
+          const description = item.description
+            ? String(item.description).trim() || null
+            : null;
 
           // Check if exists
           const [existing] = await conn.execute(
@@ -7953,14 +8113,29 @@ router.post(
       res.status(201).json({ id: itemId, item_code: itemCode });
     } catch (e) {
       // Handle duplicate key errors
-      if (e?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(e?.message || '')) {
-        if (/uq_item_code/i.test(e?.message || '')) {
-          throw httpError(409, 'DUPLICATE_ITEM_CODE', 'An item with this code already exists');
+      if (
+        e?.code === "ER_DUP_ENTRY" ||
+        /duplicate entry/i.test(e?.message || "")
+      ) {
+        if (/uq_item_code/i.test(e?.message || "")) {
+          throw httpError(
+            409,
+            "DUPLICATE_ITEM_CODE",
+            "An item with this code already exists",
+          );
         }
-        if (/uq_item_name/i.test(e?.message || '')) {
-          throw httpError(409, 'DUPLICATE_ITEM_NAME', 'An item with this name already exists');
+        if (/uq_item_name/i.test(e?.message || "")) {
+          throw httpError(
+            409,
+            "DUPLICATE_ITEM_NAME",
+            "An item with this name already exists",
+          );
         }
-        throw httpError(409, 'DUPLICATE_ENTRY', 'An item with this code or name already exists');
+        throw httpError(
+          409,
+          "DUPLICATE_ENTRY",
+          "An item with this code or name already exists",
+        );
       }
       next(e);
     }
@@ -8083,14 +8258,29 @@ router.put(
       res.json({ ok: true });
     } catch (e) {
       // Handle duplicate key errors
-      if (e?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(e?.message || '')) {
-        if (/uq_item_code/i.test(e?.message || '')) {
-          throw httpError(409, 'DUPLICATE_ITEM_CODE', 'An item with this code already exists');
+      if (
+        e?.code === "ER_DUP_ENTRY" ||
+        /duplicate entry/i.test(e?.message || "")
+      ) {
+        if (/uq_item_code/i.test(e?.message || "")) {
+          throw httpError(
+            409,
+            "DUPLICATE_ITEM_CODE",
+            "An item with this code already exists",
+          );
         }
-        if (/uq_item_name/i.test(e?.message || '')) {
-          throw httpError(409, 'DUPLICATE_ITEM_NAME', 'An item with this name already exists');
+        if (/uq_item_name/i.test(e?.message || "")) {
+          throw httpError(
+            409,
+            "DUPLICATE_ITEM_NAME",
+            "An item with this name already exists",
+          );
         }
-        throw httpError(409, 'DUPLICATE_ENTRY', 'An item with this code or name already exists');
+        throw httpError(
+          409,
+          "DUPLICATE_ENTRY",
+          "An item with this code or name already exists",
+        );
       }
       next(e);
     }
@@ -8700,7 +8890,8 @@ router.get(
         params.itemId = toNumber(itemId);
       }
 
-      sql += " ORDER BY i.item_name ASC, c.from_uom ASC, c.to_uom ASC, c.id ASC";
+      sql +=
+        " ORDER BY i.item_name ASC, c.from_uom ASC, c.to_uom ASC, c.id ASC";
       const rows = await query(sql, params);
       res.json({ items: rows || [] });
     } catch (err) {

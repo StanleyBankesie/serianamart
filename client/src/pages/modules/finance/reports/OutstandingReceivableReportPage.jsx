@@ -4,11 +4,12 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function OutstandingReceivableReportPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [order, setOrder] = useState("new");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -38,7 +39,9 @@ export default function OutstandingReceivableReportPage() {
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, order]);
+  }, [from, to]);
+
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "due_date", "asc");
 
   return (
     <div className="space-y-4">
@@ -81,16 +84,6 @@ export default function OutstandingReceivableReportPage() {
               />
             </div>
             <div className="md:col-span-2 flex items-end gap-2">
-              <button
-                type="button"
-                className="btn-secondary"
-                title={order === "new" ? "New entries first" : "Old entries first"}
-                onClick={() => setOrder(order === "new" ? "old" : "new")}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 5l-4 4h8l-4-4zm0 14l4-4H8l4 4z" fill="currentColor" />
-                </svg>
-              </button>
               <button
                 type="button"
                 className="btn-success"
@@ -223,16 +216,16 @@ export default function OutstandingReceivableReportPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th>Due Date</th>
-                  <th>Reference</th>
-                  <th>Party</th>
-                  <th className="text-right">Amount</th>
-                  <th className="text-right">Outstanding</th>
-                  <th>Status</th>
+                  <SortableHeader label="Due Date" sortKey="due_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Reference" sortKey="ref_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Party" sortKey="party_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Amount" sortKey="amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Outstanding" sortKey="outstanding" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r) => (
+                {sortedItems.map((r) => (
                   <tr key={r.id}>
                     <td>
                       {r.due_date

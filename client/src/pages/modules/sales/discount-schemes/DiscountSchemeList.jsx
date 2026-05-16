@@ -78,7 +78,7 @@ export default function DiscountSchemeList() {
     });
   }, [schemes, filterStatus, filterType, searchTerm]);
 
-  const { sorted: sortedSchemes, sortKey, sortDir, toggle } = useSort(filteredSchemes, "scheme_code", "asc");
+  const { sorted: sortedSchemes, sortKey, sortDir, toggle } = useSort(filteredSchemes, "created_at", "desc");
 
   const stats = useMemo(() => {
     const total = schemes.length;

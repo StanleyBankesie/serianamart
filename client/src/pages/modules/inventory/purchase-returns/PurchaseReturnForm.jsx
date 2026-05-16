@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { Plus, Trash2 } from "lucide-react";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 
 export default function PurchaseReturnForm() {
   const navigate = useNavigate();
@@ -12,6 +13,7 @@ export default function PurchaseReturnForm() {
   const [itemsMaster, setItemsMaster] = useState([]);
   const [taxCodeRates, setTaxCodeRates] = useState({});
   const [purchaseBills, setPurchaseBills] = useState([]);
+  const initialLineId = useMemo(() => Date.now(), []);
 
   const [formData, setFormData] = useState({
     returnNo: "Auto-generated",
@@ -24,7 +26,7 @@ export default function PurchaseReturnForm() {
 
   const [lines, setLines] = useState([
     {
-      id: Date.now(),
+      id: initialLineId,
       item_id: "",
       itemCode: "",
       itemName: "",
@@ -35,6 +37,7 @@ export default function PurchaseReturnForm() {
       taxAmount: 0,
     },
   ]);
+  const [itemQueries, setItemQueries] = useState({ [initialLineId]: "" });
 
   useEffect(() => {
     let mounted = true;
@@ -44,7 +47,9 @@ export default function PurchaseReturnForm() {
           api.get("/purchase/suppliers?active=true"),
           api.get("/inventory/warehouses"),
           api.get("/inventory/items"),
-          api.get("/finance/tax-codes", { params: { form: "PURCHASE_RETURN" } }),
+          api.get("/finance/tax-codes", {
+            params: { form: "PURCHASE_RETURN" },
+          }),
           api.get("/purchase/returns/next-no"),
         ]);
         if (!mounted) return;
@@ -79,23 +84,16 @@ export default function PurchaseReturnForm() {
   }, []);
 
   useEffect(() => {
-    const supId = Number(formData.supplierId || 0);
-    setPurchaseBills([]);
-    setFormData((p) => ({ ...p, purchaseBillId: "" }));
-    if (!supId) return;
     api
-      .get("/purchase/bills", { params: { supplier_id: supId } })
+      .get("/purchase/bills")
       .then((res) => {
         const items = Array.isArray(res.data?.items) ? res.data.items : [];
         setPurchaseBills(items);
-        if (items.length > 0) {
-          setFormData((p) => ({ ...p, purchaseBillId: String(items[0].id) }));
-        }
       })
       .catch(() => {
         setPurchaseBills([]);
       });
-  }, [formData.supplierId]);
+  }, []);
 
   useEffect(() => {
     const billId = Number(formData.purchaseBillId || 0);
@@ -104,7 +102,9 @@ export default function PurchaseReturnForm() {
       .get(`/purchase/bills/${billId}`)
       .then(async (res) => {
         const hdr = res.data?.item || {};
-        const details = Array.isArray(res.data?.details) ? res.data.details : [];
+        const details = Array.isArray(res.data?.details)
+          ? res.data.details
+          : [];
         if (hdr?.warehouse_id) {
           setFormData((p) => ({
             ...p,
@@ -118,9 +118,7 @@ export default function PurchaseReturnForm() {
             const grns = Array.isArray(grnRes.data?.items)
               ? grnRes.data.items
               : [];
-            const match = grns.find(
-              (g) => Number(g.id) === Number(hdr.grn_id),
-            );
+            const match = grns.find((g) => Number(g.id) === Number(hdr.grn_id));
             if (match?.warehouse_id) {
               setFormData((p) => ({
                 ...p,
@@ -170,10 +168,11 @@ export default function PurchaseReturnForm() {
   }, [lines]);
 
   const addLine = () => {
+    const newId = Date.now() + Math.random();
     setLines((prev) => [
       ...prev,
       {
-        id: Date.now() + Math.random(),
+        id: newId,
         item_id: "",
         itemCode: "",
         itemName: "",
@@ -184,10 +183,16 @@ export default function PurchaseReturnForm() {
         taxAmount: 0,
       },
     ]);
+    setItemQueries((prev) => ({ ...prev, [newId]: "" }));
   };
 
   const removeLine = (id) => {
     setLines((prev) => prev.filter((l) => l.id !== id));
+    setItemQueries((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   };
 
   const setLine = (id, patch) => {
@@ -343,6 +348,7 @@ export default function PurchaseReturnForm() {
                     }))
                   }
                 >
+                  <option value="">Select purchase bill</option>
                   {purchaseBills.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.bill_no}
@@ -415,32 +421,100 @@ export default function PurchaseReturnForm() {
                     {lines.map((ln) => (
                       <tr key={ln.id}>
                         <td>
-                          <select
-                            className="input"
-                            value={ln.item_id}
-                            onChange={(e) => {
-                              const id = Number(e.target.value || 0);
-                              const item = itemsMaster.find(
-                                (it) => Number(it.id) === id,
-                              );
-                              setLine(ln.id, {
-                                item_id: id,
-                                itemCode: item?.item_code || "",
-                                itemName: item?.item_name || "",
-                                unitPrice:
-                                  item?.cost_price != null
-                                    ? Number(item.cost_price)
-                                    : ln.unitPrice,
-                              });
-                            }}
-                          >
-                            <option value="">Select item</option>
-                            {itemsMaster.map((it) => (
-                              <option key={it.id} value={it.id}>
-                                {it.item_name} ({it.item_code})
-                              </option>
-                            ))}
-                          </select>
+                          <div className="relative">
+                            <input
+                              id={`pr-item-search-${ln.id}`} autoComplete="off"
+                              className="input"
+                              placeholder="Type to search items"
+                              value={itemQueries[ln.id] || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setItemQueries((prev) => ({
+                                  ...prev,
+                                  [ln.id]: val,
+                                }));
+                                if (!val && ln.item_id) {
+                                  setLine(ln.id, {
+                                    item_id: "",
+                                    itemCode: "",
+                                    itemName: "",
+                                    unitPrice: 0,
+                                  });
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  const query = (itemQueries[ln.id] || "").trim();
+                                  const results = query
+                                    ? filterByPrefix(itemsMaster, {
+                                        query,
+                                        searchFields: ["item_code", "item_name", "barcode"],
+                                      })
+                                    : [];
+                                  if (!query || !results.length) return;
+                                  const item = itemsMaster.find(
+                                    (it) => Number(it.id) === Number(results[0].id),
+                                  );
+                                  setLine(ln.id, {
+                                    item_id: results[0].id,
+                                    itemCode: item?.item_code || "",
+                                    itemName: item?.item_name || "",
+                                    unitPrice: item?.cost_price != null ? Number(item.cost_price) : ln.unitPrice,
+                                  });
+                                  setItemQueries((prev) => ({
+                                    ...prev,
+                                    [ln.id]: "",
+                                  }));
+                                }
+                              }}
+                            />
+                            {(() => {
+                              const query = (itemQueries[ln.id] || "").trim();
+                              const results = query
+                                ? filterByPrefix(itemsMaster, {
+                                    query,
+                                    searchFields: ["item_code", "item_name", "barcode"],
+                                  })
+                                : [];
+                              return results.length ? (
+                                (() => {
+                                  const el = document.getElementById(`pr-item-search-${ln.id}`);
+                                  const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
+                                  return (
+                                    <div
+                                      className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                      style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
+                                    >
+                                      {results.map((o) => (
+                                        <button
+                                          type="button"
+                                          key={o.id}
+                                          className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                                          onClick={() => {
+                                            const item = itemsMaster.find(
+                                              (it) => Number(it.id) === Number(o.id),
+                                            );
+                                            setLine(ln.id, {
+                                              item_id: o.id,
+                                              itemCode: item?.item_code || "",
+                                              itemName: item?.item_name || "",
+                                              unitPrice: item?.cost_price != null ? Number(item.cost_price) : ln.unitPrice,
+                                            });
+                                            setItemQueries((prev) => ({
+                                              ...prev,
+                                              [ln.id]: "",
+                                            }));
+                                          }}
+                                        >
+                                          {o.item_code} - {o.item_name}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  );
+                                })()
+                              ) : null;
+                            })()}
+                          </div>
                         </td>
                         <td className="text-right">
                           <input

@@ -191,7 +191,7 @@ export default function MaterialRequisitionList() {
     });
   }, [requisitions, searchTerm]);
 
-  const { sorted: sortedRequisitions, sortKey, sortDir, toggle } = useSort(filteredRequisitions, "requisition_no", "desc");
+  const { sorted: sortedRequisitions, sortKey, sortDir, toggle } = useSort(filteredRequisitions, "created_at", "desc");
 
   const openForwardModal = async (req) => {
     setSelectedReq(req);

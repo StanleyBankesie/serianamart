@@ -61,7 +61,7 @@ export default function SuppliersList() {
     });
   }, [suppliers, searchTerm]);
 
-  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "supplier_code", "asc");
+  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "created_at", "desc");
 
   return (
     <div className="space-y-6">

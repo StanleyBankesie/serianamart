@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "api/client";
 import { useExchangeRate } from "../../../../hooks/useExchangeRate";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 
 export default function SupplierQuotationForm() {
   const { id } = useParams();
@@ -53,9 +54,13 @@ export default function SupplierQuotationForm() {
   const [uploading, setUploading] = useState(false);
   const [rfqSuppliersForSelection, setRfqSuppliersForSelection] = useState([]);
   const [currencies, setCurrencies] = useState([]);
+  const [itemQueries, setItemQueries] = useState({});
 
   const baseCurrencyCode = useMemo(() => {
-    return currencies.find(c => Number(c.is_base) === 1 || c.is_base === true)?.code || "GHS";
+    return (
+      currencies.find((c) => Number(c.is_base) === 1 || c.is_base === true)
+        ?.code || "GHS"
+    );
   }, [currencies]);
 
   const selectedCurrencyCode = useMemo(() => {
@@ -80,20 +85,20 @@ export default function SupplierQuotationForm() {
 
         if (!mounted) return;
         setSuppliers(
-          Array.isArray(supRes.data?.items) ? supRes.data.items : []
+          Array.isArray(supRes.data?.items) ? supRes.data.items : [],
         );
         setAvailableItems(
-          Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : []
+          Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : [],
         );
         setRfqs(Array.isArray(rfqsRes.data?.items) ? rfqsRes.data.items : []);
         setTaxCodes(Array.isArray(taxRes.data?.items) ? taxRes.data.items : []);
         setCurrencies(
-          Array.isArray(curRes.data?.items) ? curRes.data.items : []
+          Array.isArray(curRes.data?.items) ? curRes.data.items : [],
         );
       } catch (e) {
         if (!mounted) return;
         setError(
-          e?.response?.data?.message || "Failed to load suppliers/items"
+          e?.response?.data?.message || "Failed to load suppliers/items",
         );
       }
     }
@@ -119,7 +124,7 @@ export default function SupplierQuotationForm() {
         }
       })
       .catch((err) =>
-        console.error("Failed to load next supplier quotation number", err)
+        console.error("Failed to load next supplier quotation number", err),
       );
 
     return () => {
@@ -220,7 +225,8 @@ export default function SupplierQuotationForm() {
                 return baseItems.map((item, idx) => ({
                   ...item,
                   ...(parsed.items[idx] || {}),
-                  tax_code_id: parsed.items[idx]?.tax_code_id || item.tax_code_id || "",
+                  tax_code_id:
+                    parsed.items[idx]?.tax_code_id || item.tax_code_id || "",
                 }));
               }
             }
@@ -232,7 +238,7 @@ export default function SupplierQuotationForm() {
       .catch((e) => {
         if (!mounted) return;
         setError(
-          e?.response?.data?.message || "Failed to load supplier quotation"
+          e?.response?.data?.message || "Failed to load supplier quotation",
         );
       })
       .finally(() => {
@@ -272,15 +278,15 @@ export default function SupplierQuotationForm() {
     const base =
       arr.find(
         (c) =>
-          String(c.is_base) === "1" || c.is_base === 1 || c.is_base === true
+          String(c.is_base) === "1" || c.is_base === 1 || c.is_base === true,
       ) ||
       arr.find(
-        (c) => String(c.code || c.currency_code || "").toUpperCase() === "GHS"
+        (c) => String(c.code || c.currency_code || "").toUpperCase() === "GHS",
       ) ||
       arr.find((c) =>
-        /ghana|cedi/i.test(String(c.name || c.currency_name || ""))
+        /ghana|cedi/i.test(String(c.name || c.currency_name || "")),
       );
-    
+
     if (!base) return;
     if (code === base.code) {
       setFormData((prev) => ({ ...prev, exchange_rate: 1 }));
@@ -289,7 +295,7 @@ export default function SupplierQuotationForm() {
 
     const rate = await getExchangeRate(code, base.code);
     if (rate) {
-      setFormData(p => ({ ...p, exchange_rate: rate }));
+      setFormData((p) => ({ ...p, exchange_rate: rate }));
     }
   };
 
@@ -302,11 +308,11 @@ export default function SupplierQuotationForm() {
       currencies.length
     ) {
       const match = currencies.find(
-        (c) => String(c.id) === String(initialQuotationCurrencyId)
+        (c) => String(c.id) === String(initialQuotationCurrencyId),
       );
       if (match) {
         const code = String(
-          match.code || match.currency_code || ""
+          match.code || match.currency_code || "",
         ).toUpperCase();
         setFormData((prev) => ({ ...prev, currency: code || prev.currency }));
       }
@@ -508,7 +514,7 @@ export default function SupplierQuotationForm() {
       const curMatch = arr.find(
         (c) =>
           String(c.code || c.currency_code || "").toUpperCase() ===
-          String(formData.currency || "").toUpperCase()
+          String(formData.currency || "").toUpperCase(),
       );
       const currencyId = curMatch?.id || null;
 
@@ -551,7 +557,7 @@ export default function SupplierQuotationForm() {
           discount_percent: formData.discount_percent,
         },
         items: items.map((r) => ({
-           tax_code_id: r.tax_code_id,
+          tax_code_id: r.tax_code_id,
           delivery_date: r.delivery_date,
         })),
       };
@@ -572,7 +578,7 @@ export default function SupplierQuotationForm() {
       navigate("/purchase/supplier-quotations");
     } catch (e2) {
       setError(
-        e2?.response?.data?.message || "Failed to save supplier quotation"
+        e2?.response?.data?.message || "Failed to save supplier quotation",
       );
     } finally {
       setSaving(false);
@@ -719,7 +725,7 @@ export default function SupplierQuotationForm() {
                     onChange={(e) => {
                       const selectedId = e.target.value;
                       const s = rfqSuppliersForSelection.find(
-                        (x) => String(x.supplier_id) === String(selectedId)
+                        (x) => String(x.supplier_id) === String(selectedId),
                       );
                       setFormData((prev) => ({
                         ...prev,
@@ -847,7 +853,10 @@ export default function SupplierQuotationForm() {
               </div>
               <div>
                 <label className="label">
-                  Exchange Rate {selectedCurrencyCode ? `(${baseCurrencyCode} per ${selectedCurrencyCode})` : ""}
+                  Exchange Rate{" "}
+                  {selectedCurrencyCode
+                    ? `(${baseCurrencyCode} per ${selectedCurrencyCode})`
+                    : ""}
                 </label>
                 <input
                   type="number"
@@ -937,36 +946,103 @@ export default function SupplierQuotationForm() {
               <tbody>
                 {items.map((item, index) => (
                   <tr key={index}>
-                    <td>
-                      <select
-                        className="input"
-                        value={item.item_id}
-                        onChange={(e) =>
-                          handleItemChange(index, "item_id", e.target.value)
-                        }
-                        required
-                      >
-                        <option value="">Select Item</option>
-                        {availableItems.map((availableItem) => (
-                          <option
-                            key={availableItem.id}
-                            value={availableItem.id}
-                          >
-                            {(availableItem.item_code ||
-                              availableItem.code ||
-                              availableItem.id) +
-                              " - " +
-                              (availableItem.item_name ||
-                                availableItem.name ||
-                                "")}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
+                     <td>
+                       <div className="relative">
+                         <input
+                           id={`sq-item-search-${index}`} autoComplete="off"
+                           className="input w-72"
+                           placeholder="Type to search items"
+                           value={itemQueries[index] || ""}
+                           onChange={(e) => {
+                             const val = e.target.value;
+                             setItemQueries((prev) => ({
+                               ...prev,
+                               [index]: val,
+                             }));
+                             if (!val && item.item_id) {
+                               handleItemChange(index, "item_id", "");
+                             }
+                           }}
+                           onKeyDown={(e) => {
+                             if (e.key === "Enter") {
+                               const query = (itemQueries[index] || "").trim();
+                               const results = query
+                                 ? filterByPrefix(availableItems, {
+                                     query,
+                                     searchFields: [
+                                       "item_code",
+                                       "item_name",
+                                       "barcode",
+                                     ],
+                                   })
+                                 : [];
+                               if (!query || !results.length) return;
+                               handleItemChange(
+                                 index,
+                                 "item_id",
+                                 String(results[0].id),
+                               );
+                               setItemQueries((prev) => ({
+                                 ...prev,
+                                 [index]: "",
+                               }));
+                             }
+                           }}
+                         />
+                         {(() => {
+                           const query = (itemQueries[index] || "").trim();
+                           const results = query
+                             ? filterByPrefix(availableItems, {
+                                 query,
+                                 searchFields: [
+                                   "item_code",
+                                   "item_name",
+                                   "barcode",
+                                 ],
+                               })
+                             : [];
+                           return results.length ? (
+                             (() => {
+                               const el = document.getElementById(`sq-item-search-${index}`);
+                               const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
+                               return (
+                                 <div
+                                   className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                   style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
+                                 >
+                                   {results.map((o) => (
+                                     <button
+                                       type="button"
+                                       key={o.id}
+                                       className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                                       onClick={() => {
+                                         handleItemChange(
+                                           index,
+                                           "item_id",
+                                           String(o.id),
+                                         );
+                                         setItemQueries((prev) => ({
+                                           ...prev,
+                                           [index]: "",
+                                         }));
+                                       }}
+                                     >
+                                       {(o.item_code || o.code || o.id) +
+                                         " - " +
+                                         (o.item_name || o.name || "")}
+                                     </button>
+                                   ))}
+                                 </div>
+                               );
+                             })()
+                           ) : null;
+                         })()}
+                       </div>
+                     </td>
                     <td>
                       <input
                         type="number"
-                        className="input text-right"
+                        className="input text-right w-28"
                         value={item.qty}
                         onChange={(e) =>
                           handleItemChange(index, "qty", e.target.value)
@@ -979,7 +1055,7 @@ export default function SupplierQuotationForm() {
                     <td>
                       <input
                         type="number"
-                        className="input text-right"
+                        className="input text-right w-32"
                         value={item.unit_price}
                         onChange={(e) =>
                           handleItemChange(index, "unit_price", e.target.value)
@@ -991,13 +1067,13 @@ export default function SupplierQuotationForm() {
                     </td>
                     <td>
                       <select
-                        className="input text-right"
+                        className="input text-right w-32"
                         value={item.tax_code_id}
                         onChange={(e) =>
                           handleItemChange(index, "tax_code_id", e.target.value)
                         }
                       >
-                        <option value={0}>No Tax</option>
+                        <option value={0}>Select Tax</option>
                         {taxCodes.map((t) => (
                           <option key={t.id} value={String(t.id)}>
                             {t.code} - {t.name} (
@@ -1019,7 +1095,7 @@ export default function SupplierQuotationForm() {
                           handleItemChange(
                             index,
                             "delivery_date",
-                            e.target.value
+                            e.target.value,
                           )
                         }
                       />
@@ -1057,14 +1133,21 @@ export default function SupplierQuotationForm() {
                 <div className="flex items-center gap-2 justify-center flex-1">
                   <div className="flex flex-col">
                     <div className="flex items-center gap-2">
-                       <span>Total Tax</span>
-                       <span className="font-semibold">{totalTax.toFixed(2)}</span>
+                      <span>Total Tax</span>
+                      <span className="font-semibold">
+                        {totalTax.toFixed(2)}
+                      </span>
                     </div>
-                    {(totals.components || []).map(c => (
-                       <div key={c.name} className="text-xs text-slate-500 pl-4 flex justify-between gap-2">
-                          <span>{c.name} ({c.rate}%):</span>
-                          <span>{Number(c.amount || 0).toFixed(2)}</span>
-                       </div>
+                    {(totals.components || []).map((c) => (
+                      <div
+                        key={c.name}
+                        className="text-xs text-slate-500 pl-4 flex justify-between gap-2"
+                      >
+                        <span>
+                          {c.name} ({c.rate}%):
+                        </span>
+                        <span>{Number(c.amount || 0).toFixed(2)}</span>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -1181,8 +1264,10 @@ export default function SupplierQuotationForm() {
                             onChange={(e) =>
                               setAttachments((prev) =>
                                 prev.map((a, i) =>
-                                  i === idx ? { ...a, note: e.target.value } : a
-                                )
+                                  i === idx
+                                    ? { ...a, note: e.target.value }
+                                    : a,
+                                ),
                               )
                             }
                             placeholder="Optional note"

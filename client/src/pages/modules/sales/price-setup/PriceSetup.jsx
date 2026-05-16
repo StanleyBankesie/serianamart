@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { api } from "../../../../api/client";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 import "./PriceSetup.css";
 
 export default function PriceSetup() {
@@ -26,6 +27,7 @@ export default function PriceSetup() {
 
   // Form states
   const [formData, setFormData] = useState({});
+  const [productQuery, setProductQuery] = useState("");
 
   useEffect(() => {
     loadInitialData();
@@ -35,15 +37,36 @@ export default function PriceSetup() {
     loadTabData();
   }, [activeTab, filters]);
 
+  useEffect(() => {
+    if (!modalOpen || priceTypes.length === 0 || formData.product_id) return;
+    const retailPt = priceTypes.find(
+      (pt) =>
+        String(pt.name || "").toUpperCase() === "RETAIL" ||
+        String(pt.code || "").toUpperCase() === "RETAIL",
+    );
+    const ghsCurr = currencies.find(
+      (c) => String(c.code || "").toUpperCase() === "GHS",
+    );
+    const today = new Date().toISOString().split("T")[0];
+    setFormData((prev) => ({
+      ...prev,
+      price_type_id: prev.price_type_id || (retailPt ? retailPt.id : ""),
+      currency_id: prev.currency_id || (ghsCurr ? ghsCurr.id : ""),
+      effective_date: prev.effective_date || today,
+      effective_from: prev.effective_from || today,
+    }));
+  }, [priceTypes, currencies, modalOpen]);
+
   const loadInitialData = async () => {
     try {
       console.log("Loading initial data...");
-      const [productsRes, customersRes, priceTypesRes, currenciesRes] = await Promise.all([
-        api.get("/inventory/items"),
-        api.get("/sales/customers", { params: { active: "true" } }),
-        api.get("/sales/price-types"),
-        api.get("/finance/currencies")
-      ]);
+      const [productsRes, customersRes, priceTypesRes, currenciesRes] =
+        await Promise.all([
+          api.get("/inventory/items"),
+          api.get("/sales/customers", { params: { active: "true" } }),
+          api.get("/sales/price-types"),
+          api.get("/finance/currencies"),
+        ]);
 
       console.log("Products loaded:", productsRes.data);
       console.log("Customers loaded:", customersRes.data);
@@ -52,8 +75,10 @@ export default function PriceSetup() {
 
       setProducts(productsRes.data.items || []);
       setCustomers(customersRes.data.items || []);
-      setPriceTypes(priceTypesRes.data.items || []);
-      setCurrencies(currenciesRes.data.items || []);
+      const ptItems = priceTypesRes.data.items || [];
+      setPriceTypes(ptItems);
+      const currItems = currenciesRes.data.items || [];
+      setCurrencies(currItems);
     } catch (err) {
       console.error("Error loading initial data:", err);
     }
@@ -297,7 +322,23 @@ export default function PriceSetup() {
   const handleOpenModal = (type, item = null) => {
     setModalType(type);
     setSelectedItem(item);
-    setFormData(item || {});
+    const today = new Date().toISOString().split("T")[0];
+    const retailPt = priceTypes.find(
+      (pt) =>
+        String(pt.name || "").toUpperCase() === "RETAIL" ||
+        String(pt.code || "").toUpperCase() === "RETAIL",
+    );
+    const ghsCurr = currencies.find(
+      (c) => String(c.code || "").toUpperCase() === "GHS",
+    );
+    const defaults = {
+      price_type_id: retailPt ? retailPt.id : "",
+      currency_id: ghsCurr ? ghsCurr.id : "",
+      effective_date: today,
+      effective_from: today,
+    };
+    setFormData(item ? { ...item } : defaults);
+    setProductQuery("");
     setModalOpen(true);
   };
 
@@ -305,6 +346,7 @@ export default function PriceSetup() {
     setModalOpen(false);
     setSelectedItem(null);
     setFormData({});
+    setProductQuery("");
   };
 
   const handleSave = async () => {
@@ -426,11 +468,7 @@ export default function PriceSetup() {
             const currency = currencies.find((c) => c.id === item.currency_id);
             return (
               <tr key={index}>
-                <td>
-                  {product
-                    ? `${product.item_name} (${product.item_code})`
-                    : item.product_id}
-                </td>
+                 <td>{product ? product.item_name : item.product_id}</td>
                 <td>{Number(item.cost_price).toFixed(2)}</td>
                 <td>{Number(item.selling_price).toFixed(2)}</td>
                 <td>{Number(item.margin_percent).toFixed(2)}%</td>
@@ -509,8 +547,8 @@ export default function PriceSetup() {
       setFormData((prev) => ({
         ...prev,
         product_id: productId,
-        uom: product.uom,
-        cost_price: product.cost_price,
+        uom: product.uom || product.default_uom || product.uom_code || "",
+        cost_price: product.cost_price || product.standard_cost || product.purchase_price || 0,
         currency_id: product.currency_id,
         price_type_id: product.price_type_id,
       }));
@@ -526,22 +564,81 @@ export default function PriceSetup() {
     if (modalType === "standard") {
       return (
         <div className="form-grid">
-          <div className="form-group">
-            <label className="required">Product</label>
-            <select
-              value={formData.product_id || ""}
-              onChange={(e) => handleProductChange(e.target.value)}
-            >
-              <option value="">Select Product</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.item_name} ({p.item_code})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="required">Price type</label>
+            <div className="form-group">
+              <label className="required">Product</label>
+              <div className="relative">
+                <input
+                  id="price-setup-product-search-standard"
+                  autoComplete="off"
+                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-brand"
+                  placeholder="Type to search products"
+                  value={productQuery}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setProductQuery(val);
+                    if (!val && formData.product_id) {
+                      setFormData((prev) => ({
+                        ...prev,
+                        product_id: "",
+                      }));
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const query = productQuery.trim();
+                      const results = query
+                        ? filterByPrefix(products, {
+                            query,
+                            searchFields: ["item_code", "item_name"],
+                          })
+                        : [];
+                      if (!query || !results.length) return;
+                      handleProductChange(results[0].id);
+                      const prod = products.find((p) => p.id === results[0].id);
+                       setProductQuery(prod ? prod.item_name : "");
+                     }
+                   }}
+                 />
+                 {(() => {
+                   const query = productQuery.trim();
+                   const results = query
+                     ? filterByPrefix(products, {
+                         query,
+                         searchFields: ["item_code", "item_name"],
+                       })
+                     : [];
+                   return results.length ? (
+                     (() => {
+                       const el = document.getElementById("price-setup-product-search-standard");
+                       const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
+                       return (
+                         <div
+                           className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
+                           style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
+                         >
+                           {results.map((o) => (
+                             <button
+                               type="button"
+                               key={o.id}
+                               className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                               onClick={() => {
+                                 handleProductChange(o.id);
+                                 const prod = products.find((p) => p.id === o.id);
+                                 setProductQuery(prod ? prod.item_name : "");
+                               }}
+                             >
+                               {o.item_name}
+                             </button>
+                           ))}
+                         </div>
+                       );
+                     })()
+                   ) : null;
+                 })()}
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="required">Price type</label>
             <select
               value={formData.price_type_id || ""}
               onChange={(e) =>
@@ -678,17 +775,76 @@ export default function PriceSetup() {
           </div>
           <div className="form-group">
             <label className="required">Product</label>
-            <select
-              value={formData.product_id || ""}
-              onChange={(e) => handleProductChange(e.target.value)}
-            >
-              <option value="">Select Product</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.item_name} ({p.item_code})
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <input
+                id="price-setup-product-search-customer"
+                autoComplete="off"
+                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-brand"
+                placeholder="Type to search products"
+                value={productQuery}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setProductQuery(val);
+                  if (!val && formData.product_id) {
+                    setFormData((prev) => ({
+                      ...prev,
+                      product_id: "",
+                    }));
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const query = productQuery.trim();
+                    const results = query
+                      ? filterByPrefix(products, {
+                          query,
+                          searchFields: ["item_code", "item_name"],
+                        })
+                      : [];
+                    if (!query || !results.length) return;
+                    handleProductChange(results[0].id);
+                    const prod = products.find((p) => p.id === results[0].id);
+                     setProductQuery(prod ? prod.item_name : "");
+                   }
+                 }}
+               />
+               {(() => {
+                 const query = productQuery.trim();
+                 const results = query
+                   ? filterByPrefix(products, {
+                       query,
+                       searchFields: ["item_code", "item_name"],
+                     })
+                   : [];
+                 return results.length ? (
+                   (() => {
+                     const el = document.getElementById("price-setup-product-search-customer");
+                     const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
+                     return (
+                       <div
+                         className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
+                         style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
+                       >
+                         {results.map((o) => (
+                           <button
+                             type="button"
+                             key={o.id}
+                             className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                             onClick={() => {
+                               handleProductChange(o.id);
+                               const prod = products.find((p) => p.id === o.id);
+                               setProductQuery(prod ? prod.item_name : "");
+                             }}
+                           >
+                             {o.item_name}
+                           </button>
+                         ))}
+                       </div>
+                     );
+                   })()
+                 ) : null;
+               })()}
+            </div>
           </div>
           <div className="form-group">
             <label>Price Type</label>

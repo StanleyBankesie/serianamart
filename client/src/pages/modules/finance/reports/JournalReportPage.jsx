@@ -4,11 +4,12 @@ import { api } from "api/client";
 import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function JournalReportPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [order, setOrder] = useState("new");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -16,7 +17,7 @@ export default function JournalReportPage() {
     try {
       setLoading(true);
       const res = await api.get("/finance/reports/journals", {
-        params: { from: from || null, to: to || null, order },
+        params: { from: from || null, to: to || null },
       });
       setItems(res.data?.items || []);
     } catch (e) {
@@ -38,7 +39,9 @@ export default function JournalReportPage() {
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, order]);
+  }, [from, to]);
+
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "voucher_date", "asc");
 
   return (
     <div className="space-y-4">
@@ -79,18 +82,6 @@ export default function JournalReportPage() {
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
               />
-            </div>
-            <div className="flex items-end">
-              <button
-                type="button"
-                className="btn-secondary"
-                title={
-                  order === "new" ? "New entries first" : "Old entries first"
-                }
-                onClick={() => setOrder(order === "new" ? "old" : "new")}
-              >
-                {order === "new" ? "🔽" : "🔼"}
-              </button>
             </div>
             <div className="md:col-span-2 flex items-end gap-2">
               <button
@@ -182,18 +173,18 @@ export default function JournalReportPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th>Date</th>
-                  <th>Voucher Type</th>
-                  <th>Voucher No</th>
-                  <th>Line</th>
-                  <th>Account</th>
-                  <th>Description</th>
-                  <th className="text-right">Debit</th>
-                  <th className="text-right">Credit</th>
+                  <SortableHeader label="Date" sortKey="voucher_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Voucher Type" sortKey="voucher_type_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Voucher No" sortKey="voucher_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Line" sortKey="line_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Account" sortKey="account_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Description" sortKey="description" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Debit" sortKey="debit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Credit" sortKey="credit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, idx) => (
+                {sortedItems.map((r, idx) => (
                   <tr key={`${r.id}-${idx}`}>
                     <td>{new Date(r.voucher_date).toLocaleDateString()}</td>
                     <td>{r.voucher_type_name || r.voucher_type_code || "-"}</td>

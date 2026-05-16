@@ -436,64 +436,28 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
 
   useEffect(() => {
     if (!(isCN || isDN)) return;
-    const fromId = dncnLineCurrencyId || null;
-    const toId = baseCurrency?.id || null;
-    if (!fromId || !toId) {
+    const fromAcc = accounts.find(
+      (a) => String(a.id) === String(dncnLineCurrencyId || ""),
+    );
+    const fromCode = fromAcc?.currency_code || baseCurrency?.code || "";
+    const toCode = baseCurrency?.code || "";
+    if (!fromCode || !toCode) {
       setDncnExchangeRate("1");
       return;
     }
-    if (String(fromId) === String(toId)) {
+    if (String(fromCode) === String(toCode)) {
       setDncnExchangeRate("1");
       return;
     }
     (async () => {
       try {
-        const res = await api.get("/finance/currency-rates", {
-          params: {
-            fromCurrencyId: Number(fromId),
-            toCurrencyId: Number(toId),
-            to: voucherDate || null,
-          },
-        });
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
-        const sorted = items
-          .slice()
-          .sort(
-            (a, b) =>
-              new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime(),
-          );
-        let rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
-        if (!rate) {
-          try {
-            const resRev = await api.get("/finance/currency-rates", {
-              params: {
-                fromCurrencyId: Number(toId),
-                toCurrencyId: Number(fromId),
-                to: voucherDate || null,
-              },
-            });
-            const itemsRev = Array.isArray(resRev.data?.items)
-              ? resRev.data.items
-              : [];
-            const sortedRev = itemsRev
-              .slice()
-              .sort(
-                (a, b) =>
-                  new Date(b.rate_date).getTime() -
-                  new Date(a.rate_date).getTime(),
-              );
-            const revRate = sortedRev.length
-              ? Number(sortedRev[0].rate || 0)
-              : 0;
-            rate = revRate ? 1 / revRate : 0;
-          } catch {}
-        }
+        const rate = await getExchangeRate(fromCode, toCode);
         setDncnExchangeRate(rate ? String(rate) : "1");
       } catch {
         setDncnExchangeRate("1");
       }
     })();
-  }, [isCN, isDN, dncnLineCurrencyId, baseCurrency, voucherDate]);
+  }, [isCN, isDN, dncnLineCurrencyId, baseCurrency, voucherDate, getExchangeRate, accounts]);
 
   async function loadVoucher() {
     if (!isEdit) return;
@@ -2513,35 +2477,19 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   }, [voucherTypes, voucherTypeCode]);
   useEffect(() => {
     if (!isCV) return;
-    const fromId = cvFromCurrencyId || null;
-    const toId = cvToCurrencyId || null;
     const fromCode = cvFromCurrencyCode || "";
     const toCode = cvToCurrencyCode || "";
-    if (!fromId || !toId) {
+    if (!fromCode || !toCode) {
       setCvExchangeRate("");
       return;
     }
-    if (fromCode && toCode && fromCode === toCode) {
+    if (fromCode === toCode) {
       setCvExchangeRate("1");
       return;
     }
     (async () => {
       try {
-        const res = await api.get("/finance/currency-rates", {
-          params: {
-            fromCurrencyId: Number(fromId),
-            toCurrencyId: Number(toId),
-            to: voucherDate || null,
-          },
-        });
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
-        const sorted = items
-          .slice()
-          .sort(
-            (a, b) =>
-              new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime(),
-          );
-        const rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
+        const rate = await getExchangeRate(fromCode, toCode);
         setCvExchangeRate(rate ? String(rate) : "");
       } catch {
         setCvExchangeRate("");
@@ -2549,84 +2497,55 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     })();
   }, [
     isCV,
-    cvFromCurrencyId,
-    cvToCurrencyId,
     cvFromCurrencyCode,
     cvToCurrencyCode,
     voucherDate,
+    getExchangeRate,
   ]);
 
   useEffect(() => {
     if (!isRV) return;
-    const fromId = rvDepositCurrencyId || null;
-    const toId = baseCurrency?.id || null;
-    if (!fromId || !toId) {
+    const fromCode = depositAccountCurrencyCode || "";
+    const toCode = baseCurrency?.code || "";
+    if (!fromCode || !toCode) {
       setRvExchangeRate("1");
       return;
     }
-    if (String(fromId) === String(toId)) {
+    if (fromCode === toCode) {
       setRvExchangeRate("1");
       return;
     }
     (async () => {
       try {
-        const res = await api.get("/finance/currency-rates", {
-          params: {
-            fromCurrencyId: Number(fromId),
-            toCurrencyId: Number(toId),
-            to: voucherDate || null,
-          },
-        });
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
-        const sorted = items
-          .slice()
-          .sort(
-            (a, b) =>
-              new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime(),
-          );
-        const rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
+        const rate = await getExchangeRate(fromCode, toCode);
         setRvExchangeRate(rate ? String(rate) : "1");
       } catch {
         setRvExchangeRate("1");
       }
     })();
-  }, [isRV, rvDepositCurrencyId, baseCurrency, voucherDate]);
+  }, [isRV, depositAccountCurrencyCode, baseCurrency, voucherDate, getExchangeRate]);
 
   useEffect(() => {
     if (!isPAYV) return;
-    const fromId = paymentAccountCurrencyId || null;
-    const toId = baseCurrency?.id || null;
-    if (!fromId || !toId) {
+    const fromCode = paymentAccountCurrencyCode || "";
+    const toCode = baseCurrency?.code || "";
+    if (!fromCode || !toCode) {
       setPvExchangeRate("1");
       return;
     }
-    if (String(fromId) === String(toId)) {
+    if (fromCode === toCode) {
       setPvExchangeRate("1");
       return;
     }
     (async () => {
       try {
-        const res = await api.get("/finance/currency-rates", {
-          params: {
-            fromCurrencyId: Number(fromId),
-            toCurrencyId: Number(toId),
-            to: voucherDate || null,
-          },
-        });
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
-        const sorted = items
-          .slice()
-          .sort(
-            (a, b) =>
-              new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime(),
-          );
-        const rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
+        const rate = await getExchangeRate(fromCode, toCode);
         setPvExchangeRate(rate ? String(rate) : "1");
       } catch {
         setPvExchangeRate("1");
       }
     })();
-  }, [isPAYV, paymentAccountCurrencyId, baseCurrency, voucherDate]);
+  }, [isPAYV, paymentAccountCurrencyCode, baseCurrency, voucherDate, getExchangeRate]);
 
   // PV UI
   function updatePv(patch) {
@@ -2867,35 +2786,19 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   }, [isRV, rvIsBankLike, accounts, rvForm.depositAccountId]);
   useEffect(() => {
     if (!isPAYV) return;
-    const fromId = payeeCurrencyId || null;
-    const toId = paymentAccountCurrencyId || null;
     const fromCode = payeeCurrencyCode || "";
     const toCode = paymentAccountCurrencyCode || "";
-    if (!fromId || !toId) {
+    if (!fromCode || !toCode) {
       setPvExchangeRate("");
       return;
     }
-    if (fromCode && toCode && fromCode === toCode) {
+    if (fromCode === toCode) {
       setPvExchangeRate("1");
       return;
     }
     (async () => {
       try {
-        const res = await api.get("/finance/currency-rates", {
-          params: {
-            fromCurrencyId: Number(fromId),
-            toCurrencyId: Number(toId),
-            to: voucherDate || null,
-          },
-        });
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
-        const sorted = items
-          .slice()
-          .sort(
-            (a, b) =>
-              new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime(),
-          );
-        const rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
+        const rate = await getExchangeRate(fromCode, toCode);
         setPvExchangeRate(rate ? String(rate) : "");
       } catch {
         setPvExchangeRate("");
@@ -2903,68 +2806,26 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     })();
   }, [
     isPAYV,
-    payeeCurrencyId,
-    paymentAccountCurrencyId,
     payeeCurrencyCode,
     paymentAccountCurrencyCode,
     voucherDate,
+    getExchangeRate,
   ]);
   useEffect(() => {
     if (!isRV) return;
-    const fromId = rvPayeeCurrencyId || null;
-    const toId = rvDepositCurrencyId || null;
     const fromCode = rvPayeeCurrencyCode || "";
     const toCode = depositAccountCurrencyCode || "";
-    if (!fromId || !toId) {
+    if (!fromCode || !toCode) {
       setRvExchangeRate("1");
       return;
     }
-    if (fromCode && toCode && fromCode === toCode) {
+    if (fromCode === toCode) {
       setRvExchangeRate("1");
       return;
     }
     (async () => {
       try {
-        const res = await api.get("/finance/currency-rates", {
-          params: {
-            fromCurrencyId: Number(fromId),
-            toCurrencyId: Number(toId),
-            to: voucherDate || null,
-          },
-        });
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
-        const sorted = items
-          .slice()
-          .sort(
-            (a, b) =>
-              new Date(b.rate_date).getTime() - new Date(a.rate_date).getTime(),
-          );
-        let rate = sorted.length ? Number(sorted[0].rate || 0) : 0;
-        if (!rate) {
-          try {
-            const resRev = await api.get("/finance/currency-rates", {
-              params: {
-                fromCurrencyId: Number(toId),
-                toCurrencyId: Number(fromId),
-                to: voucherDate || null,
-              },
-            });
-            const itemsRev = Array.isArray(resRev.data?.items)
-              ? resRev.data.items
-              : [];
-            const sortedRev = itemsRev
-              .slice()
-              .sort(
-                (a, b) =>
-                  new Date(b.rate_date).getTime() -
-                  new Date(a.rate_date).getTime(),
-              );
-            const revRate = sortedRev.length
-              ? Number(sortedRev[0].rate || 0)
-              : 0;
-            rate = revRate ? 1 / revRate : 0;
-          } catch {}
-        }
+        const rate = await getExchangeRate(fromCode, toCode);
         setRvExchangeRate(rate ? String(rate) : "1");
       } catch {
         setRvExchangeRate("1");
@@ -2972,11 +2833,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
     })();
   }, [
     isRV,
-    rvPayeeCurrencyId,
-    rvDepositCurrencyId,
     rvPayeeCurrencyCode,
     depositAccountCurrencyCode,
     voucherDate,
+    getExchangeRate,
   ]);
 
   // Fetch exchange rate from external API based on currency field
@@ -3105,132 +2965,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                   <span className="px-2 py-1 rounded bg-green-500 text-white text-sm font-medium">
                     Approved
                   </span>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn-success"
-                    onClick={async () => {
-                      if (!isEdit) return;
-                      setShowForwardModal(true);
-                      setWfError("");
-                      if (!workflowsCache) {
-                        try {
-                          setWfLoading(true);
-                          const res = await api.get("/workflows");
-                          const items = Array.isArray(res.data?.items)
-                            ? res.data.items
-                            : [];
-                          setWorkflowsCache(items);
-                          const amount =
-                            totals?.grand === "" || totals?.grand == null
-                              ? null
-                              : Number(totals?.grand || 0);
-                          let chosen = null;
-                          const targetRoute = isJV
-                            ? "/finance/journal-voucher"
-                            : "/finance/receipt-voucher";
-                          const byRoute = items.filter(
-                            (w) =>
-                              String(w.document_route || "") === targetRoute,
-                          );
-                          const byType = items.filter((w) => {
-                            const t = String(w.document_type || "");
-                            return isJV
-                              ? [
-                                  "JOURNAL_VOUCHER",
-                                  "Journal Voucher",
-                                  "JV",
-                                ].includes(t)
-                              : [
-                                  "RECEIPT_VOUCHER",
-                                  "Receipt Voucher",
-                                  "RV",
-                                ].includes(t);
-                          });
-                          const list = [...byRoute, ...byType];
-                          for (const wf of list) {
-                            if (chosen) break;
-                            if (Number(wf.is_active) !== 1) continue;
-                            if (amount === null) {
-                              chosen = wf;
-                              break;
-                            }
-                            const minOk =
-                              wf.min_amount === null ||
-                              Number(amount) >= Number(wf.min_amount);
-                            const maxOk =
-                              wf.max_amount === null ||
-                              Number(amount) <= Number(wf.max_amount);
-                            if (minOk && maxOk) {
-                              chosen = wf;
-                              break;
-                            }
-                          }
-                          if (!chosen) {
-                            for (const wf of byType) {
-                              if (chosen) break;
-                              if (Number(wf.is_active) !== 1) continue;
-                              if (amount === null) {
-                                chosen = wf;
-                                break;
-                              }
-                              const minOk =
-                                wf.min_amount === null ||
-                                Number(amount) >= Number(wf.min_amount);
-                              const maxOk =
-                                wf.max_amount === null ||
-                                Number(amount) <= Number(wf.max_amount);
-                              if (minOk && maxOk) {
-                                chosen = wf;
-                                break;
-                              }
-                            }
-                          }
-                          setCandidateWorkflow(chosen);
-                          setFirstApprover(null);
-                          setTargetApproverId(null);
-                          if (chosen) {
-                            const wfDetail = await api.get(
-                              `/workflows/${chosen.id}`,
-                            );
-                            const item = wfDetail?.data?.item || {};
-                            const stepOrder = Number(
-                              item.current_step_order || 1,
-                            );
-                            const approvers = Array.isArray(
-                              item?.next_step_approvers,
-                            )
-                              ? item.next_step_approvers
-                              : [];
-                            const firstUser =
-                              approvers.length > 0
-                                ? Number(approvers[0].id)
-                                : null;
-                            setFirstApprover({
-                              stepOrder: stepOrder || 1,
-                              stepName: String(item.step_name || "Step 1"),
-                              approvalLimit:
-                                approvers.length > 0
-                                  ? Number(approvers[0].approval_limit || 0)
-                                  : null,
-                              approvers,
-                            });
-                            setTargetApproverId(firstUser);
-                          }
-                        } catch (e) {
-                          setWfError(
-                            e?.response?.data?.message ||
-                              "Failed to load workflows",
-                          );
-                        } finally {
-                          setWfLoading(false);
-                        }
-                      }
-                    }}
-                    disabled={loading || !isEdit}
-                  >
-                    Forward for Approval
-                  </button>
+                 ) : (
+                  <></>
                 )}
               </div>
             </div>
@@ -3887,120 +3623,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     Approved
                   </span>
                 ) : (
-                  <button
-                    type="button"
-                    className="btn-success"
-                    onClick={async () => {
-                      if (!isEdit) return;
-                      setShowForwardModal(true);
-                      setWfError("");
-                      if (!workflowsCache) {
-                        try {
-                          setWfLoading(true);
-                          const res = await api.get("/workflows");
-                          const items = Array.isArray(res.data?.items)
-                            ? res.data.items
-                            : [];
-                          setWorkflowsCache(items);
-                          const amount =
-                            totals?.grand === "" || totals?.grand == null
-                              ? null
-                              : Number(totals?.grand || 0);
-                          let chosen = null;
-                          const byRoute = items.filter(
-                            (w) =>
-                              String(w.document_route || "") ===
-                              "/finance/contra-voucher",
-                          );
-                          const byType = items.filter((w) =>
-                            ["CONTRA_VOUCHER", "Contra Voucher", "CV"].includes(
-                              String(w.document_type || ""),
-                            ),
-                          );
-                          const list = [...byRoute, ...byType];
-                          for (const wf of list) {
-                            if (chosen) break;
-                            if (Number(wf.is_active) !== 1) continue;
-                            if (amount === null) {
-                              chosen = wf;
-                              break;
-                            }
-                            const minOk =
-                              wf.min_amount === null ||
-                              Number(amount) >= Number(wf.min_amount);
-                            const maxOk =
-                              wf.max_amount === null ||
-                              Number(amount) <= Number(wf.max_amount);
-                            if (minOk && maxOk) {
-                              chosen = wf;
-                              break;
-                            }
-                          }
-                          if (!chosen) {
-                            for (const wf of byType) {
-                              if (chosen) break;
-                              if (Number(wf.is_active) !== 1) continue;
-                              if (amount === null) {
-                                chosen = wf;
-                                break;
-                              }
-                              const minOk =
-                                wf.min_amount === null ||
-                                Number(amount) >= Number(wf.min_amount);
-                              const maxOk =
-                                wf.max_amount === null ||
-                                Number(amount) <= Number(wf.max_amount);
-                              if (minOk && maxOk) {
-                                chosen = wf;
-                                break;
-                              }
-                            }
-                          }
-                          setCandidateWorkflow(chosen);
-                          setFirstApprover(null);
-                          setTargetApproverId(null);
-                          if (chosen) {
-                            const wfDetail = await api.get(
-                              `/workflows/${chosen.id}`,
-                            );
-                            const item = wfDetail?.data?.item || {};
-                            const stepOrder = Number(
-                              item.current_step_order || 1,
-                            );
-                            const approvers = Array.isArray(
-                              item?.next_step_approvers,
-                            )
-                              ? item.next_step_approvers
-                              : [];
-                            const firstUser =
-                              approvers.length > 0
-                                ? Number(approvers[0].id)
-                                : null;
-                            setFirstApprover({
-                              stepOrder: stepOrder || 1,
-                              stepName: String(item.step_name || "Step 1"),
-                              approvalLimit:
-                                approvers.length > 0
-                                  ? Number(approvers[0].approval_limit || 0)
-                                  : null,
-                              approvers,
-                            });
-                            setTargetApproverId(firstUser);
-                          }
-                        } catch (e) {
-                          setWfError(
-                            e?.response?.data?.message ||
-                              "Failed to load workflows",
-                          );
-                        } finally {
-                          setWfLoading(false);
-                        }
-                      }
-                    }}
-                    disabled={loading || !isEdit}
-                  >
-                    Forward for Approval
-                  </button>
+                  <></>
                 )}
               </div>
             </div>
@@ -5082,131 +4705,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     Approved
                   </span>
                 ) : (
-                  <button
-                    type="button"
-                    className="btn-success"
-                    onClick={async () => {
-                      if (!isEdit) return;
-                      setShowForwardModal(true);
-                      setWfError("");
-                      if (!workflowsCache) {
-                        try {
-                          setWfLoading(true);
-                          const res = await api.get("/workflows");
-                          const items = Array.isArray(res.data?.items)
-                            ? res.data.items
-                            : [];
-                          setWorkflowsCache(items);
-                          const amount =
-                            totals?.grand === "" || totals?.grand == null
-                              ? null
-                              : Number(totals?.grand || 0);
-                          let chosen = null;
-                          const byRoute = items.filter(
-                            (w) =>
-                              String(w.document_route || "") ===
-                              "/finance/payment-voucher-payv",
-                          );
-                          const byType = items.filter((w) =>
-                            [
-                              "PAYMENT_VOUCHER_PAYV",
-                              "Payment Voucher PAYV",
-                              "PAYV",
-                            ].includes(String(w.document_type || "")),
-                          );
-                          const list = [...byRoute, ...byType];
-                          for (const wf of list) {
-                            if (chosen) break;
-                            if (Number(wf.is_active) !== 1) continue;
-                            if (amount === null) {
-                              chosen = wf;
-                              break;
-                            }
-                            const minOk =
-                              wf.min_amount === null ||
-                              Number(amount) >= Number(wf.min_amount);
-                            const maxOk =
-                              wf.max_amount === null ||
-                              Number(amount) <= Number(wf.max_amount);
-                            if (minOk && maxOk) {
-                              chosen = wf;
-                              break;
-                            }
-                          }
-                          if (!chosen) {
-                            for (const wf of byType) {
-                              if (chosen) break;
-                              if (Number(wf.is_active) !== 1) continue;
-                              if (amount === null) {
-                                chosen = wf;
-                                break;
-                              }
-                              const minOk =
-                                wf.min_amount === null ||
-                                Number(amount) >= Number(wf.min_amount);
-                              const maxOk =
-                                wf.max_amount === null ||
-                                Number(amount) <= Number(wf.max_amount);
-                              if (minOk && maxOk) {
-                                chosen = wf;
-                                break;
-                              }
-                            }
-                          }
-                          setCandidateWorkflow(chosen);
-                          setFirstApprover(null);
-                          setTargetApproverId(null);
-                          if (chosen) {
-                            const wfDetail = await api.get(
-                              `/workflows/${chosen.id}`,
-                            );
-                            const item = wfDetail?.data?.item || {};
-                            const stepOrder = Number(
-                              item.current_step_order || 1,
-                            );
-                            const approvers = Array.isArray(
-                              item?.next_step_approvers,
-                            )
-                              ? item.next_step_approvers
-                              : [];
-                            const first = await api.get(
-                              `/workflows/${chosen.id}`,
-                            );
-                            const stepsBase = Array.isArray(
-                              first?.data?.item ? [first.data.item] : [],
-                            )
-                              ? []
-                              : [];
-                            const firstStep = stepOrder || 1;
-                            const firstUser =
-                              approvers.length > 0
-                                ? Number(approvers[0].id)
-                                : null;
-                            setFirstApprover({
-                              stepOrder: firstStep,
-                              stepName: String(item.step_name || "Step 1"),
-                              approvalLimit:
-                                approvers.length > 0
-                                  ? Number(approvers[0].approval_limit || 0)
-                                  : null,
-                              approvers,
-                            });
-                            setTargetApproverId(firstUser);
-                          }
-                        } catch (e) {
-                          setWfError(
-                            e?.response?.data?.message ||
-                              "Failed to load workflows",
-                          );
-                        } finally {
-                          setWfLoading(false);
-                        }
-                      }
-                    }}
-                    disabled={loading || !isEdit}
-                  >
-                    Forward for Approval
-                  </button>
+                  <></>
                 )}
               </div>
             </div>
@@ -6309,121 +5808,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 <Link to=".." className="btn-success">
                   Back
                 </Link>
-                <button
-                  type="button"
-                  className="btn-success"
-                  onClick={async () => {
-                    if (!isEdit) return;
-                    setShowForwardModal(true);
-                    setWfError("");
-                    if (!workflowsCache) {
-                      try {
-                        setWfLoading(true);
-                        const res = await api.get("/workflows");
-                        const items = Array.isArray(res.data?.items)
-                          ? res.data.items
-                          : [];
-                        setWorkflowsCache(items);
-                        const amount =
-                          totals?.grand === "" || totals?.grand == null
-                            ? null
-                            : Number(totals?.grand || 0);
-                        let chosen = null;
-                        const byRoute = items.filter(
-                          (w) =>
-                            String(w.document_route || "") ===
-                            "/finance/contra-voucher",
-                        );
-                        const byType = items.filter((w) =>
-                          ["CONTRA_VOUCHER", "Contra Voucher", "CV"].includes(
-                            String(w.document_type || ""),
-                          ),
-                        );
-                        const list = [...byRoute, ...byType];
-                        for (const wf of list) {
-                          if (chosen) break;
-                          if (Number(wf.is_active) !== 1) continue;
-                          if (amount === null) {
-                            chosen = wf;
-                            break;
-                          }
-                          const minOk =
-                            wf.min_amount === null ||
-                            Number(amount) >= Number(wf.min_amount);
-                          const maxOk =
-                            wf.max_amount === null ||
-                            Number(amount) <= Number(wf.max_amount);
-                          if (minOk && maxOk) {
-                            chosen = wf;
-                            break;
-                          }
-                        }
-                        if (!chosen) {
-                          for (const wf of byType) {
-                            if (chosen) break;
-                            if (Number(wf.is_active) !== 1) continue;
-                            if (amount === null) {
-                              chosen = wf;
-                              break;
-                            }
-                            const minOk =
-                              wf.min_amount === null ||
-                              Number(amount) >= Number(wf.min_amount);
-                            const maxOk =
-                              wf.max_amount === null ||
-                              Number(amount) <= Number(wf.max_amount);
-                            if (minOk && maxOk) {
-                              chosen = wf;
-                              break;
-                            }
-                          }
-                        }
-                        setCandidateWorkflow(chosen);
-                        setFirstApprover(null);
-                        setTargetApproverId(null);
-                        if (chosen) {
-                          const wfDetail = await api.get(
-                            `/workflows/${chosen.id}`,
-                          );
-                          const item = wfDetail?.data?.item || {};
-                          const stepOrder = Number(
-                            item.current_step_order || 1,
-                          );
-                          const approvers = Array.isArray(
-                            item?.next_step_approvers,
-                          )
-                            ? item.next_step_approvers
-                            : [];
-                          const firstUser =
-                            approvers.length > 0
-                              ? Number(approvers[0].id)
-                              : null;
-                          setFirstApprover({
-                            stepOrder: stepOrder || 1,
-                            stepName: String(item.step_name || "Step 1"),
-                            approvalLimit:
-                              approvers.length > 0
-                                ? Number(approvers[0].approval_limit || 0)
-                                : null,
-                            approvers,
-                          });
-                          setTargetApproverId(firstUser);
-                        }
-                      } catch (e) {
-                        setWfError(
-                          e?.response?.data?.message ||
-                            "Failed to load workflows",
-                        );
-                      } finally {
-                        setWfLoading(false);
-                      }
-                    }
-                  }}
-                  disabled={loading || !isEdit}
-                >
-                  Forward for Approval
-                </button>
-              </div>
+               </div>
             </div>
           </div>
         </div>

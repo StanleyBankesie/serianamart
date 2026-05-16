@@ -147,7 +147,7 @@ export default function StockAdjustmentList() {
     });
   }, [adjustments, searchTerm]);
 
-  const { sorted: sortedAdjustments, sortKey, sortDir, toggle } = useSort(filteredAdjustments, "adjustment_no", "desc");
+  const { sorted: sortedAdjustments, sortKey, sortDir, toggle } = useSort(filteredAdjustments, "created_at", "desc");
 
   const formatDateOnly = (v) => {
     if (!v) return "";

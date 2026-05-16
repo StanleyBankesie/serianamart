@@ -9,6 +9,7 @@ import {
 import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
 import UnitConversionModal from "@/components/UnitConversionModal";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 
 export default function StockUpdationForm({
   isModal = false,
@@ -57,6 +58,7 @@ export default function StockUpdationForm({
   });
 
   const [items, setItems] = useState([]);
+  const [itemQueries, setItemQueries] = useState({});
 
   const refreshRowCurrentStock = async (rowId, itemId, warehouseId) => {
     const wid = warehouseId ? Number(warehouseId) : 0;
@@ -83,11 +85,12 @@ export default function StockUpdationForm({
     try {
       const res = await api.get("/workflows");
       const items = Array.isArray(res.data?.items) ? res.data.items : [];
-      const active = items.some(w => 
-        Number(w.is_active) === 1 && 
-        (String(w.document_route) === "/inventory/stock-updation" || 
-         String(w.document_type).toUpperCase() === "STOCK_UPDATION" ||
-         String(w.document_type).toUpperCase() === "STOCK UPDATION")
+      const active = items.some(
+        (w) =>
+          Number(w.is_active) === 1 &&
+          (String(w.document_route) === "/inventory/stock-updation" ||
+            String(w.document_type).toUpperCase() === "STOCK_UPDATION" ||
+            String(w.document_type).toUpperCase() === "STOCK UPDATION"),
       );
       setIsWfActive(active);
     } catch (e) {
@@ -130,23 +133,22 @@ export default function StockUpdationForm({
 
   useEffect(() => {
     if (isNew) {
-      api.get("/inventory/stock-updation/next-no")
-        .then(res => {
-          setFormData(prev => ({
+      api
+        .get("/inventory/stock-updation/next-no")
+        .then((res) => {
+          setFormData((prev) => ({
             ...prev,
-            updationNo: res.data?.next_no || ""
+            updationNo: res.data?.next_no || "",
           }));
         })
-        .catch(err => console.error("Failed to fetch next updation no", err));
+        .catch((err) => console.error("Failed to fetch next updation no", err));
     }
   }, [isNew]);
 
   useEffect(() => {
     const wid = formData.warehouseId ? Number(formData.warehouseId) : 0;
     if (!wid) {
-      setItems((prev) =>
-        prev.map((r) => ({ ...r, currentStock: 0 })),
-      );
+      setItems((prev) => prev.map((r) => ({ ...r, currentStock: 0 })));
       return;
     }
     const snapshot = Array.isArray(items) ? items : [];
@@ -166,10 +168,10 @@ export default function StockUpdationForm({
 
   useEffect(() => {
     if (isNew) {
-      // Initialize with one empty row
+      const id = Date.now();
       setItems([
         {
-          id: Date.now(),
+          id,
           item_id: "",
           itemCode: "",
           itemName: "",
@@ -180,6 +182,7 @@ export default function StockUpdationForm({
           remarks: "",
         },
       ]);
+      setItemQueries({ [id]: "" });
       return;
     }
 
@@ -207,21 +210,25 @@ export default function StockUpdationForm({
           status: a.status || "DRAFT",
         });
 
-        setItems(
-          details.length
-            ? details.map((d) => ({
-                id: d.id || Date.now() + Math.random(),
-                item_id: d.item_id ? String(d.item_id) : "",
-                itemCode: d.item_code || "",
-                itemName: d.item_name || "",
-                currentStock: 0, // Not needed for simple updation (addition)
-                qty: Number(d.qty) || 0,
-                uom: d.uom || "",
-                unitCost: Number(d.unit_cost) || 0,
-                remarks: d.remarks || "",
-              }))
-            : [],
-        );
+        const mappedItems = details.length
+          ? details.map((d) => ({
+              id: d.id || Date.now() + Math.random(),
+              item_id: d.item_id ? String(d.item_id) : "",
+              itemCode: d.item_code || "",
+              itemName: d.item_name || "",
+              currentStock: 0, // Not needed for simple updation (addition)
+              qty: Number(d.qty) || 0,
+              uom: d.uom || "",
+              unitCost: Number(d.unit_cost) || 0,
+              remarks: d.remarks || "",
+            }))
+          : [];
+        setItems(mappedItems);
+        const initQueries = {};
+        mappedItems.forEach((i) => {
+          initQueries[i.id] = "";
+        });
+        setItemQueries(initQueries);
       })
       .catch((e) => {
         if (!mounted) return;
@@ -340,10 +347,11 @@ export default function StockUpdationForm({
   };
 
   const addItem = () => {
+    const newId = Date.now();
     setItems([
       ...items,
       {
-        id: Date.now(),
+        id: newId,
         item_id: "",
         itemCode: "",
         itemName: "",
@@ -353,6 +361,7 @@ export default function StockUpdationForm({
         remarks: "",
       },
     ]);
+    setItemQueries((prev) => ({ ...prev, [newId]: "" }));
   };
 
   const removeItem = (id) => {
@@ -466,7 +475,6 @@ export default function StockUpdationForm({
                   📋 Updation Information
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
                   <div>
                     <label className="label">
                       Date <span className="text-red-500">*</span>
@@ -551,8 +559,8 @@ export default function StockUpdationForm({
                   Reason <span className="text-red-500">*</span>
                 </label>
                 <textarea
-                  className="input"
-                  rows="2"
+                  className="input w-96"
+                  rows="4"
                   placeholder="Provide detailed reason for this stock updation..."
                   value={formData.reason}
                   onChange={(e) =>
@@ -602,46 +610,115 @@ export default function StockUpdationForm({
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left">
+                  <table className="table w-full text-sm text-left">
                     <thead className="bg-slate-100 text-slate-700 uppercase font-bold">
                       <tr>
-                        <th className="p-3">Item</th>
-                        <th className="p-3 w-28 text-center text-blue-600">Available Qty</th>
-                        <th className="p-3 w-32">Qty to Add</th>
-                        <th className="p-3 w-28">UOM</th>
-                        <th className="p-3 w-32">Unit Cost</th>
-                        <th className="p-3 w-32">Total Value</th>
-                        <th className="p-3">Remarks</th>
-                        <th className="p-3 w-16"></th>
+                        <th className="w-1/2 min-w-[280px] p-3">Item</th>
+                        <th className="w-24 min-w-[90px] p-3 text-center text-blue-600">
+                          Available Qty
+                        </th>
+                        <th className="w-28 min-w-[110px] p-3">Qty to Add</th>
+                        <th className="w-20 min-w-[80px] p-3">UOM</th>
+                        <th className="w-28 min-w-[100px] p-3">Unit Cost</th>
+                        <th className="w-28 min-w-[100px] p-3">Total Value</th>
+                        <th className="w-48 min-w-[200px] p-3">Remarks</th>
+                        <th className="w-16 p-3"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
                       {items.map((item) => {
                         const totalValue =
                           Number(item.qty || 0) * Number(item.unitCost || 0);
+                        const itemQuery = itemQueries[item.id] || "";
+                        const searchResults = itemQuery.trim()
+                          ? filterByPrefix(availableItems, {
+                              query: itemQuery,
+                              searchFields: [
+                                "item_code",
+                                "item_name",
+                                "barcode",
+                              ],
+                            })
+                          : [];
 
                         return (
                           <tr key={item.id} className="hover:bg-slate-50">
                             <td className="p-2">
-                              <select
-                                className="input text-sm py-1 min-w-[300px]"
-                                value={item.item_id}
-                                onChange={(e) =>
-                                  updateItem(item.id, "item_id", e.target.value)
-                                }
-                                required
-                              >
-                                <option value="">Select Item</option>
-                                {availableItems.map((ai) => (
-                                  <option key={ai.id} value={ai.id}>
-                                    {ai.item_code} - {ai.item_name}
-                                  </option>
-                                ))}
-                              </select>
+                              <div className="relative">
+                                <input
+                                  id={`su-item-search-${item.id}`} autoComplete="off"
+                                  className="input text-sm py-1 w-full"
+                                  placeholder="Type to search items"
+                                  value={itemQueries[item.id] || ""}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setItemQueries((prev) => ({
+                                      ...prev,
+                                      [item.id]: val,
+                                    }));
+                                    if (!val && item.item_id) {
+                                      updateItem(item.id, "item_id", "");
+                                    }
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      const query = (
+                                        itemQueries[item.id] || ""
+                                      ).trim();
+                                      if (!query || !searchResults.length)
+                                        return;
+                                      updateItem(
+                                        item.id,
+                                        "item_id",
+                                        String(searchResults[0].id),
+                                      );
+                                      setItemQueries((prev) => ({
+                                        ...prev,
+                                        [item.id]: "",
+                                      }));
+                                    }
+                                  }}
+                                />
+                                {searchResults.length ? (
+                                  (() => {
+                                    const el = document.getElementById(`su-item-search-${item.id}`);
+                                    const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
+                                    return (
+                                      <div
+                                        className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                        style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
+                                      >
+                                        {searchResults.map((o) => (
+                                          <button
+                                            type="button"
+                                            key={o.id}
+                                            className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                                            onClick={() => {
+                                              updateItem(
+                                                item.id,
+                                                "item_id",
+                                                String(o.id),
+                                              );
+                                              setItemQueries((prev) => ({
+                                                ...prev,
+                                                [item.id]: "",
+                                              }));
+                                            }}
+                                          >
+                                            {o.item_code} - {o.item_name}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    );
+                                  })()
+                                ) : null}
+                              </div>
                             </td>
                             <td className="p-2 text-center">
                               <span className="font-mono font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-200">
-                                {Number(item.currentStock || 0).toLocaleString()}
+                                {Number(
+                                  item.currentStock || 0,
+                                ).toLocaleString()}
                               </span>
                             </td>
                             <td className="p-2">
@@ -775,63 +852,78 @@ export default function StockUpdationForm({
               </button>
               {!isView ? (
                 <>
-                   <button
+                  <button
                     type="submit"
                     className="btn-success bg-green-600 text-white hover:bg-green-700 px-4 py-2 rounded shadow-sm font-medium"
                   >
                     {saving ? "Saving..." : "Save"}
                   </button>
-                  {((!isWfActive && !checkingWf) || id !== "new") && (formData.status === "DRAFT" || formData.status === "RETURNED") && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          setSaving(true);
-                          let currentId = id;
-                          // If new, we must save first
-                          if (isNew) {
-                             const saveRes = await api.post("/inventory/stock-updation", {
-                               ...formData,
-                               details: items.filter(i => i.item_id).map(r => ({
-                                 item_id: Number(r.item_id),
-                                 qty: Number(r.qty || 0),
-                                 uom: r.uom || "PCS",
-                                 unit_cost: Number(r.unitCost || 0),
-                                 remarks: r.remarks || null
-                               }))
-                             });
-                             currentId = saveRes.data?.id;
-                          } else {
-                             // Optional: save updates before confirming
-                             await api.put(`/inventory/stock-updation/${id}`, {
-                               ...formData,
-                               details: items.filter(i => i.item_id).map(r => ({
-                                 item_id: Number(r.item_id),
-                                 qty: Number(r.qty || 0),
-                                 uom: r.uom || "PCS",
-                                 unit_cost: Number(r.unitCost || 0),
-                                 remarks: r.remarks || null
-                               }))
-                             });
+                  {((!isWfActive && !checkingWf) || id !== "new") &&
+                    (formData.status === "DRAFT" ||
+                      formData.status === "RETURNED") && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            setSaving(true);
+                            let currentId = id;
+                            // If new, we must save first
+                            if (isNew) {
+                              const saveRes = await api.post(
+                                "/inventory/stock-updation",
+                                {
+                                  ...formData,
+                                  details: items
+                                    .filter((i) => i.item_id)
+                                    .map((r) => ({
+                                      item_id: Number(r.item_id),
+                                      qty: Number(r.qty || 0),
+                                      uom: r.uom || "PCS",
+                                      unit_cost: Number(r.unitCost || 0),
+                                      remarks: r.remarks || null,
+                                    })),
+                                },
+                              );
+                              currentId = saveRes.data?.id;
+                            } else {
+                              // Optional: save updates before confirming
+                              await api.put(`/inventory/stock-updation/${id}`, {
+                                ...formData,
+                                details: items
+                                  .filter((i) => i.item_id)
+                                  .map((r) => ({
+                                    item_id: Number(r.item_id),
+                                    qty: Number(r.qty || 0),
+                                    uom: r.uom || "PCS",
+                                    unit_cost: Number(r.unitCost || 0),
+                                    remarks: r.remarks || null,
+                                  })),
+                              });
+                            }
+
+                            if (!currentId)
+                              throw new Error("Could not resolve document ID");
+
+                            await api.post(
+                              `/inventory/stock-updation/${currentId}/submit`,
+                            );
+                            alert("Stock updation confirmed and approved");
+                            if (isModal) onClose && onClose(true);
+                            else navigate("/inventory/stock-updation");
+                          } catch (e) {
+                            setError(
+                              e?.response?.data?.message ||
+                                "Confirmation failed",
+                            );
+                          } finally {
+                            setSaving(false);
                           }
-                          
-                          if (!currentId) throw new Error("Could not resolve document ID");
-                          
-                          await api.post(`/inventory/stock-updation/${currentId}/submit`);
-                          alert("Stock updation confirmed and approved");
-                          if (isModal) onClose && onClose(true);
-                          else navigate("/inventory/stock-updation");
-                        } catch (e) {
-                          setError(e?.response?.data?.message || "Confirmation failed");
-                        } finally {
-                          setSaving(false);
-                        }
-                      }}
-                      className="btn-primary bg-indigo-600 text-white hover:bg-indigo-700 px-4 py-2 rounded shadow-sm font-medium"
-                    >
-                      {saving ? "Confirming..." : "Confirm Updation"}
-                    </button>
-                  )}
+                        }}
+                        className="btn-primary bg-indigo-600 text-white hover:bg-indigo-700 px-4 py-2 rounded shadow-sm font-medium"
+                      >
+                        {saving ? "Confirming..." : "Confirm Updation"}
+                      </button>
+                    )}
                 </>
               ) : null}
             </div>

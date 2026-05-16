@@ -151,7 +151,7 @@ export default function SupplierQuotationsList() {
     });
   }, [quotations, searchTerm, statusFilter]);
 
-  const { sorted: filteredQuotations, sortKey, sortDir, toggle } = useSort(filteredBase, "quotation_no", "desc");
+  const { sorted: filteredQuotations, sortKey, sortDir, toggle } = useSort(filteredBase, "created_at", "desc");
 
   async function printQuotation(id) {
     try {

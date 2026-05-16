@@ -159,7 +159,7 @@ export default function ReturnToStoresList() {
     });
   }, [docs, searchTerm]);
 
-  const { sorted: sortedDocs, sortKey, sortDir, toggle } = useSort(filtered, "rts_no", "desc");
+  const { sorted: sortedDocs, sortKey, sortDir, toggle } = useSort(filtered, "created_at", "desc");
 
   const openForwardModal = async (doc) => {
     setSelectedDoc(doc);

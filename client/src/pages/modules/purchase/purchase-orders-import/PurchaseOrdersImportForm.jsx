@@ -11,6 +11,7 @@ import {} from "lucide-react";
 import useSocket from "../../../../hooks/useSocket.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { useExchangeRate } from "../../../../hooks/useExchangeRate";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 
 export default function PurchaseOrdersImportForm() {
   const { id } = useParams();
@@ -71,6 +72,7 @@ export default function PurchaseOrdersImportForm() {
     currentUom: "",
     rowIdx: null,
   });
+  const [itemQueries, setItemQueries] = useState({});
 
   // Form State
   const [formData, setFormData] = useState({
@@ -342,8 +344,6 @@ export default function PurchaseOrdersImportForm() {
       mounted = false;
     };
   }, []);
-
-
 
   useEffect(() => {
     let mounted = true;
@@ -1378,9 +1378,9 @@ export default function PurchaseOrdersImportForm() {
           <div className="flex gap-3">
             <Link
               to="/purchase/purchase-orders-import"
-              className="btn btn-secondary font-medium flex items-center gap-2"
+              className="btn-success font-medium flex items-center gap-2"
             >
-              ⬅ Back
+              Back
             </Link>
           </div>
         </div>
@@ -1804,18 +1804,20 @@ export default function PurchaseOrdersImportForm() {
                 </div>
 
                 <div className="overflow-x-auto">
-                  <div className="mb-2 text-xs text-slate-600">
+                  {/* <div className="mb-2 text-xs text-slate-600">
                     If a unit conversion exists for the selected item and UOM,
                     use the “number of UOM” button beside the UOM to convert
                     quantity to the item’s default for accurate costing.
-                  </div>
+                  </div> */}
                   <table className="w-full border-collapse bg-white rounded-lg overflow-hidden">
                     <thead className="bg-[#0E3646] text-white">
                       <tr>
                         <th className="p-3 text-left text-[13px] w-[50px]">
                           #
                         </th>
-                        <th className="p-3 text-left text-[13px]">Item Name</th>
+                        <th className="p-3 text-left text-[13px] w-80">
+                          Item Name
+                        </th>
                         <th className="p-3 text-left text-[13px] w-[100px]">
                           Qty
                         </th>
@@ -1852,31 +1854,111 @@ export default function PurchaseOrdersImportForm() {
                             >
                               <td className="p-3 text-sm">{idx + 1}</td>
                               <td className="p-3">
-                                <select
-                                  value={row.item_id}
-                                  onChange={(e) =>
-                                    handleItemChange(
-                                      idx,
-                                      "item_id",
-                                      e.target.value,
-                                    )
-                                  }
-                                  className="w-full p-2 border border-[#dee2e6] rounded text-sm focus:outline-none focus:border-[#0E3646]"
-                                  required
-                                >
-                                  <option value="">Select Item</option>
-                                  {Array.isArray(availableItems) &&
-                                    availableItems.map(
-                                      (it) =>
-                                        it && (
-                                          <option key={it.id} value={it.id}>
-                                            {it.item_name ||
-                                              it.item_code ||
-                                              "Unknown Item"}
-                                          </option>
-                                        ),
-                                    )}
-                                </select>
+                                <div className="relative">
+                                  <input
+                                    id={`po-import-item-search-${idx}`} autoComplete="off"
+                                    className="w-full p-2 border border-[#dee2e6] rounded text-sm focus:outline-none focus:border-[#0E3646]"
+                                    placeholder="Type to search items"
+                                    value={itemQueries[idx] || ""}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setItemQueries((prev) => ({
+                                        ...prev,
+                                        [idx]: val,
+                                      }));
+                                      if (!val && row.item_id) {
+                                        handleItemChange(idx, "item_id", "");
+                                      }
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        const query = (
+                                          itemQueries[idx] || ""
+                                        ).trim();
+                                        const results = query
+                                          ? filterByPrefix(availableItems, {
+                                              query,
+                                              searchFields: [
+                                                "item_code",
+                                                "item_name",
+                                                "barcode",
+                                              ],
+                                            })
+                                          : [];
+                                        if (!query || !results.length) return;
+                                        handleItemChange(
+                                          idx,
+                                          "item_id",
+                                          String(results[0].id),
+                                        );
+                                        setItemQueries((prev) => ({
+                                          ...prev,
+                                          [idx]: "",
+                                        }));
+                                      }
+                                    }}
+                                  />
+                                  {(() => {
+                                    const query = (
+                                      itemQueries[idx] || ""
+                                    ).trim();
+                                    const results = query
+                                      ? filterByPrefix(availableItems, {
+                                          query,
+                                          searchFields: [
+                                            "item_code",
+                                            "item_name",
+                                            "barcode",
+                                          ],
+                                        })
+                                      : [];
+                                    return results.length
+                                      ? (() => {
+                                          const el = document.getElementById(
+                                            `po-import-item-search-${idx}`,
+                                          );
+                                          const r = el
+                                            ? el.getBoundingClientRect()
+                                            : { bottom: 0, left: 0, width: 0 };
+                                          return (
+                                            <div
+                                              className="bg-white border border-[#dee2e6] rounded-lg shadow-lg max-h-48 overflow-auto"
+                                              style={{
+                                                position: "fixed",
+                                                top: `${r.bottom + 4}px`,
+                                                left: `${r.left}px`,
+                                                width: `${r.width}px`,
+                                                zIndex: 9999,
+                                              }}
+                                            >
+                                              {results.map((o) => (
+                                                <button
+                                                  type="button"
+                                                  key={o.id}
+                                                  className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                                                  onClick={() => {
+                                                    handleItemChange(
+                                                      idx,
+                                                      "item_id",
+                                                      String(o.id),
+                                                    );
+                                                    setItemQueries((prev) => ({
+                                                      ...prev,
+                                                      [idx]: "",
+                                                    }));
+                                                  }}
+                                                >
+                                                  {o.item_name ||
+                                                    o.item_code ||
+                                                    "Unknown Item"}
+                                                </button>
+                                              ))}
+                                            </div>
+                                          );
+                                        })()
+                                      : null;
+                                  })()}
+                                </div>
                               </td>
                               <td className="p-3">
                                 <input

@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 import { Save, Plus, Trash2, ArrowLeft, Check } from "lucide-react";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 
 export default function StockVerificationForm({
   isModal = false,
@@ -19,6 +20,7 @@ export default function StockVerificationForm({
   const [isWfActive, setIsWfActive] = useState(false);
   const [checkingWf, setCheckingWf] = useState(false);
   const [availableItems, setAvailableItems] = useState([]);
+  const [itemQueries, setItemQueries] = useState({});
   const [warehouses, setWarehouses] = useState([]);
 
   const [formData, setFormData] = useState({
@@ -38,6 +40,18 @@ export default function StockVerificationForm({
     { value: "SPOT_CHECK", label: "Spot Check" },
     { value: "PERIODIC", label: "Periodic" },
   ];
+
+  const itemSelectOptions = useMemo(
+    () =>
+      Array.isArray(availableItems)
+        ? availableItems.map((ai) => ({
+            value: String(ai.id),
+            label: `${ai.item_code || ""} - ${ai.item_name || ""}`,
+            barcode: ai.barcode || "",
+          }))
+        : [],
+    [availableItems],
+  );
 
   const checkWorkflowStatus = async () => {
     setCheckingWf(true);
@@ -120,22 +134,26 @@ export default function StockVerificationForm({
             remarks: a.remarks || a.reason || "",
           });
 
-          setItems(
-            details.map((d) => ({
-              id: d.id || Date.now() + Math.random(),
-              item_id: d.item_id ? String(d.item_id) : "",
-              system_qty: Number(d.system_qty || 0),
-              reserve_qty: Number(d.reserve_qty || 0),
-              verified_qty:
-                d.verified_qty !== undefined && d.verified_qty !== null
-                  ? Number(d.verified_qty)
-                  : d.counted_qty !== undefined && d.counted_qty !== null
-                    ? Number(d.counted_qty)
-                    : "",
-              uom: d.uom || "",
-              remarks: d.remarks || "",
-            })),
-          );
+          const mappedDetails = details.map((d) => ({
+            id: d.id || Date.now() + Math.random(),
+            item_id: d.item_id ? String(d.item_id) : "",
+            system_qty: Number(d.system_qty || 0),
+            reserve_qty: Number(d.reserve_qty || 0),
+            verified_qty:
+              d.verified_qty !== undefined && d.verified_qty !== null
+                ? Number(d.verified_qty)
+                : d.counted_qty !== undefined && d.counted_qty !== null
+                  ? Number(d.counted_qty)
+                  : "",
+            uom: d.uom || "",
+            remarks: d.remarks || "",
+          }));
+          setItems(mappedDetails);
+          const initQueries = {};
+          mappedDetails.forEach((i) => {
+            initQueries[i.id] = "";
+          });
+          setItemQueries(initQueries);
         }
       })
       .catch((e) => {
@@ -223,10 +241,11 @@ export default function StockVerificationForm({
   };
 
   const addItem = () => {
+    const newId = Date.now();
     setItems([
       ...items,
       {
-        id: Date.now(),
+        id: newId,
         item_id: "",
         system_qty: 0,
         reserve_qty: 0,
@@ -235,6 +254,7 @@ export default function StockVerificationForm({
         remarks: "",
       },
     ]);
+    setItemQueries((prev) => ({ ...prev, [newId]: "" }));
   };
 
   const removeItem = (rowId) => {
@@ -496,8 +516,8 @@ export default function StockVerificationForm({
                 name="remarks"
                 value={formData.remarks}
                 onChange={handleInputChange}
-                rows="3"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                rows="4"
+                className="w-96 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Enter any additional remarks..."
               />
             </div>
@@ -518,34 +538,34 @@ export default function StockVerificationForm({
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="table">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="w-1/2 min-w-[280px] px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Item
                     </th>
-                    <th className="px-3 py-3 text-center text-xs font-medium text-blue-600 uppercase tracking-wider w-24">
+                    <th className="w-24 min-w-[90px] px-3 py-3 text-center text-xs font-medium text-blue-600 uppercase tracking-wider">
                       Available Qty
                     </th>
-                    <th className="px-3 py-3 text-center text-xs font-medium text-amber-600 uppercase tracking-wider w-24">
+                    <th className="w-24 min-w-[90px] px-3 py-3 text-center text-xs font-medium text-amber-600 uppercase tracking-wider">
                       Reserve Qty
                     </th>
-                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
+                    <th className="w-28 min-w-[110px] px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Verified Qty
                     </th>
-                    <th className="px-3 py-3 text-center text-xs font-medium text-indigo-600 uppercase tracking-wider w-24">
+                    <th className="w-24 min-w-[90px] px-3 py-3 text-center text-xs font-medium text-indigo-600 uppercase tracking-wider">
                       Balance Qty
                     </th>
-                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
+                    <th className="w-28 min-w-[100px] px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Variance
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+                    <th className="w-20 min-w-[80px] px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       UOM
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="w-96 min-w-[380px] px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Remarks
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
+                    <th className="w-16 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Action
                     </th>
                   </tr>
@@ -561,114 +581,177 @@ export default function StockVerificationForm({
                       </td>
                     </tr>
                   ) : (
-                    items.map((item) => (
-                      <tr key={item.id}>
-                        <td className="px-6 py-4">
-                          <select
-                            value={item.item_id}
-                            onChange={(e) =>
-                              updateItem(item.id, "item_id", e.target.value)
-                            }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-[250px]"
-                          >
-                            <option value="">Select Item</option>
-                            {availableItems.map((ai) => (
-                              <option key={ai.id} value={ai.id}>
-                                {ai.item_code} - {ai.item_name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-3 py-4 text-center">
-                          <span className="font-mono font-bold text-blue-600">
-                            {Number(item.system_qty || 0).toLocaleString()}
-                          </span>
-                        </td>
-                        <td className="px-3 py-4 text-center">
-                          <span className="font-mono font-bold text-amber-600">
-                            {Number(item.reserve_qty || 0).toLocaleString()}
-                          </span>
-                        </td>
-                        <td className="px-3 py-4 text-center">
-                          <input
-                            type="number"
-                            value={item.verified_qty}
-                            onChange={(e) =>
-                              updateItem(
-                                item.id,
-                                "verified_qty",
-                                e.target.value === ""
-                                  ? ""
-                                  : Number(e.target.value),
-                              )
-                            }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center font-bold"
-                            step="1"
-                          />
-                        </td>
-                        <td className="px-3 py-4 text-center">
-                          <span className="font-mono font-bold text-indigo-600">
-                            {(
-                              Number(item.system_qty || 0) +
-                              Number(item.reserve_qty || 0)
-                            ).toLocaleString()}
-                          </span>
-                        </td>
-                        <td className="px-3 py-4">
-                          <div
-                            className={`w-full px-3 py-2 border rounded-lg font-bold text-center ${
-                              Number(item.verified_qty || 0) -
-                                (Number(item.system_qty || 0) +
-                                  Number(item.reserve_qty || 0)) <
-                              0
-                                ? "bg-red-50 text-red-700 border-red-200"
-                                : Number(item.verified_qty || 0) -
-                                      (Number(item.system_qty || 0) +
-                                        Number(item.reserve_qty || 0)) >
-                                    0
-                                  ? "bg-green-50 text-green-700 border-green-200"
-                                  : "bg-gray-50 text-gray-500 border-gray-300"
-                            }`}
-                          >
-                            {Number(item.verified_qty || 0) -
-                              (Number(item.system_qty || 0) +
-                                Number(item.reserve_qty || 0)) >
-                            0
-                              ? "+"
-                              : ""}
-                            {Number(item.verified_qty || 0) -
-                              (Number(item.system_qty || 0) +
-                                Number(item.reserve_qty || 0))}
-                          </div>
-                        </td>
-                        <td className="px-3 py-4">
-                          <div className="flex items-center gap-2">
-                            <span className="text-gray-600 font-medium">
-                              {item.uom || "PCS"}
+                    items.map((item) => {
+                      const itemQuery = itemQueries[item.id] || "";
+                      const searchResults = itemQuery.trim()
+                        ? filterByPrefix(availableItems, {
+                            query: itemQuery,
+                            searchFields: ["item_code", "item_name", "barcode"],
+                          })
+                        : [];
+                      return (
+                        <tr key={item.id}>
+                          <td className="px-6 py-4">
+                            <div className="relative">
+                              <input
+                                id={`sv-item-search-${item.id}`} autoComplete="off"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                placeholder="Type to search items"
+                                value={itemQueries[item.id] || ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setItemQueries((prev) => ({
+                                    ...prev,
+                                    [item.id]: val,
+                                  }));
+                                  if (!val && item.item_id) {
+                                    updateItem(item.id, "item_id", "");
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    const query = (
+                                      itemQueries[item.id] || ""
+                                    ).trim();
+                                    if (!query || !searchResults.length) return;
+                                    updateItem(
+                                      item.id,
+                                      "item_id",
+                                      String(searchResults[0].id),
+                                    );
+                                    setItemQueries((prev) => ({
+                                      ...prev,
+                                      [item.id]: "",
+                                    }));
+                                  }
+                                }}
+                              />
+                              {searchResults.length ? (
+                                (() => {
+                                  const el = document.getElementById(`sv-item-search-${item.id}`);
+                                  const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
+                                  return (
+                                    <div
+                                      className="bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                      style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
+                                    >
+                                      {searchResults.map((o) => (
+                                        <button
+                                          type="button"
+                                          key={o.id}
+                                          className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-xs"
+                                          onClick={() => {
+                                            updateItem(
+                                              item.id,
+                                              "item_id",
+                                              String(o.id),
+                                            );
+                                            setItemQueries((prev) => ({
+                                              ...prev,
+                                              [item.id]: "",
+                                            }));
+                                          }}
+                                        >
+                                          {o.item_code} - {o.item_name}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  );
+                                })()
+                              ) : null}
+                            </div>
+                          </td>
+                          <td className="px-3 py-4 text-center">
+                            <span className="font-mono font-bold text-blue-600">
+                              {Number(item.system_qty || 0).toLocaleString()}
                             </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <input
-                            type="text"
-                            value={item.remarks || ""}
-                            onChange={(e) =>
-                              updateItem(item.id, "remarks", e.target.value)
-                            }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            placeholder="Optional"
-                          />
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <button
-                            onClick={() => removeItem(item.id)}
-                            className="text-red-600 hover:text-red-900 p-2 hover:bg-red-50 rounded-full transition-colors"
-                          >
-                            <Trash2 className="w-5 h-5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                          </td>
+                          <td className="px-3 py-4 text-center">
+                            <span className="font-mono font-bold text-amber-600">
+                              {Number(item.reserve_qty || 0).toLocaleString()}
+                            </span>
+                          </td>
+                          <td className="px-3 py-4 text-center">
+                            <input
+                              type="number"
+                              value={item.verified_qty}
+                              onChange={(e) =>
+                                updateItem(
+                                  item.id,
+                                  "verified_qty",
+                                  e.target.value === ""
+                                    ? ""
+                                    : Number(e.target.value),
+                                )
+                              }
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center font-bold"
+                              step="1"
+                            />
+                          </td>
+                          <td className="px-3 py-4 text-center">
+                            <span className="font-mono font-bold text-indigo-600">
+                              {(
+                                Number(item.system_qty || 0) +
+                                Number(item.reserve_qty || 0)
+                              ).toLocaleString()}
+                            </span>
+                          </td>
+                          <td className="px-3 py-4">
+                            <div
+                              className={`w-full px-3 py-2 border rounded-lg font-bold text-center ${
+                                Number(item.verified_qty || 0) -
+                                  (Number(item.system_qty || 0) +
+                                    Number(item.reserve_qty || 0)) <
+                                0
+                                  ? "bg-red-50 text-red-700 border-red-200"
+                                  : Number(item.verified_qty || 0) -
+                                        (Number(item.system_qty || 0) +
+                                          Number(item.reserve_qty || 0)) >
+                                      0
+                                    ? "bg-green-50 text-green-700 border-green-200"
+                                    : "bg-gray-50 text-gray-500 border-gray-300"
+                              }`}
+                            >
+                              {Number(item.verified_qty || 0) -
+                                (Number(item.system_qty || 0) +
+                                  Number(item.reserve_qty || 0)) >
+                              0
+                                ? "+"
+                                : ""}
+                              {Number(item.verified_qty || 0) -
+                                (Number(item.system_qty || 0) +
+                                  Number(item.reserve_qty || 0))}
+                            </div>
+                          </td>
+                          <td className="px-3 py-4">
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-600 font-medium">
+                                {item.uom || "PCS"}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <input
+                              type="text"
+                              value={item.remarks || ""}
+                              onChange={(e) =>
+                                updateItem(item.id, "remarks", e.target.value)
+                              }
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              placeholder="Optional"
+                            />
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button
+                              onClick={() => removeItem(item.id)}
+                              className="text-red-600 hover:text-red-900 p-2 hover:bg-red-50 rounded-full transition-colors"
+                            >
+                              <Trash2 className="w-5 h-5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

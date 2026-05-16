@@ -42,7 +42,7 @@ export default function RoutingList() {
     item.item_code.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const { sorted: filteredItems, sortKey, sortDir, toggle } = useSort(searchFilteredItems, "routing_name", "asc");
+  const { sorted: filteredItems, sortKey, sortDir, toggle } = useSort(searchFilteredItems, "created_at", "desc");
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">

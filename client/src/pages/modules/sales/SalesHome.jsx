@@ -403,13 +403,6 @@ const SalesModuleHome = () => {
             />,
           ],
         },
-        {
-          title: "Bulk Upload",
-          path: "/sales/bulk-upload",
-          description: "Import customers in bulk",
-          icon: "📤",
-          actions: [],
-        },
       ],
     },
     {

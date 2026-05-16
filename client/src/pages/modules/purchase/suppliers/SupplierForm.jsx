@@ -221,16 +221,21 @@ export default function SupplierForm() {
 
   // Set purchase account as default when expense accounts are loaded (for new suppliers only)
   useEffect(() => {
-    if (!isNew || formData.expense_account_id || !expenseAccounts.length) return;
-    
+    if (!isNew || formData.expense_account_id || !expenseAccounts.length)
+      return;
+
     // Find purchase account - look for accounts with "purchase" in the name
-    const purchaseAccount = expenseAccounts.find((a) => 
-      a.name?.toLowerCase().includes("purchase") || 
-      a.account_name?.toLowerCase().includes("purchase")
+    const purchaseAccount = expenseAccounts.find(
+      (a) =>
+        a.name?.toLowerCase().includes("purchase") ||
+        a.account_name?.toLowerCase().includes("purchase"),
     );
-    
+
     if (purchaseAccount) {
-      setFormData((prev) => ({ ...prev, expense_account_id: purchaseAccount.id }));
+      setFormData((prev) => ({
+        ...prev,
+        expense_account_id: purchaseAccount.id,
+      }));
     }
   }, [expenseAccounts, isNew, formData.expense_account_id]);
 
@@ -264,11 +269,15 @@ export default function SupplierForm() {
         is_active: Boolean(formData.is_active),
         supplier_type: formData.supplier_type || "LOCAL",
         currency_id:
-          formData.currency_id === undefined || formData.currency_id === null || formData.currency_id === ""
+          formData.currency_id === undefined ||
+          formData.currency_id === null ||
+          formData.currency_id === ""
             ? null
             : Number(formData.currency_id || 0) || null,
         expense_account_id:
-          formData.expense_account_id === undefined || formData.expense_account_id === null || formData.expense_account_id === ""
+          formData.expense_account_id === undefined ||
+          formData.expense_account_id === null ||
+          formData.expense_account_id === ""
             ? null
             : Number(formData.expense_account_id || 0) || null,
         service_contractor: formData.service_contractor ? "Y" : "N",
@@ -494,7 +503,7 @@ export default function SupplierForm() {
             to="/purchase/suppliers"
             className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-md transition-colors flex items-center gap-2"
           >
-            📄 View All
+            Back
           </Link>
         </div>
       </div>
@@ -826,7 +835,10 @@ export default function SupplierForm() {
                   onChange={handleChange}
                   className="w-5 h-5 text-[#0E3646] border-slate-300 rounded focus:ring-[#0E3646]"
                 />
-                <label htmlFor="is_active" className="text-sm font-semibold text-slate-800">
+                <label
+                  htmlFor="is_active"
+                  className="text-sm font-semibold text-slate-800"
+                >
                   Active Supplier
                 </label>
               </div>

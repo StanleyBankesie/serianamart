@@ -49,3 +49,17 @@ export function filterAndSort(items, { query, getKeys }) {
   });
   return scored.map((s) => s.it);
 }
+
+export function filterByPrefix(items, { query, getKeys, searchFields }) {
+  const q = normalizeString(query || "");
+  if (!q) return [];
+  return items.filter((it) => {
+    if (searchFields) {
+      return searchFields.some((field) =>
+        normalizeString(String(it[field] || "")).startsWith(q)
+      );
+    }
+    const keys = (getKeys && getKeys(it)) || [];
+    return keys.some((k) => normalizeString(String(k || "")).startsWith(q));
+  }).slice(0, 20);
+}

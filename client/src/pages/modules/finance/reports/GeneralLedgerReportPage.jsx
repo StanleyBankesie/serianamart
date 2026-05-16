@@ -6,12 +6,13 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
 import { filterAndSort } from "../../../../utils/searchUtils.js";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function GeneralLedgerReportPage() {
   const [searchParams] = useSearchParams();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [order, setOrder] = useState("old");
   const [accountId, setAccountId] = useState("");
   const [accounts, setAccounts] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -85,8 +86,7 @@ export default function GeneralLedgerReportPage() {
       });
       setOpening(Number(res.data?.opening_balance || 0));
       setAccountMeta(res.data?.account || null);
-      const rows = res.data?.items || [];
-      setItems(order === "new" ? rows.slice().reverse() : rows);
+      setItems(res.data?.items || []);
     } catch (e) {
       toast.error(
         e?.response?.data?.message || "Failed to load general ledger",
@@ -115,7 +115,7 @@ export default function GeneralLedgerReportPage() {
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, order]);
+  }, [from, to]);
 
   // If selected account falls outside selected group, clear selection.
   useEffect(() => {
@@ -143,6 +143,13 @@ export default function GeneralLedgerReportPage() {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId]);
+
+  const {
+    sorted: sortedItems,
+    sortKey,
+    sortDir,
+    toggle,
+  } = useSort(items, "voucher_date", "asc");
 
   const groupFilteredAccounts = useMemo(() => {
     if (!groupId) return accounts || [];
@@ -284,20 +291,8 @@ export default function GeneralLedgerReportPage() {
                 onChange={(e) => setTo(e.target.value)}
               />
             </div>
-            <div className="flex items-end">
-              <button
-                type="button"
-                className="btn-secondary"
-                title={
-                  order === "new" ? "New entries first" : "Old entries first"
-                }
-                onClick={() => setOrder(order === "new" ? "old" : "new")}
-              >
-                {order === "new" ? "🔽" : "🔼"}
-              </button>
-            </div>
             <div className="flex items-end gap-2">
-              <button
+              {/* <button
                 type="button"
                 className="btn-success"
                 onClick={() => {
@@ -307,10 +302,10 @@ export default function GeneralLedgerReportPage() {
                 disabled={loading}
               >
                 Clear
-              </button>
+              </button> */}
               <button
                 type="button"
-                className="btn-secondary"
+                className="btn-secondary px-3"
                 onClick={() => {
                   const rows = Array.isArray(items) ? items : [];
                   if (!rows.length) return;
@@ -413,16 +408,55 @@ export default function GeneralLedgerReportPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th>Date</th>
-                  <th>Voucher No</th>
-                  <th>Description</th>
-                  <th className="text-right">Debit</th>
-                  <th className="text-right">Credit</th>
-                  <th className="text-right">Balance (Dr/Cr)</th>
+                  <SortableHeader
+                    label="Date"
+                    sortKey="voucher_date"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                  />
+                  <SortableHeader
+                    label="Voucher No"
+                    sortKey="voucher_no"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                  />
+                  <SortableHeader
+                    label="Description"
+                    sortKey="description"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                  />
+                  <SortableHeader
+                    label="Debit"
+                    sortKey="debit"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                    className="text-right"
+                  />
+                  <SortableHeader
+                    label="Credit"
+                    sortKey="credit"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                    className="text-right"
+                  />
+                  <SortableHeader
+                    label="Balance (Dr/Cr)"
+                    sortKey="balance"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                    className="text-right"
+                  />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, idx) => {
+                {sortedItems.map((r, idx) => {
                   const balance = Number(r.balance || 0);
                   const balanceType = balance >= 0 ? "Dr" : "Cr";
                   const displayBalance = Math.abs(balance);
@@ -447,7 +481,11 @@ export default function GeneralLedgerReportPage() {
                       <td className="text-right">
                         <span className="font-medium">
                           {displayBalance.toLocaleString()}{" "}
-                          <span className={balance >= 0 ? "text-blue-600" : "text-red-600"}>
+                          <span
+                            className={
+                              balance >= 0 ? "text-blue-600" : "text-red-600"
+                            }
+                          >
                             {balanceType}
                           </span>
                         </span>

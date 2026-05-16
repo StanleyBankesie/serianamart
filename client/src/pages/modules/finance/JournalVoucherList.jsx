@@ -64,7 +64,7 @@ export default function JournalVoucherList() {
     });
   })();
 
-  const { sorted: sortedVouchers, sortKey, sortDir, toggle } = useSort(filteredVouchers, "voucher_no", "asc");
+  const { sorted: sortedVouchers, sortKey, sortDir, toggle } = useSort(filteredVouchers, "created_at", "desc");
 
   if (loading) {
     return <div className="text-center py-8">Loading vouchers...</div>;

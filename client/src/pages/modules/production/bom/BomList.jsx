@@ -43,7 +43,7 @@ export default function BomList() {
     String(b.item_code || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const { sorted: sortedBoms, sortKey, sortDir, toggle } = useSort(searchFilteredBoms, "bom_name", "asc");
+  const { sorted: sortedBoms, sortKey, sortDir, toggle } = useSort(searchFilteredBoms, "created_at", "desc");
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">

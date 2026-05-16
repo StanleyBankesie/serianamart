@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useUoms } from "@/hooks/useUoms";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 
 import { api } from "api/client";
 
@@ -23,6 +24,7 @@ export default function IssueToRequirementForm() {
   const [warehouses, setWarehouses] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [requisitions, setRequisitions] = useState([]);
+  const [itemQueries, setItemQueries] = useState({});
 
   const [formData, setFormData] = useState({
     issueNo: isNew ? "Auto-generated" : "ISS-000",
@@ -202,6 +204,9 @@ export default function IssueToRequirementForm() {
                 },
               ],
         );
+        const initQueries = {};
+        (details.length ? details : [{ id: 1 }]).forEach(d => { initQueries[d.id || 1] = ""; });
+        setItemQueries(initQueries);
       })
       .catch((e) => {
         if (!mounted) return;
@@ -232,10 +237,11 @@ export default function IssueToRequirementForm() {
   }, [lines]);
 
   const addLine = () => {
+    const newId = Date.now();
     setLines([
       ...lines,
       {
-        id: Date.now(),
+        id: newId,
         item_id: "",
         itemCode: "",
         itemName: "",
@@ -245,6 +251,22 @@ export default function IssueToRequirementForm() {
         serialNumber: "",
       },
     ]);
+    setItemQueries(prev => ({ ...prev, [newId]: "" }));
+  };
+
+  const handleSelectItem = (lineId, item) => {
+    setLines(lines.map(l =>
+      l.id === lineId
+        ? {
+            ...l,
+            item_id: String(item.id),
+            itemCode: item.item_code || "",
+            itemName: item.item_name || "",
+            uom: item.uom || "",
+          }
+        : l
+    ));
+    setItemQueries(prev => ({ ...prev, [lineId]: "" }));
   };
 
   const removeLine = (lineId) => {
@@ -356,9 +378,6 @@ export default function IssueToRequirementForm() {
                   <option value="MAINTENANCE">Maintenance</option>
                 </select>
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="label">Department</label>
                 <select
@@ -414,10 +433,7 @@ export default function IssueToRequirementForm() {
                   ))}
                 </select>
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="col-span-2">
+              <div>
                 <label className="label">Remarks</label>
                 <input
                   type="text"
@@ -446,58 +462,85 @@ export default function IssueToRequirementForm() {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="table">
+                <table className="table w-full">
                   <thead>
                     <tr>
                       <th className="w-12">#</th>
-                      <th>Item</th>
-                      <th>Qty Issued</th>
-                      <th>UOM</th>
-                      <th>Batch No</th>
-                      <th>Serial No</th>
-                      <th>Action</th>
+                      <th className="w-1/2 min-w-[280px]">Item</th>
+                      <th className="w-28 min-w-[100px]">Qty Issued</th>
+                      <th className="w-20 min-w-[80px]">UOM</th>
+                      <th className="w-40 min-w-[160px]">Batch No</th>
+                      <th className="w-40 min-w-[160px]">Serial No</th>
+                      <th className="w-20">Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {lines.map((line, index) => (
+                    {lines.map((line, index) => {
+                      const itemQuery = itemQueries[line.id] || "";
+                      const searchResults = itemQuery.trim()
+                        ? filterByPrefix(availableItems, {
+                            query: itemQuery,
+                            searchFields: ["item_code", "item_name", "barcode"],
+                          })
+                        : [];
+                      return (
                       <tr key={line.id}>
                         <td className="text-center text-slate-500">
                           {index + 1}
                         </td>
-                        <td className="w-1/3">
-                          <select
-                            className="input"
-                            value={line.item_id}
-                            onChange={(e) => {
-                              const selectedId = e.target.value;
-                              const selected = availableItems.find(
-                                (ai) => String(ai.id) === String(selectedId),
-                              );
-                              setLines(
-                                lines.map((l) =>
-                                  l.id === line.id
-                                    ? {
-                                        ...l,
-                                        item_id: selectedId,
-                                        itemCode: selected?.item_code || "",
-                                        itemName: selected?.item_name || "",
-                                        uom: selected?.uom || "",
-                                      }
-                                    : l,
-                                ),
-                              );
-                            }}
-                            required
-                          >
-                            <option value="">Select Item</option>
-                            {availableItems.map((ai) => (
-                              <option key={ai.id} value={ai.id}>
-                                {(ai.item_code || ai.id) +
-                                  " - " +
-                                  (ai.item_name || "")}
-                              </option>
-                            ))}
-                          </select>
+                        <td>
+                          <div className="relative">
+                            <input
+                              id={`ir-item-search-${line.id}`} autoComplete="off"
+                              className="input w-full"
+                              placeholder="Type to search items"
+                              value={itemQueries[line.id] || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setItemQueries((prev) => ({
+                                  ...prev,
+                                  [line.id]: val,
+                                }));
+                                if (!val && line.item_id) {
+                                  setLines(lines.map(l =>
+                                    l.id === line.id ? { ...l, item_id: "", itemCode: "", itemName: "", uom: "" } : l
+                                  ));
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  const query = (itemQueries[line.id] || "").trim();
+                                  if (!query || !searchResults.length) return;
+                                  handleSelectItem(line.id, searchResults[0]);
+                                }
+                              }}
+                            />
+                            {searchResults.length ? (
+                              (() => {
+                                const el = document.getElementById(`ir-item-search-${line.id}`);
+                                const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
+                                return (
+                                  <div
+                                    className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                    style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
+                                  >
+                                    {searchResults.map((o) => (
+                                      <button
+                                        type="button"
+                                        key={o.id}
+                                        className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                                        onClick={() => {
+                                          handleSelectItem(line.id, o);
+                                        }}
+                                      >
+                                        {o.item_code} - {o.item_name}
+                                      </button>
+                                    ))}
+                                  </div>
+                                );
+                              })()
+                            ) : null}
+                          </div>
                         </td>
                         <td className="w-24">
                           <input
@@ -572,8 +615,9 @@ export default function IssueToRequirementForm() {
                             Remove
                           </button>
                         </td>
-                      </tr>
-                    ))}
+                       </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

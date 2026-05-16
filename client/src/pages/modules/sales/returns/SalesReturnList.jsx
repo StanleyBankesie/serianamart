@@ -126,7 +126,7 @@ export default function SalesReturnList() {
     });
   }, [items, searchTerm]);
 
-  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "return_no", "desc");
+  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "created_at", "desc");
 
   const stats = useMemo(() => {
     const total = items.length;

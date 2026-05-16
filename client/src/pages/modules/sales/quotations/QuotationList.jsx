@@ -458,7 +458,7 @@ export default function QuotationList() {
     });
   })();
 
-  const { sorted: sortedQuotations, sortKey, sortDir, toggle } = useSort(filteredQuotations, "quotation_no", "desc");
+  const { sorted: sortedQuotations, sortKey, sortDir, toggle } = useSort(filteredQuotations, "created_at", "desc");
 
   function safeDate(v) {
     const s = String(v || "").trim();

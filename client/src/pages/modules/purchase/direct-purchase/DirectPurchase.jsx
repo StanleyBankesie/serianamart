@@ -7,6 +7,7 @@ import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { useExchangeRate } from "../../../../hooks/useExchangeRate";
 import { Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 
 export default function DirectPurchase() {
   const navigate = useNavigate();
@@ -49,7 +50,6 @@ export default function DirectPurchase() {
       ""
     );
   }, [currencies, form.currency_id]);
-
   const [baseCurrencyId, setBaseCurrencyId] = useState(null);
   const [standardPrices, setStandardPrices] = useState([]);
   const [unitConversions, setUnitConversions] = useState([]);
@@ -64,6 +64,7 @@ export default function DirectPurchase() {
     return "PCS";
   }, [uoms]);
   const [lines, setLines] = useState([]);
+  const [itemQueries, setItemQueries] = useState({});
   const [newItem, setNewItem] = useState({
     item_id: "",
     qty: 1,
@@ -897,8 +898,8 @@ export default function DirectPurchase() {
             <div className="md:col-span-3 flex flex-col gap-1">
               <label className="label">Remarks</label>
               <textarea
-                className="input"
-                rows="3"
+                className="input w-96"
+                rows="4"
                 value={form.remarks}
                 onChange={(e) => updateForm("remarks", e.target.value)}
                 disabled={isViewMode}
@@ -914,29 +915,77 @@ export default function DirectPurchase() {
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Item *
                 </label>
-                <select
-                  name="item_id"
-                  className="input"
-                  value={newItem.item_id}
-                  onChange={handleNewItemChange}
-                  disabled={isViewMode}
-                >
-                  <option value="">Select item</option>
-                  {items.map((it) => (
-                    <option key={it.id} value={it.id}>
-                      {it.item_code} - {it.item_name}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <input
+                    id="dp-item-search"
+                    autoComplete="off"
+                    className="input w-full"
+                    placeholder="Type to search items"
+                    value={itemQueries.new || ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setItemQueries((prev) => ({ ...prev, new: val }));
+                      if (!val && newItem.item_id) {
+                        setNewItem((prev) => ({
+                          ...prev,
+                          item_id: "",
+                          uom: defaultUomCode,
+                          unit_price: 0,
+                        }));
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const query = (itemQueries.new || "").trim();
+                        const searchResults = query
+                          ? filterByPrefix(items, {
+                              query,
+                              searchFields: ["item_code", "item_name", "barcode"],
+                            })
+                          : [];
+                        if (!query || !searchResults.length) return;
+                        handleNewItemChange({ target: { name: "item_id", value: String(searchResults[0].id) } });
+                        setItemQueries((prev) => ({ ...prev, new: "" }));
+                      }
+                    }}
+                    disabled={isViewMode}
+                  />
+                  {(() => {
+                    const query = (itemQueries.new || "").trim();
+                    const searchResults = query
+                      ? filterByPrefix(items, {
+                          query,
+                          searchFields: ["item_code", "item_name", "barcode"],
+                        })
+                      : [];
+                    return searchResults.length ? (
+                      <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto">
+                        {searchResults.map((o) => (
+                          <button
+                            type="button"
+                            key={o.id}
+                            className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                            onClick={() => {
+                              handleNewItemChange({ target: { name: "item_id", value: String(o.id) } });
+                              setItemQueries((prev) => ({ ...prev, new: "" }));
+                            }}
+                          >
+                            {o.item_code} - {o.item_name}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-gray-700 mb-1 ">
                   Qty *
                 </label>
                 <input
                   type="number"
                   name="qty"
-                  className="input"
+                  className="input w-32"
                   value={newItem.qty}
                   onChange={handleNewItemChange}
                   disabled={isViewMode}
@@ -968,7 +1017,7 @@ export default function DirectPurchase() {
                 <input
                   type="number"
                   name="unit_price"
-                  className="input"
+                  className="input w-32"
                   value={newItem.unit_price}
                   onChange={handleNewItemChange}
                   disabled={isViewMode}
@@ -981,7 +1030,7 @@ export default function DirectPurchase() {
                 <input
                   type="number"
                   name="discount_percent"
-                  className="input"
+                  className="input w-32"
                   value={newItem.discount_percent}
                   onChange={handleNewItemChange}
                   disabled={isViewMode || !canEditDiscount()}

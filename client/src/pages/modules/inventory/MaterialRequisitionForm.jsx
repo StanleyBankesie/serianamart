@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
+import { filterByPrefix } from "@/utils/searchUtils.js";
 import "./MaterialRequisitionForm.css";
 
 function normalizeDate(v) {
@@ -24,8 +25,7 @@ export default function MaterialRequisitionForm() {
   const [users, setUsers] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [showItemModal, setShowItemModal] = useState(false);
-  const [itemSearch, setItemSearch] = useState("");
+  const [itemQueries, setItemQueries] = useState({});
 
   const [formData, setFormData] = useState({
     requisitionNo: isNew ? "Auto-generated" : "",
@@ -189,6 +189,11 @@ export default function MaterialRequisitionForm() {
                 },
               ],
         );
+        const initQueries = {};
+        (details.length ? details : [{ id: 1 }]).forEach((d) => {
+          initQueries[d.id || 1] = "";
+        });
+        setItemQueries(initQueries);
       })
       .catch((e) => {
         if (!mounted) return;
@@ -216,6 +221,17 @@ export default function MaterialRequisitionForm() {
         serial_no: r.serialNo || null,
       }));
   }, [items]);
+
+  const itemSelectOptions = useMemo(
+    () =>
+      Array.isArray(availableItems)
+        ? availableItems.map((ai) => ({
+            value: String(ai.id),
+            label: `${ai.item_code || ""} - ${ai.item_name || ""}`,
+          }))
+        : [],
+    [availableItems],
+  );
 
   const statusColors = {
     DRAFT: "bg-gray-500 text-white",
@@ -317,37 +333,40 @@ export default function MaterialRequisitionForm() {
   };
 
   const addItem = () => {
-    setShowItemModal(true);
-    setItemSearch("");
-  };
-
-  const handleSelectItem = (item) => {
+    const newId = Date.now();
     setItems([
       ...items,
       {
-        id: Date.now(),
-        item_id: String(item.id),
-        itemCode: item.item_code || "",
-        itemName: item.item_name || "",
+        id: newId,
+        item_id: "",
+        itemCode: "",
+        itemName: "",
         qtyRequested: 0,
         qtyIssued: 0,
-        uom: item.uom || "PCS",
+        uom: "PCS",
         batchNo: "",
         serialNo: "",
       },
     ]);
-    setShowItemModal(false);
+    setItemQueries((prev) => ({ ...prev, [newId]: "" }));
   };
 
-  const filteredItems = useMemo(() => {
-    if (!itemSearch) return availableItems;
-    const lower = itemSearch.toLowerCase();
-    return availableItems.filter(
-      (i) =>
-        (i.item_code && i.item_code.toLowerCase().includes(lower)) ||
-        (i.item_name && i.item_name.toLowerCase().includes(lower)),
+  const handleSelectItem = (rowId, item) => {
+    setItems(
+      items.map((i) =>
+        i.id === rowId
+          ? {
+              ...i,
+              item_id: String(item.id),
+              itemCode: item.item_code || "",
+              itemName: item.item_name || "",
+              uom: item.uom || "PCS",
+            }
+          : i,
+      ),
     );
-  }, [availableItems, itemSearch]);
+    setItemQueries((prev) => ({ ...prev, [rowId]: "" }));
+  };
 
   const removeItem = (id) => {
     setItems(items.filter((item) => item.id !== id));
@@ -431,7 +450,7 @@ export default function MaterialRequisitionForm() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
                 <label className="label">Source Warehouse</label>
                 <select
@@ -466,9 +485,6 @@ export default function MaterialRequisitionForm() {
                   ))}
                 </select>
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="label">Requisition Type</label>
                 <select
@@ -483,7 +499,7 @@ export default function MaterialRequisitionForm() {
                 >
                   <option value="INTERNAL">Internal Use</option>
                   <option value="PROJECT">Project</option>
-                  <option value="PROJECT">Promotions</option>
+                  <option value="PROMOTIONS">Promotions</option>
                   <option value="MAINTENANCE">Maintenance</option>
                   <option value="SALES">Sales Campaign</option>
                   <option value="PRODUCTION">Production</option>
@@ -512,7 +528,7 @@ export default function MaterialRequisitionForm() {
             <div>
               <label className="label">Remarks</label>
               <textarea
-                className="input"
+                className="input w-full"
                 rows="3"
                 value={formData.remarks}
                 onChange={(e) =>
@@ -537,161 +553,195 @@ export default function MaterialRequisitionForm() {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="table">
+                <table className="table w-full">
                   <thead>
                     <tr>
-                      <th>Item Name</th>
-                      <th>Qty Requested</th>
-                      <th>UOM</th>
-                      <th>Batch No</th>
-                      <th>Serial No</th>
-                      <th>Action</th>
+                      <th className="w-1/2 min-w-[300px]">Item Name</th>
+                      <th className="w-32 min-w-[110px]">Qty Requested</th>
+                      <th className="w-24 min-w-[80px]">UOM</th>
+                      <th className="w-40 min-w-[160px]">Batch No</th>
+                      <th className="w-40 min-w-[160px]">Serial No</th>
+                      <th className="w-20">Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((item) => (
-                      <tr key={item.id}>
-                        <td>
-                          <select
-                            className="input"
-                            value={item.item_id}
-                            onChange={(e) => {
-                              const selectedId = e.target.value;
-                              const selected = availableItems.find(
-                                (ai) => String(ai.id) === String(selectedId),
-                              );
-                              const updated = items.map((i) =>
-                                i.id === item.id
-                                  ? {
-                                      ...i,
-                                      item_id: selectedId,
-                                      itemCode: selected?.item_code || "",
-                                      itemName: selected?.item_name || "",
-                                      uom: selected?.uom || i.uom || "PCS",
-                                    }
-                                  : i,
-                              );
-                              setItems(updated);
-                            }}
-                            required
-                          >
-                            <option value="">Select Item</option>
-                            {!availableItems.some(
-                              (ai) => String(ai.id) === String(item.item_id),
-                            ) &&
-                              item.item_id && (
-                                <option value={item.item_id}>
-                                  {item.itemName || item.item_id}
-                                </option>
-                              )}
-                            {availableItems.map((ai) => (
-                              <option key={ai.id} value={ai.id}>
-                                {ai.item_name || ai.item_code || ai.id}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td>
-                          <input
-                            type="number"
-                            className="input"
-                            value={item.qtyRequested}
-                            onChange={(e) => {
-                              const updated = items.map((i) =>
-                                i.id === item.id
-                                  ? {
-                                      ...i,
-                                      qtyRequested: Math.max(
-                                        0,
-                                        parseInt(e.target.value, 10) || 0,
+                    {items.map((item) => {
+                      const itemQuery = itemQueries[item.id] || "";
+                      const searchResults = itemQuery.trim()
+                        ? filterByPrefix(availableItems, {
+                            query: itemQuery,
+                            searchFields: ["item_code", "item_name", "barcode"],
+                          })
+                        : [];
+                      return (
+                        <tr key={item.id}>
+                          <td>
+                            <div className="relative">
+                              <input
+                                id={`mr-item-search-${item.id}`} autoComplete="off"
+                                className="input w-full"
+                                placeholder="Type to search items"
+                                value={itemQueries[item.id] || ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setItemQueries((prev) => ({
+                                    ...prev,
+                                    [item.id]: val,
+                                  }));
+                                  if (!val && item.item_id) {
+                                    setItems(
+                                      items.map((i) =>
+                                        i.id === item.id
+                                          ? {
+                                              ...i,
+                                              item_id: "",
+                                              itemCode: "",
+                                              itemName: "",
+                                            }
+                                          : i,
                                       ),
-                                    }
-                                  : i,
-                              );
-                              setItems(updated);
-                            }}
-                            min="0"
-                            step="1"
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                          />
-                        </td>
-                        <td>
-                          <select
-                            className="input"
-                            value={item.uom || ""}
-                            onChange={(e) => {
-                              const updated = items.map((i) =>
-                                i.id === item.id
-                                  ? { ...i, uom: e.target.value }
-                                  : i,
-                              );
-                              setItems(updated);
-                            }}
-                          >
-                            <option value="">UOM</option>
-                            {(Array.isArray(uoms) && uoms.length
-                              ? uoms.map((u) => ({
-                                  code: u.uom_code || u.code || "",
-                                  name: u.uom_name || u.name || "",
-                                }))
-                              : [
-                                  { code: "EA", name: "EA" },
-                                  { code: "PCS", name: "PCS" },
-                                  { code: "KG", name: "KG" },
-                                  { code: "LTR", name: "LTR" },
-                                  { code: "MTR", name: "MTR" },
-                                ]
-                            ).map((u) => (
-                              <option key={u.code} value={u.code}>
-                                {u.name ? `${u.name} (${u.code})` : u.code}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td>
-                          <input
-                            type="text"
-                            className="input"
-                            placeholder="Batch No"
-                            value={item.batchNo || ""}
-                            onChange={(e) => {
-                              const updated = items.map((i) =>
-                                i.id === item.id
-                                  ? { ...i, batchNo: e.target.value }
-                                  : i,
-                              );
-                              setItems(updated);
-                            }}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="text"
-                            className="input"
-                            placeholder="Serial No"
-                            value={item.serialNo || ""}
-                            onChange={(e) => {
-                              const updated = items.map((i) =>
-                                i.id === item.id
-                                  ? { ...i, serialNo: e.target.value }
-                                  : i,
-                              );
-                              setItems(updated);
-                            }}
-                          />
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            onClick={() => removeItem(item.id)}
-                            className="text-red-600 hover:text-red-800 text-sm font-medium"
-                          >
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                                    );
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    const query = (
+                                      itemQueries[item.id] || ""
+                                    ).trim();
+                                    if (!query || !searchResults.length) return;
+                                    handleSelectItem(item.id, searchResults[0]);
+                                  }
+                                }}
+                              />
+                              {searchResults.length ? (
+                                (() => {
+                                  const el = document.getElementById(`mr-item-search-${item.id}`);
+                                  const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
+                                  return (
+                                    <div
+                                      className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                      style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
+                                    >
+                                      {searchResults.map((o) => (
+                                        <button
+                                          type="button"
+                                          key={o.id}
+                                          className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                                          onClick={() => {
+                                            handleSelectItem(item.id, o);
+                                          }}
+                                        >
+                                          {o.item_code} - {o.item_name}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  );
+                                })()
+                              ) : null}
+                            </div>
+                          </td>
+                          <td>
+                            <input
+                              type="number"
+                              className="input"
+                              value={item.qtyRequested}
+                              onChange={(e) => {
+                                const updated = items.map((i) =>
+                                  i.id === item.id
+                                    ? {
+                                        ...i,
+                                        qtyRequested: Math.max(
+                                          0,
+                                          parseInt(e.target.value, 10) || 0,
+                                        ),
+                                      }
+                                    : i,
+                                );
+                                setItems(updated);
+                              }}
+                              min="0"
+                              step="1"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                            />
+                          </td>
+                          <td>
+                            <select
+                              className="input"
+                              value={item.uom || ""}
+                              onChange={(e) => {
+                                const updated = items.map((i) =>
+                                  i.id === item.id
+                                    ? { ...i, uom: e.target.value }
+                                    : i,
+                                );
+                                setItems(updated);
+                              }}
+                            >
+                              <option value="">UOM</option>
+                              {(Array.isArray(uoms) && uoms.length
+                                ? uoms.map((u) => ({
+                                    code: u.uom_code || u.code || "",
+                                    name: u.uom_name || u.name || "",
+                                  }))
+                                : [
+                                    { code: "EA", name: "EA" },
+                                    { code: "PCS", name: "PCS" },
+                                    { code: "KG", name: "KG" },
+                                    { code: "LTR", name: "LTR" },
+                                    { code: "MTR", name: "MTR" },
+                                  ]
+                              ).map((u) => (
+                                <option key={u.code} value={u.code}>
+                                  {u.name ? `${u.name} (${u.code})` : u.code}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              className="input"
+                              placeholder="Batch No"
+                              value={item.batchNo || ""}
+                              onChange={(e) => {
+                                const updated = items.map((i) =>
+                                  i.id === item.id
+                                    ? { ...i, batchNo: e.target.value }
+                                    : i,
+                                );
+                                setItems(updated);
+                              }}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              className="input"
+                              placeholder="Serial No"
+                              value={item.serialNo || ""}
+                              onChange={(e) => {
+                                const updated = items.map((i) =>
+                                  i.id === item.id
+                                    ? { ...i, serialNo: e.target.value }
+                                    : i,
+                                );
+                                setItems(updated);
+                              }}
+                            />
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => removeItem(item.id)}
+                              className="text-red-600 hover:text-red-800 text-sm font-medium"
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -716,76 +766,6 @@ export default function MaterialRequisitionForm() {
           </form>
         </div>
       </div>
-
-      {/* Item Selection Modal */}
-      {showItemModal && (
-        <div
-          className="custom-modal-overlay"
-          onClick={() => setShowItemModal(false)}
-        >
-          <div
-            className="custom-modal-content"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-4 bg-brand text-white rounded-t-lg flex justify-between items-center">
-              <h2 className="text-xl font-bold">Select Item</h2>
-              <button
-                onClick={() => setShowItemModal(false)}
-                className="text-white hover:text-gray-200 text-2xl font-bold"
-              >
-                &times;
-              </button>
-            </div>
-            <div className="p-4 flex-1 overflow-hidden flex flex-col">
-              <div className="mb-4">
-                <label className="label">Search Items</label>
-                <input
-                  type="text"
-                  className="input"
-                  placeholder="Search by item code or name..."
-                  value={itemSearch}
-                  onChange={(e) => setItemSearch(e.target.value)}
-                  autoFocus
-                />
-              </div>
-              <div className="item-list-container flex-1 overflow-y-auto">
-                {filteredItems.length === 0 ? (
-                  <div className="text-center p-4 text-gray-500">
-                    No items found
-                  </div>
-                ) : (
-                  filteredItems.map((item) => (
-                    <div
-                      key={item.id}
-                      className="item-card cursor-pointer hover:bg-slate-100 mb-2 p-3 border rounded"
-                      onClick={() => handleSelectItem(item)}
-                    >
-                      <div className="font-bold text-brand">
-                        {item.item_code || "N/A"}
-                      </div>
-                      <div className="text-gray-800">
-                        {item.item_name || "Unnamed Item"}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        UOM: {item.uom || "N/A"}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-            <div className="p-4 border-t flex justify-end bg-gray-50 rounded-b-lg">
-              <button
-                type="button"
-                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
-                onClick={() => setShowItemModal(false)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
