@@ -48,7 +48,8 @@ import LeaveApplication from "./leave/LeaveApplication.jsx";
 import LeaveRecords from "./leave/LeaveRecords.jsx";
 import KPISetup from "./performance/KPISetup.jsx";
 import AppraisalForm from "./performance/AppraisalForm.jsx";
-import TrainingList from "./training/TrainingList.jsx";
+import SubmitAppraisals from "./performance/SubmitAppraisals.jsx";
+import TrainingPrograms from "./training/TrainingPrograms.jsx";
 import TrainingHistory from "./training/TrainingHistory.jsx";
 import PolicyList from "./compliance/PolicyList.jsx";
 import PolicyForm from "./compliance/PolicyForm.jsx";
@@ -317,19 +318,25 @@ function HRDashboard() {
         {
           name: "KPI Setup",
           path: "/human-resources/performance/kpis",
-          description: "Define KPIs",
+          description: "Define and manage KPIs",
           icon: "🎯",
         },
         {
           name: "Appraisal Form",
           path: "/human-resources/performance/appraisal",
-          description: "Submit appraisals",
+          description: "Create employee appraisals",
           icon: "📝",
+        },
+        {
+          name: "Submit Appraisals",
+          path: "/human-resources/performance/submit",
+          description: "Workflow approval management",
+          icon: "✅",
         },
         {
           name: "Training Programs",
           path: "/human-resources/training",
-          description: "List training programs",
+          description: "Manage training programs",
           icon: "🎓",
         },
         {
@@ -416,7 +423,9 @@ export default function HumanResourcesHome() {
       <Route path="leave/balances" element={<LeaveBalances />} />
       <Route path="performance/kpis" element={<KPISetup />} />
       <Route path="performance/appraisal" element={<AppraisalForm />} />
-      <Route path="training" element={<TrainingList />} />
+      <Route path="performance/appraisal/:id" element={<AppraisalForm />} />
+      <Route path="performance/submit" element={<SubmitAppraisals />} />
+      <Route path="training" element={<TrainingPrograms />} />
       <Route path="training/history" element={<TrainingHistory />} />
       <Route path="policies" element={<PolicyList />} />
       <Route path="policies/new" element={<PolicyForm />} />
@@ -483,6 +492,36 @@ export const humanResourcesFeatures = [
     module_key: "human-resources",
     label: "Promotions",
     path: "/human-resources/promotions",
+    type: "feature",
+  },
+  {
+    module_key: "human-resources",
+    label: "KPI Setup",
+    path: "/human-resources/performance/kpis",
+    type: "feature",
+  },
+  {
+    module_key: "human-resources",
+    label: "Appraisal Form",
+    path: "/human-resources/performance/appraisal",
+    type: "feature",
+  },
+  {
+    module_key: "human-resources",
+    label: "Submit Appraisals",
+    path: "/human-resources/performance/submit",
+    type: "feature",
+  },
+  {
+    module_key: "human-resources",
+    label: "Training Programs",
+    path: "/human-resources/training",
+    type: "feature",
+  },
+  {
+    module_key: "human-resources",
+    label: "Training History",
+    path: "/human-resources/training/history",
     type: "feature",
   },
   {

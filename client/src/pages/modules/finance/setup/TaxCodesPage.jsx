@@ -18,6 +18,13 @@ const PAGE_IDS = {
   SUPPLIER_QUOTATION: 11,
   PAYMENT_VOUCHER: 12,
   RECEIPT_VOUCHER: 13,
+  JOURNAL_VOUCHER: 14,
+  DEBIT_NOTE: 16,
+  CREDIT_NOTE: 17,
+  SALES_VOUCHER: 18,
+  SALES_RETURN: 19,
+  PURCHASE_RETURN: 20,
+  DELIVERY_NOTE: 21,
 };
 
 const ALL_PAGES = [
@@ -75,11 +82,6 @@ const ALL_PAGES = [
     code: "JOURNAL_VOUCHER",
     label: "Journal Voucher",
   },
-  {
-    value: PAGE_IDS.CONTRA_VOUCHER,
-    code: "CONTRA_VOUCHER",
-    label: "Contra Voucher",
-  },
   { value: PAGE_IDS.DEBIT_NOTE, code: "DEBIT_NOTE", label: "Debit Note" },
   { value: PAGE_IDS.CREDIT_NOTE, code: "CREDIT_NOTE", label: "Credit Note" },
   { value: PAGE_IDS.SALES_VOUCHER, code: "SALES_VOUCHER", label: "Sales Voucher" },
@@ -116,7 +118,6 @@ const VOUCHER_PAGES = [
   PAGE_IDS.PAYMENT_VOUCHER,
   PAGE_IDS.RECEIPT_VOUCHER,
   PAGE_IDS.JOURNAL_VOUCHER,
-  PAGE_IDS.CONTRA_VOUCHER,
 ];
 
 export default function TaxCodesPage() {

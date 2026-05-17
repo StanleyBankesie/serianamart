@@ -11,10 +11,16 @@ import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
 export default function RoleManagement() {
+  const [roles, setRoles] = useState([]);
+  const {
+    sorted: rolesSorted,
+    sortKey,
+    sortDir,
+    toggle,
+  } = useSort(roles, "name", "asc");
   const navigate = useNavigate();
   const location = useLocation();
   const { refreshPermissions } = usePermission();
-  const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -300,9 +306,27 @@ export default function RoleManagement() {
             <table className="table w-full">
               <thead>
                 <tr>
-                  <SortableHeader label="Name" sortKey="name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Code" sortKey="code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Status" sortKey="is_active" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader
+                    label="Name"
+                    sortKey="name"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                  />
+                  <SortableHeader
+                    label="Code"
+                    sortKey="code"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                  />
+                  <SortableHeader
+                    label="Status"
+                    sortKey="is_active"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                  />
                   <th className="text-right">Actions</th>
                 </tr>
               </thead>
@@ -498,16 +522,13 @@ export default function RoleManagement() {
                   const isModuleSelected = selectedModules.has(moduleKey);
                   const moduleFeatures = getModuleFeatures(moduleKey);
                   const allKeys = moduleFeatures.map((f) => f.feature_key);
-                  const selectedCount = allKeys.filter(
-                    (k) => selectedFeatures.has(k),
+                  const selectedCount = allKeys.filter((k) =>
+                    selectedFeatures.has(k),
                   ).length;
                   const isAllSelected =
                     allKeys.length > 0 && selectedCount === allKeys.length;
 
-                  if (
-                    !isModuleSelected &&
-                    moduleFeatures.length === 0
-                  ) {
+                  if (!isModuleSelected && moduleFeatures.length === 0) {
                     return null;
                   }
 
@@ -569,9 +590,7 @@ export default function RoleManagement() {
                                     )
                                   }
                                 />
-                                <span className="text-sm">
-                                  {feature.label}
-                                </span>
+                                <span className="text-sm">{feature.label}</span>
                               </label>
                             ))}
                           </div>

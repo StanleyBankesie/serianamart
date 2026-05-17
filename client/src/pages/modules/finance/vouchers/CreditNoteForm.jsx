@@ -61,6 +61,20 @@ export default function CreditNoteForm() {
     totalCredit: 0,
     balancedAmount: 0,
   });
+
+  // CN (Credit Note) form additions
+  const [cnCustomerId, setCnCustomerId] = useState("");
+  const [cnCustomerCode, setCnCustomerCode] = useState("");
+  const [cnCustomerName, setCnCustomerName] = useState("");
+  const [cnAmount, setCnAmount] = useState("");
+  const [cnDescription, setCnDescription] = useState("");
+  const [cnCurrencyCode, setCnCurrencyCode] = useState("");
+  const [cnAccountBalance, setCnAccountBalance] = useState(null);
+  const [cnIsTaxIncluded, setCnIsTaxIncluded] = useState(false);
+  const [cnTaxCodeId, setCnTaxCodeId] = useState("");
+  const [cnTaxComponentsByCode, setCnTaxComponentsByCode] = useState({});
+  const [showCustomerLov, setShowCustomerLov] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState("");
   const [rvForm, setRvForm] = useState({
     receivedFrom: "",
     receivedFromCode: "",
@@ -314,6 +328,82 @@ export default function CreditNoteForm() {
     }
   }
 
+  // Auto-fetch currency + balance when CN customer changes
+  useEffect(() => {
+    if (!isCN || !cnCustomerId) {
+      setCnCurrencyCode("");
+      setCnAccountBalance(null);
+      return;
+    }
+    const acc = accounts.find((a) => String(a.id) === String(cnCustomerId));
+    setCnCurrencyCode(String(acc?.currency_code || acc?.currency || ""));
+    // Fetch balance
+    (async () => {
+      try {
+        const bal = await fetchAccountBalance(cnCustomerId);
+        setCnAccountBalance(bal);
+      } catch {
+        setCnAccountBalance(null);
+      }
+    })();
+  }, [isCN, cnCustomerId, accounts]);
+
+  // Load CN tax components when tax code selected
+  useEffect(() => {
+    if (!isCN || !cnTaxCodeId) return;
+    const key = String(cnTaxCodeId);
+    if (cnTaxComponentsByCode[key]) {
+      autoPopulateCnTaxPostingLines(cnTaxComponentsByCode[key]);
+      return;
+    }
+    (async () => {
+      try {
+        const resp = await api.get(`/finance/tax-codes/${key}/components`);
+        const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
+        setCnTaxComponentsByCode((prev) => ({ ...prev, [key]: items }));
+        autoPopulateCnTaxPostingLines(items);
+      } catch {}
+    })();
+  }, [isCN, cnTaxCodeId]);
+
+  // Re-run posting line population when description or amount changes while tax code active
+  useEffect(() => {
+    if (!isCN || !cnTaxCodeId) return;
+    const comps = cnTaxComponentsByCode[String(cnTaxCodeId)];
+    if (comps) autoPopulateCnTaxPostingLines(comps);
+  }, [isCN, cnDescription, cnAmount, cnTaxCodeId, cnTaxComponentsByCode]);
+
+  function autoPopulateCnTaxPostingLines(comps) {
+    if (!Array.isArray(comps) || comps.length === 0) return;
+    const baseAmount = Number(cnAmount || 0);
+    const desc = String(cnDescription || "");
+    const taxLines = comps
+      .filter((c) => c.account_id)
+      .map((c) => {
+        const rate = Number(c.rate_percent || 0);
+        const taxAmount = Math.round(baseAmount * rate) / 100;
+        return {
+          accountId: String(c.account_id),
+          accountName: String(c.account_name || ""),
+          accountCode: String(c.account_code || ""),
+          description: desc || String(c.component_name || ""),
+          debit: taxAmount,
+          credit: 0,
+          referenceNo: "",
+          chequeNumber: "",
+          chequeDate: "",
+          paymentMethod: "",
+        };
+      });
+    if (taxLines.length === 0) return;
+    // Replace or insert tax lines — keep any non-tax lines the user added
+    const taxAccIds = new Set(taxLines.map((l) => String(l.accountId)));
+    setLines((prev) => {
+      const baseLines = prev.filter((l) => !taxAccIds.has(String(l.accountId)));
+      return [...baseLines, ...taxLines];
+    });
+  }
+
   useEffect(() => {
     loadSetup();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -458,7 +548,15 @@ export default function CreditNoteForm() {
         setDncnExchangeRate("1");
       }
     })();
-  }, [isCN, isDN, dncnLineCurrencyId, baseCurrency, voucherDate, getExchangeRate, accounts]);
+  }, [
+    isCN,
+    isDN,
+    dncnLineCurrencyId,
+    baseCurrency,
+    voucherDate,
+    getExchangeRate,
+    accounts,
+  ]);
 
   async function loadVoucher() {
     if (!isEdit) return;
@@ -2524,7 +2622,13 @@ export default function CreditNoteForm() {
         setRvExchangeRate("1");
       }
     })();
-  }, [isRV, depositAccountCurrencyCode, baseCurrency, voucherDate, getExchangeRate]);
+  }, [
+    isRV,
+    depositAccountCurrencyCode,
+    baseCurrency,
+    voucherDate,
+    getExchangeRate,
+  ]);
 
   useEffect(() => {
     if (!isPAYV) return;
@@ -2546,7 +2650,13 @@ export default function CreditNoteForm() {
         setPvExchangeRate("1");
       }
     })();
-  }, [isPAYV, paymentAccountCurrencyCode, baseCurrency, voucherDate, getExchangeRate]);
+  }, [
+    isPAYV,
+    paymentAccountCurrencyCode,
+    baseCurrency,
+    voucherDate,
+    getExchangeRate,
+  ]);
 
   // PV UI
   function updatePv(patch) {
@@ -2966,7 +3076,7 @@ export default function CreditNoteForm() {
                   <span className="px-2 py-1 rounded bg-green-500 text-white text-sm font-medium">
                     Approved
                   </span>
-                 ) : null}
+                ) : null}
               </div>
             </div>
           </div>
@@ -2976,7 +3086,7 @@ export default function CreditNoteForm() {
           <div className="card">
             <div className="card-body space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {!(isPAYV || isRV) && !isJV && (
+                {!(isPAYV || isRV) && !isJV && !isCN && (
                   <div>
                     <label className="label">Voucher Type</label>
                     <input
@@ -2986,7 +3096,7 @@ export default function CreditNoteForm() {
                     />
                   </div>
                 )}
-                {!isJV && (
+                {!isJV && !isCN && (
                   <div>
                     <label className="label">Voucher No</label>
                     <input
@@ -2995,11 +3105,9 @@ export default function CreditNoteForm() {
                         voucherNoPreview ||
                         (isJV
                           ? "JV-000001"
-                          : isCN
-                            ? "CN-000001"
-                            : isDN
-                              ? "DN-000001"
-                              : "")
+                          : isDN
+                            ? "DN-000001"
+                            : "")
                       }
                       disabled
                     />
@@ -3190,7 +3298,161 @@ export default function CreditNoteForm() {
                       </div>
                     </div>
                   )}
-                {isCN || isDN ? (
+                {isCN ? (
+                  <>
+                    {/* Row 1 – Customer only */}
+                    <div className="grid grid-cols-1 mb-3">
+                      <div className="relative">
+                        <label className="label">Customer *</label>
+                        <input
+                          className={`input w-full ${readOnly ? "bg-slate-100" : ""}`}
+                          value={cnCustomerName || customerSearch}
+                          placeholder="Search debtor account..."
+                          readOnly={readOnly}
+                          onChange={(e) => {
+                            setCustomerSearch(e.target.value);
+                            setCnCustomerName("");
+                            setCnCustomerId("");
+                            setCnCustomerCode("");
+                          }}
+                          onFocus={() => {
+                            if (!cnCustomerName) setCustomerSearch("");
+                          }}
+                        />
+                        {!readOnly && customerSearch && !cnCustomerName && (() => {
+                          const q = customerSearch.toLowerCase();
+                          const debtorAccounts = accounts
+                            .filter((a) => String(a.group_name || "").toUpperCase() === "DEBTORS")
+                            .filter((a) =>
+                              String(a.name || "").toLowerCase().includes(q) ||
+                              String(a.code || "").toLowerCase().includes(q)
+                            )
+                            .slice(0, 10);
+                          return debtorAccounts.length > 0 ? (
+                            <div className="absolute z-20 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto">
+                              {debtorAccounts.map((a) => (
+                                <button
+                                  key={a.id}
+                                  type="button"
+                                  className="w-full text-left px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700 last:border-b-0"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => {
+                                    setCnCustomerId(String(a.id));
+                                    setCnCustomerCode(String(a.code || ""));
+                                    setCnCustomerName(String(a.name || ""));
+                                    setCustomerSearch("");
+                                  }}
+                                >
+                                  <div className="font-medium text-slate-800 dark:text-slate-100 text-sm">{a.name}</div>
+                                  <div className="text-xs text-slate-500 dark:text-slate-400">{a.code}</div>
+                                </button>
+                              ))}
+                            </div>
+                          ) : null;
+                        })()}
+                        {cnCustomerName && (
+                          <div className="flex gap-4 mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            {cnCurrencyCode && (
+                              <span className="font-semibold text-blue-700 dark:text-blue-300">Currency: {cnCurrencyCode}</span>
+                            )}
+                            <span>
+                              Balance:{" "}
+                              {cnAccountBalance !== null
+                                ? Number(cnAccountBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                : "Loading..."}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Row 2 – Amount | Exchange Rate | Total Amount */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+                      <div>
+                        <label className="label">Amount *</label>
+                        <input
+                          className="input"
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={cnAmount || ""}
+                          onChange={(e) => setCnAmount(e.target.value)}
+                          disabled={readOnly}
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Exchange Rate</label>
+                        <input
+                          className="input bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold"
+                          value={dncnExchangeRate || ""}
+                          readOnly
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Total Amount</label>
+                        <input
+                          className="input bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold"
+                          value={(() => {
+                            const amt = Number(cnAmount || 0);
+                            const rate = Number(dncnExchangeRate || 1) || 1;
+                            const total = Math.round(amt * rate * 100) / 100;
+                            return total.toFixed(2);
+                          })()}
+                          readOnly
+                        />
+                      </div>
+                    </div>
+
+                    {/* Description with visible border */}
+                    <div className="mb-3">
+                      <label className="label">Description</label>
+                      <textarea
+                        className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand resize-y"
+                        rows={4}
+                        value={cnDescription || ""}
+                        onChange={(e) => setCnDescription(e.target.value)}
+                        placeholder="Credit note description"
+                        disabled={readOnly}
+                      />
+                    </div>
+
+                    {/* Is Tax Included + Tax Code */}
+                    <div className="space-y-2 mb-3">
+                      <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={cnIsTaxIncluded}
+                          onChange={(e) => {
+                            const checked = Boolean(e.target.checked);
+                            setCnIsTaxIncluded(checked);
+                            if (!checked) {
+                              setCnTaxCodeId("");
+                              // Remove auto-populated tax lines
+                              setLines((prev) => prev.filter((l) => !l.accountId || true));
+                            }
+                          }}
+                          disabled={readOnly}
+                        />
+                        <span className="font-medium">Is Tax Included</span>
+                      </label>
+                      {cnIsTaxIncluded && (
+                        <select
+                          className={`input ${readOnly ? disabledClass : ""}`}
+                          value={cnTaxCodeId || ""}
+                          onChange={(e) => setCnTaxCodeId(e.target.value)}
+                          disabled={readOnly}
+                        >
+                          <option value="">Select tax code</option>
+                          {taxCodes.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.name || t.tax_name || t.code}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </>
+                ) : isDN ? (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
                     <div>
                       <label className="label">Exchange Rate</label>

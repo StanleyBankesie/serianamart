@@ -2400,6 +2400,197 @@ export async function ensureHRTables() {
       );
     } catch {}
   }
+
+  // --- Performance & Training Tables ---
+  const perfTrainingTables = [
+    `CREATE TABLE IF NOT EXISTS hr_kpi_categories (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      name VARCHAR(100) NOT NULL,
+      description TEXT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_kpi_cat_company (company_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_kpi_assignments (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      kpi_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NULL,
+      dept_id BIGINT UNSIGNED NULL,
+      pos_id BIGINT UNSIGNED NULL,
+      assignment_type ENUM('EMPLOYEE','DEPARTMENT','POSITION','BRANCH','TEAM') NOT NULL DEFAULT 'EMPLOYEE',
+      weight DECIMAL(5,2) NOT NULL DEFAULT 0,
+      target_value DECIMAL(12,2) NULL,
+      scoring_method ENUM('MANUAL','AUTO','WEIGHTED') NOT NULL DEFAULT 'MANUAL',
+      effective_date DATE NULL,
+      expiry_date DATE NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_kpi_assign_kpi (kpi_id),
+      KEY idx_kpi_assign_emp (employee_id),
+      KEY idx_kpi_assign_dept (dept_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_appraisals (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      reviewer_user_id BIGINT UNSIGNED NULL,
+      review_period VARCHAR(100) NOT NULL,
+      start_date DATE NULL,
+      end_date DATE NULL,
+      kpi_score DECIMAL(5,2) NULL,
+      competency_score DECIMAL(5,2) NULL,
+      overall_score DECIMAL(5,2) NULL,
+      status ENUM('DRAFT','PENDING_EMPLOYEE','PENDING_SUPERVISOR','PENDING_HR','APPROVED','REJECTED','CLOSED') NOT NULL DEFAULT 'DRAFT',
+      employee_remarks TEXT NULL,
+      manager_remarks TEXT NULL,
+      hr_remarks TEXT NULL,
+      recommend_promotion TINYINT(1) NOT NULL DEFAULT 0,
+      recommend_increment DECIMAL(5,2) NULL,
+      recommend_training TEXT NULL,
+      submitted_at DATETIME NULL,
+      supervisor_approved_at DATETIME NULL,
+      hr_approved_at DATETIME NULL,
+      created_by BIGINT UNSIGNED NULL,
+      updated_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_appr_emp (employee_id),
+      KEY idx_appr_company (company_id),
+      KEY idx_appr_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_appraisal_details (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      appraisal_id BIGINT UNSIGNED NOT NULL,
+      kpi_id BIGINT UNSIGNED NOT NULL,
+      target_value DECIMAL(12,2) NULL,
+      actual_value DECIMAL(12,2) NULL,
+      weight DECIMAL(5,2) NOT NULL DEFAULT 0,
+      rating DECIMAL(5,2) NULL,
+      score DECIMAL(5,2) NULL,
+      achievement_pct DECIMAL(5,2) NULL,
+      manager_remarks TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_appr_detail_appr (appraisal_id),
+      KEY idx_appr_detail_kpi (kpi_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_competency_scores (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      appraisal_id BIGINT UNSIGNED NOT NULL,
+      competency_name VARCHAR(100) NOT NULL,
+      rating INT NOT NULL DEFAULT 0,
+      remarks TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_comp_appr (appraisal_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_goal_tracking (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      appraisal_id BIGINT UNSIGNED NOT NULL,
+      goal_name VARCHAR(255) NOT NULL,
+      completion_pct DECIMAL(5,2) NOT NULL DEFAULT 0,
+      remarks TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_goal_appr (appraisal_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_training_programs (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      code VARCHAR(30) NOT NULL,
+      name VARCHAR(200) NOT NULL,
+      category VARCHAR(100) NULL,
+      description TEXT NULL,
+      training_type ENUM('INTERNAL','EXTERNAL','ONLINE','CERTIFICATION','WORKSHOP','SEMINAR') NOT NULL DEFAULT 'INTERNAL',
+      trainer VARCHAR(200) NULL,
+      vendor VARCHAR(200) NULL,
+      venue VARCHAR(255) NULL,
+      training_mode VARCHAR(50) NULL,
+      start_date DATE NULL,
+      end_date DATE NULL,
+      cost DECIMAL(12,2) NOT NULL DEFAULT 0,
+      capacity INT NOT NULL DEFAULT 0,
+      dept_id BIGINT UNSIGNED NULL,
+      required_skills TEXT NULL,
+      attachment_url TEXT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_by BIGINT UNSIGNED NULL,
+      updated_by BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_tp_code (company_id, code),
+      KEY idx_tp_dept (dept_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_training_assignments (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      program_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      assigned_by BIGINT UNSIGNED NULL,
+      status ENUM('ASSIGNED','CONFIRMED','COMPLETED','CANCELLED') NOT NULL DEFAULT 'ASSIGNED',
+      score DECIMAL(5,2) NULL,
+      feedback TEXT NULL,
+      assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      confirmed_at DATETIME NULL,
+      completed_at DATETIME NULL,
+      PRIMARY KEY (id),
+      KEY idx_ta_prog (program_id),
+      KEY idx_ta_emp (employee_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_training_attendance (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      assignment_id BIGINT UNSIGNED NOT NULL,
+      session_date DATE NOT NULL,
+      present TINYINT(1) NOT NULL DEFAULT 0,
+      hours_attended DECIMAL(5,2) NULL,
+      remarks TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_ta_assign (assignment_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_certifications (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      training_program_id BIGINT UNSIGNED NULL,
+      cert_name VARCHAR(255) NOT NULL,
+      issued_by VARCHAR(200) NULL,
+      issue_date DATE NULL,
+      expiry_date DATE NULL,
+      cert_url TEXT NULL,
+      cert_number VARCHAR(100) NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_cert_emp (employee_id),
+      KEY idx_cert_expiry (expiry_date)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hr_appraisal_workflow_log (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      appraisal_id BIGINT UNSIGNED NOT NULL,
+      action ENUM('SUBMIT','APPROVE','REJECT','SEND_BACK','FORWARD','ESCALATE') NOT NULL,
+      actor_user_id BIGINT UNSIGNED NULL,
+      comments TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_awl_appr (appraisal_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  ];
+
+  for (const sql of perfTrainingTables) {
+    try {
+      await query(sql);
+    } catch (err) {
+      console.error("Error creating performance/training table:", err);
+    }
+  }
 }
 
 export async function ensureWorkflowTables() {

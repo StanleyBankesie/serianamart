@@ -556,14 +556,14 @@ export default function HomePage() {
     {
       label: "Today Sales",
       value: fmtCurrency(overview?.todaySales || 0),
-      // icon: "💵",
+      icon: "💵",
       path: "/sales/reports",
       color: "from-ticker-green to-ticker-green",
     },
     {
       label: "Total Customers",
       value: String(overview?.totalCustomers ?? 0),
-      // icon: "👥",
+      icon: "👥",
       home_key: "total-customers",
       path: "/sales/customers",
       color: "from-ticker-blue to-ticker-blue",
@@ -571,14 +571,14 @@ export default function HomePage() {
     {
       label: "Average Order",
       value: fmtCurrency(overview?.averageOrder || 0),
-      // icon: "🧾",
+      icon: "🧾",
       path: "/sales/reports",
       color: "from-ticker-purple to-ticker-purple",
     },
     {
       label: "Monthly Revenue",
       value: fmtCurrency(overview?.monthlyRevenue || 0),
-      // icon: "📊",
+      icon: "📊",
       path: "/finance/reports",
       color: "from-ticker-orange to-ticker-orange",
     },
@@ -715,36 +715,133 @@ export default function HomePage() {
 
         {/* Tickers / Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {visibleMetrics.map((metric, index) => (
-            <div
-              key={index}
-              onClick={() => navigate(metric.path)}
-              className={`relative overflow-hidden rounded-xl p-6 shadow-erp-sm hover:shadow-erp-md transition-all duration-200 cursor-pointer group bg-gradient-to-r ${metric.color} text-white`}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-white/80 uppercase tracking-wider">
-                    {metric.label}
-                  </p>
-                  <p className="mt-2 text-3xl font-bold text-white">
-                    {metric.value}
-                  </p>
+          {visibleMetrics.map((metric, index) => {
+            const cardType = index % 4;
+            if (cardType === 0) {
+              // Card 1: Amber Gold
+              return (
+                <div
+                  key={index}
+                  onClick={() => navigate(metric.path)}
+                  className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(178,110,23,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(178,110,23,0.5)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#b26e17] text-white"
+                >
+                  <div className="flex flex-col h-full justify-between">
+                    <div className="flex justify-end min-h-[22px]">
+                      <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white/90 border border-white/15 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] leading-none flex items-center gap-1">
+                        ↓ 2.1% VS LAST MONTH
+                      </span>
+                    </div>
+                    <div className="mt-6">
+                      <div 
+                        className="text-3xl font-extrabold text-white tracking-tight drop-shadow-[0_2px_8px_rgba(255,255,255,0.35)]"
+                        style={{ textShadow: "0 0 12px rgba(255, 255, 255, 0.45)" }}
+                      >
+                        {metric.value}
+                      </div>
+                      <div className="mt-2.5 text-[10px] font-bold text-white/80 uppercase tracking-widest leading-none">
+                        {metric.label}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/5 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
                 </div>
-                <div className="p-3 rounded-lg bg-white/20 text-white">
-                  <span className="text-2xl">{metric.icon}</span>
+              );
+            } else if (cardType === 1) {
+              // Card 2: Steel Blue
+              return (
+                <div
+                  key={index}
+                  onClick={() => navigate(metric.path)}
+                  className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(36,82,109,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(36,82,109,0.5)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#24526d] text-white"
+                >
+                  <div className="flex flex-col h-full justify-between">
+                    <div className="flex justify-end min-h-[22px]">
+                      <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-amber-500/20 backdrop-blur-md text-amber-200 border border-amber-400/20 shadow-sm leading-none flex items-center gap-1">
+                        ↑ 1.5% VS LAST MONTH
+                      </span>
+                    </div>
+                    <div className="mt-6">
+                      <div className="text-3xl font-extrabold text-white tracking-tight">
+                        {metric.value}
+                      </div>
+                      <div className="mt-2.5 text-[10px] font-bold text-white/80 uppercase tracking-widest leading-none flex items-center">
+                        <span>{metric.label}</span>
+                        <svg className="w-8 h-4 text-white/20 ml-2 group-hover:text-white/40 transition-colors" viewBox="0 0 50 20" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M0 15 L10 12 L20 18 L30 8 L40 10 L50 2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/5 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
                 </div>
-              </div>
-              <div className="absolute bottom-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform duration-300">
-                <span className="text-6xl text-white/20">{metric.icon}</span>
-              </div>
-            </div>
-          ))}
+              );
+            } else if (cardType === 2) {
+              // Card 3: Teal Green
+              return (
+                <div
+                  key={index}
+                  onClick={() => navigate(metric.path)}
+                  className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(24,117,92,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(24,117,92,0.5)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#18755c] text-white"
+                >
+                  <div className="flex flex-col h-full justify-between">
+                    <div className="flex justify-end min-h-[22px]">
+                      <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white/90 border border-white/15 shadow-sm leading-none flex items-center gap-1">
+                        ↓ 12% VS LAST QUARTER
+                      </span>
+                    </div>
+                    <div className="mt-6">
+                      <div className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-1.5">
+                        <span>{metric.value}</span>
+                        <svg className="w-5 h-5 text-white/40 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
+                        </svg>
+                      </div>
+                      <div className="mt-2.5 text-[10px] font-bold text-white/80 uppercase tracking-widest leading-none">
+                        {metric.label}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/5 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
+                </div>
+              );
+            } else {
+              // Card 4: Carbon Dark Gray
+              return (
+                <div
+                  key={index}
+                  onClick={() => navigate(metric.path)}
+                  className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(0,0,0,0.2)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.5)] border border-white/5 hover:border-white/15 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.4)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#1d1f22] bg-[radial-gradient(#ffffff06_1px,transparent_1px)] [background-size:8px_8px] text-white"
+                >
+                  <div className="flex flex-col h-full justify-between">
+                    <div className="flex justify-end min-h-[22px]">
+                      <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white border border-white/20 shadow-sm leading-none flex items-center gap-1">
+                        ↑ NEW METRIC
+                      </span>
+                    </div>
+                    <div className="mt-6">
+                      <div className="text-3xl font-extrabold text-white tracking-tight">
+                        {metric.value}
+                      </div>
+                      <div className="mt-2.5 text-[10px] font-bold text-white/80 uppercase tracking-widest leading-none">
+                        {metric.label}
+                      </div>
+                    </div>
+                  </div>
+                  <svg className="w-4.5 h-4.5 text-white/20 absolute right-5 bottom-5 group-hover:scale-110 group-hover:text-white/40 transition-all duration-300" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/5 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
+                </div>
+              );
+            }
+          })}
         </div>
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="space-y-6">
-            <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100 relative">
+            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] p-6 border border-slate-100 dark:border-slate-800/80 hover:border-slate-200/80 dark:hover:border-slate-700/80 hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] dark:hover:shadow-[0_12px_40px_rgb(0,0,0,0.25)] transition-all duration-300 relative overflow-hidden before:absolute before:top-0 before:left-0 before:w-full before:h-[3px] before:bg-gradient-to-r before:from-brand-500/80 before:to-primary-500/80">
               <button
                 type="button"
                 onClick={() => navigate("/social-feed")}
@@ -871,7 +968,7 @@ export default function HomePage() {
           </div>
           <div className="space-y-6">
             <div
-              className="bg-white rounded-xl shadow-erp p-6 border border-slate-100"
+              className="bg-white dark:bg-slate-900 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] p-6 border border-slate-100 dark:border-slate-800/80 hover:border-slate-200/80 dark:hover:border-slate-700/80 hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] dark:hover:shadow-[0_12px_40px_rgb(0,0,0,0.25)] transition-all duration-300 relative overflow-hidden before:absolute before:top-0 before:left-0 before:w-full before:h-[3px] before:bg-gradient-to-r before:from-brand-500/80 before:to-secondary-500/80"
               style={{
                 height: pendingHeight ? `${pendingHeight}px` : undefined,
                 display: "flex",
@@ -964,7 +1061,7 @@ export default function HomePage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100 relative">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] p-6 border border-slate-100 dark:border-slate-800/80 hover:border-slate-200/80 dark:hover:border-slate-700/80 hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] dark:hover:shadow-[0_12px_40px_rgb(0,0,0,0.25)] transition-all duration-300 relative overflow-hidden before:absolute before:top-0 before:left-0 before:w-full before:h-[3px] before:bg-gradient-to-r before:from-purple-500/80 before:to-pink-500/80">
             <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
               <span className="text-purple-500">📑</span> Reports
             </h2>
@@ -1104,7 +1201,7 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl shadow-erp p-6 border border-slate-100">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] p-6 border border-slate-100 dark:border-slate-800/80 hover:border-slate-200/80 dark:hover:border-slate-700/80 hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] dark:hover:shadow-[0_12px_40px_rgb(0,0,0,0.25)] transition-all duration-300 relative overflow-hidden before:absolute before:top-0 before:left-0 before:w-full before:h-[3px] before:bg-gradient-to-r before:from-brand-500/80 before:to-ticker-teal/80">
             <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
               <span className="text-brand-500">🔔</span> Notifications
             </h2>

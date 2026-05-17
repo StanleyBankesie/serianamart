@@ -1,8 +1,5 @@
 import axios from "axios";
-import {
-  queueMutation,
-  getQueueSnapshot,
-} from "../offline/syncEngine.js";
+import { queueMutation, getQueueSnapshot } from "../offline/syncEngine.js";
 import { putCache, getCache } from "../offline/cache.js";
 import {
   clearStoredAuth,
@@ -58,7 +55,9 @@ let _syncStarted = false;
 function ensureSyncEngine() {
   if (_syncStarted) return;
   _syncStarted = true;
-  import("../offline/syncEngine.js").then(({ startSyncEngine }) => startSyncEngine());
+  import("../offline/syncEngine.js").then(({ startSyncEngine }) =>
+    startSyncEngine(),
+  );
 }
 
 let refreshPromise = null;
@@ -72,7 +71,6 @@ function isUnauthenticatedEndpoint(url) {
   return [
     "/register",
     "/login",
-    "/auth/refresh",
     "/auth/logout",
     "/forgot-password/request-otp",
     "/forgot-password/reset",

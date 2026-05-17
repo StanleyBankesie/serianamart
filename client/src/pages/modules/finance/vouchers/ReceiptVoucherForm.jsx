@@ -458,7 +458,15 @@ export default function ReceiptVoucherForm() {
         setDncnExchangeRate("1");
       }
     })();
-  }, [isCN, isDN, dncnLineCurrencyId, baseCurrency, voucherDate, getExchangeRate, accounts]);
+  }, [
+    isCN,
+    isDN,
+    dncnLineCurrencyId,
+    baseCurrency,
+    voucherDate,
+    getExchangeRate,
+    accounts,
+  ]);
 
   async function loadVoucher() {
     if (!isEdit) return;
@@ -902,23 +910,22 @@ export default function ReceiptVoucherForm() {
         const resp = await api.get(`/finance/tax-codes/${key}/components`);
         const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
         setRvTaxComponentsByCode((prev) => ({ ...prev, [key]: items }));
-        // Auto-populate posting lines with tax components after loading
-        setTimeout(() => autoPopulateRvTaxLines(), 0);
+        setTimeout(
+          () => autoPopulateRvPostingLines(0, {}, rvForm.items, items),
+          0,
+        );
       } catch {}
     }
     loadRvTaxComponents();
   }, [isRV, rvForm.taxCodeId, rvTaxComponentsByCode]);
 
-  // Auto-populate RV posting lines when tax code changes (even if components already cached)
+  // Auto-populate RV posting lines when tax code changes.
   useEffect(() => {
-    if (
-      isRV &&
-      rvForm.taxCodeId &&
-      rvTaxComponentsByCode[String(rvForm.taxCodeId)]
-    ) {
-      autoPopulateRvTaxLines();
-    }
-  }, [isRV, rvForm.taxCodeId, rvTaxComponentsByCode]);
+    if (!isRV || paymentType !== "DIRECT") return;
+    const key = String(rvForm.taxCodeId || "");
+    if (key && !rvTaxComponentsByCode[key]) return;
+    autoPopulateRvPostingLines(0, {}, rvForm.items, key ? rvTaxComponentsByCode[key] : []);
+  }, [isRV, paymentType, rvForm.taxCodeId, rvTaxComponentsByCode]);
 
   useEffect(() => {
     async function loadPvTaxComponents() {
@@ -1869,10 +1876,11 @@ export default function ReceiptVoucherForm() {
   }
   function updateRvItem(idx, patch) {
     if (readOnly) return;
+    const nextItems = rvForm.items.map((it, i) =>
+      i === idx ? { ...it, ...patch } : it,
+    );
     updateRvForm({
-      items: rvForm.items.map((it, i) =>
-        i === idx ? { ...it, ...patch } : it,
-      ),
+      items: nextItems,
     });
     // Auto-populate posting lines when account, description, or amount changes
     if (
@@ -1880,68 +1888,112 @@ export default function ReceiptVoucherForm() {
       patch.description !== undefined ||
       patch.amount !== undefined
     ) {
-      setTimeout(() => autoPopulateRvPostingLines(idx, patch), 0);
+      setTimeout(() => autoPopulateRvPostingLines(idx, patch, nextItems), 0);
     }
   }
 
   // Auto-populate posting lines for Receipt Voucher based on payment details
-  function autoPopulateRvPostingLines(changedIdx, changedPatch) {
+  // i) Copies account, description, and amount from payment details to posting lines
+  // ii) Allocates tax components with their calculated amounts
+  // iii) Looks up customer sales account and populates net amount (total - tax)
+  function autoPopulateRvPostingLines(
+    changedIdx,
+    changedPatch,
+    itemsOverride,
+    taxComponentsOverride,
+  ) {
     if (!isRV || paymentType !== "DIRECT") return;
 
-    const currentItem = rvForm.items[changedIdx] || {};
+    const paymentItems = Array.isArray(itemsOverride)
+      ? itemsOverride
+      : rvForm.items;
+    const currentItem = paymentItems[changedIdx] || {};
     const updatedItem = { ...currentItem, ...changedPatch };
     const accountId = updatedItem.accountId || currentItem.accountId || "";
     const description =
       updatedItem.description || currentItem.description || "";
     const amount = Number(updatedItem.amount || currentItem.amount || 0);
 
-    // Build base posting lines from current items
-    const baseLines = rvForm.items.map((it) => {
-      const acc = accounts.find((a) => String(a.id) === String(it.accountId));
-      return {
-        accountId: it.accountId || "",
-        accountName: acc?.name || "",
-        accountCode: acc?.code || "",
-        description: it.description || "",
-        debit: Number(it.amount || 0),
-        credit: 0,
-      };
-    });
+    // Calculate total amount from all payment detail items
+    const totalAmount = paymentItems.reduce(
+      (sum, it) => sum + Number(it.amount || 0),
+      0,
+    );
 
-    // Add tax component lines if tax code is selected
-    const taxLines = [];
-    if (rvForm.taxCodeId && rvTaxComponentsByCode[String(rvForm.taxCodeId)]) {
-      const comps = rvTaxComponentsByCode[String(rvForm.taxCodeId)] || [];
-      const totalAmount = rvForm.items.reduce(
-        (sum, it) => sum + Number(it.amount || 0),
-        0,
-      );
-      comps.forEach((comp) => {
-        if (comp.account_id) {
-          const rate = Number(comp.rate_percent || 0);
-          const taxAmount = (totalAmount * rate) / 100;
-          taxLines.push({
-            accountId: String(comp.account_id),
-            accountName: comp.account_name || "",
-            accountCode: comp.account_code || "",
-            description: description || `Tax - ${comp.component_name || ""}`,
+    // Calculate total tax amount across all components (hidden calculation)
+    let totalTaxAmount = 0;
+    const taxComponentsData = [];
+    const taxComponents = Array.isArray(taxComponentsOverride)
+      ? taxComponentsOverride
+      : rvForm.taxCodeId
+        ? rvTaxComponentsByCode[String(rvForm.taxCodeId)] || []
+        : [];
+    if (rvForm.taxCodeId && taxComponents.length) {
+      taxComponents.forEach((comp) => {
+        const rate = Number(comp.rate_percent || 0);
+        const taxAmount = (totalAmount * rate) / 100;
+        totalTaxAmount += taxAmount;
+        taxComponentsData.push({
+          account_id: comp.account_id,
+          account_name: comp.account_name || "",
+          account_code: comp.account_code || "",
+          component_name: comp.component_name || "",
+          rate_percent: rate,
+          tax_amount: taxAmount,
+        });
+      });
+    }
+
+    // Calculate net amount (total - tax)
+    const netAmount = totalAmount - totalTaxAmount;
+
+    // Step i: Build base posting lines from payment details items
+    // Copy account, description, and amount from payment details to posting lines
+    const baseLines = paymentItems
+      .filter((it) => it.accountId && Number(it.amount || 0) > 0)
+      .map((it) => {
+        const acc = accounts.find((a) => String(a.id) === String(it.accountId));
+        return {
+          accountId: String(it.accountId),
+          accountName: acc?.name || "",
+          accountCode: acc?.code || "",
+          description: it.description || "", // Copy description from payment details
+          debit: Number(it.amount || 0), // Copy amount to debit field
+          credit: 0,
+        };
+      });
+
+    const allLines = [...baseLines];
+
+    // Step ii: Add tax component lines if tax code is selected
+    // Each tax component populates its own account with calculated tax amount on credit side
+    if (taxComponentsData.length > 0) {
+      taxComponentsData.forEach((taxComp) => {
+        if (taxComp.account_id) {
+          allLines.push({
+            accountId: String(taxComp.account_id),
+            accountName: taxComp.account_name || "",
+            accountCode: taxComp.account_code || "",
+            // Duplicate description from payment details for each tax component
+            description: description || `Tax - ${taxComp.component_name || ""}`,
             debit: 0,
-            credit: taxAmount,
+            credit: taxComp.tax_amount, // Tax amount on credit side
           });
         }
       });
     }
 
-    // Add customer sales account line if account matches a customer
-    const customerAccountLines = [];
-    if (accountId) {
+    // Step iii: Look up customer sales account and populate with net amount on credit side
+    // Only process if the first item's account is a customer account
+    if (accountId && paymentItems[0]?.accountId === accountId) {
       const acc = accounts.find((a) => String(a.id) === String(accountId));
       const accountCode = acc?.code || "";
       const customer = payees.find(
         (p) => p.type === "CUSTOMER" && String(p.code) === String(accountCode),
       );
+
       if (customer) {
-        // Find customer data to get sales_account_id
+        // Fetch customer data to get sales_account_id
         api
           .get(`/sales/customers/${customer.id}`)
           .then((res) => {
@@ -1951,52 +2003,37 @@ export default function ReceiptVoucherForm() {
               const salesAcc = accounts.find(
                 (a) => String(a.id) === String(salesAccountId),
               );
-              // Calculate net amount (total - tax)
-              const totalAmount = rvForm.items.reduce(
-                (sum, it) => sum + Number(it.amount || 0),
-                0,
-              );
-              let taxAmount = 0;
-              if (
-                rvForm.taxCodeId &&
-                rvTaxComponentsByCode[String(rvForm.taxCodeId)]
-              ) {
-                const comps =
-                  rvTaxComponentsByCode[String(rvForm.taxCodeId)] || [];
-                taxAmount = comps.reduce(
-                  (sum, c) =>
-                    sum + (totalAmount * Number(c.rate_percent || 0)) / 100,
-                  0,
-                );
-              }
-              const netAmount = totalAmount - taxAmount;
 
-              // Add or update the customer sales account line
+              // Add or update the customer sales account line with net amount on credit side
               setLines((prev) => {
                 const existingIdx = prev.findIndex(
                   (l) => String(l.accountId) === String(salesAccountId),
                 );
+
                 if (existingIdx >= 0) {
+                  // Update existing sales account line
                   return prev.map((l, i) =>
                     i === existingIdx
                       ? {
                           ...l,
                           debit: 0,
-                          credit: netAmount,
-                          description: description || l.description,
+                          credit: netAmount, // net amount (total - tax) on credit side
+                          description: description || l.description, // Duplicate description
                         }
                       : l,
                   );
                 }
+
+                // Add new sales account line
                 return [
                   ...prev,
                   {
                     accountId: String(salesAccountId),
                     accountName: salesAcc?.name || "",
                     accountCode: salesAcc?.code || "",
-                    description: description || "",
+                    description: description || "", // Duplicate description
                     debit: 0,
-                    credit: netAmount,
+                    credit: netAmount, // net amount (total - tax) on credit side
                   },
                 ];
               });
@@ -2006,14 +2043,14 @@ export default function ReceiptVoucherForm() {
       }
     }
 
-    // Combine all lines
-    const allLines = [...baseLines, ...taxLines];
+    // Set all lines including base lines and tax component lines
     if (allLines.length > 0) {
       setLines(allLines);
     }
   }
 
   // Auto-populate posting lines when RV tax code changes
+  // Allocates tax amount across all tax components and populates posting lines
   function autoPopulateRvTaxLines() {
     if (!isRV || !rvForm.taxCodeId) return;
 
@@ -2026,19 +2063,21 @@ export default function ReceiptVoucherForm() {
     );
     const firstDescription = rvForm.items[0]?.description || "";
 
-    // Build tax lines
+    // Calculate total tax amount and allocate to components (hidden calculation)
     const taxLines = comps
       .filter((comp) => comp.account_id)
       .map((comp) => {
         const rate = Number(comp.rate_percent || 0);
+        // Tax amount for this component on credit side
         const taxAmount = (totalAmount * rate) / 100;
         return {
           accountId: String(comp.account_id),
           accountName: comp.account_name || "",
           accountCode: comp.account_code || "",
+          // Duplicate description from payment details for each tax component
           description: firstDescription || `Tax - ${comp.component_name || ""}`,
           debit: 0,
-          credit: taxAmount,
+          credit: taxAmount, // Allocated tax amount on credit side
         };
       });
 
@@ -2049,6 +2088,7 @@ export default function ReceiptVoucherForm() {
       const baseLines = prev.filter(
         (l) => !taxAccountIds.has(String(l.accountId)),
       );
+      // Return combined base lines and new tax lines
       return [...baseLines, ...taxLines];
     });
   }
@@ -2524,7 +2564,13 @@ export default function ReceiptVoucherForm() {
         setRvExchangeRate("1");
       }
     })();
-  }, [isRV, depositAccountCurrencyCode, baseCurrency, voucherDate, getExchangeRate]);
+  }, [
+    isRV,
+    depositAccountCurrencyCode,
+    baseCurrency,
+    voucherDate,
+    getExchangeRate,
+  ]);
 
   useEffect(() => {
     if (!isPAYV) return;
@@ -2546,7 +2592,13 @@ export default function ReceiptVoucherForm() {
         setPvExchangeRate("1");
       }
     })();
-  }, [isPAYV, paymentAccountCurrencyCode, baseCurrency, voucherDate, getExchangeRate]);
+  }, [
+    isPAYV,
+    paymentAccountCurrencyCode,
+    baseCurrency,
+    voucherDate,
+    getExchangeRate,
+  ]);
 
   // PV UI
   function updatePv(patch) {

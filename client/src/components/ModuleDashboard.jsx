@@ -380,27 +380,135 @@ const ModuleDashboard = ({
                 if (!mk || !key) return true;
                 return canViewDashboardElement(mk, "card", key);
               })
-              .map((stat, index) => (
-                <div
-                  key={index}
-                  className={`p-6 rounded-xl shadow-erp-sm hover:shadow-erp-md transition-all duration-200 cursor-pointer group bg-gradient-to-r ${stat.color || randomStatGradients[index]} text-white`}
-                  onClick={() => handleNavigate(stat.path)}
-                >
-                  <div className="flex justify-end mb-2">
-                    {stat.change && (
-                      <span className="text-xs font-bold px-2 py-1 rounded-full bg-white/20 text-white">
-                        {stat.change}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-2xl font-bold text-white mb-1">
-                    {stat.value}
-                  </div>
-                  <div className="text-sm text-white/80 font-medium">
-                    {stat.label}
-                  </div>
-                </div>
-              ))}
+              .map((stat, index) => {
+                const cardType = index % 4;
+                if (cardType === 0) {
+                  // Card 1: Amber Gold
+                  return (
+                    <div
+                      key={index}
+                      className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(178,110,23,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(178,110,23,0.5)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#b26e17] text-white"
+                      onClick={() => handleNavigate(stat.path)}
+                    >
+                      <div className="flex flex-col h-full justify-between">
+                        <div className="flex justify-end min-h-[22px]">
+                          {(stat.change || stat.trend) && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white/90 border border-white/15 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] leading-none flex items-center gap-1">
+                              {stat.change || stat.trend}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-6">
+                          <div 
+                            className="text-3xl font-extrabold text-white tracking-tight drop-shadow-[0_2px_8px_rgba(255,255,255,0.35)]"
+                            style={{ textShadow: "0 0 12px rgba(255, 255, 255, 0.45)" }}
+                          >
+                            {stat.value}
+                          </div>
+                          <div className="mt-2.5 text-[10px] font-bold text-white/80 uppercase tracking-widest leading-none">
+                            {stat.label}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/5 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
+                    </div>
+                  );
+                } else if (cardType === 1) {
+                  // Card 2: Steel Blue
+                  return (
+                    <div
+                      key={index}
+                      className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(36,82,109,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(36,82,109,0.5)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#24526d] text-white"
+                      onClick={() => handleNavigate(stat.path)}
+                    >
+                      <div className="flex flex-col h-full justify-between">
+                        <div className="flex justify-end min-h-[22px]">
+                          {(stat.change || stat.trend) && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-amber-500/20 backdrop-blur-md text-amber-200 border border-amber-400/20 shadow-sm leading-none flex items-center gap-1">
+                              {stat.change || stat.trend}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-6">
+                          <div className="text-3xl font-extrabold text-white tracking-tight">
+                            {stat.value}
+                          </div>
+                          <div className="mt-2.5 text-[10px] font-bold text-white/80 uppercase tracking-widest leading-none flex items-center">
+                            <span>{stat.label}</span>
+                            <svg className="w-8 h-4 text-white/20 ml-2 group-hover:text-white/40 transition-colors" viewBox="0 0 50 20" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M0 15 L10 12 L20 18 L30 8 L40 10 L50 2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/5 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
+                    </div>
+                  );
+                } else if (cardType === 2) {
+                  // Card 3: Teal Green
+                  return (
+                    <div
+                      key={index}
+                      className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(24,117,92,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(24,117,92,0.5)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#18755c] text-white"
+                      onClick={() => handleNavigate(stat.path)}
+                    >
+                      <div className="flex flex-col h-full justify-between">
+                        <div className="flex justify-end min-h-[22px]">
+                          {(stat.change || stat.trend) && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white/90 border border-white/15 shadow-sm leading-none flex items-center gap-1">
+                              {stat.change || stat.trend}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-6">
+                          <div className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-1.5">
+                            <span>{stat.value}</span>
+                            <svg className="w-5 h-5 text-white/40 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
+                            </svg>
+                          </div>
+                          <div className="mt-2.5 text-[10px] font-bold text-white/80 uppercase tracking-widest leading-none">
+                            {stat.label}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/5 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
+                    </div>
+                  );
+                } else {
+                  // Card 4: Carbon Dark Gray
+                  return (
+                    <div
+                      key={index}
+                      className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(0,0,0,0.2)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.5)] border border-white/5 hover:border-white/15 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.4)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#1d1f22] bg-[radial-gradient(#ffffff06_1px,transparent_1px)] [background-size:8px_8px] text-white"
+                      onClick={() => handleNavigate(stat.path)}
+                    >
+                      <div className="flex flex-col h-full justify-between">
+                        <div className="flex justify-end min-h-[22px]">
+                          {(stat.change || stat.trend) && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white border border-white/20 shadow-sm leading-none flex items-center gap-1">
+                              {stat.change || stat.trend}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-6">
+                          <div className="text-3xl font-extrabold text-white tracking-tight">
+                            {stat.value}
+                          </div>
+                          <div className="mt-2.5 text-[10px] font-bold text-white/80 uppercase tracking-widest leading-none">
+                            {stat.label}
+                          </div>
+                        </div>
+                      </div>
+                      <svg className="w-4.5 h-4.5 text-white/20 absolute right-5 bottom-5 group-hover:scale-110 group-hover:text-white/40 transition-all duration-300" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/5 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
+                    </div>
+                  );
+                }
+              })}
           </div>
         </div>
       )}
@@ -418,13 +526,13 @@ const ModuleDashboard = ({
               .map((action, index) => (
                 <button
                   key={index}
-                  className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm hover:shadow-md hover:bg-brand-50 dark:hover:bg-slate-700 transition-all duration-200 group text-center h-full border border-slate-100 dark:border-slate-700"
+                  className="flex flex-col items-center justify-center p-5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-xl shadow-sm hover:shadow-md hover:-translate-y-1 border border-slate-100 dark:border-slate-700/50 hover:border-brand-300 dark:hover:border-brand-700/60 hover:bg-gradient-to-br hover:from-white hover:to-brand-50/20 dark:hover:from-slate-800 dark:hover:to-slate-900/50 transition-all duration-300 group text-center h-full relative overflow-hidden"
                   onClick={() => handleNavigate(action.path)}
                 >
-                  <span className="text-2xl mb-2 group-hover:-translate-y-1 transition-transform duration-200 block">
+                  <div className="w-12 h-12 rounded-xl bg-brand-50/50 dark:bg-slate-700/50 flex items-center justify-center text-2xl mb-3 shadow-inner group-hover:scale-110 group-hover:rotate-3 group-hover:from-brand-100 group-hover:to-brand-200/50 dark:group-hover:from-slate-600 dark:group-hover:to-slate-700 transition-all duration-300">
                     {action.icon}
-                  </span>
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-brand-700 dark:group-hover:text-brand-300">
+                  </div>
+                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 group-hover:text-brand-700 dark:group-hover:text-brand-300 transition-colors">
                     {action.label}
                   </span>
                 </button>
@@ -480,19 +588,19 @@ const ModuleDashboard = ({
                     return (
                       <div
                         key={itemIndex}
-                        className="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm hover:shadow-md hover:border-brand-300 dark:hover:border-brand-700 border border-transparent transition-all duration-200 cursor-pointer group relative overflow-hidden"
+                        className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700/50 hover:border-brand-300/80 dark:hover:border-brand-600/80 hover:-translate-y-1.5 hover:shadow-[0_15px_35px_rgba(14,54,70,0.06)] dark:hover:shadow-[0_15px_35px_rgba(0,0,0,0.25)] transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] cursor-pointer group relative overflow-hidden"
                         onClick={() => handleNavigate(item.path)}
                       >
                         <div className="flex items-start gap-4">
-                          <div className="w-10 h-10 rounded-lg bg-brand-50 dark:bg-slate-700 flex items-center justify-center text-xl group-hover:bg-brand-100 dark:group-hover:bg-slate-600 transition-colors">
+                          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-50 to-brand-100/50 dark:from-slate-700 dark:to-slate-800 flex items-center justify-center text-xl shadow-inner group-hover:scale-110 group-hover:rotate-1 group-hover:from-brand-100 group-hover:to-brand-200/50 dark:group-hover:from-slate-600 dark:group-hover:to-slate-700 transition-all duration-300">
                             {item.icon || "📄"}
                           </div>
-                          <div className="flex-1">
-                            <h3 className="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-brand-700 dark:group-hover:text-brand-400 transition-colors mb-1">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-brand-700 dark:group-hover:text-brand-400 transition-colors mb-1 truncate">
                               {itemTitle}
                             </h3>
                             {item.description && (
-                              <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2">
+                              <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
                                 {item.description}
                               </p>
                             )}
@@ -504,14 +612,14 @@ const ModuleDashboard = ({
                                   ).toLowerCase();
                                   const actionClass =
                                     actionType === "primary"
-                                      ? "bg-brand-600 text-white hover:bg-brand-700 border-brand-600"
-                                      : "bg-white dark:bg-slate-800 text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-slate-700 border-brand-200 dark:border-slate-600";
+                                      ? "bg-brand text-white hover:bg-brand-700 border-brand shadow-sm hover:shadow"
+                                      : "bg-white dark:bg-slate-800 text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-600 hover:border-brand-300 dark:hover:border-brand-600 shadow-sm";
 
                                   return (
                                     <button
                                       key={`${action.path || action.label}-${actionIndex}`}
                                       type="button"
-                                      className={`inline-flex items-center rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${actionClass}`}
+                                      className={`inline-flex items-center rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all duration-200 ${actionClass}`}
                                       onClick={(e) =>
                                         handleNavigate(action.path, e)
                                       }
@@ -525,6 +633,8 @@ const ModuleDashboard = ({
                             )}
                           </div>
                         </div>
+                        {/* Custom bottom line slide-in highlight on hover */}
+                        <div className="absolute bottom-0 left-0 w-full h-[2px] bg-gradient-to-r from-brand-500/80 to-primary-500/80 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-left" />
                       </div>
                     );
                   })}

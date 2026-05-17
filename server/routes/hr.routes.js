@@ -6,6 +6,8 @@ import {
 } from "../middleware/auth.js";
 import { requirePermission } from "../middleware/requirePermission.js";
 import * as hrController from "../controllers/hr.controller.js";
+import * as perfController from "../controllers/performance.controller.js";
+import * as trainController from "../controllers/training.controller.js";
 
 const router = express.Router();
 
@@ -555,57 +557,60 @@ router.post(
   hrController.sendPayslipEmail,
 );
 
-// Performance
-router.get(
-  "/performance/kpis",
-  requireAuth,
-  requireCompanyScope,
-  hrController.listKPIs,
-);
-router.post(
-  "/performance/kpis",
-  requireAuth,
-  requireCompanyScope,
-  hrController.saveKPI,
-);
-router.get(
-  "/performance/reviews",
-  requireAuth,
-  requireCompanyScope,
-  hrController.listPerformanceReviews,
-);
-router.post(
-  "/performance/reviews",
-  requireAuth,
-  requireCompanyScope,
-  hrController.savePerformanceReview,
-);
+// ============ PERFORMANCE MANAGEMENT ============
 
-// Training
-router.get(
-  "/training/programs",
-  requireAuth,
-  requireCompanyScope,
-  hrController.listTrainingPrograms,
-);
-router.post(
-  "/training/programs",
-  requireAuth,
-  requireCompanyScope,
-  hrController.saveTrainingProgram,
-);
-router.get(
-  "/training/records",
-  requireAuth,
-  requireCompanyScope,
-  hrController.listTrainingRecords,
-);
-router.post(
-  "/training/records",
-  requireAuth,
-  requireCompanyScope,
-  hrController.saveTrainingRecord,
-);
+// KPI Categories
+router.get("/performance/kpi-categories", requireAuth, requireCompanyScope, perfController.listKpiCategories);
+router.post("/performance/kpi-categories", requireAuth, requireCompanyScope, perfController.saveKpiCategory);
+router.delete("/performance/kpi-categories/:id", requireAuth, requireCompanyScope, perfController.deleteKpiCategory);
+
+// KPI Management
+router.get("/performance/kpis", requireAuth, requireCompanyScope, perfController.listKpis);
+router.get("/performance/kpis/:id", requireAuth, requireCompanyScope, perfController.getKpi);
+router.post("/performance/kpis", requireAuth, requireCompanyScope, perfController.saveKpi);
+router.delete("/performance/kpis/:id", requireAuth, requireCompanyScope, perfController.deleteKpi);
+router.post("/performance/kpis/clone", requireAuth, requireCompanyScope, perfController.cloneKpi);
+
+// KPI Assignments
+router.get("/performance/kpi-assignments", requireAuth, requireCompanyScope, perfController.listKpiAssignments);
+router.post("/performance/kpi-assignments", requireAuth, requireCompanyScope, perfController.saveKpiAssignment);
+router.delete("/performance/kpi-assignments/:id", requireAuth, requireCompanyScope, perfController.deleteKpiAssignment);
+
+// Appraisals
+router.get("/performance/appraisals", requireAuth, requireCompanyScope, perfController.listAppraisals);
+router.get("/performance/appraisals/:id", requireAuth, requireCompanyScope, perfController.getAppraisal);
+router.post("/performance/appraisals", requireAuth, requireCompanyScope, perfController.saveAppraisal);
+router.post("/performance/appraisals/:id/action", requireAuth, requireCompanyScope, perfController.submitAppraisal);
+router.get("/performance/dashboard", requireAuth, requireCompanyScope, perfController.getAppraisalDashboard);
+router.post("/performance/attachments", requireAuth, requireCompanyScope, perfController.uploadAttachment);
+
+// ============ TRAINING MANAGEMENT ============
+
+// Training Programs
+router.get("/training/programs", requireAuth, requireCompanyScope, trainController.listTrainingPrograms);
+router.get("/training/programs/:id", requireAuth, requireCompanyScope, trainController.getTrainingProgram);
+router.post("/training/programs", requireAuth, requireCompanyScope, trainController.saveTrainingProgram);
+router.delete("/training/programs/:id", requireAuth, requireCompanyScope, trainController.deleteTrainingProgram);
+
+// Training Assignments
+router.get("/training/assignments", requireAuth, requireCompanyScope, trainController.listTrainingAssignments);
+router.post("/training/assignments", requireAuth, requireCompanyScope, trainController.saveTrainingAssignment);
+router.delete("/training/assignments/:id", requireAuth, requireCompanyScope, trainController.deleteTrainingAssignment);
+
+// Training Attendance
+router.get("/training/attendance", requireAuth, requireCompanyScope, trainController.listTrainingAttendance);
+router.post("/training/attendance", requireAuth, requireCompanyScope, trainController.saveTrainingAttendance);
+
+// Training History
+router.get("/training/history", requireAuth, requireCompanyScope, trainController.listTrainingHistory);
+
+// Certifications
+router.get("/training/certifications", requireAuth, requireCompanyScope, trainController.listCertifications);
+router.post("/training/certifications", requireAuth, requireCompanyScope, trainController.saveCertification);
+router.delete("/training/certifications/:id", requireAuth, requireCompanyScope, trainController.deleteCertification);
+
+// Training Dashboard
+router.get("/training/dashboard", requireAuth, requireCompanyScope, trainController.getTrainingDashboard);
 
 // Compliance
 router.get(

@@ -343,28 +343,133 @@ export default function ExecutiveOverviewHome() {
             {KPI_CARDS.map((card, i) => {
               const val = card.kpiKey ? kpis[card.kpiKey] : null;
               const hasValue = val !== null && val !== undefined;
-              return (
-                <button
-                  key={i}
-                  onClick={() => navigate(card.path)}
-                  className="group bg-white border border-gray-200 rounded-lg p-5 text-left transition-all duration-200 hover:shadow-md hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                >
-                  <div className="flex items-start gap-4">
-                    <div className={`flex-shrink-0 w-10 h-10 ${card.iconBg} ${card.iconColor} rounded-lg flex items-center justify-center transition-transform duration-200 group-hover:scale-105`}>
-                      <KpiIcon name={card.iconName} className="w-5 h-5" />
+              const cardType = i % 4;
+              const formattedVal = hasValue ? `₵${fmt(val)}` : "View Report";
+
+              if (cardType === 0) {
+                // Card 1: Amber Gold
+                return (
+                  <button
+                    key={i}
+                    onClick={() => navigate(card.path)}
+                    className="group relative overflow-hidden rounded-[24px] p-5 shadow-[0_15px_30px_-5px_rgba(178,110,23,0.25)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(178,110,23,0.4)] active:scale-[0.98] transition-all duration-300 ease-out text-left focus:outline-none focus:ring-2 focus:ring-amber-500 bg-[#b26e17] text-white"
+                  >
+                    <div className="flex flex-col h-full justify-between">
+                      <div className="flex justify-between items-start min-h-[22px]">
+                        <p className="text-[10px] text-white/70 uppercase tracking-widest font-bold leading-none">{card.desc}</p>
+                        <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-white/15 backdrop-blur-md text-white/90 border border-white/15 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] leading-none flex items-center">
+                          ↓ 2.1%
+                        </span>
+                      </div>
+                      <div className="mt-5">
+                        <div 
+                          className="text-2xl font-extrabold text-white tracking-tight drop-shadow-[0_2px_8px_rgba(255,255,255,0.35)]"
+                          style={{ textShadow: "0 0 12px rgba(255, 255, 255, 0.45)" }}
+                        >
+                          {formattedVal}
+                        </div>
+                        <div className="mt-2 text-xs font-bold text-white/80 uppercase tracking-wider leading-none">
+                          {card.label}
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">{card.desc}</p>
-                      <p className="text-sm font-semibold text-gray-900 mt-0.5 truncate">{card.label}</p>
-                      {hasValue ? (
-                        <p className="text-lg font-bold text-gray-900 mt-1 tabular-nums">₵{fmt(val)}</p>
-                      ) : (
-                        <p className="text-sm text-blue-600 font-medium mt-1 group-hover:text-blue-700">View Report →</p>
-                      )}
+                    <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/5 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
+                  </button>
+                );
+              } else if (cardType === 1) {
+                // Card 2: Steel Blue
+                return (
+                  <button
+                    key={i}
+                    onClick={() => navigate(card.path)}
+                    className="group relative overflow-hidden rounded-[24px] p-5 shadow-[0_15px_30px_-5px_rgba(36,82,109,0.25)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(36,82,109,0.4)] active:scale-[0.98] transition-all duration-300 ease-out text-left focus:outline-none focus:ring-2 focus:ring-blue-500 bg-[#24526d] text-white"
+                  >
+                    <div className="flex flex-col h-full justify-between">
+                      <div className="flex justify-between items-start min-h-[22px]">
+                        <p className="text-[10px] text-white/70 uppercase tracking-widest font-bold leading-none">{card.desc}</p>
+                        <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-amber-500/20 backdrop-blur-md text-amber-200 border border-amber-400/20 shadow-sm leading-none flex items-center">
+                          ↑ 1.5%
+                        </span>
+                      </div>
+                      <div className="mt-5">
+                        <div className="text-2xl font-extrabold text-white tracking-tight">
+                          {formattedVal}
+                        </div>
+                        <div className="mt-2 text-xs font-bold text-white/80 uppercase tracking-wider leading-none flex items-center">
+                          <span>{card.label}</span>
+                          <svg className="w-8 h-4 text-white/20 ml-2 group-hover:text-white/40 transition-colors" viewBox="0 0 50 20" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M0 15 L10 12 L20 18 L30 8 L40 10 L50 2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </button>
-              );
+                    <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/5 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
+                  </button>
+                );
+              } else if (cardType === 2) {
+                // Card 3: Teal Green
+                return (
+                  <button
+                    key={i}
+                    onClick={() => navigate(card.path)}
+                    className="group relative overflow-hidden rounded-[24px] p-5 shadow-[0_15px_30px_-5px_rgba(24,117,92,0.25)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(24,117,92,0.4)] active:scale-[0.98] transition-all duration-300 ease-out text-left focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-[#18755c] text-white"
+                  >
+                    <div className="flex flex-col h-full justify-between">
+                      <div className="flex justify-between items-start min-h-[22px]">
+                        <p className="text-[10px] text-white/70 uppercase tracking-widest font-bold leading-none">{card.desc}</p>
+                        <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white/90 border border-white/15 shadow-sm leading-none flex items-center">
+                          ↓ 12%
+                        </span>
+                      </div>
+                      <div className="mt-5">
+                        <div className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-1.5">
+                          <span>{formattedVal}</span>
+                          {hasValue && (
+                            <svg className="w-5 h-5 text-white/40 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
+                            </svg>
+                          )}
+                        </div>
+                        <div className="mt-2 text-xs font-bold text-white/80 uppercase tracking-wider leading-none">
+                          {card.label}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/5 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
+                  </button>
+                );
+              } else {
+                // Carbon Black
+                return (
+                  <button
+                    key={i}
+                    onClick={() => navigate(card.path)}
+                    className="group relative overflow-hidden rounded-[24px] p-5 shadow-[0_15px_30px_-5px_rgba(0,0,0,0.25)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.5)] border border-white/5 hover:border-white/15 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.4)] active:scale-[0.98] transition-all duration-300 ease-out text-left focus:outline-none focus:ring-2 focus:ring-slate-500 bg-[#1d1f22] bg-[radial-gradient(#ffffff06_1px,transparent_1px)] [background-size:8px_8px] text-white"
+                  >
+                    <div className="flex flex-col h-full justify-between">
+                      <div className="flex justify-between items-start min-h-[22px]">
+                        <p className="text-[10px] text-white/70 uppercase tracking-widest font-bold leading-none">{card.desc}</p>
+                        <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white border border-white/20 shadow-sm leading-none flex items-center">
+                          ↑ NEW
+                        </span>
+                      </div>
+                      <div className="mt-5">
+                        <div className="text-2xl font-extrabold text-white tracking-tight">
+                          {formattedVal}
+                        </div>
+                        <div className="mt-2 text-xs font-bold text-white/80 uppercase tracking-wider leading-none">
+                          {card.label}
+                        </div>
+                      </div>
+                    </div>
+                    <svg className="w-4.5 h-4.5 text-white/20 absolute right-5 bottom-5 group-hover:scale-110 group-hover:text-white/40 transition-all duration-300" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/5 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
+                  </button>
+                );
+              }
             })}
           </div>
         </section>
@@ -383,17 +488,19 @@ export default function ExecutiveOverviewHome() {
                 key={mod.key}
                 to={mod.path}
                 state={{ fromExecutiveOverview: true }}
-                className={`group ${mod.color} text-white p-5 rounded-lg shadow-sm transition-all duration-200 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500`}
+                className={`group ${mod.color} text-white p-6 rounded-xl shadow-sm border border-white/5 hover:border-white/20 hover:-translate-y-1 hover:scale-[1.02] hover:shadow-[0_20px_40px_rgba(0,0,0,0.12)] active:scale-[0.98] transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 relative overflow-hidden`}
               >
                 <div className="flex flex-col items-center text-center gap-3">
-                  <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center transition-transform duration-200 group-hover:scale-105">
+                  <div className="w-12 h-12 bg-white/25 backdrop-blur-md border border-white/10 rounded-xl flex items-center justify-center shadow-inner transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
                     <ModuleIcon name={mod.key} className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <p className="font-semibold text-sm leading-tight">{mod.label}</p>
-                    <p className="text-xs text-white/70 mt-0.5 font-medium">{mod.desc}</p>
+                    <p className="font-bold text-sm leading-tight tracking-wide">{mod.label}</p>
+                    <p className="text-[10px] text-white/80 uppercase tracking-widest mt-1 font-semibold">{mod.desc}</p>
                   </div>
                 </div>
+                {/* Shimmer overlay */}
+                <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/10 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
               </Link>
             ))}
           </div>
