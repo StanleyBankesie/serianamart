@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
@@ -93,6 +95,9 @@ export default function DiscountUtilizationReportPage() {
     doc.save("discount-utilization.pdf");
   }
 
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "id", "desc");
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -114,16 +119,16 @@ export default function DiscountUtilizationReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Discount Scheme Name</th>
-                  <th>Customer</th>
-                  <th>Invoice No</th>
-                  <th className="text-right">Discount %</th>
-                  <th className="text-right">Discount Amount</th>
-                  <th>Approved By</th>
+                  <SortableHeader label="Discount Scheme Name" sortKey="discount_scheme_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Invoice No" sortKey="invoice_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Discount %" sortKey="discount_" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Discount Amount" sortKey="discount_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Approved By" sortKey="approved_by" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, i) => (
+                {sorted_items.map((r, i) => (
                   <tr key={i}>
                     <td className="font-medium">{r.discount_scheme_name}</td>
                     <td>{r.customer}</td>

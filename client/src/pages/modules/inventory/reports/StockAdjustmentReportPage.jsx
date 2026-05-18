@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
@@ -47,6 +49,9 @@ export default function StockAdjustmentReportPage() {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, warehouseId]);
+
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
 
   return (
     <div className="space-y-4">
@@ -172,18 +177,18 @@ export default function StockAdjustmentReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Adjustment No</th>
-                  <th>Warehouse</th>
-                  <th>Item</th>
-                  <th className="text-right">Qty</th>
-                  <th>UOM</th>
-                  <th>Status</th>
-                  <th>Reason</th>
+                  <SortableHeader label="Date" sortKey="date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Adjustment No" sortKey="adjustment_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Warehouse" sortKey="warehouse" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Item" sortKey="item" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Qty" sortKey="quantity" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="UOM" sortKey="uom" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Reason" sortKey="reason" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, idx) => (
+                {sorted_items.map((r, idx) => (
                   <tr key={`${r.adjustment_id}-${idx}`}>
                     <td>
                       {r.adjustment_date

@@ -46,6 +46,7 @@ export default function CreditNoteList() {
   const isJV = voucherTypeCode === "JV";
   const isPAYV = voucherTypeCode === "PAYV";
   const isPUV = voucherTypeCode === "PUV";
+  const isCN = voucherTypeCode === "CN";
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [selectedVoucher, setSelectedVoucher] = useState(null);
   const [wfLoading, setWfLoading] = useState(false);
@@ -293,7 +294,7 @@ export default function CreditNoteList() {
     });
   }, [items, search, status]);
 
-  const { sorted: sortedVouchers, sortKey, sortDir, toggle } = useSort(filtered, "voucher_no", "asc");
+  const { sorted: sortedVouchers, sortKey, sortDir, toggle } = useSort(filtered, "id", "desc");
 
   const accountNameByCode = useMemo(() => {
     const m = new Map();
@@ -957,7 +958,9 @@ export default function CreditNoteList() {
           ? "/finance/contra-voucher"
           : isPAYV
             ? "/finance/payment-voucher"
-            : "/finance/journal-voucher";
+            : isCN
+              ? "/finance/credit-note"
+              : "/finance/journal-voucher";
     const synonyms = isPV
       ? ["PAYMENT_VOUCHER", "Payment Voucher", "PV"]
       : isRV
@@ -972,7 +975,9 @@ export default function CreditNoteList() {
                 "MAKE_PAYMENT",
                 "Make Payment",
               ]
-            : ["JOURNAL_VOUCHER", "Journal Voucher", "JV"];
+            : isCN
+              ? ["CREDIT_NOTE", "Credit Note", "CN"]
+              : ["JOURNAL_VOUCHER", "Journal Voucher", "JV"];
     const normalize = (s) =>
       String(s || "")
         .trim()
@@ -1050,7 +1055,9 @@ export default function CreditNoteList() {
           ? "/finance/contra-voucher"
           : isPAYV
             ? "/finance/payment-voucher"
-            : "/finance/journal-voucher";
+            : isCN
+              ? "/finance/credit-note"
+              : "/finance/journal-voucher";
     const synonyms = isPV
       ? ["PAYMENT_VOUCHER", "Payment Voucher", "PV"]
       : isRV
@@ -1065,7 +1072,9 @@ export default function CreditNoteList() {
                 "MAKE_PAYMENT",
                 "Make Payment",
               ]
-            : ["JOURNAL_VOUCHER", "Journal Voucher", "JV"];
+            : isCN
+              ? ["CREDIT_NOTE", "Credit Note", "CN"]
+              : ["JOURNAL_VOUCHER", "Journal Voucher", "JV"];
     const normalize = (s) =>
       String(s || "")
         .trim()
@@ -1331,8 +1340,8 @@ export default function CreditNoteList() {
                     <SortableHeader label="Amount" sortKey="balanced_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                     <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <th className="text-right">Actions</th>
-                    {(isPAYV || isRV || isJV) && <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />}
-                    {(isPAYV || isRV || isJV) && <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />}
+                    {(isPAYV || isRV || isJV || isCN) && <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />}
+                    {(isPAYV || isRV || isJV || isCN) && <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />}
                   </tr>
                 </thead>
                 <tbody>
@@ -1420,7 +1429,7 @@ export default function CreditNoteList() {
 
                           {/* Slot 6: Workflow/Approval */}
                           <div className="min-w-[160px]">
-                            {(isRV || isCV || isJV || isPAYV) && (
+                            {(isRV || isCV || isJV || isPAYV || isCN) && (
                               <div className="list-approval-slot">
                                 {["APPROVED", "POSTED", "COMPLETED", "FINALIZED"].includes(
                                   String(v.status || "").toUpperCase(),
@@ -1430,10 +1439,9 @@ export default function CreditNoteList() {
                                       Approved
                                     </span>
                                     {/* Slot 7: Reverse Approval */}
-                                    {((isRV || isCV || isJV || isPAYV) &&
-                                      !isSV && !isPV) && (
+                                    {((isRV || isCV || isJV || isPAYV || isCN) && !isSV && !isPV) && (
                                       <ReverseApprovalButton
-                                        docType={isRV ? "RECEIPT_VOUCHER" : isCV ? "CONTRA_VOUCHER" : isPAYV ? "PAYMENT_VOUCHER" : "JOURNAL_VOUCHER"}
+                                        docType={isRV ? "RECEIPT_VOUCHER" : isCV ? "CONTRA_VOUCHER" : isPAYV ? "PAYMENT_VOUCHER" : isJV ? "JOURNAL_VOUCHER" : isCN ? "CREDIT_NOTE" : "VOUCHER"}
                                         docId={v.id}
                                         className="list-approval-reverse-btn"
                                         onDone={() => setItems((prev) => prev.map((x) => x.id === v.id ? { ...x, status: "RETURNED", forwarded_to_username: null } : x))}
@@ -1461,8 +1469,8 @@ export default function CreditNoteList() {
                           </div>
                         </div>
                       </td>
-                      {(isPAYV || isRV || isJV) && <td className="py-2">{v.created_by_username || v.created_by_name || "-"}</td>}
-                      {(isPAYV || isRV || isJV) && <td className="py-2">{v.created_at ? new Date(v.created_at).toLocaleDateString() : "-"}</td>}
+                      {(isPAYV || isRV || isJV || isCN) && <td className="py-2">{v.created_by_username || v.created_by_name || "-"}</td>}
+                      {(isPAYV || isRV || isJV || isCN) && <td className="py-2">{v.created_at ? new Date(v.created_at).toLocaleDateString() : "-"}</td>}
                     </tr>
                   ))}
                 </tbody>

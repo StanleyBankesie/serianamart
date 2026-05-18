@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -119,6 +121,9 @@ export default function DebtorsBalanceReportPage() {
     run();
   }, []);
 
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -199,15 +204,15 @@ export default function DebtorsBalanceReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Customer</th>
-                  <th className="text-right">Opening</th>
-                  <th className="text-right">Invoiced</th>
-                  <th className="text-right">Received</th>
-                  <th className="text-right">Outstanding</th>
+                  <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Opening" sortKey="opening" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Invoiced" sortKey="invoiced" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Received" sortKey="received" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Outstanding" sortKey="outstanding" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, idx) => (
+                {sorted_items.map((r, idx) => (
                   <tr key={r.id || idx}>
                     <td className="font-medium">{r.customer_name || "-"}</td>
                     <td className="text-right">

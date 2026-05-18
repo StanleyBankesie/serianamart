@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 
@@ -43,6 +45,9 @@ export default function MonthlySalesTrendReportPage() {
       return { ...r, growth_percent: g };
     });
 
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "id", "desc");
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -67,11 +72,11 @@ export default function MonthlySalesTrendReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Month</th>
-                  <th className="text-right">Total Invoices</th>
-                  <th className="text-right">Total Revenue</th>
-                  <th className="text-right">Total Discounts</th>
-                  <th className="text-right">Growth %</th>
+                  <SortableHeader label="Month" sortKey="month" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Total Invoices" sortKey="total_invoices" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Total Revenue" sortKey="total_revenue" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Total Discounts" sortKey="total_discounts" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Growth %" sortKey="growth_" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>

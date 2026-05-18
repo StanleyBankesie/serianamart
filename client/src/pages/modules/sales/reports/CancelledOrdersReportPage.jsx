@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 
@@ -24,6 +26,9 @@ export default function CancelledOrdersReportPage() {
     run();
   }, []);
 
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -46,15 +51,15 @@ export default function CancelledOrdersReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Order No</th>
-                  <th>Customer</th>
-                  <th>Reason</th>
-                  <th>Cancelled By</th>
-                  <th>Date</th>
+                  <SortableHeader label="Order No" sortKey="order_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Reason" sortKey="reason" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Cancelled By" sortKey="cancelled_by" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, i) => (
+                {sorted_items.map((r, i) => (
                   <tr key={i}>
                     <td className="font-medium">{r.order_no}</td>
                     <td>{r.customer}</td>

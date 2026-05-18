@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -28,6 +30,9 @@ export default function SlowMovingReportPage() {
   useEffect(() => {
     run();
   }, []);
+
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
 
   return (
     <div className="space-y-4">
@@ -163,13 +168,13 @@ export default function SlowMovingReportPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th>Item</th>
-                  <th className="text-right">Issued Qty</th>
-                  <th className="text-right">Turnover</th>
+                  <SortableHeader label="Item" sortKey="item" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Issued Qty" sortKey="issued_qty" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Turnover" sortKey="turnover" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r) => (
+                {sorted_items.map((r) => (
                   <tr key={r.item_id}>
                     <td className="font-medium">
                       {r.item_name || r.item_code}

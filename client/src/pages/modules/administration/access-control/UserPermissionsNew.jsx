@@ -266,7 +266,9 @@ export default function UserPermissions() {
       setSaving(true);
       setError("");
 
-      // Build per-page payload only for features with explicit overrides
+      // Build per-page payload for ALL features with explicit overrides.
+      // We also pass feature_key so the backend can resolve page IDs
+      // for features whose pages weren't loaded in context.
       const payload = [];
       for (const [featureKeyRaw, actionsRaw] of Object.entries(
         userFeatureOverrides || {},
@@ -282,18 +284,34 @@ export default function UserPermissions() {
           typeof actions.can_delete === "boolean";
         if (!hasAnyExplicit) continue;
 
-        const ctx = featureContextByKey.get(featureKey) || {};
-        const pages = Array.isArray(ctx?.pages) ? ctx.pages : [];
-        if (!pages.length) continue;
-
         const can_view = getEffective(featureKey, "can_view");
         const can_create = getEffective(featureKey, "can_create");
         const can_edit = getEffective(featureKey, "can_edit");
         const can_delete = getEffective(featureKey, "can_delete");
 
-        for (const pg of pages) {
+        const ctx = featureContextByKey.get(featureKey) || {};
+        const pages = Array.isArray(ctx?.pages) ? ctx.pages : [];
+
+        if (pages.length > 0) {
+          // Send one entry per page so backend can do page-level upserts
+          for (const pg of pages) {
+            const pgId = Number(pg.page_id || pg.id || 0);
+            if (!pgId) continue;
+            payload.push({
+              feature_key: featureKey,
+              page_id: pgId,
+              can_view,
+              can_create,
+              can_edit,
+              can_delete,
+            });
+          }
+        } else {
+          // No pages resolved on the client; send feature_key only so the
+          // server can resolve the correct pages from adm_pages.
           payload.push({
-            page_id: Number(pg.page_id || pg.id || 0),
+            feature_key: featureKey,
+            page_id: null,
             can_view,
             can_create,
             can_edit,

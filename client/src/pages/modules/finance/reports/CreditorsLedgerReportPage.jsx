@@ -52,7 +52,7 @@ export default function CreditorsLedgerReportPage() {
     return { debit, credit, balance };
   }, [items]);
 
-  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "voucher_date", "asc");
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "voucher_date", "desc");
 
   async function run() {
     try {

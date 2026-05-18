@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
@@ -135,6 +137,9 @@ export default function QuotationSummaryReportPage() {
     doc.save("sales-quotation-summary.pdf");
   }
 
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -237,18 +242,18 @@ export default function QuotationSummaryReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Quotation No</th>
-                  <th>Date</th>
-                  <th>Customer</th>
-                  <th className="text-right">Amount</th>
-                  <th>Valid Until</th>
-                  <th>Status</th>
-                  <th>Salesperson</th>
-                  <th>Converted</th>
+                  <SortableHeader label="Quotation No" sortKey="quotation_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Amount" sortKey="amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Valid Until" sortKey="valid_until" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Salesperson" sortKey="salesperson" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Converted" sortKey="converted" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, i) => (
+                {sorted_items.map((r, i) => (
                   <tr key={i}>
                     <td className="font-medium">{r.quotation_no}</td>
                     <td>

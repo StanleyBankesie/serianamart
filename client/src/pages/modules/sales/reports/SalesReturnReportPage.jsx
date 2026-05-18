@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -111,6 +113,9 @@ export default function SalesReturnReportPage() {
     run();
   }, []);
 
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -203,16 +208,16 @@ export default function SalesReturnReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Return No</th>
-                  <th>Customer</th>
-                  <th>Item</th>
-                  <th className="text-right">Quantity</th>
-                  <th className="text-right">Amount</th>
+                  <SortableHeader label="Date" sortKey="date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Return No" sortKey="return_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Item" sortKey="item" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Quantity" sortKey="quantity" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Amount" sortKey="amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, idx) => (
+                {sorted_items.map((r, idx) => (
                   <tr key={r.id || idx}>
                     <td>
                       {r.return_date

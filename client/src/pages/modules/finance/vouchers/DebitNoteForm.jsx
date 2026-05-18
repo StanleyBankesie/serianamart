@@ -46,7 +46,7 @@ export default function DebitNoteForm() {
   const [accounts, setAccounts] = useState([]);
   const [taxCodes, setTaxCodes] = useState([]);
   const [payees, setPayees] = useState([]);
-  const [customerInvoices, setCustomerInvoices] = useState([]);
+  const [supplierInvoices, setSupplierInvoices] = useState([]);
   const [selectedInvoiceRefs, setSelectedInvoiceRefs] = useState([]);
   const [voucherNoPreview, setVoucherNoPreview] = useState("");
 
@@ -61,6 +61,21 @@ export default function DebitNoteForm() {
     totalCredit: 0,
     balancedAmount: 0,
   });
+
+  // CN (Debit Note) form additions
+  const [dnSupplierId, setDnSupplierId] = useState("");
+  const [dnSupplierCode, setDnSupplierCode] = useState("");
+  const [dnSupplierName, setDnSupplierName] = useState("");
+  const [dnAmount, setDnAmount] = useState("");
+  const [dnDescription, setDnDescription] = useState("");
+  const [dnCurrencyCode, setDnCurrencyCode] = useState("");
+  const [dnAccountBalance, setDnAccountBalance] = useState(null);
+  const [dnIsTaxIncluded, setDnIsTaxIncluded] = useState(false);
+  const [dnTaxCodeId, setDnTaxCodeId] = useState("");
+  const [dnTaxComponentsByCode, setDnTaxComponentsByCode] = useState({});
+  const [dnPurchaseAccountId, setDnPurchaseAccountId] = useState("");
+  const [showSupplierLov, setShowSupplierLov] = useState(false);
+  const [supplierSearch, setSupplierSearch] = useState("");
   const [rvForm, setRvForm] = useState({
     receivedFrom: "",
     receivedFromCode: "",
@@ -137,7 +152,8 @@ export default function DebitNoteForm() {
   });
   const [rvExchangeRate, setRvExchangeRate] = useState("");
   const [currencies, setCurrencies] = useState([]);
-  const [dncnExchangeRate, setDncnExchangeRate] = useState("");
+  const [dndnExchangeRate, setDndnExchangeRate] = useState("");
+  const [dnExchangeRate, setDnExchangeRate] = useState("");
   const [rvItemExchangeRates, setRvItemExchangeRates] = useState({});
   const { getExchangeRate } = useExchangeRate();
   const baseCurrency = useMemo(() => {
@@ -185,7 +201,7 @@ export default function DebitNoteForm() {
           api.get("/finance/fiscal-years"),
           api.get("/finance/accounts"),
           api.get("/finance/tax-codes", { params: { form: formParam } }),
-          api.get("/sales/customers?active=true"),
+          api.get("/sales/suppliers?active=true"),
           api.get("/purchase/suppliers?active=true"),
           api.get("/finance/currencies"),
         ]);
@@ -207,9 +223,9 @@ export default function DebitNoteForm() {
           type: "CUSTOMER",
           id: c.id,
           code:
-            (c.customer_code && String(c.customer_code).trim()) ||
+            (c.supplier_code && String(c.supplier_code).trim()) ||
             `C${String(Number(c.id || 0)).padStart(5, "0")}`,
-          name: String(c.customer_name || "").trim(),
+          name: String(c.supplier_name || "").trim(),
         })),
         ...suppliers.map((s) => ({
           type: "SUPPLIER",
@@ -238,10 +254,10 @@ export default function DebitNoteForm() {
     }
   }
 
-  async function loadInvoicesForCustomer(accountId) {
+  async function loadInvoicesForSupplier(accountId) {
     const accountIdNum = Number(accountId || 0);
     if (!(accountIdNum > 0)) {
-      setCustomerInvoices([]);
+      setSupplierInvoices([]);
       return;
     }
     try {
@@ -278,9 +294,9 @@ export default function DebitNoteForm() {
         .sort((a, b) =>
           String(a.invoice_no || "").localeCompare(String(b.invoice_no || "")),
         );
-      setCustomerInvoices(filtered);
+      setSupplierInvoices(filtered);
     } catch {
-      setCustomerInvoices([]);
+      setSupplierInvoices([]);
     }
   }
 
@@ -313,6 +329,163 @@ export default function DebitNoteForm() {
       setLoadingBills(false);
     }
   }
+
+  // Auto-fetch currency + balance when CN supplier changes, and fetch purchase_account_id
+  useEffect(() => {
+    if (!isDN || !dnSupplierId) {
+      setDnCurrencyCode("");
+      setDnAccountBalance(null);
+      setDnPurchaseAccountId("");
+      return;
+    }
+    const acc = accounts.find((a) => String(a.id) === String(dnSupplierId));
+    setDnCurrencyCode(String(acc?.currency_code || acc?.currency || ""));
+    
+    // Fetch balance
+    (async () => {
+      try {
+        const bal = await fetchAccountBalance(dnSupplierId);
+        setDnAccountBalance(bal);
+      } catch {
+        setDnAccountBalance(null);
+      }
+    })();
+
+    // Resolve purchase_account_id
+    if (acc) {
+      const accountCode = acc.code || "";
+      const supplier = payees.find(
+        (p) => p.type === "CUSTOMER" && String(p.code) === String(accountCode)
+      );
+      if (supplier) {
+        api.get(`/sales/suppliers/${supplier.id}`)
+          .then((res) => {
+            const custData = res.data?.item || res.data || {};
+            if (custData.purchase_account_id) {
+              setDnPurchaseAccountId(String(custData.purchase_account_id));
+            } else {
+              setDnPurchaseAccountId("");
+            }
+          })
+          .catch(() => {
+            setDnPurchaseAccountId("");
+          });
+      } else {
+        // Fallback: search suppliers by name/code directly if payee mapping didn't hit
+        api.get(`/sales/suppliers?active=true`)
+          .then((res) => {
+            const items = Array.isArray(res.data?.items) ? res.data.items : [];
+            const matchingCust = items.find(
+              (c) => String(c.supplier_name).toLowerCase() === String(acc.name).toLowerCase()
+            );
+            if (matchingCust && matchingCust.purchase_account_id) {
+              setDnPurchaseAccountId(String(matchingCust.purchase_account_id));
+            } else {
+              setDnPurchaseAccountId("");
+            }
+          })
+          .catch(() => {
+            setDnPurchaseAccountId("");
+          });
+      }
+    }
+  }, [isDN, dnSupplierId, accounts, payees]);
+
+  // Load CN tax components when tax code selected
+  useEffect(() => {
+    if (!isDN || !dnTaxCodeId) return;
+    const key = String(dnTaxCodeId);
+    if (dnTaxComponentsByCode[key]) return;
+    (async () => {
+      try {
+        const resp = await api.get(`/finance/tax-codes/${key}/components`);
+        const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
+        setDnTaxComponentsByCode((prev) => ({ ...prev, [key]: items }));
+      } catch {}
+    })();
+  }, [isDN, dnTaxCodeId, dnTaxComponentsByCode]);
+
+  // Auto-populate posting lines for Debit Note (CN) dynamically
+  useEffect(() => {
+    if (!isDN) return;
+    if (!dnSupplierId) return;
+
+    const amt = Number(dnAmount || 0);
+    const rate = Number(dnExchangeRate || 1) || 1;
+    const totalAmount = Math.round(amt * rate * 100) / 100;
+    const desc = dnDescription || "";
+
+    // 1. Line 1: Creditor/Supplier Account (Debit)
+    const supplierAcc = accounts.find((a) => String(a.id) === String(dnSupplierId));
+    const line1 = {
+      accountId: String(dnSupplierId),
+      accountName: supplierAcc?.name || "",
+      accountCode: supplierAcc?.code || "",
+      description: desc,
+      debit: totalAmount,
+      credit: 0,
+      referenceNo: "",
+      chequeNumber: "",
+      chequeDate: "",
+      paymentMethod: "",
+    };
+
+    // 2. Tax Component Lines (Credit)
+    const taxLines = [];
+    let totalTaxAmount = 0;
+    if (dnIsTaxIncluded && dnTaxCodeId) {
+      const comps = dnTaxComponentsByCode[String(dnTaxCodeId)] || [];
+      comps.forEach((c) => {
+        if (c.account_id) {
+          const rateVal = Number(c.rate_percent || 0);
+          const taxAmount = Math.round(totalAmount * rateVal) / 100;
+          totalTaxAmount += taxAmount;
+          taxLines.push({
+            accountId: String(c.account_id),
+            accountName: String(c.account_name || ""),
+            accountCode: String(c.account_code || ""),
+            description: desc || String(c.component_name || ""),
+            debit: 0,
+            credit: taxAmount,
+            referenceNo: "",
+            chequeNumber: "",
+            chequeDate: "",
+            paymentMethod: "",
+          });
+        }
+      });
+    }
+
+    // 3. Line 2: Purchase Account (Credit)
+    const creditAmount = Math.round((totalAmount - totalTaxAmount) * 100) / 100;
+    const purchaseAcc = accounts.find((a) => String(a.id) === String(dnPurchaseAccountId));
+    const line2 = {
+      accountId: dnPurchaseAccountId ? String(dnPurchaseAccountId) : "",
+      accountName: purchaseAcc?.name || "",
+      accountCode: purchaseAcc?.code || "",
+      description: desc,
+      debit: 0,
+      credit: creditAmount,
+      referenceNo: "",
+      chequeNumber: "",
+      chequeDate: "",
+      paymentMethod: "",
+    };
+
+    // Put them all together
+    setLines([line1, line2, ...taxLines]);
+  }, [
+    isDN,
+    dnSupplierId,
+    dnAmount,
+    dnExchangeRate,
+    dnDescription,
+    dnIsTaxIncluded,
+    dnTaxCodeId,
+    dnTaxComponentsByCode,
+    dnPurchaseAccountId,
+    accounts,
+  ]);
 
   useEffect(() => {
     loadSetup();
@@ -400,7 +573,7 @@ export default function DebitNoteForm() {
   useEffect(() => {
     async function loadNextNoCn() {
       if (isEdit) return;
-      if (!isCN) return;
+      if (!isDN) return;
       try {
         const res = await api.get(
           "/finance/vouchers/next-no?voucherTypeCode=CN",
@@ -414,7 +587,7 @@ export default function DebitNoteForm() {
       }
     }
     loadNextNoCn();
-  }, [isCN, isEdit]);
+  }, [isDN, isEdit]);
 
   useEffect(() => {
     async function loadNextNoJv() {
@@ -436,29 +609,61 @@ export default function DebitNoteForm() {
   }, [isJV, isEdit]);
 
   useEffect(() => {
-    if (!(isCN || isDN)) return;
+    if (!isDN) return;
     const fromAcc = accounts.find(
       (a) => String(a.id) === String(dncnLineCurrencyId || ""),
     );
     const fromCode = fromAcc?.currency_code || baseCurrency?.code || "";
     const toCode = baseCurrency?.code || "";
     if (!fromCode || !toCode) {
-      setDncnExchangeRate("1");
+      setDndnExchangeRate("1");
       return;
     }
     if (String(fromCode) === String(toCode)) {
-      setDncnExchangeRate("1");
+      setDndnExchangeRate("1");
       return;
     }
     (async () => {
       try {
         const rate = await getExchangeRate(fromCode, toCode);
-        setDncnExchangeRate(rate ? String(rate) : "1");
+        setDndnExchangeRate(rate ? String(rate) : "1");
       } catch {
-        setDncnExchangeRate("1");
+        setDndnExchangeRate("1");
       }
     })();
-  }, [isCN, isDN, dncnLineCurrencyId, baseCurrency, voucherDate, getExchangeRate, accounts]);
+  }, [
+    isDN,
+    dncnLineCurrencyId,
+    baseCurrency,
+    voucherDate,
+    getExchangeRate,
+    accounts,
+  ]);
+
+  // Fetch exchange rate from external API for CN based on selected account currency vs base currency
+  useEffect(() => {
+    if (!isDN) return;
+    const fromCode = String(dnCurrencyCode || "").toUpperCase();
+    const toCode = String(
+      baseCurrency?.code || baseCurrency?.currency_code || "",
+    ).toUpperCase();
+    if (!fromCode || !toCode) {
+      setDnExchangeRate("1");
+      return;
+    }
+    if (fromCode === toCode) {
+      setDnExchangeRate("1");
+      return;
+    }
+    (async () => {
+      try {
+        const rate = await getExchangeRate(fromCode, toCode);
+        setDnExchangeRate(rate ? String(rate) : "1");
+      } catch {
+        setDnExchangeRate("1");
+      }
+    })();
+  }, [isDN, dnCurrencyCode, baseCurrency, voucherDate, getExchangeRate]);
 
   async function loadVoucher() {
     if (!isEdit) return;
@@ -526,7 +731,7 @@ export default function DebitNoteForm() {
           ? String(creditFirstRaw.account_id)
           : "";
         if (!rvPayAccId) {
-          setCustomerInvoices([]);
+          setSupplierInvoices([]);
         }
         setRvForm((prev) => ({
           ...prev,
@@ -679,7 +884,7 @@ export default function DebitNoteForm() {
             : upper === "CV"
               ? "Contra Voucher"
               : upper === "CN"
-                ? "Credit Note"
+                ? "Debit Note"
                 : upper === "DN"
                   ? "Debit Note"
                   : "Voucher";
@@ -724,7 +929,7 @@ export default function DebitNoteForm() {
     if (vt?.name) return vt.name;
     const upper = String(voucherTypeCode || "").toUpperCase();
     return upper === "CN"
-      ? "Credit Note"
+      ? "Debit Note"
       : upper === "DN"
         ? "Debit Note"
         : "Voucher";
@@ -1932,21 +2137,21 @@ export default function DebitNoteForm() {
       });
     }
 
-    // Add customer sales account line if account matches a customer
-    const customerAccountLines = [];
+    // Add supplier purchase account line if account matches a supplier
+    const supplierAccountLines = [];
     if (accountId) {
       const acc = accounts.find((a) => String(a.id) === String(accountId));
       const accountCode = acc?.code || "";
-      const customer = payees.find(
+      const supplier = payees.find(
         (p) => p.type === "CUSTOMER" && String(p.code) === String(accountCode),
       );
-      if (customer) {
-        // Find customer data to get sales_account_id
+      if (supplier) {
+        // Find supplier data to get purchase_account_id
         api
-          .get(`/sales/customers/${customer.id}`)
+          .get(`/sales/suppliers/${supplier.id}`)
           .then((res) => {
             const custData = res.data?.item || res.data || {};
-            const salesAccountId = custData.sales_account_id;
+            const salesAccountId = custData.purchase_account_id;
             if (salesAccountId) {
               const salesAcc = accounts.find(
                 (a) => String(a.id) === String(salesAccountId),
@@ -1971,7 +2176,7 @@ export default function DebitNoteForm() {
               }
               const netAmount = totalAmount - taxAmount;
 
-              // Add or update the customer sales account line
+              // Add or update the supplier purchase account line
               setLines((prev) => {
                 const existingIdx = prev.findIndex(
                   (l) => String(l.accountId) === String(salesAccountId),
@@ -2524,7 +2729,13 @@ export default function DebitNoteForm() {
         setRvExchangeRate("1");
       }
     })();
-  }, [isRV, depositAccountCurrencyCode, baseCurrency, voucherDate, getExchangeRate]);
+  }, [
+    isRV,
+    depositAccountCurrencyCode,
+    baseCurrency,
+    voucherDate,
+    getExchangeRate,
+  ]);
 
   useEffect(() => {
     if (!isPAYV) return;
@@ -2546,7 +2757,13 @@ export default function DebitNoteForm() {
         setPvExchangeRate("1");
       }
     })();
-  }, [isPAYV, paymentAccountCurrencyCode, baseCurrency, voucherDate, getExchangeRate]);
+  }, [
+    isPAYV,
+    paymentAccountCurrencyCode,
+    baseCurrency,
+    voucherDate,
+    getExchangeRate,
+  ]);
 
   // PV UI
   function updatePv(patch) {
@@ -2913,10 +3130,10 @@ export default function DebitNoteForm() {
   useEffect(() => {
     if (!isRV) return;
     if (!rvForm.payerAccountId) {
-      setCustomerInvoices([]);
+      setSupplierInvoices([]);
       return;
     }
-    loadInvoicesForCustomer(rvForm.payerAccountId);
+    loadInvoicesForSupplier(rvForm.payerAccountId);
   }, [isRV, rvForm.payerAccountId]);
 
   function updateCv(patch) {
@@ -2976,7 +3193,7 @@ export default function DebitNoteForm() {
           <div className="card">
             <div className="card-body space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {!(isPAYV || isRV) && !isJV && (
+                {!(isPAYV || isRV) && !isJV && !isCN && !isDN && (
                   <div>
                     <label className="label">Voucher Type</label>
                     <input
@@ -2986,20 +3203,14 @@ export default function DebitNoteForm() {
                     />
                   </div>
                 )}
-                {!isJV && (
+                {!isJV && !isCN && !isDN && (
                   <div>
                     <label className="label">Voucher No</label>
                     <input
                       className="input"
                       value={
                         voucherNoPreview ||
-                        (isJV
-                          ? "JV-000001"
-                          : isCN
-                            ? "CN-000001"
-                            : isDN
-                              ? "DN-000001"
-                              : "")
+                        (isJV ? "JV-000001" : isDN ? "DN-000001" : "")
                       }
                       disabled
                     />
@@ -3016,6 +3227,109 @@ export default function DebitNoteForm() {
                     disabled={readOnly}
                   />
                 </div>
+                {/* CN: Supplier, Currency and Balance grouped inline horizontally */}
+                {isDN && (
+                  <div className="md:col-span-2 flex flex-wrap items-end gap-4">
+                    <div className="relative md:w-64 w-full">
+                      <label className="label">Supplier *</label>
+                      <input
+                        className={`input w-full ${readOnly ? "bg-slate-100" : ""}`}
+                        value={dnSupplierName || supplierSearch}
+                        placeholder="Search debtor account..."
+                        readOnly={readOnly}
+                        onChange={(e) => {
+                          setSupplierSearch(e.target.value);
+                          setDnSupplierName("");
+                          setDnSupplierId("");
+                          setDnSupplierCode("");
+                        }}
+                        onFocus={() => {
+                          if (!dnSupplierName) setSupplierSearch("");
+                        }}
+                      />
+                      {!readOnly &&
+                        supplierSearch &&
+                        !dnSupplierName &&
+                        (() => {
+                          const q = supplierSearch.toLowerCase();
+                          const debtorAccounts = accounts
+                            .filter(
+                              (a) =>
+                                String(a.group_name || "").toUpperCase() ===
+                                "DEBTORS",
+                            )
+                            .filter(
+                              (a) =>
+                                String(a.name || "")
+                                  .toLowerCase()
+                                  .includes(q) ||
+                                String(a.code || "")
+                                  .toLowerCase()
+                                  .includes(q),
+                            )
+                            .slice(0, 10);
+                          return debtorAccounts.length > 0 ? (
+                            <div className="absolute z-20 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto">
+                              {debtorAccounts.map((a) => (
+                                <button
+                                  key={a.id}
+                                  type="button"
+                                  className="w-full text-left px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700 last:border-b-0"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => {
+                                    setDnSupplierId(String(a.id));
+                                    setDnSupplierCode(String(a.code || ""));
+                                    setDnSupplierName(String(a.name || ""));
+                                    setSupplierSearch("");
+                                  }}
+                                >
+                                  <div className="font-medium text-slate-800 dark:text-slate-100 text-sm">
+                                    {a.name}
+                                  </div>
+                                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                                    {a.code}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          ) : null;
+                        })()}
+                    </div>
+                    {dnSupplierName && (
+                      <div className="flex items-end gap-4">
+                        <div className="w-24">
+                          <label className="label">Currency</label>
+                          <input
+                            className="input w-full bg-slate-50 dark:bg-slate-800"
+                            value={dnCurrencyCode || ""}
+                            readOnly
+                            placeholder="—"
+                          />
+                        </div>
+                        <div className="w-24">
+                          <label className="label">Balance</label>
+                          <input
+                            className="input w-full bg-slate-50 dark:bg-slate-800"
+                            value={
+                              dnAccountBalance !== null &&
+                              dnAccountBalance !== undefined
+                                ? Number(dnAccountBalance).toLocaleString(
+                                    undefined,
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    },
+                                  )
+                                : ""
+                            }
+                            readOnly
+                            placeholder="0.00"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {isJV && (
                   <div className="md:col-span-3">
                     <label className="label">Narration</label>
@@ -3190,13 +3504,101 @@ export default function DebitNoteForm() {
                       </div>
                     </div>
                   )}
-                {isCN || isDN ? (
+                {isDN ? (
+                  <>
+                    {/* Grid-1: Amount | Exchange Rate | Total Amount | Is Tax Included */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-3">
+                      <div>
+                        <label className="label">Amount *</label>
+                        <input
+                          className="input"
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={dnAmount || ""}
+                          onChange={(e) => setDnAmount(e.target.value)}
+                          disabled={readOnly}
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Exchange Rate</label>
+                        <input
+                          className="input bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold"
+                          value={dnExchangeRate || ""}
+                          readOnly
+                          placeholder="1.00"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Total Amount</label>
+                        <input
+                          className="input bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold"
+                          value={(() => {
+                            const amt = Number(dnAmount || 0);
+                            const rate = Number(dnExchangeRate || 1) || 1;
+                            const total = Math.round(amt * rate * 100) / 100;
+                            return total.toFixed(2);
+                          })()}
+                          readOnly
+                        />
+                      </div>
+                      <div className="flex flex-col justify-end pb-2">
+                        <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={dnIsTaxIncluded}
+                            onChange={(e) => {
+                              const checked = Boolean(e.target.checked);
+                              setDnIsTaxIncluded(checked);
+                              if (!checked) {
+                                setDnTaxCodeId("");
+                                setLines((prev) =>
+                                  prev.filter((l) => !l.accountId || true),
+                                );
+                              }
+                            }}
+                            disabled={readOnly}
+                          />
+                          <span className="font-medium">Is Tax Included</span>
+                        </label>
+                        {dnIsTaxIncluded && (
+                          <select
+                            className={`input mt-1 ${readOnly ? disabledClass : ""}`}
+                            value={dnTaxCodeId || ""}
+                            onChange={(e) => setDnTaxCodeId(e.target.value)}
+                            disabled={readOnly}
+                          >
+                            <option value="">Select tax code</option>
+                            {taxCodes.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.name || t.tax_name || t.code}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Grid-2: Description */}
+                    <div className="mb-3">
+                      <label className="label">Description</label>
+                      <textarea
+                        className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand resize-y"
+                        rows={4}
+                        value={dnDescription || ""}
+                        onChange={(e) => setDnDescription(e.target.value)}
+                        placeholder="Credit note description"
+                        disabled={readOnly}
+                      />
+                    </div>
+                  </>
+                ) : isDN ? (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
                     <div>
                       <label className="label">Exchange Rate</label>
                       <input
                         className="input"
-                        value={dncnExchangeRate || ""}
+                        value={dndnExchangeRate || ""}
                         readOnly
                       />
                     </div>

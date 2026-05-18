@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
@@ -52,6 +54,9 @@ export default function ProspectiveCustomerListReportPage() {
     XLSX.writeFile(wb, "prospect-customer-list.xlsx");
   }
 
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "id", "desc");
+
   return (
     <div className="space-y-4">
       <div className="card shadow-sm border-0">
@@ -80,13 +85,13 @@ export default function ProspectiveCustomerListReportPage() {
             <table className="table table-compact w-full text-sm">
               <thead className="bg-slate-50 dark:bg-slate-900/50">
                 <tr>
-                  <th className="text-left p-3 border-b">Code</th>
-                  <th className="text-left p-3 border-b">Name</th>
-                  <th className="text-left p-3 border-b">Type</th>
-                  <th className="text-left p-3 border-b">Email</th>
-                  <th className="text-left p-3 border-b">Phone</th>
-                  <th className="text-left p-3 border-b">City</th>
-                  <th className="text-right p-3 border-b">Credit Limit</th>
+                  <SortableHeader label="Code" sortKey="code" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-left p-3 border-b" />
+                  <SortableHeader label="Name" sortKey="name" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-left p-3 border-b" />
+                  <SortableHeader label="Type" sortKey="type" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-left p-3 border-b" />
+                  <SortableHeader label="Email" sortKey="email" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-left p-3 border-b" />
+                  <SortableHeader label="Phone" sortKey="phone" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-left p-3 border-b" />
+                  <SortableHeader label="City" sortKey="city" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-left p-3 border-b" />
+                  <SortableHeader label="Credit Limit" sortKey="credit_limit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right p-3 border-b" />
                 </tr>
               </thead>
               <tbody>
@@ -99,7 +104,7 @@ export default function ProspectiveCustomerListReportPage() {
                     <td colSpan="7" className="text-center p-8 text-slate-500">No prospective customers found</td>
                   </tr>
                 ) : (
-                  items.map((r) => (
+                  sorted_items.map((r) => (
                     <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/30">
                       <td className="p-3 border-b font-mono text-xs">{r.customer_code || "-"}</td>
                       <td className="p-3 border-b font-medium">{r.customer_name || r.prospect_customer}</td>

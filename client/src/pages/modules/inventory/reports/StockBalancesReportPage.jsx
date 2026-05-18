@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { api } from "../../../../api/client.js";
 import { Link } from "react-router-dom";
 
@@ -84,6 +86,9 @@ export default function StockBalancesReportPage() {
     });
   }, [items, q]);
 
+
+  const { sorted: sorted_filtered, sortKey, sortDir, toggle } = useSort(filtered, "id", "desc");
+
   return (
     <div className="space-y-6">
       <div className="card">
@@ -142,11 +147,11 @@ export default function StockBalancesReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Item Code</th>
-                  <th>Item Name</th>
-                  <th className="text-right">Total Qty</th>
-                  <th className="text-right">Reserve Qty</th>
-                  <th className="text-right">Available Qty</th>
+                  <SortableHeader label="Item Code" sortKey="item_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Item Name" sortKey="item_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Total Qty" sortKey="total_qty" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Reserve Qty" sortKey="reserve_qty" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Available Qty" sortKey="available_qty" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>
@@ -164,7 +169,7 @@ export default function StockBalancesReportPage() {
                     </td>
                   </tr>
                 ) : null}
-                {filtered.map((r, i) => (
+                {sorted_filtered.map((r, i) => (
                   <tr key={i}>
                     <td className="font-medium text-brand-700 dark:text-brand-300">
                       {r.item_code}

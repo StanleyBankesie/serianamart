@@ -293,7 +293,7 @@ export default function PurchaseVoucherList() {
     });
   }, [items, search, status]);
 
-  const { sorted: sortedVouchers, sortKey, sortDir, toggle } = useSort(filtered, "voucher_no", "asc");
+  const { sorted: sortedVouchers, sortKey, sortDir, toggle } = useSort(filtered, "id", "desc");
 
   const accountNameByCode = useMemo(() => {
     const m = new Map();

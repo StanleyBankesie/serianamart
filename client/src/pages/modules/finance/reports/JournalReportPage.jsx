@@ -41,7 +41,7 @@ export default function JournalReportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to]);
 
-  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "voucher_date", "asc");
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "voucher_date", "desc");
 
   return (
     <div className="space-y-4">

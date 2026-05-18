@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 
@@ -51,6 +53,9 @@ export default function CustomerOrderHistoryReportPage() {
   useEffect(() => {
     run();
   }, []);
+
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "txn_date", "desc");
 
   return (
     <div className="space-y-4">
@@ -114,16 +119,16 @@ export default function CustomerOrderHistoryReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Stage</th>
-                  <th>Reference</th>
-                  <th>Date</th>
-                  <th>Customer</th>
-                  <th className="text-right">Amount</th>
-                  <th>Notes</th>
+                  <SortableHeader label="Stage" sortKey="stage" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Reference" sortKey="ref_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="txn_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Amount" sortKey="amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Notes" sortKey="notes" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, i) => (
+                {sorted_items.map((r, i) => (
                   <tr key={i}>
                     <td className="font-medium">{r.stage}</td>
                     <td>{r.ref_no}</td>

@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -70,6 +72,9 @@ export default function PeriodicalStockSummaryPage() {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, warehouseId, itemGroupId, q]);
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -244,15 +249,15 @@ export default function PeriodicalStockSummaryPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th>Item</th>
-                  <th className="text-right">Opening</th>
-                  <th className="text-right">Receipts</th>
-                  <th className="text-right">Issues</th>
-                  <th className="text-right">Closing</th>
+                  <SortableHeader label="Item" sortKey="item" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Opening" sortKey="opening" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Receipts" sortKey="receipts" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Issues" sortKey="issues" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Closing" sortKey="closing" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r) => (
+                {sorted_items.map((r) => (
                   <tr key={r.item_id}>
                     <td className="font-medium">
                       {r.item_name || r.item_code}

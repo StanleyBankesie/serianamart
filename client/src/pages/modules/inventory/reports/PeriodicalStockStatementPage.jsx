@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -74,6 +76,9 @@ export default function PeriodicalStockStatementPage() {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, warehouseId, itemGroupId, q]);
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "txn_date", "desc");
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -253,12 +258,12 @@ export default function PeriodicalStockStatementPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th>Date</th>
-                  <th>Document</th>
-                  <th>Item</th>
-                  <th className="text-right">In</th>
-                  <th className="text-right">Out</th>
-                  <th className="text-right">Balance</th>
+                  <SortableHeader label="Date" sortKey="txn_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Document" sortKey="document" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Item" sortKey="item" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="In" sortKey="in" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Out" sortKey="out" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Balance" sortKey="balance" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>

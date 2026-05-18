@@ -928,6 +928,8 @@ export const submitVoucher = async (req, res, next) => {
     const isRV = typeCode === "RV";
     const isCV = typeCode === "CV";
     const isJV = typeCode === "JV";
+    const isCN = typeCode === "CN";
+    const isDN = typeCode === "DN";
     const docTypePrimary = isRV
       ? "RECEIPT_VOUCHER"
       : isPV
@@ -936,7 +938,11 @@ export const submitVoucher = async (req, res, next) => {
           ? "CONTRA_VOUCHER"
           : isJV
             ? "JOURNAL_VOUCHER"
-            : "VOUCHER";
+            : isCN
+              ? "CREDIT_NOTE"
+              : isDN
+                ? "DEBIT_NOTE"
+                : "VOUCHER";
     const titleName = isRV
       ? "Receipt Voucher"
       : isPV
@@ -945,7 +951,11 @@ export const submitVoucher = async (req, res, next) => {
           ? "Contra Voucher"
           : isJV
             ? "Journal Voucher"
-            : "Voucher";
+            : isCN
+              ? "Credit Note"
+              : isDN
+                ? "Debit Note"
+                : "Voucher";
     const docRouteBase = isRV
       ? "/finance/receipt-voucher"
       : isPV
@@ -954,7 +964,11 @@ export const submitVoucher = async (req, res, next) => {
           ? "/finance/contra-voucher"
           : isJV
             ? "/finance/journal-voucher"
-            : null;
+            : isCN
+              ? "/finance/credit-note"
+              : isDN
+                ? "/finance/debit-note"
+                : null;
     const typeSynonyms = isRV
       ? ["RECEIPT_VOUCHER", "Receipt Voucher", "RV"]
       : isPV
@@ -969,7 +983,11 @@ export const submitVoucher = async (req, res, next) => {
           ? ["CONTRA_VOUCHER", "Contra Voucher", "CV"]
           : isJV
             ? ["JOURNAL_VOUCHER", "Journal Voucher", "JV"]
-            : ["VOUCHER", "Voucher", typeCode];
+            : isCN
+              ? ["CREDIT_NOTE", "Credit Note", "CN"]
+              : isDN
+                ? ["DEBIT_NOTE", "Debit Note", "DN"]
+                : ["VOUCHER", "Voucher", typeCode];
     const wfByRoute =
       docRouteBase != null
         ? await query(

@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
@@ -101,6 +103,9 @@ export default function RevenueByCustomerReportPage() {
     doc.save("sales-revenue-by-customer.pdf");
   }
 
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "customer_name", "desc");
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -146,15 +151,15 @@ export default function RevenueByCustomerReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Customer</th>
-                  <th className="text-right">Total Orders</th>
-                  <th className="text-right">Total Invoices</th>
-                  <th className="text-right">Total Revenue</th>
-                  <th className="text-right">Outstanding</th>
+                  <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Total Orders" sortKey="total_orders" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Total Invoices" sortKey="total_invoices" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Total Revenue" sortKey="total_revenue" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Outstanding" sortKey="outstanding" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, i) => (
+                {sorted_items.map((r, i) => (
                   <tr key={i}>
                     <td className="font-medium">{r.customer_name}</td>
                     <td className="text-right">

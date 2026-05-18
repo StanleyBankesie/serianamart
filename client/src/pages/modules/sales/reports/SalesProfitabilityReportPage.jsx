@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -143,6 +145,9 @@ export default function SalesProfitabilityReportPage() {
     run();
   }, []);
 
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -233,17 +238,17 @@ export default function SalesProfitabilityReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Invoice No</th>
-                  <th>Customer</th>
-                  <th className="text-right">Net Sales</th>
-                  <th className="text-right">Cost</th>
-                  <th className="text-right">Gross Margin</th>
-                  <th className="text-right">Margin %</th>
+                  <SortableHeader label="Date" sortKey="date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Invoice No" sortKey="invoice_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Net Sales" sortKey="net_sales" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Cost" sortKey="cost" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Gross Margin" sortKey="gross_margin" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Margin %" sortKey="margin_" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r) => {
+                {sorted_items.map((r) => {
                   const margin = Number(r.net_sales || 0) - Number(r.cost || 0);
                   const pct = Number(r.net_sales || 0)
                     ? (margin / Number(r.net_sales || 0)) * 100

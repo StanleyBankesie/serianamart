@@ -1061,7 +1061,7 @@ export default function HomePage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] p-6 border border-slate-100 dark:border-slate-800/80 hover:border-slate-200/80 dark:hover:border-slate-700/80 hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] dark:hover:shadow-[0_12px_40px_rgb(0,0,0,0.25)] transition-all duration-300 relative overflow-hidden before:absolute before:top-0 before:left-0 before:w-full before:h-[3px] before:bg-gradient-to-r before:from-purple-500/80 before:to-pink-500/80">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] p-6 border border-slate-100 dark:border-slate-800/80 hover:border-slate-200/80 dark:hover:border-slate-700/80 hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] dark:hover:shadow-[0_12px_40px_rgb(0,0,0,0.25)] transition-all duration-300 relative overflow-visible before:absolute before:top-0 before:left-0 before:w-full before:h-[3px] before:bg-gradient-to-r before:from-purple-500/80 before:to-pink-500/80 before:rounded-t-xl">
             <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
               <span className="text-purple-500">📑</span> Reports
             </h2>
@@ -1172,13 +1172,13 @@ export default function HomePage() {
                             },
                           );
                           return (
-                            <div className="absolute left-full top-0 ml-0 z-20 w-56 max-h-80 overflow-auto rounded-lg border border-slate-200 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm shadow-erp-lg">
+                            <div className="absolute left-full top-0 ml-2 z-50 w-56 max-h-80 overflow-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md shadow-2xl p-1 transition-all duration-200 scale-100 opacity-80">
                               {entries.map((e) => (
                                 <button
                                   key={e.path || e.label}
                                   type="button"
                                   onClick={() => navigate(e.path)}
-                                  className="block w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition"
+                                  className="block w-full text-left px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition rounded-lg"
                                   title={e.path}
                                 >
                                   <div className="text-sm font-medium text-slate-800 dark:text-slate-100">

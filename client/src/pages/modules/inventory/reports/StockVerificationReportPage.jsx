@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -28,6 +30,9 @@ export default function StockVerificationReportPage() {
   useEffect(() => {
     run();
   }, []);
+
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
 
   return (
     <div className="space-y-4">
@@ -183,18 +188,18 @@ export default function StockVerificationReportPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th>Date</th>
-                  <th>Verification No</th>
-                  <th>Warehouse</th>
-                  <th>Status</th>
-                  <th>Item</th>
-                  <th className="text-right">System Qty</th>
-                  <th className="text-right">Physical Qty</th>
-                  <th className="text-right">Variance</th>
+                  <SortableHeader label="Date" sortKey="date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Verification No" sortKey="verification_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Warehouse" sortKey="warehouse" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Item" sortKey="item" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="System Qty" sortKey="system_qty" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Physical Qty" sortKey="physical_qty" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Variance" sortKey="variance" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r) => (
+                {sorted_items.map((r) => (
                   <tr key={r.id}>
                     <td>
                       {r.verify_date

@@ -37,6 +37,7 @@ import OffersList from "./recruitment/OffersList.jsx";
 import OfferForm from "./recruitment/OfferForm.jsx";
 import PayrollDashboard from "./payroll/PayrollDashboard.jsx";
 import SalaryProcessing from "./payroll/SalaryProcessing.jsx";
+import SalaryPostingPage from "./payroll/SalaryPostingPage.jsx";
 import LeaveRequestForm from "./leave/LeaveRequestForm.jsx"; // Keeping file loosely to not break anything
 import LeaveApprovals from "./leave/LeaveApprovals.jsx";
 import LeaveCalendar from "./leave/LeaveCalendar.jsx";
@@ -229,6 +230,12 @@ function HRDashboard() {
           icon: "⚙️",
         },
         {
+          name: "Salary Posting",
+          path: "/human-resources/payroll/salary-posting",
+          description: "Pass salary journals to the general ledger",
+          icon: "📓",
+        },
+        {
           name: "Payslips",
           path: "/human-resources/payslips",
           description: "Generate and view employee payslips",
@@ -414,6 +421,7 @@ export default function HumanResourcesHome() {
       <Route path="offers/:id" element={<OfferForm />} />
       <Route path="payroll" element={<PayrollDashboard />} />
       <Route path="payroll/process" element={<SalaryProcessing />} />
+      <Route path="payroll/salary-posting" element={<SalaryPostingPage />} />
       <Route path="leave" element={<LeaveManagementDashboard />} />
       <Route path="leave/request" element={<LeaveApplication />} />
       <Route path="leave/scheduling" element={<LeaveScheduling />} />
@@ -570,6 +578,12 @@ export const humanResourcesFeatures = [
     module_key: "human-resources",
     label: "Payslips",
     path: "/human-resources/payslips",
+    type: "feature",
+  },
+  {
+    module_key: "human-resources",
+    label: "Salary Posting",
+    path: "/human-resources/payroll/salary-posting",
     type: "feature",
   },
   {

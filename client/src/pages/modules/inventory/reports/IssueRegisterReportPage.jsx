@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -28,6 +30,9 @@ export default function IssueRegisterReportPage() {
   useEffect(() => {
     run();
   }, []);
+
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
 
   return (
     <div className="space-y-4">
@@ -200,17 +205,17 @@ export default function IssueRegisterReportPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th>Date</th>
-                  <th>Issue No</th>
-                  <th>Department</th>
-                  <th>Item</th>
-                  <th className="text-right">Qty Issued</th>
-                  <th className="text-right">Returned</th>
-                  <th className="text-right">Remaining</th>
+                  <SortableHeader label="Date" sortKey="date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Issue No" sortKey="issue_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Department" sortKey="department" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Item" sortKey="item" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Qty Issued" sortKey="qty_issued" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Returned" sortKey="returned" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Remaining" sortKey="remaining" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r) => (
+                {sorted_items.map((r) => (
                   <tr key={r.id}>
                     <td>
                       {r.issue_date

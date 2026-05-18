@@ -4120,77 +4120,101 @@ export async function closePayroll(req, res, next) {
       });
     } catch {}
     if (finance_post && expense_account_id && payable_account_id) {
-      const totals = await query(`SELECT 
-           COALESCE(SUM(basic_salary + allowances),0) AS gross, 
-           COALESCE(SUM(income_tax),0) AS paye, 
-           COALESCE(SUM(ssf_employee),0) AS ssf, 
-           COALESCE(SUM(net_salary),0) AS net,
-          created_at FROM hr_payroll_items
-         WHERE payroll_id = :pid`,
-        { pid: payroll_id },
+      // 1. Fetch Salary Component mappings
+      const mappings = await query(
+        `SELECT c.column_name, m.account_id, a.code, a.name
+         FROM hr_salary_component_accounts m
+         JOIN hr_salary_components c ON c.id = m.component_id AND c.company_id = m.company_id
+         LEFT JOIN fin_accounts a ON a.id = m.account_id AND a.company_id = m.company_id
+         WHERE m.company_id = :companyId`,
+        { companyId }
       );
-      const gross = Number(totals?.[0]?.gross || 0);
-      const paye = Number(totals?.[0]?.paye || 0);
-      const ssf = Number(totals?.[0]?.ssf || 0);
-      const net = Number(totals?.[0]?.net || 0);
-      const fyRows = await query(`SELECT id,
-          created_at FROM fin_fiscal_years
+      const mappingByCol = {};
+      for (const map of mappings) {
+        if (map.account_id) {
+          mappingByCol[map.column_name] = {
+            account_id: Number(map.account_id),
+            name: map.name,
+            code: map.code
+          };
+        }
+      }
+
+      // 2. Query exact totals for all payroll item components
+      const totalsRows = await query(
+        `SELECT 
+           COALESCE(SUM(basic_salary), 0) AS basic_salary,
+           COALESCE(SUM(allowances), 0) AS allowances,
+           COALESCE(SUM(deductions), 0) AS deductions,
+           COALESCE(SUM(income_tax), 0) AS income_tax,
+           COALESCE(SUM(ssf_employee), 0) AS ssf_employee,
+           COALESCE(SUM(ssf_employer), 0) AS ssf_employer,
+           COALESCE(SUM(tier3_employee), 0) AS tier3_employee,
+           COALESCE(SUM(tier3_employer), 0) AS tier3_employer,
+           COALESCE(SUM(net_salary), 0) AS net_salary
+         FROM hr_payroll_items
+         WHERE payroll_id = :pid`,
+        { pid: payroll_id }
+      );
+      const totalsObj = totalsRows?.[0] || {};
+      const basic = Number(totalsObj.basic_salary || 0);
+      const allowances = Number(totalsObj.allowances || 0);
+      const deductions = Number(totalsObj.deductions || 0);
+      const income_tax = Number(totalsObj.income_tax || 0);
+      const ssf_employee = Number(totalsObj.ssf_employee || 0);
+      const ssf_employer = Number(totalsObj.ssf_employer || 0);
+      const tier3_employee = Number(totalsObj.tier3_employee || 0);
+      const tier3_employer = Number(totalsObj.tier3_employer || 0);
+      const net_salary = Number(totalsObj.net_salary || 0);
+
+      // Total expense debits
+      const totalExpenseDebits = Math.round((basic + allowances + ssf_employer + tier3_employer) * 100) / 100;
+
+      // 3. Setup fiscal year, voucher type and metadata
+      const fyRows = await query(
+        `SELECT id FROM fin_fiscal_years
          WHERE company_id = :companyId AND status = 'OPEN' ORDER BY start_date DESC LIMIT 1`,
-        { companyId },
+        { companyId }
       );
       const fiscalYearId = fyRows.length ? fyRows[0].id : null;
-      const vtRows = await query(`SELECT id,
-          created_at FROM fin_voucher_types
-         WHERE code = 'JV' LIMIT 1`,
-        {},
+      const vtRows = await query(
+        `SELECT id FROM fin_voucher_types
+         WHERE code = 'JV' LIMIT 1`
       );
       const voucherTypeId = vtRows.length ? vtRows[0].id : null;
       const voucherNo = `PR${Date.now()}`;
       const voucherDate = new Date().toISOString().slice(0, 10);
       const createdBy = req.user?.id || req.user?.sub || null;
-      const [vIns] = await query(`INSERT INTO fin_vouchers
-          (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
+
+      // Create Voucher Header
+      const [vIns] = await query(
+        `INSERT INTO fin_vouchers
+           (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
          VALUES
-          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
+           (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
         {
           companyId,
           branchId: req.scope.branchId,
-          fiscalYearId: fiscalYearId,
+          fiscalYearId,
           voucherTypeId,
           voucherNo,
           voucherDate,
-          narration:
-            narration || `Payroll posting for period #${hdr.period_id}`,
-          totalDebit: gross,
-          totalCredit: gross,
+          narration: narration || `Payroll posting for period #${hdr.period_id}`,
+          totalDebit: totalExpenseDebits,
+          totalCredit: totalExpenseDebits,
           createdBy,
           approvedBy: createdBy,
           postedBy: createdBy,
-        },
+        }
       );
       const voucherId = Number(vIns.insertId || 0);
       let lineNo = 1;
-      await query(`INSERT INTO fin_voucher_lines
-           (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-         VALUES
-           (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, NULL, NULL, NULL)`,
-        {
-          companyId,
-          voucherId,
-          lineNo: lineNo++,
-          accountId: expense_account_id,
-          description: "Payroll expenses",
-          debit: gross,
-          credit: 0,
-        },
-      );
-      const payeAccRows = await query(`SELECT id,
-          created_at FROM fin_accounts
-         WHERE company_id = :companyId AND name = 'PAYE Payable' LIMIT 1`,
-        { companyId },
-      );
-      if (payeAccRows.length && paye > 0) {
-        await query(`INSERT INTO fin_voucher_lines
+
+      // Helper function to insert voucher lines
+      const insertLine = async (accountId, description, debit, credit) => {
+        if (!accountId) return;
+        await query(
+          `INSERT INTO fin_voucher_lines
              (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
            VALUES
              (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, NULL, NULL, NULL)`,
@@ -4198,48 +4222,91 @@ export async function closePayroll(req, res, next) {
             companyId,
             voucherId,
             lineNo: lineNo++,
-            accountId: Number(payeAccRows[0].id),
-            description: "PAYE payable",
-            debit: 0,
-            credit: paye,
-          },
+            accountId,
+            description,
+            debit: Math.round(debit * 100) / 100,
+            credit: Math.round(credit * 100) / 100,
+          }
         );
+      };
+
+      // ─── DEBIT LINES (EXPENSES) ───
+      // Basic / Gross Salary Debit
+      await insertLine(expense_account_id, "Basic Salaries Expense", basic, 0);
+
+      // Allowances Debit
+      if (allowances > 0) {
+        const allowanceAccId = mappingByCol['allowances']?.account_id || expense_account_id;
+        await insertLine(allowanceAccId, "Staff Allowances Expense", allowances, 0);
       }
-      const ssfAccRows = await query(`SELECT id,
-          created_at FROM fin_accounts
-         WHERE company_id = :companyId AND name = 'SSNIT/Pension Payable' LIMIT 1`,
-        { companyId },
-      );
-      if (ssfAccRows.length && ssf > 0) {
-        await query(`INSERT INTO fin_voucher_lines
-             (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-           VALUES
-             (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, NULL, NULL, NULL)`,
-          {
-            companyId,
-            voucherId,
-            lineNo: lineNo++,
-            accountId: Number(ssfAccRows[0].id),
-            description: "SSNIT/Pension payable",
-            debit: 0,
-            credit: ssf,
-          },
-        );
+
+      // SSF Employer Debit
+      if (ssf_employer > 0) {
+        const ssfEmployerAccId = mappingByCol['ssf_employer']?.account_id || expense_account_id;
+        await insertLine(ssfEmployerAccId, "Employer SSF Expense", ssf_employer, 0);
       }
-      await query(`INSERT INTO fin_voucher_lines
-           (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-         VALUES
-           (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, NULL, NULL, NULL)`,
-        {
-          companyId,
-          voucherId,
-          lineNo: lineNo++,
-          accountId: payable_account_id,
-          description: "Salaries payable (net)",
-          debit: 0,
-          credit: net,
-        },
-      );
+
+      // Tier 3 Employer Debit
+      if (tier3_employer > 0) {
+        const tier3EmployerAccId = mappingByCol['tier3_employer']?.account_id || expense_account_id;
+        await insertLine(tier3EmployerAccId, "Employer Tier 3 Expense", tier3_employer, 0);
+      }
+
+      // ─── CREDIT LINES (PAYABLES / LIABILITIES) ───
+      // Net Salary Payable Credit
+      const netSalaryAccId = mappingByCol['net_salary']?.account_id || payable_account_id;
+      await insertLine(netSalaryAccId, "Net Salaries Payable", 0, net_salary);
+
+      // Income Tax (PAYE) Credit
+      if (income_tax > 0) {
+        let taxAccId = mappingByCol['income_tax']?.account_id;
+        if (!taxAccId) {
+          const payeAccRows = await query(
+            `SELECT id FROM fin_accounts WHERE company_id = :companyId AND name = 'PAYE Payable' LIMIT 1`,
+            { companyId }
+          );
+          if (payeAccRows.length) taxAccId = Number(payeAccRows[0].id);
+        }
+        if (taxAccId) {
+          await insertLine(taxAccId, "PAYE Payable", 0, income_tax);
+        }
+      }
+
+      // SSNIT / SSF Payable (Employee + Employer) Credit
+      const ssnitTotal = ssf_employee + ssf_employer;
+      if (ssnitTotal > 0) {
+        let ssfAccId = mappingByCol['ssnit']?.account_id || mappingByCol['ssf_employee']?.account_id;
+        if (!ssfAccId) {
+          const ssnitAccRows = await query(
+            `SELECT id FROM fin_accounts WHERE company_id = :companyId AND name = 'SSNIT/Pension Payable' LIMIT 1`,
+            { companyId }
+          );
+          if (ssnitAccRows.length) ssfAccId = Number(ssnitAccRows[0].id);
+        }
+        if (ssfAccId) {
+          await insertLine(ssfAccId, "SSNIT/Pension Payable", 0, ssnitTotal);
+        }
+      }
+
+      // Tier 3 / Provident Fund Payable (Employee + Employer) Credit
+      const providentTotal = tier3_employee + tier3_employer;
+      if (providentTotal > 0) {
+        let provAccId = mappingByCol['tier3_employee']?.account_id || mappingByCol['tier2']?.account_id;
+        if (!provAccId) {
+          const provAccRows = await query(
+            `SELECT id FROM fin_accounts WHERE company_id = :companyId AND name = 'Provident Fund Payable' LIMIT 1`,
+            { companyId }
+          );
+          if (provAccRows.length) provAccId = Number(provAccRows[0].id);
+        }
+        await insertLine(provAccId || payable_account_id, "Provident Fund Payable", 0, providentTotal);
+      }
+
+      // Other Deductions Payable Credit
+      if (deductions > 0) {
+        const deductionsAccId = mappingByCol['deductions']?.account_id || payable_account_id;
+        await insertLine(deductionsAccId, "Other Deductions Payable", 0, deductions);
+      }
     }
     res.json({ message: "Payroll closed" });
   } catch (err) {

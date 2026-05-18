@@ -41,7 +41,7 @@ export default function PaymentDueReportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to]);
 
-  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "due_date", "asc");
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "due_date", "desc");
 
   return (
     <div className="space-y-4">

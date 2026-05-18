@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -28,6 +30,9 @@ export default function StockTransferRegisterReportPage() {
   useEffect(() => {
     run();
   }, []);
+
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
 
   return (
     <div className="space-y-4">
@@ -164,16 +169,16 @@ export default function StockTransferRegisterReportPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th>Date</th>
-                  <th>Transfer No</th>
-                  <th>From</th>
-                  <th>To</th>
-                  <th>Item</th>
-                  <th className="text-right">Quantity</th>
+                  <SortableHeader label="Date" sortKey="date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Transfer No" sortKey="transfer_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="From" sortKey="from" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="To" sortKey="to" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Item" sortKey="item" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Quantity" sortKey="quantity" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r) => (
+                {sorted_items.map((r) => (
                   <tr key={r.id}>
                     <td>
                       {r.transfer_date

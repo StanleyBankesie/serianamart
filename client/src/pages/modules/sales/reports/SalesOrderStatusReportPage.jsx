@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
@@ -120,6 +122,9 @@ export default function SalesOrderStatusReportPage() {
     doc.save("sales-order-status.pdf");
   }
 
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -178,17 +183,17 @@ export default function SalesOrderStatusReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Sales Order No</th>
-                  <th>Order Date</th>
-                  <th>Customer</th>
-                  <th className="text-right">Total Amount</th>
-                  <th>Status</th>
-                  <th>Salesperson</th>
-                  <th>Linked Quotation</th>
+                  <SortableHeader label="Sales Order No" sortKey="sales_order_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Order Date" sortKey="order_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Total Amount" sortKey="total_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Salesperson" sortKey="salesperson" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Linked Quotation" sortKey="linked_quotation" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, i) => (
+                {sorted_items.map((r, i) => (
                   <tr key={i}>
                     <td className="font-medium">{r.order_no}</td>
                     <td>{r.order_date ? new Date(r.order_date).toLocaleDateString() : "-"}</td>

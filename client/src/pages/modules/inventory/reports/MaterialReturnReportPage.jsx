@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 
@@ -53,6 +55,9 @@ export default function MaterialReturnReportPage() {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, warehouseId, departmentId]);
+
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
 
   return (
     <div className="space-y-4">
@@ -149,18 +154,18 @@ export default function MaterialReturnReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>RTS No</th>
-                  <th>Date</th>
-                  <th>Warehouse</th>
-                  <th>Department</th>
-                  <th>Item</th>
-                  <th className="text-right">Qty</th>
-                  <th>UOM</th>
-                  <th>Status</th>
+                  <SortableHeader label="RTS No" sortKey="rts_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Warehouse" sortKey="warehouse" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Department" sortKey="department" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Item" sortKey="item" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Qty" sortKey="quantity" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="UOM" sortKey="uom" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, i) => (
+                {sorted_items.map((r, i) => (
                   <tr key={`${r.rts_id}-${i}`}>
                     <td className="font-medium text-brand-700 dark:text-brand-300">
                       {r.rts_no}

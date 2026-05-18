@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
@@ -132,6 +134,9 @@ export default function InvoiceSummaryReportPage() {
     doc.save("invoice-summary.pdf");
   }
 
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -229,19 +234,19 @@ export default function InvoiceSummaryReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Invoice No</th>
-                  <th>Date</th>
-                  <th>Customer</th>
-                  <th className="text-right">Total</th>
-                  <th className="text-right">VAT</th>
-                  <th className="text-right">Paid</th>
-                  <th className="text-right">Balance</th>
-                  <th>Payment Status</th>
-                  <th>Status</th>
+                  <SortableHeader label="Invoice No" sortKey="invoice_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Total" sortKey="total" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="VAT" sortKey="vat" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Paid" sortKey="paid" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Balance" sortKey="balance" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Payment Status" sortKey="payment_status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, i) => (
+                {sorted_items.map((r, i) => (
                   <tr key={i}>
                     <td className="font-medium">{r.invoice_no}</td>
                     <td>

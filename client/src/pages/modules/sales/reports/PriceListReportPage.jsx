@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
@@ -108,6 +110,9 @@ export default function PriceListReportPage() {
     doc.save("price-list.pdf");
   }
 
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -153,15 +158,15 @@ export default function PriceListReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Product</th>
-                  <th className="text-right">Standard Price</th>
-                  <th className="text-right">Customer-Specific Price</th>
-                  <th>Effective Date</th>
-                  <th>Last Updated By</th>
+                  <SortableHeader label="Product" sortKey="product" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Standard Price" sortKey="standard_price" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Customer-Specific Price" sortKey="customerspecific_price" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Effective Date" sortKey="effective_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Last Updated By" sortKey="last_updated_by" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, i) => (
+                {sorted_items.map((r, i) => (
                   <tr key={i}>
                     <td className="font-medium">{r.product}</td>
                     <td className="text-right">

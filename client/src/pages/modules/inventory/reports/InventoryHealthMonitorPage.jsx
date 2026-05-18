@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -40,6 +42,9 @@ export default function InventoryHealthMonitorPage() {
     loadWarehouses();
     run();
   }, []);
+
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "id", "desc");
 
   return (
     <div className="space-y-4">
@@ -193,15 +198,15 @@ export default function InventoryHealthMonitorPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th>Item</th>
-                  <th className="text-right">Available</th>
-                  <th className="text-right">Reorder Level</th>
-                  <th className="text-right">Days of Cover</th>
-                  <th>Status</th>
+                  <SortableHeader label="Item" sortKey="item" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Available" sortKey="available" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Reorder Level" sortKey="reorder_level" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Days of Cover" sortKey="days_of_cover" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r) => (
+                {sorted_items.map((r) => (
                   <tr key={r.item_id}>
                     <td className="font-medium">
                       {r.item_name || r.item_code}

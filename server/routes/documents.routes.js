@@ -3415,6 +3415,29 @@ router.post(
       }
 
       const canonical = canonicalDocumentType(type);
+      const aliasesLower = docTypeSynonymsLower(type);
+
+      // 1. First priority: Check if there is an active user default template (is_default = 1) for this document type synonym
+      if (!tplObj) {
+        const placeholders = aliasesLower.map((_, i) => `:dt${i}`).join(", ");
+        const params = { companyId };
+        aliasesLower.forEach((val, i) => (params[`dt${i}`] = val));
+        const items = await query(`SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type, name,
+          created_at,
+          u.username AS created_by_name
+         FROM document_templates
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders}) AND is_default = 1
+           ORDER BY updated_at DESC
+           LIMIT 1`,
+          params,
+        ).catch(() => []);
+        if (Array.isArray(items) && items.length) tplObj = items[0];
+      }
+
+      // 2. Second priority: If no default template exists, try the hardcoded default named templates (e.g. "Default payment-voucher", "Sales Order")
       if (!tplObj) {
         if (canonical === "payment-voucher" || canonical === "sales-order") {
           const priorityName =
@@ -3436,56 +3459,40 @@ router.post(
         }
       }
 
-      const nameMap = {
-        "sales-order": "Sales Order",
-        invoice: "Invoice",
-        "delivery-note": "Delivery Note",
-        "salary-slip": "Salary Slip",
-        "payment-voucher": "Payment voucher",
-        "receipt-voucher": "Receipt Voucher",
-        quotation: "Quotation",
-        "purchase-bill": "Purchase Bill",
-        grn: "Goods Receipt Note",
-        "purchase-order": "Purchase Order",
-        "direct-purchase": "Direct Purchase",
-        "general-template": "Default General Template",
-      };
-      const strictName = nameMap[canonical] || null;
-      if (strictName) {
-        const [rowByName] = await query(`SELECT id, html_content,
-                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type, name,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND LOWER(TRIM(name)) = LOWER(TRIM(:strictName))
-           ORDER BY updated_at DESC, id DESC
-           LIMIT 1`,
-          { companyId, strictName },
-        ).catch(() => []);
-        if (rowByName) {
-          tplObj = rowByName;
-        }
-      }
-
-      const aliasesLower = tplObj ? [] : docTypeSynonymsLower(type);
+      // 3. Third priority: Try strict canonical name matching (e.g. LOWER(TRIM(name)) = "invoice")
       if (!tplObj) {
-        const placeholders = aliasesLower.map((_, i) => `:dt${i}`).join(", ");
-        const params = { companyId };
-        aliasesLower.forEach((val, i) => (params[`dt${i}`] = val));
-        const items = await query(`SELECT id, html_content,
-                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND LOWER(TRIM(document_type)) IN (${placeholders}) AND is_default = 1
-           ORDER BY updated_at DESC
-           LIMIT 1`,
-          params,
-        ).catch(() => []);
-        if (Array.isArray(items) && items.length) tplObj = items[0];
+        const nameMap = {
+          "sales-order": "Sales Order",
+          invoice: "Invoice",
+          "delivery-note": "Delivery Note",
+          "salary-slip": "Salary Slip",
+          "payment-voucher": "Payment voucher",
+          "receipt-voucher": "Receipt Voucher",
+          quotation: "Quotation",
+          "purchase-bill": "Purchase Bill",
+          grn: "Goods Receipt Note",
+          "purchase-order": "Purchase Order",
+          "direct-purchase": "Direct Purchase",
+          "general-template": "Default General Template",
+        };
+        const strictName = nameMap[canonical] || null;
+        if (strictName) {
+          const [rowByName] = await query(`SELECT id, html_content,
+                    header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                    document_type, name,
+            created_at,
+            u.username AS created_by_name
+           FROM document_templates
+          LEFT JOIN adm_users u ON u.id = created_by
+           WHERE company_id = :companyId AND LOWER(TRIM(name)) = LOWER(TRIM(:strictName))
+             ORDER BY updated_at DESC, id DESC
+             LIMIT 1`,
+            { companyId, strictName },
+          ).catch(() => []);
+          if (rowByName) {
+            tplObj = rowByName;
+          }
+        }
       }
 
       if (!tplObj) {
@@ -3757,68 +3764,16 @@ router.post(
 
       const aliasesLower = docTypeSynonymsLower(type);
       let tplObj = null;
-
-      // Priority name lookup for preview
       const canonical = canonicalDocumentType(type);
-      if (canonical === "payment-voucher" || canonical === "sales-order") {
-        const priorityName =
-          canonical === "payment-voucher"
-            ? "Default payment-voucher"
-            : "Sales Order";
-        const [namedRow] = await query(`SELECT id, html_content,
-                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE name = :priorityName AND company_id = :companyId
-           LIMIT 1`,
-          { priorityName, companyId },
-        ).catch(() => []);
-        if (namedRow) tplObj = namedRow;
-      }
 
-      // Strict name-based template selection for mapped types
-      // Always prefer templates with exact names for these document types
-      const nameMap = {
-        "sales-order": "Sales Order",
-        invoice: "Invoice",
-        "delivery-note": "Delivery Note",
-        "salary-slip": "Salary Slip",
-        "payment-voucher": "Payment voucher",
-        "receipt-voucher": "Receipt Voucher",
-        quotation: "Quotation",
-        "purchase-bill": "Purchase Bill",
-        grn: "Goods Receipt Note",
-        "purchase-order": "Purchase Order",
-        "direct-purchase": "Direct Purchase",
-        "general-template": "Default General Template",
-      };
-      const strictName = nameMap[canonical] || null;
-
-      // Always try to get the strict-named template, even if we already found another template
-      if (strictName) {
-        const [rowByName] = await query(`SELECT id, html_content,
-                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type, name,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND LOWER(TRIM(name)) = LOWER(TRIM(:strictName))
-           ORDER BY updated_at DESC, id DESC
-           LIMIT 1`,
-          { companyId, strictName },
-        ).catch(() => []);
-        if (rowByName) tplObj = rowByName;
-      }
-
+      // 1. First priority: Check if there is an active user default template (is_default = 1) for this document type synonym
       if (!tplObj) {
         const placeholders = aliasesLower.map((_, i) => `:dt${i}`).join(", ");
         const params = { companyId };
         aliasesLower.forEach((val, i) => (params[`dt${i}`] = val));
         const items = await query(`SELECT id, html_content,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type, name,
           created_at,
           u.username AS created_by_name
          FROM document_templates
@@ -3828,6 +3783,64 @@ router.post(
           params,
         ).catch(() => []);
         if (Array.isArray(items) && items.length) tplObj = items[0];
+      }
+
+      // 2. Second priority: If no default template exists, try the hardcoded default named templates (e.g. "Default payment-voucher", "Sales Order")
+      if (!tplObj) {
+        if (canonical === "payment-voucher" || canonical === "sales-order") {
+          const priorityName =
+            canonical === "payment-voucher"
+              ? "Default payment-voucher"
+              : "Sales Order";
+          const [namedRow] = await query(`SELECT id, html_content,
+                    header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+            created_at,
+            u.username AS created_by_name
+           FROM document_templates
+          LEFT JOIN adm_users u ON u.id = created_by
+           WHERE name = :priorityName AND company_id = :companyId
+             LIMIT 1`,
+            { priorityName, companyId },
+          ).catch(() => []);
+          if (namedRow) tplObj = namedRow;
+        }
+      }
+
+      // 3. Third priority: Try strict canonical name matching (e.g. LOWER(TRIM(name)) = "invoice")
+      if (!tplObj) {
+        const nameMap = {
+          "sales-order": "Sales Order",
+          invoice: "Invoice",
+          "delivery-note": "Delivery Note",
+          "salary-slip": "Salary Slip",
+          "payment-voucher": "Payment voucher",
+          "receipt-voucher": "Receipt Voucher",
+          quotation: "Quotation",
+          "purchase-bill": "Purchase Bill",
+          grn: "Goods Receipt Note",
+          "purchase-order": "Purchase Order",
+          "direct-purchase": "Direct Purchase",
+          "general-template": "Default General Template",
+        };
+        const strictName = nameMap[canonical] || null;
+
+        if (strictName) {
+          const [rowByName] = await query(`SELECT id, html_content,
+                    header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                    document_type, name,
+            created_at,
+            u.username AS created_by_name
+           FROM document_templates
+          LEFT JOIN adm_users u ON u.id = created_by
+           WHERE company_id = :companyId AND LOWER(TRIM(name)) = LOWER(TRIM(:strictName))
+             ORDER BY updated_at DESC, id DESC
+             LIMIT 1`,
+            { companyId, strictName },
+          ).catch(() => []);
+          if (rowByName) {
+            tplObj = rowByName;
+          }
+        }
       }
 
       if (!tplObj) {

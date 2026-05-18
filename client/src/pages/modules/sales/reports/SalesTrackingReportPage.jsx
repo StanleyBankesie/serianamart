@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import useSort from "@/hooks/useSort.js";
+import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -127,6 +129,9 @@ export default function SalesTrackingReportPage() {
     run();
   }, []);
 
+
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "txn_date", "desc");
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -235,16 +240,16 @@ export default function SalesTrackingReportPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Stage</th>
-                  <th>Reference</th>
-                  <th>Customer</th>
-                  <th>Date</th>
-                  <th>Status</th>
-                  <th className="text-right">Value</th>
+                  <SortableHeader label="Stage" sortKey="stage" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Reference" sortKey="ref_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="txn_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Value" sortKey="value" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>
-                {items.map((r, idx) => (
+                {sorted_items.map((r, idx) => (
                   <tr key={r.id || idx}>
                     <td>{r.stage || "-"}</td>
                     <td className="font-medium">{r.ref_no || "-"}</td>

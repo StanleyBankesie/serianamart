@@ -1186,7 +1186,7 @@ export default function PosSalesEntry() {
           <div class="row"><strong>Grand Total</strong><strong>GH₵ ${total.toFixed(
             2,
           )}</strong></div>
-          <div class="row"><span>Amount Paid</span><span>GH₵ ${tendered.toFixed(2)}</span></div>
+          <div class="row"><span>Amount Tendered</span><span>GH₵ ${tendered.toFixed(2)}</span></div>
           <div class="row"><span>${changeDue >= 0 ? "Change" : "Amount Due"}</span><span>GH₵ ${Math.abs(changeDue).toFixed(2)}</span></div>
         </div>
         <div class="footer">${footerText}</div>
@@ -1570,7 +1570,7 @@ export default function PosSalesEntry() {
                 </div>
                 <div className="flex justify-between items-center pt-2">
                   <label htmlFor="amountPaid" className="mr-2">
-                    Amount Paid
+                    Amount Tendered
                   </label>
                   <input
                     id="amountPaid"
@@ -1673,7 +1673,7 @@ export default function PosSalesEntry() {
                 <div className="font-semibold">{`GH₵ ${total.toFixed(2)}`}</div>
               </div>
               <div className="flex justify-between">
-                <div>Amount Paid</div>
+                <div>Amount Tendered</div>
                 <div className="font-semibold">{`GH₵ ${tendered.toFixed(2)}`}</div>
               </div>
               <div className="flex justify-between">
