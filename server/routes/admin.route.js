@@ -1354,19 +1354,23 @@ function deriveActionAndBase(page) {
 
 function basePathFromRequestPath(p) {
   const raw = String(p || "").trim() || "/";
-  const parts = raw.split("/").filter(Boolean);
-  if (parts.length >= 2) {
-    const last = parts[parts.length - 1];
-    if (last === "new" || last === "create") {
-      return `/${parts.slice(0, parts.length - 1).join("/")}`;
-    }
-    if (/^[0-9]+$/.test(last) || /^[0-9a-fA-F-]{8,}$/.test(last)) {
-      return `/${parts.slice(0, parts.length - 1).join("/")}`;
-    }
-    return `/${parts.slice(0, 2).join("/")}`;
+  let parts = raw.split("/").filter(Boolean);
+  if (parts.length === 0) return "/";
+  const last = parts[parts.length - 1];
+  if (last === "new" || last === "create") {
+    parts = parts.slice(0, parts.length - 1);
+  } else if (/^[0-9]+$/.test(last) || /^[0-9a-fA-F-]{8,}$/.test(last)) {
+    parts = parts.slice(0, parts.length - 1);
   }
-  if (parts.length === 1) return `/${parts[0]}`;
-  return "/";
+  if (
+    parts[0] === "administration" &&
+    parts[1] === "access" &&
+    parts.length >= 3
+  ) {
+    return `/${parts.slice(0, 3).join("/")}`;
+  }
+  if (parts.length >= 2) return `/${parts.slice(0, 2).join("/")}`;
+  return `/${parts[0]}`;
 }
 
 function requirePageAccess(path, action = "view") {
@@ -1760,7 +1764,7 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
     }
     const reqPath = String(req.query?.path || "").trim() || "/";
     const base = basePathFromRequestPath(reqPath);
-    const pages = await query(
+    let pages = await query(
       `SELECT id, path, feature_key,
           created_at,
           u.username AS created_by_name
@@ -1769,6 +1773,30 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
          WHERE path = :path AND is_active = 1 LIMIT 1`,
       { path: base },
     );
+    if (!pages.length) {
+      const parts = base.split("/").filter(Boolean);
+      const fallbackFeatureKey =
+        parts[0] === "administration" && parts[1] === "access" && parts[2]
+          ? `administration:${parts[2]}`
+          : parts.length >= 2
+            ? `${parts[0]}:${parts[1]}`
+            : null;
+      if (fallbackFeatureKey) {
+        pages = await query(
+          `SELECT id, path, feature_key,
+              created_at,
+              u.username AS created_by_name
+             FROM adm_pages
+            LEFT JOIN adm_users u ON u.id = created_by
+            WHERE feature_key = :featureKey
+              AND is_active = 1
+            ORDER BY CASE WHEN path = :path THEN 0 ELSE 1 END,
+                     LENGTH(COALESCE(path, '')) DESC
+            LIMIT 1`,
+          { featureKey: fallbackFeatureKey, path: base },
+        );
+      }
+    }
     if (!pages.length) {
       return res.json({
         path: base,
@@ -1787,12 +1815,7 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
       can_delete: 0,
     };
     try {
-      const segs = String(base || "/")
-        .split("/")
-        .filter(Boolean);
-      const mk = segs[0] || "";
-      const feat = segs[1] || "";
-      const fk = mk && feat ? `${mk}:${feat}` : null;
+      const fk = String(page?.feature_key || "").trim() || null;
       if (fk) {
         const agg = await query(
           `SELECT 

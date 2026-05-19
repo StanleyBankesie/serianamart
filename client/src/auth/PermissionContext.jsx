@@ -278,19 +278,27 @@ export const PermissionProvider = ({ children }) => {
 
   const basePathFrom = (p) => {
     const raw = String(p || "").trim() || "/";
-    const parts = raw.split("/").filter(Boolean);
+    let parts = raw.split("/").filter(Boolean);
+    if (parts.length === 0) return "/";
+
+    const last = parts[parts.length - 1];
+    if (last === "new" || last === "create") {
+      parts = parts.slice(0, parts.length - 1);
+    } else if (/^[0-9]+$/.test(last) || /^[0-9a-fA-F-]{8,}$/.test(last)) {
+      parts = parts.slice(0, parts.length - 1);
+    }
+
+    if (
+      parts[0] === "administration" &&
+      parts[1] === "access" &&
+      parts.length >= 3
+    ) {
+      return `/${parts.slice(0, 3).join("/")}`;
+    }
     if (parts.length >= 2) {
-      const last = parts[parts.length - 1];
-      if (last === "new" || last === "create") {
-        return `/${parts.slice(0, parts.length - 1).join("/")}`;
-      }
-      if (/^[0-9]+$/.test(last) || /^[0-9a-fA-F-]{8,}$/.test(last)) {
-        return `/${parts.slice(0, parts.length - 1).join("/")}`;
-      }
       return `/${parts.slice(0, 2).join("/")}`;
     }
-    if (parts.length === 1) return `/${parts[0]}`;
-    return "/";
+    return `/${parts[0]}`;
   };
 
   const ensurePagePerms = async (path) => {
@@ -608,14 +616,16 @@ export const PermissionProvider = ({ children }) => {
    * Derive feature key from a URL path (e.g. /sales/invoices/new -> sales:invoices)
    */
   const featureKeyFromPath = (path) => {
-    const parts = String(path || window?.location?.pathname || "").split("/").filter(Boolean);
+    const base = basePathFrom(path || window?.location?.pathname || "/");
+    const parts = String(base || "/").split("/").filter(Boolean);
     if (parts.length < 2) return null;
-    const last = parts[parts.length - 1];
-    // Strip /new, /create, /edit/:id, numeric IDs
-    if (last === "new" || last === "create") parts.pop();
-    else if (/^[0-9]+$/.test(last) || /^[0-9a-fA-F-]{8,}$/.test(last)) parts.pop();
-    // Re-check after stripping
-    if (parts.length < 2) return null;
+    if (
+      parts[0] === "administration" &&
+      parts[1] === "access" &&
+      parts[2]
+    ) {
+      return `administration:${parts[2]}`;
+    }
     return `${parts[0]}:${parts[1]}`;
   };
 
@@ -826,6 +836,10 @@ export const PermissionProvider = ({ children }) => {
           timer = null;
           if (!canCreate) {
             document.querySelectorAll(createSelectors).forEach((el) => {
+              const exempt =
+                el.getAttribute?.("data-rbac-exempt") === "" ||
+                el.getAttribute?.("data-rbac-exempt") === "true";
+              if (exempt) return;
               const text = (el.textContent || "").trim();
               const href = (el.getAttribute("href") || "").toLowerCase();
               if (href.includes("/new") || href.includes("/create") || /^\+/.test(text) || /\bNew\b/.test(text) || /\bCreate\b/.test(text)) {
@@ -838,6 +852,10 @@ export const PermissionProvider = ({ children }) => {
           }
           if (!canDelete) {
             document.querySelectorAll('.btn-danger, a[href*="/delete"]').forEach((el) => {
+              const exempt =
+                el.getAttribute?.("data-rbac-exempt") === "" ||
+                el.getAttribute?.("data-rbac-exempt") === "true";
+              if (exempt) return;
               const text = (el.textContent || "").trim().toLowerCase();
               const href = (el.getAttribute("href") || "").toLowerCase();
               if (href.includes("delete") || text === "delete" || (text.includes("delete") && text.length < 15)) {

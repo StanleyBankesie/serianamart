@@ -1214,6 +1214,33 @@ export async function ensurePagesSeed() {
       },
     );
   }
+
+  // Ensure every feature in the registry has at least one entry in adm_pages.
+  // This guarantees that page-based permission tables can store permissions for features without real pages.
+  const existingRows = await query("SELECT feature_key FROM adm_pages WHERE feature_key IS NOT NULL");
+  const existingFks = new Set(existingRows.map(r => String(r.feature_key).trim()));
+
+  for (const f of allFeatures) {
+    const fk = String(f.feature_key || "").trim();
+    if (!fk || existingFks.has(fk)) continue;
+
+    const moduleStr = f.module_key || fk.split(":")[0];
+    const code = `${moduleStr}_${f.name || fk.split(":")[1] || "FEATURE"}`
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    
+    await query(
+      "INSERT IGNORE INTO adm_pages (module, name, code, path, feature_key) VALUES (:module, :name, :code, :path, :feature_key)",
+      {
+        module: moduleStr,
+        name: f.name || fk,
+        code: code,
+        path: f.path || `/${moduleStr}/synthetic/${fk.split(":")[1] || "feature"}`,
+        feature_key: fk,
+      },
+    );
+  }
 }
 
 export async function ensureRolePagesTable() {

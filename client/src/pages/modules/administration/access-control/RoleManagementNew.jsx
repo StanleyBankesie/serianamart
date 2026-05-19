@@ -278,6 +278,7 @@ export default function RoleManagement() {
             className="btn btn-primary"
             type="button"
             onClick={() => setShowCreate(true)}
+            data-rbac-exempt="true"
           >
             Create Role
           </button>

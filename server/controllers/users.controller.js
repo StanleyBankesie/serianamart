@@ -657,6 +657,30 @@ export const getUserFeaturePermissionsContext = async (req, res, next) => {
       .map((r) => String(r.feature_key || "").trim())
       .filter(Boolean);
 
+    const rolePermissionRows = await query(
+      `SELECT module_key, feature_key, can_view, can_create, can_edit, can_delete
+         FROM adm_role_permissions
+        WHERE role_id = :roleId`,
+      { roleId },
+    ).catch(() => []);
+    const rolePermissionMap = new Map();
+    for (const row of rolePermissionRows) {
+      const moduleKey = String(row.module_key || "").trim();
+      const rawFeatureKey = String(row.feature_key || "").trim();
+      const canonicalFeatureKey = rawFeatureKey.includes(":")
+        ? rawFeatureKey
+        : moduleKey && rawFeatureKey
+          ? `${moduleKey}:${rawFeatureKey}`
+          : rawFeatureKey;
+      if (!canonicalFeatureKey) continue;
+      rolePermissionMap.set(canonicalFeatureKey, {
+        can_view: Number(row.can_view) ? 1 : 0,
+        can_create: Number(row.can_create) ? 1 : 0,
+        can_edit: Number(row.can_edit) ? 1 : 0,
+        can_delete: Number(row.can_delete) ? 1 : 0,
+      });
+    }
+
     // --- 3. Normalize: map each raw key to a canonical registry key ---
     const resolvedFeatureKeys = new Set();
     for (const rawKey of rawRoleKeys) {
@@ -734,11 +758,11 @@ export const getUserFeaturePermissionsContext = async (req, res, next) => {
       const label = meta?.label || fk;
       const featurePages = getPagesForFeature(fk);
 
-      const savedPerm = userPermMap.get(fk);
-      const default_can_view = savedPerm ? (Number(savedPerm.can_view) ? 1 : 0) : 1;
-      const default_can_create = savedPerm ? (Number(savedPerm.can_create) ? 1 : 0) : 0;
-      const default_can_edit = savedPerm ? (Number(savedPerm.can_edit) ? 1 : 0) : 0;
-      const default_can_delete = savedPerm ? (Number(savedPerm.can_delete) ? 1 : 0) : 0;
+      const rolePerm = rolePermissionMap.get(fk);
+      const default_can_view = rolePerm ? rolePerm.can_view : 1;
+      const default_can_create = rolePerm ? rolePerm.can_create : 0;
+      const default_can_edit = rolePerm ? rolePerm.can_edit : 0;
+      const default_can_delete = rolePerm ? rolePerm.can_delete : 0;
 
       items.push({
         module_key,

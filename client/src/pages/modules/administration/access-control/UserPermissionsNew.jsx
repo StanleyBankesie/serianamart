@@ -336,18 +336,24 @@ export default function UserPermissions() {
       try {
         clearSessionOverrides();
       } catch {}
-      resetSelection();
-      navigate("/administration/access/user-permissions", {
-        state: {
-          success: msg,
-          afterSave: {
-            entity: "user-permissions",
-            id: Number(selectedUser) || null,
-            ts: Date.now(),
-          },
-        },
-        replace: true,
-      });
+      // Don't reset selection - keep the user on the same page to see their changes
+      // resetSelection();
+      setSuccess(msg);
+      // Reload the user context to reflect saved changes
+      await loadUserContext(selectedUser);
+      // Don't navigate away - stay on the same page
+      // navigate("/administration/access/user-permissions", {
+      //   state: {
+      //     success: msg,
+      //     afterSave: {
+      //       entity: "user-permissions",
+      //       id: Number(selectedUser) || null,
+      //       ts: Date.now(),
+      //     },
+      //   },
+      //   replace: true,
+      // });
+      setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to save permissions");
     } finally {
