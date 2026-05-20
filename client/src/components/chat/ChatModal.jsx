@@ -11,10 +11,22 @@ function ConversationList({
   users,
   onStart,
   unreadByUser,
+  onCloseSidebar,
 }) {
   return (
-    <div className="w-[290px] border-r border-slate-200 bg-slate-50 h-full overflow-auto">
-      <div className="p-2 font-semibold text-slate-700">Chats</div>
+    <div className="w-[30%] md:w-[290px] border-r border-slate-200 bg-slate-50 h-full overflow-auto text-black">
+      <div className="p-2 font-semibold flex items-center justify-between">
+        <span>Chats</span>
+        <button
+          type="button"
+          onClick={onCloseSidebar}
+          className="md:hidden rounded px-2 py-1 text-sm hover:bg-slate-200"
+          aria-label="Close users panel"
+          title="Close"
+        >
+          X
+        </button>
+      </div>
       {items.map((c) => (
         <button
           key={c.id}
@@ -25,15 +37,15 @@ function ConversationList({
           }
         >
           <div className="flex-1">
-            <div className="text-sm font-semibold text-slate-800">
+            <div className="text-sm font-semibold text-black">
               {c.title || `Conversation #${c.id}`}
             </div>
-            <div className="text-[11px] text-slate-500">
+            <div className="text-[11px] text-black">
               {c.last_preview || ""}
             </div>
           </div>
           <div className="text-right w-14">
-            <div className="text-[10px] text-slate-500">
+            <div className="text-[10px] text-black">
               {c.last_time
                 ? new Date(c.last_time).toLocaleTimeString([], {
                     hour: "2-digit",
@@ -42,14 +54,14 @@ function ConversationList({
                 : ""}
             </div>
             {!!c.unread_count && (
-              <div className="mt-1 inline-flex min-w-5 h-5 items-center justify-center rounded-full bg-green-600 text-white text-[10px] px-1">
+              <div className="mt-1 inline-flex min-w-5 h-5 items-center justify-center rounded-full bg-green-200 text-black text-[10px] px-1">
                 {c.unread_count}
               </div>
             )}
           </div>
         </button>
       ))}
-      <div className="p-2 font-semibold text-slate-700 border-t border-slate-200">
+      <div className="p-2 font-semibold text-black border-t border-slate-200">
         Users
       </div>
       {Array.isArray(users) &&
@@ -60,15 +72,15 @@ function ConversationList({
             className="w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-white"
           >
             <div className="flex-1">
-              <div className="text-sm font-semibold text-slate-800">
+              <div className="text-sm font-semibold text-black">
                 {u.full_name || u.username}
               </div>
-              <div className="text-[11px] text-slate-500">
+              <div className="text-[11px] text-black">
                 {u.username} {u.is_online ? "• online" : ""}
               </div>
             </div>
             {!!(unreadByUser && unreadByUser[u.id]) && (
-              <div className="inline-flex min-w-5 h-5 items-center justify-center rounded-full bg-green-600 text-white text-[10px] px-1">
+              <div className="inline-flex min-w-5 h-5 items-center justify-center rounded-full bg-green-200 text-black text-[10px] px-1">
                 {unreadByUser[u.id]}
               </div>
             )}
@@ -114,8 +126,7 @@ function MessageList({ items, myId, bgUrl }) {
       {items.map((m, idx) => {
         const outgoing = Number(m.sender_id) === Number(myId);
         const ticks = m.status === "read" ? "✔✔" : "✔";
-        const tickClass =
-          m.status === "read" ? "text-blue-500" : "text-slate-400";
+        const tickClass = "text-black";
         const type = String(m.message_type || "text").toLowerCase();
         const currDate = new Date(m.sent_at || m.created_at || Date.now());
         const prev = items[idx - 1];
@@ -131,7 +142,7 @@ function MessageList({ items, myId, bgUrl }) {
           <React.Fragment key={m.id}>
             {showSeparator && (
               <div className="flex justify-center my-3">
-                <div className="text-[11px] px-3 py-1 rounded-full bg-slate-200 text-slate-700">
+                <div className="text-[11px] px-3 py-1 rounded-full bg-slate-200 text-black">
                   {dayLabel(currDate)}
                 </div>
               </div>
@@ -143,8 +154,8 @@ function MessageList({ items, myId, bgUrl }) {
                 className={
                   "max-w-[70%] px-3 py-2 rounded-2xl text-sm shadow " +
                   (outgoing
-                    ? "bg-green-100 text-slate-900 rounded-br-sm"
-                    : "bg-white text-slate-900 rounded-bl-sm border border-slate-200")
+                    ? "bg-green-100 text-black rounded-br-sm"
+                    : "bg-white text-black rounded-bl-sm border border-slate-200")
                 }
               >
                 {type === "text" && <span>{m.content}</span>}
@@ -213,7 +224,7 @@ function MessageList({ items, myId, bgUrl }) {
                       {m.file_name || "Document"}
                     </a>
                     {m.file_size != null && (
-                      <span className="text-[10px] text-slate-500">
+                      <span className="text-[10px] text-black">
                         ({Math.round(Number(m.file_size) / 1024)} KB)
                       </span>
                     )}
@@ -221,7 +232,7 @@ function MessageList({ items, myId, bgUrl }) {
                 )}
                 {type === "contact" && <ContactCard content={m.content} />}
                 {type === "location" && <LocationCard content={m.content} />}
-                <div className="text-[10px] text-slate-500 mt-1 text-right flex items-center gap-1">
+                <div className="text-[10px] text-black mt-1 text-right flex items-center gap-1">
                   <span>
                     {new Date(
                       m.sent_at || m.created_at || Date.now(),
@@ -250,8 +261,8 @@ function ContactCard({ content }) {
   return (
     <div className="border rounded-lg p-2 bg-white">
       <div className="font-semibold text-sm">{data.name || data.username}</div>
-      <div className="text-[11px] text-slate-600">{data.email || ""}</div>
-      <div className="text-[11px] text-slate-600">{data.phone || ""}</div>
+      <div className="text-[11px] text-black">{data.email || ""}</div>
+      <div className="text-[11px] text-black">{data.phone || ""}</div>
     </div>
   );
 }
@@ -266,6 +277,7 @@ export default function ChatModal({ onClose }) {
   const [text, setText] = useState("");
   const [typingUsers, setTypingUsers] = useState(new Set());
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [userSearch, setUserSearch] = useState("");
   const [userOptions, setUserOptions] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -627,7 +639,8 @@ export default function ChatModal({ onClose }) {
 
   return (
     <div className="fixed right-4 bottom-20 md:right-6 md:bottom-20 z-50">
-      <div className="w-[880px] max-w-[95vw] h-[520px] rounded-xl shadow-erp-lg bg-white border border-slate-200 overflow-hidden flex">
+      <div className="w-[880px] max-w-[95vw] h-[520px] rounded-xl shadow-erp-lg bg-white border border-slate-200 overflow-hidden flex text-black">
+        <div className={(sidebarOpen ? "" : "hidden ") + "md:block"}>
         <ConversationList
           items={convos}
           activeId={active?.id}
@@ -635,13 +648,15 @@ export default function ChatModal({ onClose }) {
           users={allUsers}
           onStart={startDirectChat}
           unreadByUser={unreadByUser}
+          onCloseSidebar={() => setSidebarOpen(false)}
         />
+        </div>
         <div className="flex-1 flex flex-col">
           <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">
-            <div className="font-semibold text-slate-800">
+            <div className="font-semibold text-black">
               {active ? active.title || `Conversation #${active.id}` : "Chat"}
             </div>
-            <div className="text-[11px] text-slate-500">
+            <div className="text-[11px] text-black">
               {typing ? "typing…" : ""}
             </div>
             <div className="flex items-center gap-2">
@@ -652,9 +667,19 @@ export default function ChatModal({ onClose }) {
               >
                 🖼
               </button>
+              {!sidebarOpen && (
+                <button
+                  type="button"
+                  className="md:hidden rounded px-2 py-1 text-sm hover:bg-slate-100"
+                  onClick={() => setSidebarOpen(true)}
+                  title="Open users panel"
+                >
+                  Users
+                </button>
+              )}
               <button
                 onClick={onClose}
-                className="rounded px-2 py-1 text-sm bg-white/10 hover:bg-white/20 text-white"
+                className="rounded px-2 py-1 text-sm bg-slate-100 hover:bg-slate-200 text-black"
               >
                 Close
               </button>
@@ -670,7 +695,7 @@ export default function ChatModal({ onClose }) {
                 backgroundPosition: "center",
               }}
             >
-              <button className="btn" onClick={() => setPickerOpen(true)}>
+              <button className="btn text-black" onClick={() => setPickerOpen(true)}>
                 New Chat
               </button>
             </div>
@@ -700,7 +725,7 @@ export default function ChatModal({ onClose }) {
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      className="text-slate-700"
+                      className="text-black"
                     >
                       <path d="M21.44 11.05l-9.19 9.19a6 6 0 1 1-8.49-8.49l9.19-9.19a4 4 0 1 1 5.66 5.66l-9.2 9.2a2 2 0 1 1-2.83-2.83l8.49-8.49" />
                     </svg>
@@ -710,7 +735,7 @@ export default function ChatModal({ onClose }) {
                       {/* Radial fan buttons */}
                       <div className="relative w-0 h-0">
                         <button
-                          className="pointer-events-auto absolute -top-20 -left-8 w-10 h-10 rounded-full bg-pink-500 text-white shadow hover:scale-105"
+                          className="pointer-events-auto absolute -top-20 -left-8 w-10 h-10 rounded-full bg-pink-200 text-black shadow hover:scale-105"
                           title="Photo/Video"
                           onClick={() => {
                             setAttachOpen(false);
@@ -720,7 +745,7 @@ export default function ChatModal({ onClose }) {
                           📷
                         </button>
                         <button
-                          className="pointer-events-auto absolute -top-16 -left-24 w-10 h-10 rounded-full bg-blue-500 text-white shadow hover:scale-105"
+                          className="pointer-events-auto absolute -top-16 -left-24 w-10 h-10 rounded-full bg-blue-200 text-black shadow hover:scale-105"
                           title="Document"
                           onClick={() => {
                             setAttachOpen(false);
@@ -730,7 +755,7 @@ export default function ChatModal({ onClose }) {
                           📄
                         </button>
                         <button
-                          className="pointer-events-auto absolute -top-4 -left-28 w-10 h-10 rounded-full bg-amber-500 text-white shadow hover:scale-105"
+                          className="pointer-events-auto absolute -top-4 -left-28 w-10 h-10 rounded-full bg-amber-200 text-black shadow hover:scale-105"
                           title="Audio"
                           onClick={() => {
                             setAttachOpen(false);
@@ -740,7 +765,7 @@ export default function ChatModal({ onClose }) {
                           🎵
                         </button>
                         <button
-                          className="pointer-events-auto absolute -top-20 left-8 w-10 h-10 rounded-full bg-green-600 text-white shadow hover:scale-105"
+                          className="pointer-events-auto absolute -top-20 left-8 w-10 h-10 rounded-full bg-green-200 text-black shadow hover:scale-105"
                           title="Location"
                           onClick={async () => {
                             setAttachOpen(false);
@@ -786,7 +811,7 @@ export default function ChatModal({ onClose }) {
                           📍
                         </button>
                         <button
-                          className="pointer-events-auto absolute -top-4 left-28 w-10 h-10 rounded-full bg-purple-600 text-white shadow hover:scale-105"
+                          className="pointer-events-auto absolute -top-4 left-28 w-10 h-10 rounded-full bg-purple-200 text-black shadow hover:scale-105"
                           title="Contact"
                           onClick={async () => {
                             setAttachOpen(false);
@@ -866,7 +891,7 @@ export default function ChatModal({ onClose }) {
                   }}
                 />
                 {uploading && (
-                  <div className="text-xs text-slate-500">
+                  <div className="text-xs text-black">
                     {uploadProgress}%
                   </div>
                 )}
@@ -878,7 +903,7 @@ export default function ChatModal({ onClose }) {
                     else onTyping();
                   }}
                   placeholder="Type a message"
-                  className="input flex-1"
+                  className="input flex-1 text-black"
                 />
                 <button
                   className="btn-primary dark:bg-brand-600 dark:border-brand-600"
@@ -888,7 +913,7 @@ export default function ChatModal({ onClose }) {
                 </button>
               </>
             ) : (
-              <button className="btn" onClick={() => setPickerOpen(true)}>
+              <button className="btn text-black" onClick={() => setPickerOpen(true)}>
                 Start Chat
               </button>
             )}
@@ -929,7 +954,7 @@ export default function ChatModal({ onClose }) {
                   </div>
                   <div className="flex-1 text-left">
                     <div className="text-sm font-semibold">{u.username}</div>
-                    <div className="text-[11px] text-slate-500">
+                    <div className="text-[11px] text-black">
                       {u.full_name || ""}
                     </div>
                   </div>
@@ -943,7 +968,7 @@ export default function ChatModal({ onClose }) {
                 </button>
               ))}
               {!userOptions.length && (
-                <div className="p-4 text-sm text-slate-500">No users found</div>
+                <div className="p-4 text-sm text-black">No users found</div>
               )}
             </div>
           </div>

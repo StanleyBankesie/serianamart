@@ -697,7 +697,7 @@ export default function HomePage() {
           <button
             type="button"
             onClick={() => navigate("/notifications")}
-            className="absolute top-4 right-4 z-20 bg-white/10 hover:bg-white/20 text-white rounded-full px-3 py-2 flex items-center gap-2"
+            className="hidden md:flex absolute top-4 right-4 z-20 bg-white/10 hover:bg-white/20 text-white rounded-full px-3 py-2 items-center gap-2"
           >
             <span>🔔</span>
             <span className="relative inline-flex items-center">
@@ -714,7 +714,7 @@ export default function HomePage() {
         </div>
 
         {/* Tickers / Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 px-3 md:px-0">
           {visibleMetrics.map((metric, index) => {
             const cardType = index % 4;
             if (cardType === 0) {

@@ -1344,7 +1344,7 @@ export default function AppShell() {
               to="/"
               end
               className={({ isActive }) =>
-                `flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group ` +
+                `flex items-center px-3 py-2.5 rounded-lg text-base font-medium transition-all duration-200 group ` +
                 (isActive
                   ? "bg-brand-800 text-white shadow-lg border-l-4 border-primary-light"
                   : "text-brand-200 hover:bg-brand-800 hover:text-white border-l-4 border-transparent")
@@ -1368,7 +1368,7 @@ export default function AppShell() {
                   key={m.key}
                   to={m.path}
                   className={({ isActive }) =>
-                    `flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group ` +
+                    `flex items-center px-3 py-2.5 rounded-lg text-base font-medium transition-all duration-200 group ` +
                     (isActive
                       ? "bg-brand-800 text-white shadow-lg border-l-4 border-primary-light"
                       : "text-brand-200 hover:bg-brand-800 hover:text-white border-l-4 border-transparent")
