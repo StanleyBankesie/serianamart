@@ -201,7 +201,7 @@ export default function DebitNoteForm() {
           api.get("/finance/fiscal-years"),
           api.get("/finance/accounts"),
           api.get("/finance/tax-codes", { params: { form: formParam } }),
-          api.get("/sales/suppliers?active=true"),
+          api.get("/sales/customers?active=true"),
           api.get("/purchase/suppliers?active=true"),
           api.get("/finance/currencies"),
         ]);
@@ -355,10 +355,10 @@ export default function DebitNoteForm() {
     if (acc) {
       const accountCode = acc.code || "";
       const supplier = payees.find(
-        (p) => p.type === "CUSTOMER" && String(p.code) === String(accountCode)
+        (p) => p.type === "SUPPLIER" && String(p.code) === String(accountCode)
       );
       if (supplier) {
-        api.get(`/sales/suppliers/${supplier.id}`)
+        api.get(`/purchase/suppliers/${supplier.id}`)
           .then((res) => {
             const custData = res.data?.item || res.data || {};
             if (custData.purchase_account_id) {
@@ -372,7 +372,7 @@ export default function DebitNoteForm() {
           });
       } else {
         // Fallback: search suppliers by name/code directly if payee mapping didn't hit
-        api.get(`/sales/suppliers?active=true`)
+        api.get(`/purchase/suppliers?active=true`)
           .then((res) => {
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const matchingCust = items.find(
@@ -2143,12 +2143,12 @@ export default function DebitNoteForm() {
       const acc = accounts.find((a) => String(a.id) === String(accountId));
       const accountCode = acc?.code || "";
       const supplier = payees.find(
-        (p) => p.type === "CUSTOMER" && String(p.code) === String(accountCode),
+        (p) => p.type === "SUPPLIER" && String(p.code) === String(accountCode),
       );
       if (supplier) {
         // Find supplier data to get purchase_account_id
         api
-          .get(`/sales/suppliers/${supplier.id}`)
+          .get(`/purchase/suppliers/${supplier.id}`)
           .then((res) => {
             const custData = res.data?.item || res.data || {};
             const salesAccountId = custData.purchase_account_id;
@@ -3235,7 +3235,7 @@ export default function DebitNoteForm() {
                       <input
                         className={`input w-full ${readOnly ? "bg-slate-100" : ""}`}
                         value={dnSupplierName || supplierSearch}
-                        placeholder="Search debtor account..."
+                        placeholder="Search supplier/creditor account..."
                         readOnly={readOnly}
                         onChange={(e) => {
                           setSupplierSearch(e.target.value);
@@ -3252,11 +3252,11 @@ export default function DebitNoteForm() {
                         !dnSupplierName &&
                         (() => {
                           const q = supplierSearch.toLowerCase();
-                          const debtorAccounts = accounts
+                          const creditorAccounts = accounts
                             .filter(
                               (a) =>
                                 String(a.group_name || "").toUpperCase() ===
-                                "DEBTORS",
+                                "CREDITORS",
                             )
                             .filter(
                               (a) =>
@@ -3268,9 +3268,9 @@ export default function DebitNoteForm() {
                                   .includes(q),
                             )
                             .slice(0, 10);
-                          return debtorAccounts.length > 0 ? (
+                          return creditorAccounts.length > 0 ? (
                             <div className="absolute z-20 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto">
-                              {debtorAccounts.map((a) => (
+                              {creditorAccounts.map((a) => (
                                 <button
                                   key={a.id}
                                   type="button"

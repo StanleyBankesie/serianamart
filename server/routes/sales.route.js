@@ -401,6 +401,19 @@ async function ensureCustomersTableColumns() {
 
 async function ensureSalesReturnTables() {
   await query(`
+    CREATE TABLE IF NOT EXISTS sal_return_reasons (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      reason_code VARCHAR(50) NOT NULL,
+      reason_name VARCHAR(255) NOT NULL,
+      is_active TINYINT DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_reason_code (company_id, reason_code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `).catch(() => null);
+
+  await query(`
     CREATE TABLE IF NOT EXISTS sal_returns (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       company_id BIGINT UNSIGNED NOT NULL,
@@ -6444,6 +6457,79 @@ router.get(
       next(e);
     }
   },
+);
+
+router.get(
+  "/return-reasons",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureSalesReturnTables();
+      const companyId = req.scope.companyId;
+      const items = await query(
+        `SELECT id, reason_code, reason_name, is_active FROM sal_return_reasons WHERE company_id = :companyId ORDER BY id ASC`,
+        { companyId }
+      );
+      res.json({ items: items || [] });
+    } catch (e) {
+      next(e);
+    }
+  }
+);
+
+router.post(
+  "/return-reasons",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureSalesReturnTables();
+      const companyId = req.scope.companyId;
+      const { reasons } = req.body;
+      if (!Array.isArray(reasons)) {
+        return res.status(400).json({ message: "reasons must be an array" });
+      }
+      for (const r of reasons) {
+        if (!r.reason_code || !r.reason_name) continue;
+        if (r.id && /^\d+$/.test(String(r.id))) {
+          await query(
+            `UPDATE sal_return_reasons 
+                SET reason_code = :reason_code, reason_name = :reason_name, is_active = :is_active 
+              WHERE id = :id AND company_id = :companyId`,
+            { id: Number(r.id), company_id: companyId, reason_code: r.reason_code, reason_name: r.reason_name, is_active: r.is_active ? 1 : 0 }
+          );
+        } else {
+          await query(
+            `INSERT INTO sal_return_reasons (company_id, reason_code, reason_name, is_active) 
+             VALUES (:companyId, :reason_code, :reason_name, 1)
+             ON DUPLICATE KEY UPDATE reason_name = :reason_name, is_active = 1`,
+            { companyId, reason_code: r.reason_code, reason_name: r.reason_name }
+          );
+        }
+      }
+      res.json({ message: "Return reasons saved successfully" });
+    } catch (e) {
+      next(e);
+    }
+  }
+);
+
+router.delete(
+  "/return-reasons/:id",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureSalesReturnTables();
+      const companyId = req.scope.companyId;
+      const id = Number(req.params.id);
+      await query(`DELETE FROM sal_return_reasons WHERE id = :id AND company_id = :companyId`, { id, companyId });
+      res.json({ message: "Reason deleted successfully" });
+    } catch (e) {
+      next(e);
+    }
+  }
 );
 
 router.get(

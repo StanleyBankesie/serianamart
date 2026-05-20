@@ -14,10 +14,15 @@ export default function SalesReturnForm() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [customers, setCustomers] = useState([]);
+  const [customerSearch, setCustomerSearch] = useState("");
   const [invoices, setInvoices] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [itemsMaster, setItemsMaster] = useState([]);
-  const [taxCodeRates, setTaxCodeRates] = useState({});
+  const [taxes, setTaxes] = useState([]);
+  const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
+  const [defaultTaxId, setDefaultTaxId] = useState("");
+  const [itemQueries, setItemQueries] = useState({});
+  const [returnReasons, setReturnReasons] = useState([]);
 
   const [formData, setFormData] = useState({
     returnNo: "Auto-generated",
@@ -40,6 +45,7 @@ export default function SalesReturnForm() {
       unitPrice: 0,
       reasonCode: "DAMAGED",
       remarks: "",
+      tax_type: "",
       taxAmount: 0,
     },
   ]);
@@ -47,24 +53,56 @@ export default function SalesReturnForm() {
   const fetchAvailable = async (warehouseId, itemId) => {
     if (!warehouseId || !itemId) return 0;
     try {
-      const resp = await api.get(
-        `/inventory/stock/available?warehouse_id=${warehouseId}&item_id=${itemId}`,
-      );
+      const resp = await api.get("/inventory/stock/balance", {
+        params: {
+          item_id: itemId,
+          warehouse_id: warehouseId,
+        },
+      });
       return Number(resp.data?.qty || 0);
     } catch {
       return 0;
     }
   };
 
+  const fetchTaxComponentsForCode = async (taxCodeId) => {
+    const key = String(taxCodeId || "");
+    if (!key) return;
+    try {
+      const resp = await api.get(`/finance/tax-codes/${taxCodeId}/components`);
+      const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
+      setTaxComponentsByCode((prev) => ({ ...prev, [key]: items }));
+    } catch {
+      // noop
+    }
+  };
+
+  const ensureTaxComponentsLoaded = async () => {
+    const uniqueTaxIds = Array.from(
+      new Set(
+        lines.map((i) => i.tax_type).filter((id) => id && id !== "undefined"),
+      ),
+    );
+    const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
+    if (missing.length) {
+      await Promise.all(missing.map((id) => fetchTaxComponentsForCode(id)));
+    }
+  };
+
+  useEffect(() => {
+    ensureTaxComponentsLoaded();
+  }, [lines]);
+
   useEffect(() => {
     let mounted = true;
     async function load() {
       try {
-        const [custRes, whRes, itemsRes, taxRes] = await Promise.all([
+        const [custRes, whRes, itemsRes, taxRes, reasonRes] = await Promise.all([
           api.get("/sales/customers?active=true"),
           api.get("/inventory/warehouses"),
           api.get("/inventory/items"),
-          api.get("/finance/tax-codes", { params: { form: "SALES_RETURN" } }),
+          api.get("/finance/tax-codes/by-page/19"),
+          api.get("/sales/return-reasons").catch(() => ({ data: { items: [] } })),
         ]);
         if (!mounted) return;
         setCustomers(
@@ -74,14 +112,38 @@ export default function SalesReturnForm() {
         setItemsMaster(
           Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : [],
         );
-        const map = {};
-        const taxItems = Array.isArray(taxRes.data?.items)
-          ? taxRes.data.items
-          : [];
-        for (const t of taxItems) {
-          map[Number(t.id)] = Number(t.rate_percent || 0);
+        const taxItems = Array.isArray(taxRes.data?.items) ? taxRes.data.items : [];
+        setTaxes(taxItems);
+
+        const reasonItems = Array.isArray(reasonRes.data?.items) ? reasonRes.data.items : [];
+        const activeReasons = reasonItems.filter((r) => r.is_active);
+        setReturnReasons(activeReasons);
+
+        // Pre-populate default tax code defined for sales returns (page ID 19)
+        if (taxItems.length > 0) {
+          const defCode = taxItems.find(t => t.is_default) || taxItems[0];
+          if (defCode) {
+            setDefaultTaxId(String(defCode.id));
+            setLines((prev) =>
+              prev.map((l) => ({
+                ...l,
+                tax_type: String(defCode.id),
+              })),
+            );
+            fetchTaxComponentsForCode(defCode.id);
+          }
         }
-        setTaxCodeRates(map);
+
+        if (activeReasons.length > 0 && !existingId) {
+          const firstCode = activeReasons[0].reason_code;
+          setFormData((p) => ({ ...p, returnType: firstCode }));
+          setLines((prev) =>
+            prev.map((l) => ({
+              ...l,
+              reasonCode: firstCode,
+            })),
+          );
+        }
 
         if (existingId) {
           const detRes = await api.get(`/sales/returns/${existingId}`);
@@ -120,6 +182,7 @@ export default function SalesReturnForm() {
             unitPrice: Number(d.unit_price || 0),
             reasonCode: String(d.reason_code || "DAMAGED"),
             remarks: String(d.remarks || ""),
+            tax_type: d.tax_type != null ? String(d.tax_type) : String(defCode?.id || ""),
             taxAmount: Number(d.tax_amount || 0),
             uom: String(d.uom || ""),
           }));
@@ -136,6 +199,7 @@ export default function SalesReturnForm() {
                     unitPrice: 0,
                     reasonCode: "DAMAGED",
                     remarks: "",
+                    tax_type: String(defCode?.id || ""),
                     taxAmount: 0,
                   },
                 ],
@@ -158,7 +222,9 @@ export default function SalesReturnForm() {
       mounted = false;
     };
   }, [existingId]);
+
   useEffect(() => {
+    if (readOnly) return;
     setFormData((p) => ({ ...p, invoiceId: "" }));
     setInvoices([]);
     const cid = formData.customerId;
@@ -175,7 +241,8 @@ export default function SalesReturnForm() {
       .catch(() => {
         setInvoices([]);
       });
-  }, [formData.customerId]);
+  }, [formData.customerId, readOnly]);
+
   useEffect(() => {
     if (readOnly) return;
     const invId = formData.invoiceId;
@@ -197,9 +264,9 @@ export default function SalesReturnForm() {
           const item = itemsMaster.find(
             (i) => Number(i.id) === Number(d.item_id),
           );
-          const rate = Number(
-            taxCodeRates[Number(item?.vat_on_sales_id || 0)] || 0,
-          );
+          const activeTaxId = String(item?.vat_on_sales_id || defaultTaxId || "");
+          const comps = taxComponentsByCode[activeTaxId] || [];
+          const rate = comps.reduce((sum, c) => sum + Number(c.rate_percent || 0), 0);
           const qty = Math.round(Number(d.quantity || 0) * 100) / 100;
           const price = Math.round(Number(d.unit_price || 0) * 100) / 100;
           const taxAmount =
@@ -213,6 +280,7 @@ export default function SalesReturnForm() {
             unitPrice: price,
             reasonCode: formData.returnType || "DAMAGED",
             remarks: "",
+            tax_type: activeTaxId,
             taxAmount,
             uom: d.uom || "",
           };
@@ -234,7 +302,7 @@ export default function SalesReturnForm() {
       .catch(() => {
         // ignore
       });
-  }, [formData.invoiceId, itemsMaster, taxCodeRates, readOnly]);
+  }, [formData.invoiceId, itemsMaster, taxComponentsByCode, defaultTaxId, readOnly]);
 
   useEffect(() => {
     if (readOnly) return;
@@ -275,14 +343,26 @@ export default function SalesReturnForm() {
         unitPrice: 0,
         reasonCode: formData.returnType || "DAMAGED",
         remarks: "",
+        tax_type: defaultTaxId,
+        taxAmount: 0,
       },
     ]);
   };
+
   const removeLine = (lineId) => {
     setLines(lines.filter((l) => l.id !== lineId));
   };
+
   const handleItemChange = (lineId, itemId) => {
     const item = itemsMaster.find((i) => String(i.id) === String(itemId));
+    const activeTaxId = String(item?.vat_on_sales_id || defaultTaxId || "");
+    const comps = taxComponentsByCode[activeTaxId] || [];
+    const rate = comps.reduce((sum, c) => sum + Number(c.rate_percent || 0), 0);
+
+    const qty = 1;
+    const price = Number(item?.selling_price || 0) || Number(item?.standard_price || 0) || 0;
+    const taxAmount = Math.round(((qty * price * rate) / 100) * 100) / 100;
+
     setLines(
       lines.map((l) =>
         l.id !== lineId
@@ -292,22 +372,12 @@ export default function SalesReturnForm() {
               item_id: itemId,
               itemCode: item?.item_code || "",
               itemName: item?.item_name || "",
-              unitPrice:
-                Number(item?.selling_price || 0) ||
-                Number(item?.standard_price || 0) ||
-                0,
+              qtyReturned: qty,
+              unitPrice: price,
               reasonCode: formData.returnType || "DAMAGED",
-              taxAmount:
-                ((Number(l.qtyReturned) || 0) *
-                  (Number(
-                    Number(item?.selling_price || 0) ||
-                      Number(item?.standard_price || 0) ||
-                      0,
-                  ) || 0) *
-                  Number(
-                    taxCodeRates[Number(item?.vat_on_sales_id || 0)] || 0,
-                  )) /
-                100,
+              tax_type: activeTaxId,
+              taxAmount,
+              uom: item?.uom || "",
             },
       ),
     );
@@ -334,17 +404,14 @@ export default function SalesReturnForm() {
       );
     }
   };
+
   const updateLine = (lineId, field, value) => {
     setLines(
       lines.map((l) => {
         if (l.id !== lineId) return l;
         const patch = { ...l, [field]: value };
-        const item = itemsMaster.find(
-          (i) => Number(i.id) === Number(patch.item_id),
-        );
-        const rate = Number(
-          taxCodeRates[Number(item?.vat_on_sales_id || 0)] || 0,
-        );
+        const comps = taxComponentsByCode[String(patch.tax_type)] || [];
+        const rate = comps.reduce((sum, c) => sum + Number(c.rate_percent || 0), 0);
         const qty =
           Number(field === "qtyReturned" ? value : patch.qtyReturned) || 0;
         const price =
@@ -368,23 +435,45 @@ export default function SalesReturnForm() {
       }));
   }, [lines]);
 
+  const calcTaxComponentsTotals = () => {
+    const sub = lines.reduce((s, i) => s + (Number(i.qtyReturned || 0) * Number(i.unitPrice || 0)), 0);
+    const compTotals = {};
+    lines.forEach((i) => {
+      const comps = taxComponentsByCode[String(i.tax_type)] || [];
+      comps.forEach((c) => {
+        const rate = Number(c.rate_percent) || 0;
+        const amt = ((Number(i.qtyReturned || 0) * Number(i.unitPrice || 0)) * rate) / 100;
+        const name = c.component_name;
+        if (!compTotals[name])
+          compTotals[name] = { amount: 0, rate, sort_order: c.sort_order || 0 };
+        compTotals[name].amount += amt;
+      });
+    });
+    const components = Object.keys(compTotals)
+      .map((name) => ({
+        name,
+        amount: compTotals[name].amount,
+        rate: compTotals[name].rate,
+        sort_order: compTotals[name].sort_order,
+      }))
+      .sort((a, b) => a.sort_order - b.sort_order);
+    const taxTotal = components.reduce((s, c) => s + c.amount, 0);
+    const total = sub + taxTotal;
+    return { sub, components, taxTotal, total };
+  };
+
   const totals = useMemo(() => {
-    const subTotal = lines.reduce(
-      (sum, l) =>
-        sum + (Number(l.qtyReturned) || 0) * (Number(l.unitPrice) || 0),
-      0,
-    );
-    const taxTotal = lines.reduce(
-      (sum, l) => sum + (Number(l.taxAmount) || 0),
-      0,
-    );
-    const grandTotal = subTotal + taxTotal;
+    const grossSub = lines.reduce((s, i) => s + (Number(i.qtyReturned || 0) * Number(i.unitPrice || 0)), 0);
+    const tc = calcTaxComponentsTotals();
+    const taxTotal = tc.taxTotal;
+    const grand = grossSub + taxTotal;
     return {
-      subTotal: Math.round(subTotal * 100) / 100,
+      subTotal: Math.round(grossSub * 100) / 100,
+      components: tc.components,
       taxTotal: Math.round(taxTotal * 100) / 100,
-      grandTotal: Math.round(grandTotal * 100) / 100,
+      grandTotal: Math.round(grand * 100) / 100,
     };
-  }, [lines]);
+  }, [lines, taxComponentsByCode]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -439,11 +528,10 @@ export default function SalesReturnForm() {
               </div>
             ) : null}
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="label">Return No</label>
-                <input className="input" value={formData.returnNo} readOnly />
-              </div>
+            {/* Visual return no field is hidden */}
+            <input type="hidden" value={formData.returnNo} />
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <label className="label">Return Date</label>
                 <input
@@ -456,30 +544,66 @@ export default function SalesReturnForm() {
                   }
                 />
               </div>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="label">Customer</label>
-                <select
+              <div className="relative">
+                <label className="label">Customer *</label>
+                <input
+                  type="text"
                   className="input"
-                  value={formData.customerId}
+                  placeholder="Search customer..."
+                  required={!formData.customerId}
                   disabled={readOnly}
-                  onChange={(e) =>
-                    setFormData((p) => ({ ...p, customerId: e.target.value }))
+                  value={
+                    customers.find((c) => String(c.id) === String(formData.customerId))?.customer_name ||
+                    customerSearch
                   }
-                >
-                  <option value="">Select customer</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.customer_name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCustomerSearch(val);
+                    setFormData((prev) => ({
+                      ...prev,
+                      customerId: "",
+                      invoiceId: "",
+                    }));
+                  }}
+                />
+                {!readOnly && customerSearch && (
+                  (() => {
+                    const q = customerSearch.toLowerCase();
+                    const matched = customers.filter(
+                      (c) =>
+                        String(c.customer_name || "").toLowerCase().includes(q) ||
+                        String(c.customer_code || "").toLowerCase().includes(q)
+                    ).slice(0, 10);
+                    return matched.length > 0 ? (
+                      <div className="absolute z-30 w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto">
+                        {matched.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="w-full text-left px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700 last:border-b-0"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setFormData((prev) => ({
+                                ...prev,
+                                customerId: String(c.id),
+                              }));
+                              setCustomerSearch("");
+                            }}
+                          >
+                            <div className="font-medium text-slate-800 dark:text-slate-200 text-sm">{c.customer_name}</div>
+                            {c.customer_code && <div className="text-xs text-slate-500">{c.customer_code}</div>}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null;
+                  })()
+                )}
               </div>
-              {formData.customerId ? (
-                <div>
-                  <label className="label">Related Invoice</label>
+
+              <div>
+                <label className="label">Related Invoice</label>
+                {formData.customerId ? (
                   <select
                     className="input"
                     value={formData.invoiceId}
@@ -488,19 +612,18 @@ export default function SalesReturnForm() {
                       setFormData((p) => ({ ...p, invoiceId: e.target.value }))
                     }
                   >
+                    <option value="">Select Invoice</option>
                     {invoices.map((i) => (
                       <option key={i.id} value={i.id}>
                         {i.invoice_no}
                       </option>
                     ))}
                   </select>
-                </div>
-              ) : (
-                <div>
-                  <label className="label">Related Invoice</label>
-                  <input className="input" value="" readOnly />
-                </div>
-              )}
+                ) : (
+                  <input className="input bg-gray-50" value="" readOnly placeholder="Select customer first" />
+                )}
+              </div>
+
               <div>
                 <label className="label">Warehouse</label>
                 <select
@@ -521,35 +644,48 @@ export default function SalesReturnForm() {
               </div>
             </div>
 
-            <div>
-              <label className="label">Reason for Return</label>
-              <select
-                className="input w-full md:w-1/3"
-                value={formData.returnType}
-                disabled={readOnly}
-                onChange={(e) =>
-                  setFormData((p) => ({ ...p, returnType: e.target.value }))
-                }
-              >
-                <option value="DAMAGED">Damaged</option>
-                <option value="WRONG_ITEM">Wrong Item</option>
-                <option value="QUALITY_ISSUE">Quality Issue</option>
-                <option value="EXCESS">Excess</option>
-              </select>
-            </div>
+            {/* Moved Remarks to the same row as reason for return, Remarks to be textarea rows=4 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="label">Reason for Return</label>
+                <select
+                  className="input w-full"
+                  value={formData.returnType}
+                  disabled={readOnly}
+                  onChange={(e) =>
+                    setFormData((p) => ({ ...p, returnType: e.target.value }))
+                  }
+                >
+                  {returnReasons.length > 0 ? (
+                    returnReasons.map((r) => (
+                      <option key={r.id} value={r.reason_code}>
+                        {r.reason_name}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="DAMAGED">Damaged</option>
+                      <option value="WRONG_ITEM">Wrong Item</option>
+                      <option value="QUALITY_ISSUE">Quality Issue</option>
+                      <option value="EXCESS">Excess</option>
+                    </>
+                  )}
+                </select>
+              </div>
 
-            <div>
-              <label className="label">Reason / Remarks</label>
-              <textarea
-                className="textarea w-full"
-                rows={3}
-                placeholder="Reason for rejection or return details"
-                value={formData.remarks}
-                readOnly={readOnly}
-                onChange={(e) =>
-                  setFormData((p) => ({ ...p, remarks: e.target.value }))
-                }
-              />
+              <div>
+                <label className="label">Reason / Remarks</label>
+                <textarea
+                  className="textarea w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg p-2 focus:ring-2 focus:ring-brand focus:border-brand"
+                  rows={4}
+                  placeholder="Reason for rejection or return details"
+                  value={formData.remarks}
+                  readOnly={readOnly}
+                  onChange={(e) =>
+                    setFormData((p) => ({ ...p, remarks: e.target.value }))
+                  }
+                />
+              </div>
             </div>
 
             <div className="rounded-lg border bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
@@ -575,11 +711,10 @@ export default function SalesReturnForm() {
                       <th className="w-32">Code</th>
                       <th className="w-24">UOM</th>
                       <th className="text-right w-28">Qty</th>
-                      <th className="w-32">Convert</th>
                       <th className="text-right w-32">Available</th>
                       <th className="text-right w-32">Unit Price</th>
-                      <th className="text-right w-24">Disc%</th>
-                      <th className="text-right w-28">Tax</th>
+                      <th className="text-right w-32">Tax Code</th>
+                      <th className="text-right w-28">Tax Amt</th>
                       <th className="text-right w-32">Total</th>
                       <th className="w-40">Reason</th>
                       <th className="w-64">Remarks</th>
@@ -587,140 +722,208 @@ export default function SalesReturnForm() {
                     </tr>
                   </thead>
                   <tbody>
-                    {lines.map((ln) => (
-                      <tr key={ln.id}>
-                        <td>
-                          <select
-                            className="input w-full min-w-[18rem]"
-                            value={ln.item_id}
-                            disabled={readOnly}
-                            onChange={(e) =>
-                              handleItemChange(ln.id, e.target.value)
-                            }
-                          >
-                            <option value="">Select item</option>
-                            {itemsMaster.map((i) => (
-                              <option key={i.id} value={i.id}>
-                                {i.item_name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td>{ln.itemCode || ""}</td>
-                        <td>
-                          <input
-                            className="input w-full min-w-[5rem]"
-                            value={ln.uom || ""}
-                            readOnly
-                          />
-                        </td>
-                        <td className="text-right">
-                          <input
-                            type="number"
-                            min={0}
-                            className="input text-right w-full min-w-[5rem]"
-                            value={ln.qtyReturned}
-                            readOnly={readOnly}
-                            onChange={(e) =>
-                              updateLine(ln.id, "qtyReturned", e.target.value)
-                            }
-                          />
-                        </td>
-                        <td></td>
-                        <td className="text-right">
-                          {formData.warehouseId
-                            ? Number(ln.availableQty || 0).toFixed(2)
-                            : ""}
-                        </td>
-                        <td className="text-right">
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            className="input text-right w-full min-w-[6rem]"
-                            value={ln.unitPrice}
-                            readOnly={readOnly}
-                            onChange={(e) =>
-                              updateLine(ln.id, "unitPrice", e.target.value)
-                            }
-                          />
-                        </td>
-                        <td className="text-right">{Number(0).toFixed(2)}</td>
-                        <td className="text-right">
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            className="input text-right w-full min-w-[6rem]"
-                            value={Number(ln.taxAmount || 0).toFixed(2)}
-                            readOnly
-                          />
-                        </td>
-                        <td className="text-right">
-                          {(
-                            (Number(ln.qtyReturned) || 0) *
-                              (Number(ln.unitPrice) || 0) +
-                            Number(ln.taxAmount || 0)
-                          ).toFixed(2)}
-                        </td>
-                        <td>
-                          <select
-                            className="input w-full min-w-[8rem]"
-                            value={ln.reasonCode}
-                            disabled={readOnly}
-                            onChange={(e) =>
-                              updateLine(ln.id, "reasonCode", e.target.value)
-                            }
-                          >
-                            <option value="DAMAGED">Damaged</option>
-                            <option value="WRONG_ITEM">Wrong Item</option>
-                            <option value="QUALITY_ISSUE">Quality Issue</option>
-                            <option value="EXCESS">Excess</option>
-                          </select>
-                        </td>
-                        <td>
-                          <input
-                            className="input w-full min-w-[10rem]"
-                            value={ln.remarks}
-                            readOnly={readOnly}
-                            onChange={(e) =>
-                              updateLine(ln.id, "remarks", e.target.value)
-                            }
-                          />
-                        </td>
-                        {!readOnly && (
-                          <td className="text-center">
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm text-red-600"
-                              onClick={() => removeLine(ln.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                    {lines.map((ln) => {
+                      const itemQuery = itemQueries[ln.id] || "";
+                      const searchResults = itemQuery.trim()
+                        ? itemsMaster.filter((i) =>
+                            String(i.item_code || "").toLowerCase().includes(itemQuery.toLowerCase()) ||
+                            String(i.item_name || "").toLowerCase().includes(itemQuery.toLowerCase())
+                          ).slice(0, 10)
+                        : [];
+
+                      return (
+                        <tr key={ln.id}>
+                          <td>
+                            {readOnly ? (
+                              <div className="p-2 font-medium">{ln.itemName}</div>
+                            ) : (
+                              <div className="relative">
+                                <input
+                                  id={`sr-item-search-${ln.id}`}
+                                  autoComplete="off"
+                                  className="input text-sm py-1 w-full"
+                                  placeholder="Type to search items..."
+                                  value={itemQueries[ln.id] !== undefined ? itemQueries[ln.id] : (ln.itemName || "")}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setItemQueries((prev) => ({
+                                      ...prev,
+                                      [ln.id]: val,
+                                    }));
+                                    if (!val && ln.item_id) {
+                                      handleItemChange(ln.id, "");
+                                    }
+                                  }}
+                                />
+                                {searchResults.length > 0 && (
+                                  <div className="absolute z-50 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto mt-1 w-full">
+                                    {searchResults.map((o) => (
+                                      <button
+                                        type="button"
+                                        key={o.id}
+                                        className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs border-b border-slate-100 last:border-b-0"
+                                        onClick={() => {
+                                          handleItemChange(ln.id, String(o.id));
+                                          setItemQueries((prev) => ({
+                                            ...prev,
+                                            [ln.id]: o.item_name,
+                                          }));
+                                        }}
+                                      >
+                                        {o.item_code} - {o.item_name}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </td>
-                        )}
-                      </tr>
-                    ))}
+                          <td>{ln.itemCode || ""}</td>
+                          <td>
+                            <input
+                              className="input w-full min-w-[5rem] bg-gray-50"
+                              value={ln.uom || ""}
+                              readOnly
+                            />
+                          </td>
+                          <td className="text-right">
+                            <input
+                              type="number"
+                              min={0}
+                              className="input text-right w-full min-w-[5rem]"
+                              value={ln.qtyReturned}
+                              readOnly={readOnly}
+                              onChange={(e) =>
+                                updateLine(ln.id, "qtyReturned", e.target.value)
+                              }
+                            />
+                          </td>
+                          <td className="text-right">
+                            {formData.warehouseId
+                              ? Number(ln.availableQty || 0).toFixed(2)
+                              : ""}
+                          </td>
+                          <td className="text-right">
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              className="input text-right w-full min-w-[6rem]"
+                              value={ln.unitPrice}
+                              readOnly={readOnly}
+                              onChange={(e) =>
+                                updateLine(ln.id, "unitPrice", e.target.value)
+                              }
+                            />
+                          </td>
+                          <td>
+                            <select
+                              className="input w-full min-w-[7rem]"
+                              value={ln.tax_type}
+                              disabled={readOnly}
+                              onChange={(e) => updateLine(ln.id, "tax_type", e.target.value)}
+                            >
+                              <option value="">No Tax</option>
+                              {taxes.map((t) => (
+                                <option key={t.id} value={t.id}>
+                                  {t.code} ({Number(t.rate_percent || 0)}%)
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="text-right">
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              className="input text-right w-full min-w-[6rem] bg-gray-50"
+                              value={Number(ln.taxAmount || 0).toFixed(2)}
+                              readOnly
+                            />
+                          </td>
+                          <td className="text-right">
+                            {(
+                              (Number(ln.qtyReturned) || 0) *
+                                (Number(ln.unitPrice) || 0) +
+                              Number(ln.taxAmount || 0)
+                            ).toFixed(2)}
+                          </td>
+                          <td>
+                            <select
+                              className="input w-full min-w-[8rem]"
+                              value={ln.reasonCode}
+                              disabled={readOnly}
+                              onChange={(e) =>
+                                updateLine(ln.id, "reasonCode", e.target.value)
+                              }
+                            >
+                              {returnReasons.length > 0 ? (
+                                returnReasons.map((r) => (
+                                  <option key={r.id} value={r.reason_code}>
+                                    {r.reason_name}
+                                  </option>
+                                ))
+                              ) : (
+                                <>
+                                  <option value="DAMAGED">Damaged</option>
+                                  <option value="WRONG_ITEM">Wrong Item</option>
+                                  <option value="QUALITY_ISSUE">Quality Issue</option>
+                                  <option value="EXCESS">Excess</option>
+                                </>
+                              )}
+                            </select>
+                          </td>
+                          <td>
+                            <input
+                              className="input w-full min-w-[10rem]"
+                              value={ln.remarks}
+                              readOnly={readOnly}
+                              onChange={(e) =>
+                                updateLine(ln.id, "remarks", e.target.value)
+                              }
+                            />
+                          </td>
+                          {!readOnly && (
+                            <td className="text-center">
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm text-red-600"
+                                onClick={() => removeLine(ln.id)}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
-              <div className="p-4 flex justify-end gap-6">
-                <div className="text-right">
-                  <div className="text-sm text-slate-500">Sub Total</div>
-                  <div className="text-lg font-bold">
-                    {totals.subTotal.toFixed(2)}
+
+              {/* Dynamic Components-based Aggregates calculation display block */}
+              <div className="p-6 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+                <div className="w-80 space-y-3">
+                  <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
+                    <span>Subtotal</span>
+                    <span className="font-semibold">{totals.subTotal.toFixed(2)}</span>
                   </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm text-slate-500">Tax</div>
-                  <div className="text-lg font-bold">
-                    {totals.taxTotal.toFixed(2)}
+
+                  {totals.components.map((c, idx) => (
+                    <div key={idx} className="flex justify-between text-sm text-slate-600 dark:text-slate-400 pl-4 border-l-2 border-slate-300">
+                      <span>{c.name} ({c.rate}%)</span>
+                      <span>{c.amount.toFixed(2)}</span>
+                    </div>
+                  ))}
+
+                  <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400 border-t border-dashed border-slate-300 pt-2">
+                    <span>Tax Total</span>
+                    <span>{totals.taxTotal.toFixed(2)}</span>
                   </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm text-slate-500">Total</div>
-                  <div className="text-lg font-bold">
-                    {totals.grandTotal.toFixed(2)}
+
+                  <div className="flex justify-between text-base font-bold text-slate-900 dark:text-slate-100 border-t border-slate-300 pt-2">
+                    <span>Total Amount</span>
+                    <span>{totals.grandTotal.toFixed(2)}</span>
                   </div>
                 </div>
               </div>

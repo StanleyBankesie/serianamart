@@ -286,7 +286,7 @@ export default function PurchaseReturnForm() {
             ) : null}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
+              <div className="hidden">
                 <label className="label">Return No</label>
                 <input className="input" value={formData.returnNo} readOnly />
               </div>

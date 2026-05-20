@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 const ASSET_CACHE = "omnisuite-assets-" + CACHE_VERSION;
 const API_CACHE = "omnisuite-api-" + CACHE_VERSION;
 const DEV_MODE =
@@ -43,6 +43,30 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+function buildApiFallbackResponse(request) {
+  let path = null;
+  try {
+    const url = new URL(request.url);
+    path = url.searchParams.get("path");
+  } catch {}
+  return new Response(
+    JSON.stringify({
+      message: "Network unavailable",
+      path,
+      offline: true,
+    }),
+    {
+      status: 503,
+      statusText: "Service Unavailable",
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+        "X-Service-Worker-Fallback": "1",
+      },
+    },
+  );
+}
+
 async function staleWhileRevalidate(cacheName, request) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
@@ -68,7 +92,8 @@ async function staleWhileRevalidate(cacheName, request) {
       }
       return resp;
     } catch (e) {
-      return cached;
+      if (cached) return cached;
+      return buildApiFallbackResponse(request);
     }
   })();
   return cached || networkPromise;

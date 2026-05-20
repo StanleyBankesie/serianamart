@@ -25,6 +25,7 @@ import ProspectConversion from "./potential-customers/ProspectConversion.jsx";
 import BulkCustomerUpload from "./bulk-upload/BulkCustomerUpload.jsx";
 import SalesReturnList from "./returns/SalesReturnList.jsx";
 import SalesReturnForm from "./returns/SalesReturnForm.jsx";
+import SalesSetupPage from "./setup/SalesSetupPage.jsx";
 import SalesReturnReportPage from "./reports/SalesReturnReportPage.jsx";
 import SalesRegisterReportPage from "./reports/SalesRegisterReportPage.jsx";
 import DeliveryRegisterReportPage from "./reports/DeliveryRegisterReportPage.jsx";
@@ -333,6 +334,13 @@ const SalesModuleHome = () => {
           icon: "🏷️",
           actions: [],
         },
+        {
+          title: "Sales Setup",
+          path: "/sales/setup",
+          description: "Configure sales return reasons and return workflows",
+          icon: "⚙️",
+          actions: [],
+        },
       ],
     },
     {
@@ -581,6 +589,7 @@ export default function SalesHome() {
       <Route path="delivery/:id" element={<DeliveryForm />} />
       <Route path="/price-setup" element={<PriceSetup />} />
       <Route path="/discount-schemes" element={<DiscountSchemeList />} />
+      <Route path="/setup" element={<SalesSetupPage />} />
       <Route path="/customer-credit" element={<CustomerCreditList />} />
       <Route path="/customer-credit/:id" element={<CustomerCreditForm />} />
       <Route path="/customers" element={<CustomerList />} />
@@ -837,6 +846,12 @@ export const salesFeatures = [
     module_key: "sales",
     label: "Discount Schemes",
     path: "/sales/discount-schemes",
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Sales Setup",
+    path: "/sales/setup",
     type: "feature",
   },
   {

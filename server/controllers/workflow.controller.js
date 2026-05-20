@@ -1031,17 +1031,26 @@ export const getPendingApprovals = async (req, res, next) => {
            )
           AND grn.id = dw.document_id
          LEFT JOIN fin_vouchers fv
-           ON (
-             dw.document_type = 'PAYMENT_VOUCHER' OR
-             dw.document_type = 'Payment Voucher' OR
-             dw.document_type = 'PV' OR
-             dw.document_type = 'RECEIPT_VOUCHER' OR
-             dw.document_type = 'Receipt Voucher' OR
-             dw.document_type = 'RV' OR
-             dw.document_type = 'JOURNAL_VOUCHER' OR
-             dw.document_type = 'Journal Voucher' OR
-             dw.document_type = 'JV'
-           ) AND fv.id = dw.document_id
+            ON (
+              dw.document_type = 'PAYMENT_VOUCHER' OR
+              dw.document_type = 'Payment Voucher' OR
+              dw.document_type = 'PV' OR
+              dw.document_type = 'RECEIPT_VOUCHER' OR
+              dw.document_type = 'Receipt Voucher' OR
+              dw.document_type = 'RV' OR
+              dw.document_type = 'JOURNAL_VOUCHER' OR
+              dw.document_type = 'Journal Voucher' OR
+              dw.document_type = 'JV' OR
+              dw.document_type = 'CONTRA_VOUCHER' OR
+              dw.document_type = 'Contra Voucher' OR
+              dw.document_type = 'CV' OR
+              dw.document_type = 'DEBIT_NOTE' OR
+              dw.document_type = 'Debit Note' OR
+              dw.document_type = 'DN' OR
+              dw.document_type = 'CREDIT_NOTE' OR
+              dw.document_type = 'Credit Note' OR
+              dw.document_type = 'CN'
+            ) AND fv.id = dw.document_id
          LEFT JOIN adm_users u ON u.id = (
              SELECT actor_user_id FROM adm_workflow_logs 
              WHERE document_workflow_id = dw.id AND action = 'SUBMIT' LIMIT 1
@@ -1582,15 +1591,22 @@ export const performAction = async (req, res, next) => {
       } else if (
         instance.document_type === "PAYMENT_VOUCHER" ||
         instance.document_type === "Payment Voucher" ||
-        instance.document_type === "PV"
-      ) {
-        await query(`UPDATE fin_vouchers SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
-          { id: instance.document_id, companyId: instance.company_id },
-        );
-      } else if (
+        instance.document_type === "PV" ||
         instance.document_type === "RECEIPT_VOUCHER" ||
         instance.document_type === "Receipt Voucher" ||
-        instance.document_type === "RV"
+        instance.document_type === "RV" ||
+        instance.document_type === "JOURNAL_VOUCHER" ||
+        instance.document_type === "Journal Voucher" ||
+        instance.document_type === "JV" ||
+        instance.document_type === "CONTRA_VOUCHER" ||
+        instance.document_type === "Contra Voucher" ||
+        instance.document_type === "CV" ||
+        instance.document_type === "DEBIT_NOTE" ||
+        instance.document_type === "Debit Note" ||
+        instance.document_type === "DN" ||
+        instance.document_type === "CREDIT_NOTE" ||
+        instance.document_type === "Credit Note" ||
+        instance.document_type === "CN"
       ) {
         await query(`UPDATE fin_vouchers SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
@@ -1671,23 +1687,22 @@ export const performAction = async (req, res, next) => {
       } else if (
         instance.document_type === "PAYMENT_VOUCHER" ||
         instance.document_type === "Payment Voucher" ||
-        instance.document_type === "PV"
-      ) {
-        await query(`UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
-          { id: instance.document_id, companyId: instance.company_id },
-        );
-      } else if (
+        instance.document_type === "PV" ||
         instance.document_type === "RECEIPT_VOUCHER" ||
         instance.document_type === "Receipt Voucher" ||
-        instance.document_type === "RV"
-      ) {
-        await query(`UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
-          { id: instance.document_id, companyId: instance.company_id },
-        );
-      } else if (
+        instance.document_type === "RV" ||
+        instance.document_type === "JOURNAL_VOUCHER" ||
+        instance.document_type === "Journal Voucher" ||
+        instance.document_type === "JV" ||
         instance.document_type === "CONTRA_VOUCHER" ||
         instance.document_type === "Contra Voucher" ||
-        instance.document_type === "CV"
+        instance.document_type === "CV" ||
+        instance.document_type === "DEBIT_NOTE" ||
+        instance.document_type === "Debit Note" ||
+        instance.document_type === "DN" ||
+        instance.document_type === "CREDIT_NOTE" ||
+        instance.document_type === "Credit Note" ||
+        instance.document_type === "CN"
       ) {
         await query(`UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
@@ -2341,58 +2356,22 @@ export const performAction = async (req, res, next) => {
         wf.status === "APPROVED" &&
         (wf.document_type === "PAYMENT_VOUCHER" ||
           wf.document_type === "Payment Voucher" ||
-          wf.document_type === "PV")
-      ) {
-        try {
-          const rows = await query(`SELECT id, status,
-          created_at,
-          u.username AS created_by_name
-         FROM fin_vouchers
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :docId AND company_id = :companyId LIMIT 1`,
-            { docId: wf.document_id, companyId: wf.company_id },
-          );
-          if (rows.length && rows[0].status !== "APPROVED") {
-            await query(`UPDATE fin_vouchers SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
-              { id: wf.document_id, companyId: wf.company_id },
-            );
-            await query(`UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
-              { id: wf.document_id, companyId: wf.company_id },
-            );
-            await query(`UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
-              { id: wf.document_id, companyId: wf.company_id },
-            );
-            await query(`UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
-              { id: wf.document_id, companyId: wf.company_id },
-            );
-          }
-        } catch (e) {}
-      } else if (
-        wf.status === "APPROVED" &&
-        (wf.document_type === "RECEIPT_VOUCHER" ||
+          wf.document_type === "PV" ||
+          wf.document_type === "RECEIPT_VOUCHER" ||
           wf.document_type === "Receipt Voucher" ||
-          wf.document_type === "RV")
-      ) {
-        try {
-          const rows = await query(`SELECT id, status,
-          created_at,
-          u.username AS created_by_name
-         FROM fin_vouchers
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :docId AND company_id = :companyId LIMIT 1`,
-            { docId: wf.document_id, companyId: wf.company_id },
-          );
-          if (rows.length && rows[0].status !== "APPROVED") {
-            await query(`UPDATE fin_vouchers SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
-              { id: wf.document_id, companyId: wf.company_id },
-            );
-          }
-        } catch (e) {}
-      } else if (
-        wf.status === "APPROVED" &&
-        (wf.document_type === "JOURNAL_VOUCHER" ||
+          wf.document_type === "RV" ||
+          wf.document_type === "JOURNAL_VOUCHER" ||
           wf.document_type === "Journal Voucher" ||
-          wf.document_type === "JV")
+          wf.document_type === "JV" ||
+          wf.document_type === "CONTRA_VOUCHER" ||
+          wf.document_type === "Contra Voucher" ||
+          wf.document_type === "CV" ||
+          wf.document_type === "DEBIT_NOTE" ||
+          wf.document_type === "Debit Note" ||
+          wf.document_type === "DN" ||
+          wf.document_type === "CREDIT_NOTE" ||
+          wf.document_type === "Credit Note" ||
+          wf.document_type === "CN")
       ) {
         try {
           const rows = await query(`SELECT id, status,
@@ -2407,6 +2386,21 @@ export const performAction = async (req, res, next) => {
             await query(`UPDATE fin_vouchers SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
               { id: wf.document_id, companyId: wf.company_id },
             );
+            if (
+              wf.document_type === "PAYMENT_VOUCHER" ||
+              wf.document_type === "Payment Voucher" ||
+              wf.document_type === "PV"
+            ) {
+              await query(`UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
+                { id: wf.document_id, companyId: wf.company_id },
+              );
+              await query(`UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
+                { id: wf.document_id, companyId: wf.company_id },
+              );
+              await query(`UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
+                { id: wf.document_id, companyId: wf.company_id },
+              );
+            }
           }
         } catch (e) {}
       } else if (

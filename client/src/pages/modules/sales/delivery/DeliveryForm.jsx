@@ -36,6 +36,7 @@ export default function DeliveryForm() {
 
   // Data Lists
   const [customers, setCustomers] = useState([]);
+  const [customerSearch, setCustomerSearch] = useState("");
   const [invoices, setInvoices] = useState([]);
   const [itemsCatalog, setItemsCatalog] = useState([]);
 
@@ -415,33 +416,67 @@ export default function DeliveryForm() {
                   className="w-full border rounded p-2"
                 />
               </div>
-              <div className="col-span-2">
+              <div className="col-span-2 relative">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Customer
                 </label>
-                <select
-                  id="customer"
-                  value={formData.customer_id}
+                <input
+                  type="text"
+                  className="w-full border rounded p-2"
+                  placeholder="Search customer..."
+                  value={
+                    customers.find((c) => String(c.id) === String(formData.customer_id))?.customer_name ||
+                    customerSearch
+                  }
                   onChange={(e) => {
-                    const newCustomerId = e.target.value;
+                    const val = e.target.value;
+                    setCustomerSearch(val);
                     setFormData({
                       ...formData,
-                      customer_id: newCustomerId,
+                      customer_id: "",
                       invoice_id: "",
                       sales_order_id: "",
                       items: [],
                     });
                     setSearchOrderNo("");
                   }}
-                  className="w-full border rounded p-2"
-                >
-                  <option value="">Select Customer</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.customer_name}
-                    </option>
-                  ))}
-                </select>
+                />
+                {customerSearch && (
+                  (() => {
+                    const q = customerSearch.toLowerCase();
+                    const matched = customers.filter(
+                      (c) =>
+                        String(c.customer_name || "").toLowerCase().includes(q) ||
+                        String(c.customer_code || "").toLowerCase().includes(q)
+                    ).slice(0, 10);
+                    return matched.length > 0 ? (
+                      <div className="absolute z-30 w-full bg-white border border-gray-300 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto">
+                        {matched.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="w-full text-left px-3 py-2 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setFormData({
+                                ...formData,
+                                customer_id: String(c.id),
+                                invoice_id: "",
+                                sales_order_id: "",
+                                items: [],
+                              });
+                              setSearchOrderNo("");
+                              setCustomerSearch("");
+                            }}
+                          >
+                            <div className="font-medium text-slate-800 text-sm">{c.customer_name}</div>
+                            {c.customer_code && <div className="text-xs text-slate-500">{c.customer_code}</div>}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null;
+                  })()
+                )}
               </div>
             </div>
           </div>

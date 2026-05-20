@@ -77,6 +77,7 @@ export default function SalesOrderForm() {
 
   const [items, setItems] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [customerSearch, setCustomerSearch] = useState("");
   const [inventoryItems, setInventoryItems] = useState([]);
   const [quotations, setQuotations] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -1305,7 +1306,7 @@ export default function SalesOrderForm() {
                 }
               >
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                  <div>
+                  <div className="hidden">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Order #
                     </label>
@@ -1332,24 +1333,74 @@ export default function SalesOrderForm() {
                       required
                     />
                   </div>
-                  <div>
+                  <div className="relative">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Customer *
                     </label>
-                    <select
-                      name="customer_id"
-                      value={formData.customer_id}
-                      onChange={handleInputChange}
+                    <input
+                      type="text"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                      required
-                    >
-                      <option value="">Select Customer</option>
-                      {customers.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.customer_name}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder="Search customer..."
+                      required={!formData.customer_id}
+                      disabled={isViewMode}
+                      value={
+                        customers.find((c) => String(c.id) === String(formData.customer_id))?.customer_name ||
+                        customerSearch
+                      }
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCustomerSearch(val);
+                        // Reset customer selection so we can search again
+                        setFormData((prev) => ({
+                          ...prev,
+                          customer_id: "",
+                          address: "",
+                          address2: "",
+                          city: "",
+                          state: "",
+                          country: "",
+                          phone: "",
+                        }));
+                      }}
+                    />
+                    {!isViewMode && customerSearch && (
+                      (() => {
+                        const q = customerSearch.toLowerCase();
+                        const matched = customers.filter(
+                          (c) =>
+                            String(c.customer_name || "").toLowerCase().includes(q) ||
+                            String(c.customer_code || "").toLowerCase().includes(q)
+                        ).slice(0, 10);
+                        return matched.length > 0 ? (
+                          <div className="absolute z-30 w-full bg-white border border-gray-300 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto">
+                            {matched.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                className="w-full text-left px-3 py-2 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    customer_id: String(c.id),
+                                    address: c.address || "",
+                                    address2: c.address2 || "",
+                                    city: c.city || "",
+                                    state: c.state || "",
+                                    country: c.country || "",
+                                    phone: c.phone || c.customer_phone || "",
+                                  }));
+                                  setCustomerSearch("");
+                                }}
+                              >
+                                <div className="font-medium text-slate-800 text-sm">{c.customer_name}</div>
+                                {c.customer_code && <div className="text-xs text-slate-500">{c.customer_code}</div>}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null;
+                      })()
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">

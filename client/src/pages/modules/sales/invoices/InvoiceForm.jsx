@@ -30,6 +30,7 @@ export default function InvoiceForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [customers, setCustomers] = useState([]);
+  const [customerSearch, setCustomerSearch] = useState("");
   const [itemsCatalog, setItemsCatalog] = useState([]);
   const [orders, setOrders] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -1454,7 +1455,7 @@ export default function InvoiceForm() {
         <div className="card">
           <div className="card-body space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
+              <div className="hidden">
                 <label className="label">Invoice #</label>
                 <input
                   className="input bg-gray-50"
@@ -1476,22 +1477,54 @@ export default function InvoiceForm() {
                   disabled={readOnly}
                 />
               </div>
-              <div>
+               <div className="relative">
                 <label className="label">Customer *</label>
-                <select
+                <input
+                  type="text"
                   className="input"
-                  value={form.customer_id}
-                  onChange={(e) => update("customer_id", e.target.value)}
-                  required
+                  placeholder="Search customer..."
+                  required={!form.customer_id}
                   disabled={readOnly}
-                >
-                  <option value="">Select Customer</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.customer_name}
-                    </option>
-                  ))}
-                </select>
+                  value={
+                    customers.find((c) => String(c.id) === String(form.customer_id))?.customer_name ||
+                    customerSearch
+                  }
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCustomerSearch(val);
+                    // Reset customer details to allow search again
+                    update("customer_id", "");
+                  }}
+                />
+                {!readOnly && customerSearch && (
+                  (() => {
+                    const q = customerSearch.toLowerCase();
+                    const matched = customers.filter(
+                      (c) =>
+                        String(c.customer_name || "").toLowerCase().includes(q) ||
+                        String(c.customer_code || "").toLowerCase().includes(q)
+                    ).slice(0, 10);
+                    return matched.length > 0 ? (
+                      <div className="absolute z-30 w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto">
+                        {matched.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="w-full text-left px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700 last:border-b-0"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              update("customer_id", String(c.id));
+                              setCustomerSearch("");
+                            }}
+                          >
+                            <div className="font-medium text-slate-800 dark:text-slate-200 text-sm">{c.customer_name}</div>
+                            {c.customer_code && <div className="text-xs text-slate-500">{c.customer_code}</div>}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null;
+                  })()
+                )}
               </div>
               <div>
                 <label className="label">Warehouse</label>
