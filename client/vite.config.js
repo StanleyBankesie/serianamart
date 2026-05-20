@@ -5,6 +5,22 @@ import path from "path";
 export default defineConfig({
   base: "/",
   plugins: [react()],
+  build: {
+    sourcemap: false,
+    target: "esnext",
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ["react", "react-dom", "react-router-dom"],
+          ui: ["antd", "@ant-design/icons", "lucide-react", "react-toastify"],
+          state: ["@reduxjs/toolkit", "react-redux"],
+          docs: ["jspdf", "jspdf-autotable", "html2canvas", "xlsx"],
+          flows: ["reactflow", "dagre"],
+          socket: ["socket.io-client"],
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       "/api": {
