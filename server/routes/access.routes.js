@@ -595,6 +595,7 @@ router.get(
   requireSuperAdmin,
   async (req, res, next) => {
     try {
+      await ensureAccessTables();
       const id = toNumber(req.params.id);
       const assigned = await query(
         "SELECT module_key FROM adm_role_modules WHERE role_id = :id",
@@ -602,7 +603,14 @@ router.get(
       );
       const assignedSet = new Set(assigned.map((r) => String(r.module_key)));
       const perms = await query(
-        "SELECT module_key, can_view, can_create, can_edit, can_delete FROM adm_role_permissions WHERE role_id = :id",
+        `SELECT module_key,
+                MAX(can_view) AS can_view,
+                MAX(can_create) AS can_create,
+                MAX(can_edit) AS can_edit,
+                MAX(can_delete) AS can_delete
+           FROM adm_role_permissions
+          WHERE role_id = :id
+          GROUP BY module_key`,
         { id },
       );
       const filtered = perms.filter((p) =>
@@ -622,6 +630,7 @@ router.put(
   requireSuperAdmin,
   async (req, res, next) => {
     try {
+      await ensureAccessTables();
       const id = toNumber(req.params.id);
       const { permissions } = req.body || {};
       if (!Array.isArray(permissions))
@@ -637,16 +646,20 @@ router.put(
           return res
             .status(400)
             .json({ message: `module not assigned: ${mk}` });
+        const featureKey = String(
+          p.feature_key || p.featureKey || `${mk}:*`,
+        ).trim();
         const payload = {
           can_view: Number(Boolean(p.can_view)),
           can_create: Number(Boolean(p.can_create)),
           can_edit: Number(Boolean(p.can_edit)),
           can_delete: Number(Boolean(p.can_delete)),
         };
-        await query(`INSERT INTO adm_role_permissions (role_id, module_key, can_view, can_create, can_edit, can_delete)
-         VALUES (:id, :mk, :can_view, :can_create, :can_edit, :can_delete)
+        await query(
+          `INSERT INTO adm_role_permissions (role_id, module_key, feature_key, can_view, can_create, can_edit, can_delete)
+         VALUES (:id, :mk, :featureKey, :can_view, :can_create, :can_edit, :can_delete)
          ON DUPLICATE KEY UPDATE can_view=VALUES(can_view), can_create=VALUES(can_create), can_edit=VALUES(can_edit), can_delete=VALUES(can_delete)`,
-          { id, mk, ...payload },
+          { id, mk, featureKey, ...payload },
         );
       }
       res.json({ success: true });
@@ -867,6 +880,79 @@ router.get(
   requireAuth,
   requireCompanyScope,
   rbacGetUserPermissions,
+);
+
+router.get(
+  "/diagnostics/permissions",
+  requireAuth,
+  requireCompanyScope,
+  requireSuperAdmin,
+  async (req, res, next) => {
+    try {
+      await ensureAccessTables();
+      await ensureRoleFeaturesTable();
+      const userId = toNumber(req.query?.user_id || req.user?.sub || req.user?.id);
+      if (!userId) {
+        return res.status(400).json({ message: "Invalid user_id" });
+      }
+
+      const userRows = await query(
+        `SELECT id, role_id, is_active
+           FROM adm_users
+          WHERE id = :id
+          LIMIT 1`,
+        { id: userId },
+      );
+      if (!userRows.length) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const roleId = toNumber(userRows[0].role_id);
+      const modules = roleId
+        ? await query(
+            "SELECT module_key FROM adm_role_modules WHERE role_id = :roleId",
+            { roleId },
+          )
+        : [];
+      const permissions = roleId
+        ? await query(
+            `SELECT module_key, feature_key, can_view, can_create, can_edit, can_delete
+               FROM adm_role_permissions
+              WHERE role_id = :roleId
+              ORDER BY module_key, feature_key`,
+            { roleId },
+          )
+        : [];
+      const features = roleId
+        ? await query(
+            `SELECT feature_key
+               FROM adm_role_features
+              WHERE role_id = :roleId
+              ORDER BY feature_key`,
+            { roleId },
+          )
+        : [];
+
+      res.json({
+        ok: true,
+        user: {
+          id: userId,
+          role_id: roleId || null,
+          is_active: Number(userRows[0].is_active) === 1,
+        },
+        counts: {
+          modules: modules.length,
+          permissions: permissions.length,
+          role_features: features.length,
+        },
+        modules: modules.map((m) => String(m.module_key || "")),
+        sample_permissions: permissions.slice(0, 50),
+        sample_role_features: features.slice(0, 50).map((f) => String(f.feature_key)),
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 export default router;

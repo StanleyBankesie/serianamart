@@ -21,6 +21,42 @@ import { MODULES_REGISTRY } from "../data/modulesRegistry.js";
  */
 
 const PermissionContext = createContext();
+const RBAC_CACHE_KEY = "rbac.permission.snapshot.v1";
+const PAGE_PERM_RETRY_MS = 30_000;
+
+function isTransientBackendError(err) {
+  const status = Number(err?.response?.status || 0);
+  if (status === 503 || status === 502 || status === 504 || status === 429) {
+    return true;
+  }
+  return !err?.response;
+}
+
+function readPermissionSnapshot() {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(RBAC_CACHE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return {
+      modules: Array.isArray(data?.modules) ? data.modules : [],
+      permissions: Array.isArray(data?.permissions) ? data.permissions : [],
+      roleFeatures: Array.isArray(data?.roleFeatures) ? data.roleFeatures : [],
+      exceptionalPerms: Array.isArray(data?.exceptionalPerms)
+        ? data.exceptionalPerms
+        : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writePermissionSnapshot(snapshot) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(RBAC_CACHE_KEY, JSON.stringify(snapshot));
+  } catch {}
+}
 
 export const usePermission = () => {
   const context = useContext(PermissionContext);
@@ -41,6 +77,7 @@ export const PermissionProvider = ({ children }) => {
   const [sessionOverrides, setSessionOverrides] = useState(() => new Map());
   const [pagePermsByPath, setPagePermsByPath] = useState(() => new Map());
   const [pagePermsPending, setPagePermsPending] = useState(() => new Set());
+  const [pagePermRetryAfter, setPagePermRetryAfter] = useState(() => new Map());
   const [globalOverrides, setGlobalOverrides] = useState(() => {
     if (typeof localStorage === "undefined") {
       return {
@@ -215,6 +252,12 @@ export const PermissionProvider = ({ children }) => {
             .map(([k]) => k),
         );
         setExceptionalPerms(set);
+        writePermissionSnapshot({
+          modules: mods,
+          permissions: merged,
+          roleFeatures: feats,
+          exceptionalPerms: Array.from(set),
+        });
       } catch {
         setExceptionalPerms(new Set());
       }
@@ -224,9 +267,33 @@ export const PermissionProvider = ({ children }) => {
     } catch (err) {
       console.error("Failed to load permissions:", err);
       setError(err.message);
-      setModules(new Set());
-      setPermissions([]);
-      setRoleFeatures(new Set());
+      if (isTransientBackendError(err)) {
+        const snapshot = readPermissionSnapshot();
+        if (snapshot) {
+          setModules(
+            new Set(snapshot.modules.map((m) => String(m || "").trim()).filter(Boolean)),
+          );
+          setPermissions(Array.isArray(snapshot.permissions) ? snapshot.permissions : []);
+          setRoleFeatures(
+            new Set(
+              snapshot.roleFeatures
+                .map((f) => String(f || "").trim())
+                .filter(Boolean),
+            ),
+          );
+          setExceptionalPerms(
+            new Set(
+              snapshot.exceptionalPerms
+                .map((c) => String(c || "").toUpperCase().trim())
+                .filter(Boolean),
+            ),
+          );
+        }
+      } else {
+        setModules(new Set());
+        setPermissions([]);
+        setRoleFeatures(new Set());
+      }
     } finally {
       setLoading(false);
     }
@@ -306,6 +373,9 @@ export const PermissionProvider = ({ children }) => {
     if (!base) return null;
     if (pagePermsByPath.has(base)) return pagePermsByPath.get(base);
     if (pagePermsPending.has(base)) return null;
+    const now = Date.now();
+    const retryAt = Number(pagePermRetryAfter.get(base) || 0);
+    if (retryAt > now) return null;
     setPagePermsPending((prev) => new Set(prev).add(base));
     try {
       const res = await api.get(
@@ -323,11 +393,23 @@ export const PermissionProvider = ({ children }) => {
         next.set(base, perms);
         return next;
       });
+      setPagePermRetryAfter((prev) => {
+        const next = new Map(prev);
+        next.delete(base);
+        return next;
+      });
       try {
         window.dispatchEvent(new Event("rbac:updated"));
       } catch {}
       return perms;
-    } catch {
+    } catch (err) {
+      if (isTransientBackendError(err)) {
+        setPagePermRetryAfter((prev) => {
+          const next = new Map(prev);
+          next.set(base, Date.now() + PAGE_PERM_RETRY_MS);
+          return next;
+        });
+      }
       return null;
     } finally {
       setPagePermsPending((prev) => {

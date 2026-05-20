@@ -17,6 +17,7 @@ import BranchForm from "./branches/BranchForm.jsx";
 import SystemLogBookPage from "./reports/SystemLogBookPage.jsx";
 import UserLoginActivityReportPage from "./reports/UserLoginActivityReportPage.jsx";
 import SettingsPage from "./SettingsPage.jsx";
+import DiagnosticsPage from "./DiagnosticsPage.jsx";
 import DocumentTemplatesPage from "./templates/DocumentTemplatesPage.jsx";
 import RoleManagement from "./access-control/RoleManagementNew.jsx";
 import UserOverrides from "./access-control/UserOverrides.jsx";
@@ -59,6 +60,11 @@ function AdministrationLanding() {
       label: "Settings",
       path: "/administration/settings",
       icon: "⚙️",
+    },
+    {
+      label: "Diagnostics",
+      path: "/administration/diagnostics",
+      icon: "🩺",
     },
   ];
 
@@ -122,6 +128,13 @@ function AdministrationLanding() {
           description: "Push notifications and document templates",
           path: "/administration/settings",
           icon: "⚙️",
+          actions: [],
+        },
+        {
+          title: "Diagnostics",
+          description: "Check system health and permission issues",
+          path: "/administration/diagnostics",
+          icon: "🩺",
           actions: [],
         },
       ],
@@ -263,6 +276,7 @@ export default function AdministrationHome() {
         element={<UserLoginActivityReportPage />}
       />
       <Route path="/settings" element={<SettingsPage />} />
+      <Route path="/diagnostics" element={<DiagnosticsPage />} />
       <Route path="/settings/templates" element={<DocumentTemplatesPage />} />
       <Route path="/access/roles" element={<RoleManagement />} />
       <Route path="/access/user-permissions" element={<UserPermissions />} />
@@ -308,6 +322,12 @@ export const administrationFeatures = [
     module_key: "administration",
     label: "Settings",
     path: "/administration/settings",
+    type: "feature",
+  },
+  {
+    module_key: "administration",
+    label: "Diagnostics",
+    path: "/administration/diagnostics",
     type: "feature",
   },
   {

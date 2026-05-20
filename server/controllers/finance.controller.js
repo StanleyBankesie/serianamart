@@ -890,7 +890,8 @@ export const getNextVoucherNo = async (req, res, next) => {
       up === "CV" ||
       up === "RV" ||
       up === "JV" ||
-      up === "SV"
+      up === "SV" ||
+      up === "CN"
         ? String(vt.next_number).padStart(6, "0")
         : String(vt.next_number);
 
