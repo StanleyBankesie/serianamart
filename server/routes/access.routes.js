@@ -955,4 +955,86 @@ router.get(
   },
 );
 
+router.get(
+  "/diagnostics/status",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res) => {
+    const startedAt = Date.now();
+    const payload = {
+      ok: true,
+      status: "healthy",
+      checks: {
+        database: { ok: false, detail: null },
+        rbac_tables: { ok: false, detail: null },
+        current_user_role: { ok: false, detail: null },
+      },
+      response_time_ms: null,
+    };
+
+    try {
+      await query("SELECT 1");
+      payload.checks.database.ok = true;
+      payload.checks.database.detail = "Database reachable";
+    } catch (err) {
+      payload.ok = false;
+      payload.status = "degraded";
+      payload.checks.database.detail = String(err?.message || "DB check failed");
+    }
+
+    try {
+      await ensureAccessTables();
+      await ensureRoleFeaturesTable();
+      payload.checks.rbac_tables.ok = true;
+      payload.checks.rbac_tables.detail = "RBAC tables are accessible";
+    } catch (err) {
+      payload.ok = false;
+      payload.status = "degraded";
+      payload.checks.rbac_tables.detail = String(
+        err?.message || "RBAC table check failed",
+      );
+    }
+
+    try {
+      const userId = toNumber(req.user?.sub || req.user?.id);
+      if (!userId) {
+        payload.ok = false;
+        payload.status = "degraded";
+        payload.checks.current_user_role.detail = "Invalid current user id";
+      } else {
+        const rows = await query(
+          `SELECT role_id, is_active
+             FROM adm_users
+            WHERE id = :id
+            LIMIT 1`,
+          { id: userId },
+        );
+        if (!rows.length) {
+          payload.ok = false;
+          payload.status = "degraded";
+          payload.checks.current_user_role.detail = "Current user not found";
+        } else {
+          const roleId = toNumber(rows[0].role_id, 0);
+          payload.checks.current_user_role.ok = roleId > 0;
+          payload.checks.current_user_role.detail =
+            roleId > 0 ? `Role assigned (#${roleId})` : "No role assigned";
+          if (roleId <= 0) {
+            payload.ok = false;
+            payload.status = "degraded";
+          }
+        }
+      }
+    } catch (err) {
+      payload.ok = false;
+      payload.status = "degraded";
+      payload.checks.current_user_role.detail = String(
+        err?.message || "User role check failed",
+      );
+    }
+
+    payload.response_time_ms = Date.now() - startedAt;
+    return res.status(200).json(payload);
+  },
+);
+
 export default router;

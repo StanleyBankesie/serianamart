@@ -7,6 +7,17 @@ function severityClass(level) {
   return "text-emerald-700 bg-emerald-50 border-emerald-200";
 }
 
+function errorStatus(err) {
+  return Number(err?.response?.status || 0);
+}
+
+function statusDetail(err) {
+  const status = errorStatus(err);
+  if (status) return `status ${status}`;
+  if (String(err?.code || "").trim()) return String(err.code).trim();
+  return "no response";
+}
+
 export default function DiagnosticsPage() {
   const [running, setRunning] = React.useState(false);
   const [ranAt, setRanAt] = React.useState(null);
@@ -20,7 +31,7 @@ export default function DiagnosticsPage() {
     setRunning(true);
     try {
       const [healthRes, permRes] = await Promise.allSettled([
-        api.get("/health"),
+        api.get("/access/diagnostics/status"),
         api.get("/access/diagnostics/permissions"),
       ]);
 
@@ -52,13 +63,32 @@ export default function DiagnosticsPage() {
               "The database check failed. Permission loading and most transactions will fail until the DB is reachable.",
           });
         }
+        if (data?.checks?.rbac_tables?.ok !== true) {
+          nextIssues.push({
+            level: "high",
+            title: "RBAC tables are not accessible",
+            message:
+              "Permission tables are unavailable or failing. Role/permission actions can fail until this is fixed.",
+          });
+        }
+        if (data?.checks?.current_user_role?.ok !== true) {
+          nextIssues.push({
+            level: "medium",
+            title: "Current user role issue",
+            message:
+              "Current user has no valid role assignment, so access checks may deny pages/actions.",
+          });
+        }
       } else {
+        const status = errorStatus(healthRes.reason);
         nextSummary.health = "Health check failed";
         nextIssues.push({
           level: "high",
           title: "Health endpoint failed",
           message:
-            "Could not reach the health endpoint. This usually means the backend is down, overloaded, or blocked by network/proxy issues.",
+            status === 503
+              ? "Diagnostics status returned 503. Backend is reachable but currently degraded/unavailable (often DB/downstream outage)."
+              : `Could not complete diagnostics status check (${statusDetail(healthRes.reason)}). This can be backend downtime, proxy/network blockage, or service overload.`,
         });
       }
 
@@ -110,7 +140,9 @@ export default function DiagnosticsPage() {
             level: "high",
             title: "Failed to load permission diagnostics",
             message:
-              "The RBAC diagnostics endpoint failed. This can indicate backend instability or an RBAC query/schema problem.",
+              status === 503
+                ? "Permission diagnostics returned status 503. RBAC check could not run because backend services are currently degraded."
+                : `RBAC diagnostics request failed (${statusDetail(permRes.reason)}). This can indicate backend instability, route/proxy issues, or RBAC query/schema errors.`,
           });
         }
       }
