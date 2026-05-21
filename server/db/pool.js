@@ -18,7 +18,7 @@ const dbConfig = {
     process.env.DB_PASSWORD === undefined ? undefined : process.env.DB_PASSWORD,
   database: String(optionalEnv("DB_NAME", "")).trim(),
   port: parseNumber(optionalEnv("DB_PORT", 3306), 3306),
-  connectionLimit: parseNumber(optionalEnv("DB_CONNECTION_LIMIT", 10), 10),
+  connectionLimit: parseNumber(optionalEnv("DB_CONNECTION_LIMIT", 50), 50),
   connectTimeout: parseNumber(
     optionalEnv("DB_CONNECT_TIMEOUT_MS", 10000),
     10000,

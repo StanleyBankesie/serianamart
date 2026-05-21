@@ -5,6 +5,7 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import http from "http";
+import rateLimit from "express-rate-limit";
 
 import { errorHandler } from "./middleware/errorHandler.js";
 import { notFound } from "./middleware/notFound.js";
@@ -128,6 +129,17 @@ app.use(
 app.options("*", cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+/* ---------------- RATE LIMITING ---------------- */
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "TOO_MANY_REQUESTS", message: "Too many requests, please try again later" },
+  skip: (req) => req.path === "/api/health",
+});
+app.use("/api", apiLimiter);
 
 /* ---------------- DB ---------------- */
 (async () => {

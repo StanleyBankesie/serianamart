@@ -318,4 +318,46 @@ export function setUserHeader(user) {
   }
 }
 
+/** Coalesce duplicate in-flight GET requests to reduce concurrent server load */
+const inflightGets = new Map();
+
+const _origRequest = api.request.bind(api);
+
+api.get = function(url, config) {
+  try {
+    const base = api.defaults.baseURL || "";
+    const fullUrl = new URL(
+      url.startsWith("http") ? url : `${base}${url}`,
+      window.location.origin,
+    );
+    const params = config?.params || {};
+    Object.entries(params).forEach(([k, v]) =>
+      fullUrl.searchParams.set(k, String(v)),
+    );
+    const cacheKey = `GET:${fullUrl.toString()}`;
+
+    const existing = inflightGets.get(cacheKey);
+    if (existing) {
+      return existing;
+    }
+
+    const promise = _origRequest({ method: "get", url, ...config });
+    inflightGets.set(cacheKey, promise);
+    promise.finally(() => {
+      setTimeout(() => inflightGets.delete(cacheKey), 200);
+    });
+    return promise;
+  } catch {
+    return _origRequest({ method: "get", url, ...config });
+  }
+};
+
+api.request = function(config) {
+  const method = String(config?.method || "get").toLowerCase();
+  if (method === "get") {
+    return api.get(config.url, { ...config, method: undefined });
+  }
+  return _origRequest(config);
+};
+
 export default api;
