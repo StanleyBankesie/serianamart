@@ -1,11 +1,4 @@
-import React, {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  lazy,
-  Suspense,
-} from "react";
+import React, { useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import {
   Link,
   NavLink,
@@ -21,56 +14,26 @@ import { useTheme } from "../theme/ThemeContext.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
 
 // Lazy load module pages for better performance and smaller initial chunks
-const DashboardPage = lazy(
-  () => import("../pages/dashboard/DashboardPage.jsx"),
-);
+const DashboardPage = lazy(() => import("../pages/dashboard/DashboardPage.jsx"));
 const HomePage = lazy(() => import("../pages/home/HomePage.jsx"));
-const AdministrationHome = lazy(
-  () => import("../pages/modules/administration/AdministrationHome.jsx"),
-);
+const AdministrationHome = lazy(() => import("../pages/modules/administration/AdministrationHome.jsx"));
 const SalesHome = lazy(() => import("../pages/modules/sales/SalesHome.jsx"));
-const InventoryHome = lazy(
-  () => import("../pages/modules/inventory/InventoryHome.jsx"),
-);
-const PurchaseHome = lazy(
-  () => import("../pages/modules/purchase/PurchaseHome.jsx"),
-);
-const FinanceRoutes = lazy(
-  () => import("../pages/modules/finance/FinanceRoutes.jsx"),
-);
-const HumanResourcesHome = lazy(
-  () => import("../pages/modules/human-resources/HumanResourcesHome.jsx"),
-);
-const MaintenanceHome = lazy(
-  () => import("../pages/modules/maintenance/MaintenanceHome.jsx"),
-);
-const ProjectManagementHome = lazy(
-  () => import("../pages/modules/project-management/ProjectManagementHome.jsx"),
-);
-const ProductionHome = lazy(
-  () => import("../pages/modules/production/ProductionHome.jsx"),
-);
+const InventoryHome = lazy(() => import("../pages/modules/inventory/InventoryHome.jsx"));
+const PurchaseHome = lazy(() => import("../pages/modules/purchase/PurchaseHome.jsx"));
+const FinanceRoutes = lazy(() => import("../pages/modules/finance/FinanceRoutes.jsx"));
+const HumanResourcesHome = lazy(() => import("../pages/modules/human-resources/HumanResourcesHome.jsx"));
+const MaintenanceHome = lazy(() => import("../pages/modules/maintenance/MaintenanceHome.jsx"));
+const ProjectManagementHome = lazy(() => import("../pages/modules/project-management/ProjectManagementHome.jsx"));
+const ProductionHome = lazy(() => import("../pages/modules/production/ProductionHome.jsx"));
 const PosHome = lazy(() => import("../pages/modules/pos/PosHome.jsx"));
-const BusinessIntelligenceHome = lazy(
-  () =>
-    import("../pages/modules/business-intelligence/BusinessIntelligenceHome.jsx"),
-);
-const ServiceManagementHome = lazy(
-  () => import("../pages/modules/service-management/ServiceManagementHome.jsx"),
-);
-const ExecutiveOverviewRoutes = lazy(
-  () =>
-    import("../pages/modules/executive-overview/ExecutiveOverviewRoutes.jsx"),
-);
+const BusinessIntelligenceHome = lazy(() => import("../pages/modules/business-intelligence/BusinessIntelligenceHome.jsx"));
+const ServiceManagementHome = lazy(() => import("../pages/modules/service-management/ServiceManagementHome.jsx"));
+const ExecutiveOverviewRoutes = lazy(() => import("../pages/modules/executive-overview/ExecutiveOverviewRoutes.jsx"));
 const NotificationsPage = lazy(() => import("../pages/NotificationsPage.jsx"));
 const SocialFeedPage = lazy(() => import("../pages/social/SocialFeedPage.jsx"));
 const RoleSetup = lazy(() => import("../pages/admin/RoleSetup.jsx"));
-const UserPermissions = lazy(
-  () => import("../pages/admin/UserPermissions.jsx"),
-);
-const DashboardPermissions = lazy(
-  () => import("../pages/admin/DashboardPermissions.jsx"),
-);
+const UserPermissions = lazy(() => import("../pages/admin/UserPermissions.jsx"));
+const DashboardPermissions = lazy(() => import("../pages/admin/DashboardPermissions.jsx"));
 
 import SocialFeedNotification from "../components/CompanyFeed/SocialFeedNotification.jsx";
 import addNotification from "react-push-notification";
@@ -1513,7 +1476,10 @@ export default function AppShell() {
                     element={<NotificationsPage />}
                   />
                   <Route path="/social-feed" element={<SocialFeedPage />} />
-                  <Route path="/social-feed/:id" element={<SocialFeedPage />} />
+                  <Route
+                    path="/social-feed/:id"
+                    element={<SocialFeedPage />}
+                  />
                   {/* chat v2 renders via floating modal; legacy /chat route removed */}
 
                   {/* Admin Routes */}

@@ -104,6 +104,9 @@ if (!DEV_MODE) {
   const req = event.request;
   const url = new URL(req.url);
 
+  // Don't intercept cross-origin requests (e.g. API on a different domain)
+  if (url.origin !== self.location.origin) return;
+
   if (req.mode === "navigate") {
     event.respondWith(
       (async () => {
