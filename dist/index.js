@@ -11,6 +11,7 @@ import { notFound } from "./middleware/notFound.js";
 import adminRoutes from "./routes/admin.route.js";
 import salesRoutes from "./routes/sales.route.js";
 import purchaseRoutes from "./routes/purchase.routes.js";
+import purchaseBillsRoutes from "./routes/purchase.bills.routes.js";
 import inventoryRoutes from "./routes/inventory.routes.js";
 import financeRoutes from "./routes/finance.routes.js";
 import hrRoutes from "./routes/hr.routes.js";
@@ -36,6 +37,7 @@ import socialFeedRoutes from "./routes/social-feed.routes.js";
 import accessRoutes from "./routes/access.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
 import emailTestRoutes from "./routes/email-test.routes.js";
+import visitorsRoutes from "./routes/visitors.routes.js";
 import { initializeSocket } from "./utils/socket.js";
 import {
   ensureExceptionalPermissionsTable,
@@ -320,6 +322,38 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
       console.warn("Could not create hr_loan_repayments table: ", e.message);
     }
 
+    // Visitors Log Book Table
+    try {
+      await query(
+        `CREATE TABLE IF NOT EXISTS svc_visitors_log (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          company_id BIGINT UNSIGNED NOT NULL,
+          branch_id BIGINT UNSIGNED NOT NULL,
+          visitor_name VARCHAR(255) NOT NULL,
+          phone_number VARCHAR(50) NULL DEFAULT NULL,
+          organisation VARCHAR(255) NULL DEFAULT NULL,
+          department_visited VARCHAR(255) NULL DEFAULT NULL,
+          temp_address VARCHAR(500) NULL DEFAULT NULL,
+          time_in TIME NULL DEFAULT NULL,
+          time_out TIME NULL DEFAULT NULL,
+          visit_date DATE NOT NULL,
+          purpose TEXT NULL DEFAULT NULL,
+          status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+          created_by BIGINT UNSIGNED NULL DEFAULT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_company_branch (company_id, branch_id),
+          KEY idx_visit_date (visit_date),
+          KEY idx_status (status),
+          KEY idx_department (department_visited)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+      );
+      console.log("svc_visitors_log table ensured");
+    } catch (e) {
+      console.warn("Could not create svc_visitors_log table: ", e.message);
+    }
+
     // Add Triggers for hr_loans
     try {
       const resp = await query("SHOW TABLES LIKE 'hr_loans'");
@@ -462,6 +496,7 @@ app.use("/api/workflows", workflowRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/sales", salesRoutes);
 app.use("/api/purchase", purchaseRoutes);
+app.use("/api/purchase/bills", purchaseBillsRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/finance", financeRoutes);
 app.use("/api/hr", hrRoutes);
@@ -480,6 +515,7 @@ app.use("/api/social-feed", socialFeedRoutes);
 app.use("/api/access", accessRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/email-test", emailTestRoutes);
+app.use("/api/visitors", visitorsRoutes);
 
 /* ---------------- STATIC FILES & SPA FALLBACK ---------------- */
 const serveFrontendFlag = (() => {
@@ -617,10 +653,10 @@ if (process.env.NODE_ENV !== "test") {
         }
       } catch {}
     })();
-    // Automatic low-stock email & notification scheduler
-    const intervalMin = Number(process.env.LOW_STOCK_ALERT_INTERVAL_MIN || 30);
+    // Automatic low-stock push + email scheduler (6:00 AM and 6:00 PM)
+    const scheduledHours = [6, 18];
     const throttleHours = Number(
-      process.env.LOW_STOCK_ALERT_THROTTLE_HOURS || 6,
+      process.env.LOW_STOCK_ALERT_THROTTLE_HOURS || 11,
     );
     async function runLowStockAlerts() {
       try {
@@ -766,13 +802,54 @@ if (process.env.NODE_ENV !== "test") {
                 });
               } catch {}
             }
+            try {
+              await query(
+                `INSERT INTO adm_system_logs (company_id, branch_id, user_id, module_name, action, message, url_path, event_time)
+                 VALUES (:companyId, :branchId, :userId, 'Inventory', 'low-stock-alert', :message, '/inventory/alerts/low-stock', NOW())`,
+                {
+                  companyId,
+                  branchId,
+                  userId: u.id,
+                  message: `Low stock alerts processed (${count} items)`,
+                },
+              );
+            } catch {}
           }
         }
       } catch (e) {
         console.log(`[LowStockScheduler] Error: ${e?.message || e}`);
       }
     }
-    setInterval(runLowStockAlerts, Math.max(5, intervalMin) * 60 * 1000);
+    let lowStockRunInProgress = false;
+    let lastLowStockSlotKey = "";
+    async function runLowStockAlertsOnSchedule() {
+      const now = new Date();
+      const hour = now.getHours();
+      const minute = now.getMinutes();
+      if (!scheduledHours.includes(hour) || minute !== 0) return;
+      const y = String(now.getFullYear());
+      const m = String(now.getMonth() + 1).padStart(2, "0");
+      const d = String(now.getDate()).padStart(2, "0");
+      const h = String(hour).padStart(2, "0");
+      const slotKey = `${y}-${m}-${d}-${h}`;
+      if (lastLowStockSlotKey === slotKey || lowStockRunInProgress) return;
+      lowStockRunInProgress = true;
+      try {
+        await runLowStockAlerts();
+        lastLowStockSlotKey = slotKey;
+        console.log(`[LowStockScheduler] Completed scheduled run at ${slotKey}:00`);
+      } finally {
+        lowStockRunInProgress = false;
+      }
+    }
+    setInterval(() => {
+      runLowStockAlertsOnSchedule().catch((e) =>
+        console.log(`[LowStockScheduler] Schedule check failed: ${e?.message || e}`),
+      );
+    }, 30 * 1000);
+    runLowStockAlertsOnSchedule().catch((e) =>
+      console.log(`[LowStockScheduler] Initial schedule check failed: ${e?.message || e}`),
+    );
   });
 }
 

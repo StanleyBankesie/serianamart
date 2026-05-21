@@ -524,29 +524,85 @@ export const saveUserFeaturePermissions = async (req, res, next) => {
       throw httpError(400, "VALIDATION_ERROR", "permissions array required");
     }
 
+    // Load all active pages once for efficient resolution
+    const allPages = await query(
+      `SELECT id AS page_id, path, feature_key FROM adm_pages WHERE is_active = 1`,
+      {}
+    );
+
+    // Build lookup maps: by feature_key and by path prefix
+    const pagesByFk = new Map();
+    for (const pg of allPages) {
+      const fk = String(pg.feature_key || "").trim();
+      if (!fk) continue;
+      if (!pagesByFk.has(fk)) pagesByFk.set(fk, []);
+      pagesByFk.get(fk).push(toNumber(pg.page_id));
+    }
+
+    // Helper: resolve page IDs for a canonical feature key
+    function resolvePageIds(fk) {
+      // 1. Direct feature_key match in adm_pages
+      if (pagesByFk.has(fk)) return pagesByFk.get(fk);
+
+      // 2. Path-prefix fallback: feature key 'sales:invoices' -> path /sales/invoices
+      const parts = fk.split(":").filter(Boolean);
+      if (parts.length >= 2) {
+        const basePath = `/${parts[0]}/${parts[1]}`;
+        const matched = allPages
+          .filter((pg) => {
+            const pp = String(pg.path || "").trim();
+            return pp === basePath || pp.startsWith(basePath + "/");
+          })
+          .map((pg) => toNumber(pg.page_id))
+          .filter(Boolean);
+        if (matched.length) return matched;
+      }
+      return [];
+    }
+
+    // Expand each permission entry into per-page rows
+    const resolved = [];
     for (const p of permissions) {
       const pageId = toNumber(p.page_id);
+      if (pageId) {
+        resolved.push({ ...p, page_id: pageId });
+      } else if (p.feature_key) {
+        const fk = String(p.feature_key || "").trim();
+        if (!fk) continue;
+        const ids = resolvePageIds(fk);
+        for (const pid of ids) {
+          resolved.push({ ...p, page_id: pid });
+        }
+      }
+    }
+
+    // Delete stale entries, then upsert
+    const incomingPageIds = [...new Set(resolved.map((p) => p.page_id).filter(Boolean))];
+
+    if (incomingPageIds.length > 0) {
+      const placeholders = incomingPageIds.map(() => "?").join(",");
+      await query(
+        `DELETE FROM adm_user_permissions WHERE user_id = ? AND page_id NOT IN (${placeholders})`,
+        [userId, ...incomingPageIds],
+      );
+    } else {
+      await query("DELETE FROM adm_user_permissions WHERE user_id = ?", [userId]);
+    }
+
+    for (const p of resolved) {
+      const pageId = toNumber(p.page_id);
       if (!pageId) continue;
-
-      const canView = p.can_view ? 1 : 0;
-      const canCreate = p.can_create ? 1 : 0;
-      const canEdit = p.can_edit ? 1 : 0;
-      const canDelete = p.can_delete ? 1 : 0;
-
-      await query(`INSERT INTO adm_user_permissions (user_id, page_id, can_view, can_create, can_edit, can_delete)
+      await query(
+        `INSERT INTO adm_user_permissions (user_id, page_id, can_view, can_create, can_edit, can_delete)
          VALUES (:userId, :pageId, :canView, :canCreate, :canEdit, :canDelete)
          ON DUPLICATE KEY UPDATE
-           can_view = VALUES(can_view),
-           can_create = VALUES(can_create),
-           can_edit = VALUES(can_edit),
-           can_delete = VALUES(can_delete)`,
+           can_view = :canView, can_create = :canCreate, can_edit = :canEdit, can_delete = :canDelete`,
         {
-          userId,
-          pageId,
-          canView,
-          canCreate,
-          canEdit,
-          canDelete,
+          userId, pageId,
+          canView: p.can_view ? 1 : 0,
+          canCreate: p.can_create ? 1 : 0,
+          canEdit: p.can_edit ? 1 : 0,
+          canDelete: p.can_delete ? 1 : 0,
         },
       );
     }
@@ -554,7 +610,7 @@ export const saveUserFeaturePermissions = async (req, res, next) => {
     res.json({
       success: true,
       message: "Feature permissions saved",
-      data: null,
+      data: { savedCount: resolved.length },
     });
   } catch (err) {
     next(err);
@@ -571,12 +627,8 @@ export const getUserFeaturePermissionsContext = async (req, res, next) => {
     await ensureRoleFeaturesTable();
     await ensureRolePermissionsTable();
 
-    const users = await query(`SELECT id, username, email, role_id,
-          created_at,
-          uc.username AS created_by_name
-         FROM adm_users
-        LEFT JOIN adm_users uc ON uc.id = created_by
-         WHERE id = :id LIMIT 1`,
+    const users = await query(
+      `SELECT id, username, email, role_id FROM adm_users WHERE id = :id LIMIT 1`,
       { id: userId },
     );
     if (!users.length) throw httpError(404, "NOT_FOUND", "User not found");
@@ -587,92 +639,140 @@ export const getUserFeaturePermissionsContext = async (req, res, next) => {
       return res.json({
         success: true,
         message: "No role assigned to user",
-        data: {
-          user: { id: user.id, username: user.username, email: user.email },
-          items: [],
-        },
+        data: { user: { id: user.id, username: user.username, email: user.email }, items: [] },
       });
     }
 
-    const roleFeatureRows = await query(`SELECT feature_key,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_role_features
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE role_id = :roleId ORDER BY feature_key`,
+    // --- 1. Get canonical feature keys from the features registry ---
+    const allFeatures = getAllFeatures();
+    const featureMetaByKey = new Map(allFeatures.map((f) => [String(f.feature_key), f]));
+    const registryKeys = new Set(allFeatures.map((f) => String(f.feature_key)));
+
+    // --- 2. Get raw feature keys assigned to this role ---
+    const roleFeatureRows = await query(
+      `SELECT feature_key FROM adm_role_features WHERE role_id = :roleId ORDER BY feature_key`,
       { roleId },
     );
-    const roleFeatureKeys = roleFeatureRows
+    const rawRoleKeys = roleFeatureRows
       .map((r) => String(r.feature_key || "").trim())
       .filter(Boolean);
 
-    const pages = await query(`SELECT id AS page_id, path, module, name, feature_key,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_pages
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE is_active = 1 AND path IS NOT NULL AND path <> ''
-       ORDER BY path`,
-      {},
-    );
-
-    const pagesByFeatureKey = new Map();
-    for (const p of pages) {
-      const fk = String(p.feature_key || "").trim();
-      if (!fk) continue;
-      if (!pagesByFeatureKey.has(fk)) pagesByFeatureKey.set(fk, []);
-      pagesByFeatureKey.get(fk).push({
-        page_id: p.page_id,
-        path: p.path,
-        module: p.module,
-        name: p.name,
+    const rolePermissionRows = await query(
+      `SELECT module_key, feature_key, can_view, can_create, can_edit, can_delete
+         FROM adm_role_permissions
+        WHERE role_id = :roleId`,
+      { roleId },
+    ).catch(() => []);
+    const rolePermissionMap = new Map();
+    for (const row of rolePermissionRows) {
+      const moduleKey = String(row.module_key || "").trim();
+      const rawFeatureKey = String(row.feature_key || "").trim();
+      const canonicalFeatureKey = rawFeatureKey.includes(":")
+        ? rawFeatureKey
+        : moduleKey && rawFeatureKey
+          ? `${moduleKey}:${rawFeatureKey}`
+          : rawFeatureKey;
+      if (!canonicalFeatureKey) continue;
+      rolePermissionMap.set(canonicalFeatureKey, {
+        can_view: Number(row.can_view) ? 1 : 0,
+        can_create: Number(row.can_create) ? 1 : 0,
+        can_edit: Number(row.can_edit) ? 1 : 0,
+        can_delete: Number(row.can_delete) ? 1 : 0,
       });
     }
 
-    const allFeatures = getAllFeatures();
-    const featureMetaByKey = new Map(
-      allFeatures.map((f) => [String(f.feature_key), f]),
+    // --- 3. Normalize: map each raw key to a canonical registry key ---
+    const resolvedFeatureKeys = new Set();
+    for (const rawKey of rawRoleKeys) {
+      if (registryKeys.has(rawKey)) {
+        resolvedFeatureKeys.add(rawKey);
+        continue;
+      }
+      let matched = false;
+      for (const regKey of registryKeys) {
+        if (rawKey.startsWith(regKey + "-") || rawKey.startsWith(regKey + "/")) {
+          resolvedFeatureKeys.add(regKey);
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        resolvedFeatureKeys.add(rawKey);
+      }
+    }
+
+    // --- 4. Load all pages and group by feature_key ---
+    const pages = await query(
+      `SELECT id AS page_id, path, module, name, feature_key
+         FROM adm_pages
+        WHERE is_active = 1 AND path IS NOT NULL AND path <> ''
+        ORDER BY path`,
+      {},
     );
 
+    const pagesByFk = new Map();
+    for (const p of pages) {
+      const fk = String(p.feature_key || "").trim();
+      if (!fk) continue;
+      if (!pagesByFk.has(fk)) pagesByFk.set(fk, []);
+      pagesByFk.get(fk).push({ page_id: p.page_id, path: p.path, module: p.module, name: p.name });
+    }
+
+    function getPagesForFeature(fk) {
+      if (pagesByFk.has(fk)) return pagesByFk.get(fk);
+      const parts = fk.split(":").filter(Boolean);
+      if (parts.length >= 2) {
+        const basePath = `/${parts[0]}/${parts[1]}`;
+        const matched = pages.filter((p) => {
+          const pp = String(p.path || "").trim();
+          return pp === basePath || pp.startsWith(basePath + "/");
+        }).map((p) => ({ page_id: p.page_id, path: p.path, module: p.module, name: p.name }));
+        if (matched.length) return matched;
+      }
+      return [];
+    }
+
+    // --- 5. Load existing user-level permission overrides ---
+    const userPermRows = await query(
+      `SELECT p.feature_key, MAX(up.can_view) AS can_view, MAX(up.can_create) AS can_create,
+              MAX(up.can_edit) AS can_edit, MAX(up.can_delete) AS can_delete
+         FROM adm_user_permissions up
+         JOIN adm_pages p ON p.id = up.page_id
+        WHERE up.user_id = :userId
+        GROUP BY p.feature_key`,
+      { userId },
+    ).catch(() => []);
+    const userPermMap = new Map();
+    for (const row of userPermRows) {
+      const fk = String(row.feature_key || "").trim();
+      if (fk) userPermMap.set(fk, row);
+    }
+
+    // --- 6. Build items array ---
     const items = [];
-    for (const fk of roleFeatureKeys) {
+    for (const fk of resolvedFeatureKeys) {
       const meta = featureMetaByKey.get(fk);
       const [mkRaw] = fk.split(":");
       const module_key = String(meta?.module_key || mkRaw || "").trim();
       const type = meta?.type || "feature";
       const label = meta?.label || fk;
+      const featurePages = getPagesForFeature(fk);
 
-      let featurePages = pagesByFeatureKey.get(fk) || [];
-      if (!featurePages.length) {
-        const parts = fk
-          .split(":")
-          .map((s) => String(s || "").trim())
-          .filter(Boolean);
-        if (parts.length >= 2) {
-          const basePath = `/${parts[0]}/${parts[1]}`;
-          featurePages = pages
-            .filter((p) => {
-              const pp = String(p.path || "").trim();
-              return pp === basePath || pp.startsWith(basePath + "/");
-            })
-            .map((p) => ({
-              page_id: p.page_id,
-              path: p.path,
-              module: p.module,
-              name: p.name,
-            }));
-        }
-      }
+      const rolePerm = rolePermissionMap.get(fk);
+      const default_can_view = rolePerm ? rolePerm.can_view : 1;
+      const default_can_create = rolePerm ? rolePerm.can_create : 0;
+      const default_can_edit = rolePerm ? rolePerm.can_edit : 0;
+      const default_can_delete = rolePerm ? rolePerm.can_delete : 0;
 
       items.push({
         module_key,
         feature_key: fk,
         label,
         type,
-        default_can_view: 1,
-        default_can_create: 0,
-        default_can_edit: 0,
-        default_can_delete: 0,
+        default_can_view,
+        default_can_create,
+        default_can_edit,
+        default_can_delete,
         pages: featurePages,
       });
     }

@@ -218,6 +218,34 @@ async function ensureTables(companyId, branchId) {
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_maint_section_user (company_id, branch_id, section_item_id, user_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  await query(`CREATE TABLE IF NOT EXISTS maint_asset_meters (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    company_id INT NOT NULL,
+    branch_id INT NOT NULL,
+    asset_id INT NOT NULL,
+    reading_date DATE NOT NULL,
+    reading_value DECIMAL(18,4) NOT NULL,
+    uom VARCHAR(20) NULL,
+    recorded_by BIGINT UNSIGNED NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_am_asset (asset_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  await query(`CREATE TABLE IF NOT EXISTS maint_downtime_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    company_id INT NOT NULL,
+    branch_id INT NOT NULL,
+    asset_id INT NOT NULL,
+    start_time TIMESTAMP NOT NULL,
+    end_time TIMESTAMP NULL,
+    reason VARCHAR(255) NULL,
+    category ENUM('PLANNED', 'UNPLANNED') DEFAULT 'UNPLANNED',
+    impact_level ENUM('LOW', 'MEDIUM', 'HIGH', 'CRITICAL') DEFAULT 'MEDIUM',
+    recorded_by BIGINT UNSIGNED NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_dl_asset (asset_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 }
 
 // ===== HELPERS =====
@@ -2037,6 +2065,144 @@ export const updateContract = async (req, res, next) => {
       }
     }
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ===== DASHBOARD STATS =====
+
+export const getMaintenanceStats = async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req.scope;
+    await ensureTables(companyId, branchId);
+
+    const [requests] = await query(
+      "SELECT COUNT(*) as count FROM maint_requests WHERE company_id = :companyId AND branch_id = :branchId AND status = 'DRAFT'",
+      { companyId, branchId }
+    );
+    const [activeJobs] = await query(
+      "SELECT COUNT(*) as count FROM maint_job_orders WHERE company_id = :companyId AND branch_id = :branchId AND status = 'IN_PROGRESS'",
+      { companyId, branchId }
+    );
+    const [assets] = await query(
+      "SELECT COUNT(*) as count FROM maint_assets WHERE company_id = :companyId AND branch_id = :branchId AND status = 'ACTIVE'",
+      { companyId, branchId }
+    );
+    const [overduePm] = await query(
+      "SELECT COUNT(*) as count FROM maint_schedules WHERE company_id = :companyId AND branch_id = :branchId AND next_due_date < CURDATE() AND status = 'ACTIVE'",
+      { companyId, branchId }
+    );
+
+    res.json({
+      openRequests: requests.count,
+      activeJobs: activeJobs.count,
+      totalAssets: assets.count,
+      overduePm: overduePm.count,
+      assetHealth: 98 // Placeholder for logic
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ===== ASSET METERS =====
+
+export const listAssetMeters = async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req.scope;
+    const { asset_id } = req.query;
+    await ensureTables(companyId, branchId);
+    const items = await query(
+      "SELECT * FROM maint_asset_meters WHERE company_id = :companyId AND branch_id = :branchId " +
+      (asset_id ? "AND asset_id = :asset_id " : "") +
+      "ORDER BY reading_date DESC, id DESC",
+      { companyId, branchId, asset_id }
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const createAssetMeter = async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req.scope;
+    const userId = req.user?.id;
+    await ensureTables(companyId, branchId);
+    const { asset_id, reading_date, reading_value, uom } = req.body;
+    
+    const r = await query(
+      "INSERT INTO maint_asset_meters (company_id, branch_id, asset_id, reading_date, reading_value, uom, recorded_by) VALUES (:companyId, :branchId, :asset_id, :reading_date, :reading_value, :uom, :userId)",
+      { companyId, branchId, asset_id, reading_date, reading_value, uom, userId }
+    );
+    res.status(201).json({ id: r.insertId });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ===== DOWNTIME LOGS =====
+
+export const listDowntimeLogs = async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req.scope;
+    const { asset_id } = req.query;
+    await ensureTables(companyId, branchId);
+    const items = await query(
+      "SELECT dl.*, a.asset_name FROM maint_downtime_logs dl " +
+      "JOIN maint_assets a ON dl.asset_id = a.id " +
+      "WHERE dl.company_id = :companyId AND dl.branch_id = :branchId " +
+      (asset_id ? "AND dl.asset_id = :asset_id " : "") +
+      "ORDER BY dl.start_time DESC",
+      { companyId, branchId, asset_id }
+    );
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const createDowntimeLog = async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req.scope;
+    const userId = req.user?.id;
+    await ensureTables(companyId, branchId);
+    const { asset_id, start_time, end_time, reason, category, impact_level } = req.body;
+    
+    const r = await query(
+      "INSERT INTO maint_downtime_logs (company_id, branch_id, asset_id, start_time, end_time, reason, category, impact_level, recorded_by) VALUES (:companyId, :branchId, :asset_id, :start_time, :end_time, :reason, :category, :impact_level, :userId)",
+      { companyId, branchId, asset_id, start_time, end_time, reason, category, impact_level, userId }
+    );
+    res.status(201).json({ id: r.insertId });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ===== REPORTS =====
+
+export const getDowntimeReport = async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req.scope;
+    const { start_date, end_date } = req.query;
+
+    const data = await query(
+      `SELECT 
+        a.asset_name, 
+        a.asset_no,
+        COUNT(dl.id) as total_incidents,
+        SUM(TIMESTAMPDIFF(MINUTE, dl.start_time, COALESCE(dl.end_time, NOW()))) as total_downtime_mins,
+        AVG(TIMESTAMPDIFF(MINUTE, dl.start_time, COALESCE(dl.end_time, NOW()))) as avg_downtime_mins
+       FROM maint_assets a
+       LEFT JOIN maint_downtime_logs dl ON a.id = dl.asset_id
+       WHERE a.company_id = :companyId AND a.branch_id = :branchId
+       ${start_date && end_date ? 'AND dl.start_time BETWEEN :start_date AND :end_date' : ''}
+       GROUP BY a.id`,
+      { companyId, branchId, start_date, end_date }
+    );
+
+    res.json({ data });
   } catch (err) {
     next(err);
   }
