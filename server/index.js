@@ -25,7 +25,7 @@ import uploadRoutes from "./routes/upload.routes.js";
 import workflowRoutes from "./routes/workflow.routes.js";
 import healthRoutes from "./routes/health.route.js";
 import authRoutes from "./routes/auth.routes.js";
-import { query } from "./db/pool.js";
+import { logDbError, query, testDbConnection } from "./db/pool.js";
 import { isMailerConfigured, verifyMailer, sendMail } from "./utils/mailer.js";
 import pushRoutes, {
   sendPushToUser,
@@ -132,7 +132,10 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 /* ---------------- DB ---------------- */
 (async () => {
   try {
-    await query("SELECT 1");
+    const dbCheck = await testDbConnection({ silent: true });
+    if (!dbCheck.ok) {
+      throw dbCheck.error;
+    }
 
     // Check if the column already exists
     const columns = await query(
@@ -462,9 +465,7 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
       console.warn("Error checking for constraints: ", e.message);
     }
   } catch (err) {
-    console.error("Error during database initialization:", err);
-    // Don't exit process in dev if it's just a migration issue, but here it might be critical
-    // process.exit(1);
+    logDbError("Error during database initialization", err);
   }
 })();
 
@@ -490,6 +491,7 @@ app.use(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "uploads"),
   ),
 );
+app.use("/api/", healthRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/administration", adminRoutes);
 app.use("/api/workflows", workflowRoutes);
@@ -506,7 +508,6 @@ app.use("/api/production", productionRoutes);
 app.use("/api/pos", posRoutes);
 app.use("/api/bi", biRoutes);
 app.use("/api/service-management", serviceMgmtRoutes);
-app.use("/api/", healthRoutes);
 app.use("/api", authRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/templates", templatesRoutes);
@@ -628,12 +629,19 @@ if (process.env.NODE_ENV !== "test") {
   server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Mailer configured: ${isMailerConfigured() ? "yes" : "no"}`);
-    verifyMailer().then((ok) => {
-      console.log(`Mailer verified: ${ok ? "yes" : "no"}`);
-    });
+    verifyMailer()
+      .then((ok) => {
+        console.log(`Mailer verified: ${ok ? "yes" : "no"}`);
+      })
+      .catch((error) => {
+        console.error(`[Mailer] verification failed: ${error?.message || error}`);
+      });
     (async () => {
       try {
-        await query("SELECT 1");
+        const dbCheck = await testDbConnection({ silent: true });
+        if (!dbCheck.ok) {
+          throw dbCheck.error;
+        }
         try {
           await ensureExceptionalPermissionsTable();
         } catch {}
@@ -644,7 +652,7 @@ if (process.env.NODE_ENV !== "test") {
           await seedDefaultTemplates();
         } catch {}
       } catch (e) {
-        console.log(`[StartupCheck] ${e?.message || e}`);
+        logDbError("Startup check failed", e);
       }
       try {
         const secret = process.env.JWT_SECRET || "";
