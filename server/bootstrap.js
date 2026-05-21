@@ -14,15 +14,12 @@ function logProcessError(label, err) {
 
 process.on("unhandledRejection", (reason) => {
   logProcessError("unhandledRejection", reason);
-  process.exit(1);
 });
 
 process.on("uncaughtException", (error) => {
   logProcessError("uncaughtException", error);
-  process.exit(1);
 });
 
 import("./index.js").catch((error) => {
   logProcessError("bootstrap import failure", error);
-  process.exit(1);
 });
