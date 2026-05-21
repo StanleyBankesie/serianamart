@@ -24,4 +24,5 @@ process.on("uncaughtException", (error) => {
 
 import("./index.js").catch((error) => {
   logProcessError("bootstrap import failure", error);
+  process.exit(1);
 });

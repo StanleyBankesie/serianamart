@@ -261,6 +261,7 @@ export async function ensurePagesTable() {
       },
     );
   }
+  verifiedTables.add("adm_pages");
 }
 
 export async function ensurePagesSeed() {
