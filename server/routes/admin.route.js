@@ -101,6 +101,59 @@ async function hasColumn(tableName, columnName) {
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
+function normalizeModuleKey(moduleKey) {
+  const raw = String(moduleKey || "").trim().toLowerCase();
+  if (!raw) return "";
+  const aliases = {
+    admin: "administration",
+    administration: "administration",
+    sales: "sales",
+    sal: "sales",
+    inventory: "inventory",
+    inv: "inventory",
+    purchase: "purchase",
+    pur: "purchase",
+    finance: "finance",
+    fin: "finance",
+    hr: "human-resources",
+    "human-resources": "human-resources",
+    humanresources: "human-resources",
+    maintenance: "maintenance",
+    maint: "maintenance",
+    production: "production",
+    prod: "production",
+    projects: "project-management",
+    project: "project-management",
+    "project-management": "project-management",
+    proj: "project-management",
+    pos: "pos",
+    bi: "business-intelligence",
+    "business-intelligence": "business-intelligence",
+    businessintelligence: "business-intelligence",
+    service: "service-management",
+    svc: "service-management",
+    "service-management": "service-management",
+  };
+  return aliases[raw] || raw;
+}
+
+function normalizeFeatureKey(featureKey, moduleKey = "") {
+  const rawFeatureKey = String(featureKey || "").trim();
+  const normalizedModuleKey = normalizeModuleKey(moduleKey);
+  if (!rawFeatureKey) return "";
+  if (!rawFeatureKey.includes(":")) {
+    return normalizedModuleKey
+      ? `${normalizedModuleKey}:${rawFeatureKey.toLowerCase()}`
+      : rawFeatureKey.toLowerCase();
+  }
+  const [featureModule, ...rest] = rawFeatureKey.split(":");
+  const normalizedFeatureModule = normalizeModuleKey(featureModule);
+  const suffix = rest.join(":").trim().toLowerCase();
+  return suffix
+    ? `${normalizedFeatureModule}:${suffix}`
+    : normalizedFeatureModule;
+}
+
 // ===== System & Activity Tables =====
 async function ensureSystemLogsTable() {
   await query(`
@@ -2337,10 +2390,38 @@ router.get("/user-permissions", requireAuth, async (req, res, next) => {
       { roleId },
     );
 
+    const normalizedPermissions = permissions.map((row) => {
+      const moduleKey = normalizeModuleKey(row.module_key);
+      return {
+        ...row,
+        module_key: moduleKey,
+        feature_key: normalizeFeatureKey(row.feature_key, moduleKey),
+      };
+    });
+
+    const normalizedRoleFeatures = roleFeatures
+      .map((row) => normalizeFeatureKey(row.feature_key))
+      .filter(Boolean);
+
+    const inferredModules = new Set(
+      modules
+        .map((row) => normalizeModuleKey(row.module_key))
+        .filter(Boolean),
+    );
+    for (const row of normalizedPermissions) {
+      if (row.module_key) inferredModules.add(row.module_key);
+      const [featureModule] = String(row.feature_key || "").split(":");
+      if (featureModule) inferredModules.add(featureModule);
+    }
+    for (const featureKey of normalizedRoleFeatures) {
+      const [featureModule] = String(featureKey || "").split(":");
+      if (featureModule) inferredModules.add(featureModule);
+    }
+
     res.json({
-      modules: modules.map((m) => m.module_key),
-      permissions: permissions,
-      role_features: roleFeatures.map((rf) => String(rf.feature_key)),
+      modules: Array.from(inferredModules),
+      permissions: normalizedPermissions,
+      role_features: normalizedRoleFeatures,
     });
   } catch (err) {
     next(err);

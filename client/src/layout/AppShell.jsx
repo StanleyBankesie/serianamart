@@ -1,4 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  lazy,
+  Suspense,
+} from "react";
 import {
   Link,
   NavLink,
@@ -12,27 +19,60 @@ import { useAuth } from "../auth/AuthContext.jsx";
 import { usePermission } from "../auth/PermissionContext.jsx";
 import { useTheme } from "../theme/ThemeContext.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
-import DashboardPage from "../pages/dashboard/DashboardPage.jsx";
-import HomePage from "../pages/home/HomePage.jsx";
-import AdministrationHome from "../pages/modules/administration/AdministrationHome.jsx";
-import SalesHome from "../pages/modules/sales/SalesHome.jsx";
-import InventoryHome from "../pages/modules/inventory/InventoryHome.jsx";
-import PurchaseHome from "../pages/modules/purchase/PurchaseHome.jsx";
-import FinanceRoutes from "../pages/modules/finance/FinanceRoutes.jsx";
-import HumanResourcesHome from "../pages/modules/human-resources/HumanResourcesHome.jsx";
-import MaintenanceHome from "../pages/modules/maintenance/MaintenanceHome.jsx";
-import ProjectManagementHome from "../pages/modules/project-management/ProjectManagementHome.jsx";
-import ProductionHome from "../pages/modules/production/ProductionHome.jsx";
-import PosHome from "../pages/modules/pos/PosHome.jsx";
-import BusinessIntelligenceHome from "../pages/modules/business-intelligence/BusinessIntelligenceHome.jsx";
-import ServiceManagementHome from "../pages/modules/service-management/ServiceManagementHome.jsx";
-import ExecutiveOverviewRoutes from "../pages/modules/executive-overview/ExecutiveOverviewRoutes.jsx";
-import NotificationsPage from "../pages/NotificationsPage.jsx";
-import SocialFeedPage from "../pages/social/SocialFeedPage.jsx";
-import RoleSetup from "../pages/admin/RoleSetup.jsx";
-import UserPermissions from "../pages/admin/UserPermissions.jsx";
+
+// Lazy load module pages for better performance and smaller initial chunks
+const DashboardPage = lazy(
+  () => import("../pages/dashboard/DashboardPage.jsx"),
+);
+const HomePage = lazy(() => import("../pages/home/HomePage.jsx"));
+const AdministrationHome = lazy(
+  () => import("../pages/modules/administration/AdministrationHome.jsx"),
+);
+const SalesHome = lazy(() => import("../pages/modules/sales/SalesHome.jsx"));
+const InventoryHome = lazy(
+  () => import("../pages/modules/inventory/InventoryHome.jsx"),
+);
+const PurchaseHome = lazy(
+  () => import("../pages/modules/purchase/PurchaseHome.jsx"),
+);
+const FinanceRoutes = lazy(
+  () => import("../pages/modules/finance/FinanceRoutes.jsx"),
+);
+const HumanResourcesHome = lazy(
+  () => import("../pages/modules/human-resources/HumanResourcesHome.jsx"),
+);
+const MaintenanceHome = lazy(
+  () => import("../pages/modules/maintenance/MaintenanceHome.jsx"),
+);
+const ProjectManagementHome = lazy(
+  () => import("../pages/modules/project-management/ProjectManagementHome.jsx"),
+);
+const ProductionHome = lazy(
+  () => import("../pages/modules/production/ProductionHome.jsx"),
+);
+const PosHome = lazy(() => import("../pages/modules/pos/PosHome.jsx"));
+const BusinessIntelligenceHome = lazy(
+  () =>
+    import("../pages/modules/business-intelligence/BusinessIntelligenceHome.jsx"),
+);
+const ServiceManagementHome = lazy(
+  () => import("../pages/modules/service-management/ServiceManagementHome.jsx"),
+);
+const ExecutiveOverviewRoutes = lazy(
+  () =>
+    import("../pages/modules/executive-overview/ExecutiveOverviewRoutes.jsx"),
+);
+const NotificationsPage = lazy(() => import("../pages/NotificationsPage.jsx"));
+const SocialFeedPage = lazy(() => import("../pages/social/SocialFeedPage.jsx"));
+const RoleSetup = lazy(() => import("../pages/admin/RoleSetup.jsx"));
+const UserPermissions = lazy(
+  () => import("../pages/admin/UserPermissions.jsx"),
+);
+const DashboardPermissions = lazy(
+  () => import("../pages/admin/DashboardPermissions.jsx"),
+);
+
 import SocialFeedNotification from "../components/CompanyFeed/SocialFeedNotification.jsx";
-import DashboardPermissions from "../pages/admin/DashboardPermissions.jsx";
 import addNotification from "react-push-notification";
 
 import logoDark from "../assets/resources/OMNISUITE_WHITE_LOGO.png";
@@ -1423,56 +1463,67 @@ export default function AppShell() {
                 </div>
               </div>
             ) : (
-              <Routes>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/dashboard" element={<DashboardPage />} />
-                <Route
-                  path="/administration/*"
-                  element={<AdministrationHome />}
-                />
-                <Route path="/sales/*" element={<SalesHome />} />
-                <Route path="/inventory/*" element={<InventoryHome />} />
-                <Route path="/purchase/*" element={<PurchaseHome />} />
-                <Route path="/finance/*" element={<FinanceRoutes />} />
-                <Route
-                  path="/human-resources/*"
-                  element={<HumanResourcesHome />}
-                />
-                <Route path="/maintenance/*" element={<MaintenanceHome />} />
-                <Route
-                  path="/project-management/*"
-                  element={<ProjectManagementHome />}
-                />
-                <Route path="/production/*" element={<ProductionHome />} />
-                <Route path="/pos/*" element={<PosHome />} />
-                <Route
-                  path="/business-intelligence/*"
-                  element={<BusinessIntelligenceHome />}
-                />
-                <Route
-                  path="/service-management/*"
-                  element={<ServiceManagementHome />}
-                />
-                <Route
-                  path="/executive-overview/*"
-                  element={<ExecutiveOverviewRoutes />}
-                />
-                <Route
-                  path="/administration/access/dashboard-permissions"
-                  element={<DashboardPermissions />}
-                />
-                <Route path="/notifications" element={<NotificationsPage />} />
-                <Route path="/social-feed" element={<SocialFeedPage />} />
-                <Route path="/social-feed/:id" element={<SocialFeedPage />} />
-                {/* chat v2 renders via floating modal; legacy /chat route removed */}
+              <Suspense
+                fallback={
+                  <div className="flex items-center justify-center min-h-[400px]">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+                  </div>
+                }
+              >
+                <Routes>
+                  <Route path="/" element={<HomePage />} />
+                  <Route path="/dashboard" element={<DashboardPage />} />
+                  <Route
+                    path="/administration/*"
+                    element={<AdministrationHome />}
+                  />
+                  <Route path="/sales/*" element={<SalesHome />} />
+                  <Route path="/inventory/*" element={<InventoryHome />} />
+                  <Route path="/purchase/*" element={<PurchaseHome />} />
+                  <Route path="/finance/*" element={<FinanceRoutes />} />
+                  <Route
+                    path="/human-resources/*"
+                    element={<HumanResourcesHome />}
+                  />
+                  <Route path="/maintenance/*" element={<MaintenanceHome />} />
+                  <Route
+                    path="/project-management/*"
+                    element={<ProjectManagementHome />}
+                  />
+                  <Route path="/production/*" element={<ProductionHome />} />
+                  <Route path="/pos/*" element={<PosHome />} />
+                  <Route
+                    path="/business-intelligence/*"
+                    element={<BusinessIntelligenceHome />}
+                  />
+                  <Route
+                    path="/service-management/*"
+                    element={<ServiceManagementHome />}
+                  />
+                  <Route
+                    path="/executive-overview/*"
+                    element={<ExecutiveOverviewRoutes />}
+                  />
+                  <Route
+                    path="/administration/access/dashboard-permissions"
+                    element={<DashboardPermissions />}
+                  />
+                  <Route
+                    path="/notifications"
+                    element={<NotificationsPage />}
+                  />
+                  <Route path="/social-feed" element={<SocialFeedPage />} />
+                  <Route path="/social-feed/:id" element={<SocialFeedPage />} />
+                  {/* chat v2 renders via floating modal; legacy /chat route removed */}
 
-                {/* Admin Routes */}
-                <Route path="/admin/roles" element={<RoleSetup />} />
-                <Route
-                  path="/admin/user-permissions"
-                  element={<UserPermissions />}
-                />
-              </Routes>
+                  {/* Admin Routes */}
+                  <Route path="/admin/roles" element={<RoleSetup />} />
+                  <Route
+                    path="/admin/user-permissions"
+                    element={<UserPermissions />}
+                  />
+                </Routes>
+              </Suspense>
             )}
           </div>
         </main>

@@ -5,9 +5,9 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon bootstrap.js",
+    "dev": "nodemon --exec \"node --max-http-header-size=32768\" bootstrap.js",
     "build": "node scripts/build.js",
-    "start": "node bootstrap.js",
+    "start": "node --max-http-header-size=32768 bootstrap.js",
     "db:init": "node scripts/init_db.js",
     "db:export": "node scripts/export_dump.js",
     "db:dump": "node scripts/dump_db_mysqldump.js",
