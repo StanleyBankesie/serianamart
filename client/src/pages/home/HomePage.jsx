@@ -688,6 +688,11 @@ export default function HomePage() {
             <h1 className="text-3xl font-bold tracking-tight">
               Welcome back, {user?.name || user?.username || "User"}! 👋
             </h1>
+            {(user?.companyName || user?.branchName) && (
+              <p className="mt-1 text-brand-200 text-sm">
+                {[user?.companyName, user?.branchName].filter(Boolean).join(" — ")}
+              </p>
+            )}
             <p className="mt-2 text-brand-100 text-lg max-w-2xl">
               Here's an overview of your business performance and pending tasks
               today.

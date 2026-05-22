@@ -904,8 +904,9 @@ export const PermissionProvider = ({ children }) => {
     function runGuard() {
       if (guardCleanupRef.current) guardCleanupRef.current();
 
-      const canCreate = canCreateOnPage();
-      const canDelete = canDeleteOnPage();
+      const path = window?.location?.pathname || "/";
+      const canCreate = canCreateOnPage(path);
+      const canDelete = canDeleteOnPage(path);
       document.body.classList.toggle("create-guard-disabled", !canCreate);
       document.body.classList.toggle("delete-guard-disabled", !canDelete);
       if (canCreate && canDelete) { guardCleanupRef.current = null; return; }
@@ -977,7 +978,7 @@ export const PermissionProvider = ({ children }) => {
       window.removeEventListener("rbac:updated", onNav);
       if (guardCleanupRef.current) guardCleanupRef.current();
     };
-  }, [permissions, roleFeatures, exceptionalPerms]);
+  }, [permissions, roleFeatures, exceptionalPerms, pagePermsByPath]);
 
   useEffect(() => {
     function onChanged() {

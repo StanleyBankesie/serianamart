@@ -72,11 +72,13 @@ export const getUserById = async (req, res, next) => {
     const items = await query(`
       SELECT 
         u.*,
+        r.name AS role_name,
         IF(u.profile_picture IS NULL, NULL, CONCAT('data:image/jpeg;base64,', TO_BASE64(u.profile_picture))) AS profile_picture_url,
           u.created_at,
           uc.username AS created_by_name
          FROM adm_users u
         LEFT JOIN adm_users uc ON uc.id = u.created_by
+        LEFT JOIN adm_roles r ON u.role_id = r.id
          WHERE u.id = :id
       LIMIT 1
       `,

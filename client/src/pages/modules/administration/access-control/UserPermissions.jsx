@@ -7,6 +7,7 @@ export default function UserPermissions() {
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [roleId, setRoleId] = useState(null);
+  const [roleName, setRoleName] = useState("");
   const [roleModules, setRoleModules] = useState([]);
   const [rolePermissions, setRolePermissions] = useState({});
   const [features, setFeatures] = useState([]);
@@ -37,6 +38,7 @@ export default function UserPermissions() {
       const user = userRes?.data?.data?.item || userRes?.data?.item || null;
       const rId = Number(user?.role_id || user?.role?.id || 0);
       setRoleId(rId || null);
+      setRoleName(user?.role_name || "");
       if (rId) {
         const [modsRes, permsRes, featsRes, roleFeatsRes] = await Promise.all([
           api.get(`/access/roles/${rId}/modules`),
@@ -217,7 +219,7 @@ export default function UserPermissions() {
             <div>
               <label className="label">Role Default</label>
               <div className="p-2 border rounded bg-slate-50 dark:bg-slate-800">
-                {roleId ? `Role #${roleId}` : "No role assigned"}
+                {roleId ? (roleName || `Role #${roleId}`) : "No role assigned"}
               </div>
             </div>
           </div>

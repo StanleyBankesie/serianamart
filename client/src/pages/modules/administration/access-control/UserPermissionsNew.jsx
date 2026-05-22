@@ -98,14 +98,8 @@ export default function UserPermissions() {
       setRoleId(rId || null);
 
       if (rId) {
-        // Load role name
-        try {
-          const roleRes = await api.get(`/access/roles/${rId}`);
-          const role = roleRes?.data?.role || roleRes?.data || {};
-          setRoleName(String(role.name || role.role_name || ""));
-        } catch {
-          setRoleName("");
-        }
+        // Role name comes from getUserById now (r.name AS role_name)
+        setRoleName(user?.role_name || "");
         // Load role features and existing user permissions
         const [featsRes, roleFeatsRes, userPermsRes, userOverridesRes] =
           await Promise.all([

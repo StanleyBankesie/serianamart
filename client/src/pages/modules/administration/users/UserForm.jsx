@@ -458,7 +458,7 @@ export default function UserForm() {
                 </label>
                 <div className="relative">
                   <input
-                    className="input pr-10"
+                    className="input pr-8"
                     type={showPassword ? "text" : "password"}
                     value={form.password}
                     onChange={(e) => update("password", e.target.value)}

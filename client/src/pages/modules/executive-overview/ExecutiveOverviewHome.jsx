@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../api/client.js";
+import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -157,8 +158,7 @@ const KpiIcon = ({ name, className = "w-5 h-5" }) => {
   return icons[name] || null;
 };
 
-// ERP Professional Color Scheme
-const MODULE_CARDS = [
+const ALL_MODULE_DASHBOARDS = [
   { key: "finance", label: "Finance", path: "/finance/dashboard", color: "bg-slate-700 hover:bg-slate-600", borderColor: "border-slate-500", desc: "Accounting & Reporting" },
   { key: "sales", label: "Sales", path: "/sales/dashboard", color: "bg-blue-700 hover:bg-blue-600", borderColor: "border-blue-500", desc: "Revenue & Customers" },
   { key: "inventory", label: "Inventory", path: "/inventory/dashboard", color: "bg-emerald-700 hover:bg-emerald-600", borderColor: "border-emerald-500", desc: "Stock & Movements" },
@@ -175,6 +175,11 @@ const MODULE_CARDS = [
 
 export default function ExecutiveOverviewHome() {
   const navigate = useNavigate();
+  const { isModuleEnabled } = usePermission();
+  const moduleCards = useMemo(
+    () => ALL_MODULE_DASHBOARDS.filter((m) => isModuleEnabled(m.key)),
+    [isModuleEnabled],
+  );
   const [kpis, setKpis] = useState({
     outstandingReceivables: null,
     outstandingPayables: null,
@@ -475,6 +480,7 @@ export default function ExecutiveOverviewHome() {
         </section>
 
         {/* Module Dashboard Grid Section */}
+        {moduleCards.length > 0 && (
         <section>
           <div className="flex items-center gap-3 mb-6">
             <div className="w-1 h-6 bg-emerald-700 rounded-full"></div>
@@ -483,7 +489,7 @@ export default function ExecutiveOverviewHome() {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-            {MODULE_CARDS.map((mod) => (
+            {moduleCards.map((mod) => (
               <Link
                 key={mod.key}
                 to={mod.path}
@@ -505,6 +511,7 @@ export default function ExecutiveOverviewHome() {
             ))}
           </div>
         </section>
+        )}
 
         {/* Quick Actions Footer */}
         <section className="border-t border-gray-200 pt-6">
