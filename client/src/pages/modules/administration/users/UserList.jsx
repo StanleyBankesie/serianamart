@@ -176,7 +176,7 @@ export default function UserList() {
             <tbody>
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="text-center py-4">
+                  <td colSpan="10" className="text-center py-4">
                     No users found
                   </td>
                 </tr>
@@ -214,7 +214,6 @@ export default function UserList() {
                       </td>
                       <td>{user.username}</td>
                       <td>{user.email}</td>
-                      <td>{user.user_type || "Internal"}</td>
                       <td>{user.company_name || "N/A"}</td>
                       <td>{user.branch_name || "N/A"}</td>
                       <td>

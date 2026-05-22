@@ -671,7 +671,9 @@ export default function AppShell() {
   const [branchOptions, setBranchOptions] = useState([]);
   const [selectedBranchId, setSelectedBranchId] = useState(null);
   const [companies, setCompanies] = useState([]);
+  const hasAdminAccess = user?.permissions?.includes("*") || user?.id === 1;
   useEffect(() => {
+    if (!hasAdminAccess) return;
     let mounted = true;
     async function loadUserBranches() {
       try {
@@ -712,8 +714,9 @@ export default function AppShell() {
     return () => {
       mounted = false;
     };
-  }, [userIdNum, user?.branchIds, selectedBranchId]);
+  }, [userIdNum, user?.branchIds, selectedBranchId, hasAdminAccess]);
   useEffect(() => {
+    if (!hasAdminAccess) return;
     let mounted = true;
     async function loadCompanies() {
       try {
@@ -726,7 +729,7 @@ export default function AppShell() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [hasAdminAccess]);
   const currentBranchName = useMemo(() => {
     const targetId = Number(scope?.branchId ?? selectedBranchId);
     const found =

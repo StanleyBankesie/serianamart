@@ -223,17 +223,21 @@ export async function getUserForAuth(userId) {
   const rows = await query(
     `
     SELECT
-      id,
-      company_id,
-      branch_id,
-      username,
-      email,
-      full_name,
-      is_active,
-      failed_attempts,
-      last_failed_attempt
-    FROM adm_users
-    WHERE id = :userId
+      u.id,
+      u.company_id,
+      u.branch_id,
+      u.username,
+      u.email,
+      u.full_name,
+      u.is_active,
+      u.failed_attempts,
+      u.last_failed_attempt,
+      c.name AS company_name,
+      b.name AS branch_name
+    FROM adm_users u
+    LEFT JOIN adm_companies c ON u.company_id = c.id
+    LEFT JOIN adm_branches b ON u.branch_id = b.id
+    WHERE u.id = :userId
     LIMIT 1
     `,
     { userId },
@@ -251,6 +255,8 @@ export function buildAuthUserPayload(user, permissions = []) {
     permissions: Array.isArray(permissions) ? permissions : [],
     companyIds: user.company_id ? [Number(user.company_id)] : [],
     branchIds: user.branch_id ? [Number(user.branch_id)] : [],
+    companyName: user.company_name || "",
+    branchName: user.branch_name || "",
   };
 
   if (Number(user.id) === 1) {

@@ -483,6 +483,27 @@ router.post(
   },
 );
 
+router.get(
+  "/roles/:id",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const id = toNumber(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid role ID" });
+      const rows = await query(
+        "SELECT id, company_id, name, code, is_active FROM adm_roles WHERE id = :id LIMIT 1",
+        { id },
+      );
+      const role = rows[0] || null;
+      if (!role) return res.status(404).json({ message: "Role not found" });
+      res.json({ role });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 router.put(
   "/roles/:id",
   requireAuth,

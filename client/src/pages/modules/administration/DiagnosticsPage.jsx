@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import { api } from "../../../api/client.js";
 
 function severityClass(level) {
@@ -173,9 +174,14 @@ export default function DiagnosticsPage() {
             Run checks and view issues in plain language.
           </p>
         </div>
-        <button className="btn-primary" onClick={runDiagnostics} disabled={running}>
-          {running ? "Running..." : "Run Diagnostics"}
-        </button>
+        <div className="flex gap-2">
+          <Link to="/administration" className="btn" style={{ padding: "8px 16px", background: "#6b7280", color: "white", borderRadius: "6px", textDecoration: "none", fontSize: "14px" }}>
+            ← Return to Menu
+          </Link>
+          <button className="btn-primary" onClick={runDiagnostics} disabled={running}>
+            {running ? "Running..." : "Run Diagnostics"}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

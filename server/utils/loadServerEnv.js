@@ -37,18 +37,19 @@ export function loadServerEnv(metaUrl = import.meta.url) {
     path.join(serverRoot, ".env.production"),
   ];
 
+  const wasProd = String(process.env.NODE_ENV || "").toLowerCase() === "production";
+
   for (const filePath of baseCandidates) {
     loadIfExists(filePath, false);
   }
 
-  const isProd = String(process.env.NODE_ENV || "").toLowerCase() === "production";
   const forceLocal = String(process.env.DEV_FORCE_LOCAL_ENV || "").trim() === "1";
 
   if (forceLocal) {
     for (const filePath of localCandidates) {
       loadIfExists(filePath, true);
     }
-  } else if (isProd) {
+  } else if (wasProd) {
     for (const filePath of prodCandidates) {
       loadIfExists(filePath, true);
     }

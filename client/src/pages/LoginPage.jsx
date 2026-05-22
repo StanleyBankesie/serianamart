@@ -90,27 +90,8 @@ export default function LoginPage() {
     // Autofill-safe redirect: We don't care if fields are filled,
     // if we have a token, we move to the dashboard.
     handledStartupRedirect.current = true;
-    let target = "/";
-    try {
-      const fromState = location?.state?.from;
-      const fromPath =
-        fromState && typeof fromState.pathname === "string"
-          ? fromState.pathname + (fromState.search || "")
-          : null;
-      const last =
-        typeof sessionStorage !== "undefined"
-          ? sessionStorage.getItem("last_path")
-          : null;
-      const candidate = fromPath || last;
-      if (
-        candidate &&
-        !/^\/(login|reset-password|forgot-password)$/.test(candidate)
-      ) {
-        target = candidate;
-      }
-    } catch {}
-    navigate(target, { replace: true });
-  }, [initialized, token, location, navigate]);
+    navigate("/", { replace: true });
+  }, [initialized, token, navigate]);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -172,24 +153,7 @@ export default function LoginPage() {
           branchId: branchId,
         }));
 
-        let target = "/";
-        try {
-          const fromState = location?.state?.from;
-          const fromPath =
-            fromState && typeof fromState.pathname === "string"
-              ? fromState.pathname + (fromState.search || "")
-              : null;
-          const last = sessionStorage.getItem("last_path");
-          const candidate = fromPath || last;
-          if (
-            candidate &&
-            !/^\/(login|reset-password|forgot-password)$/.test(candidate)
-          ) {
-            target = candidate;
-          }
-        } catch {}
-
-        navigate(target, { replace: true });
+        navigate("/", { replace: true });
       } else {
         navigate("/select-branch", { replace: true });
       }

@@ -20,7 +20,6 @@ export default function PostCreator({ onPostCreated }) {
     if (!user?.id && !user?.sub) return;
     const fetchUserProfile = async () => {
       try {
-        const userId = Number(user?.sub || user?.id) || 0;
         const resMe = await api.get(`/admin/me`);
         if (resMe?.status === 200) {
           const ctx = resMe.data?.data || resMe.data || null;
@@ -28,20 +27,6 @@ export default function PostCreator({ onPostCreated }) {
             ctx?.user?.profile_picture_url || ctx?.profile_picture_url || null;
           if (url) {
             setUserProfilePic(url);
-            return;
-          }
-        }
-        if (userId > 0) {
-          const resUser = await api.get(`/admin/users/${userId}`);
-          if (resUser?.status === 200) {
-            const item =
-              resUser.data?.data?.item ||
-              resUser.data?.item ||
-              resUser.data?.data ||
-              resUser.data ||
-              null;
-            const url2 = item?.profile_picture_url || null;
-            setUserProfilePic(url2 || "/default-avatar.png");
             return;
           }
         }

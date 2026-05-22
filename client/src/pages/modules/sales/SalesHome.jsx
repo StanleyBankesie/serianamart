@@ -50,6 +50,7 @@ const ActionButton = ({ label, path, type, featureKey, action }) => {
 };
 
 const SalesModuleHome = () => {
+  const { isSuper } = usePermission();
   const [stats, setStats] = React.useState([
     {
       rbac_key: "sales-this-month",
@@ -117,7 +118,9 @@ const SalesModuleHome = () => {
         const from = firstOfMonth.toISOString().slice(0, 10);
         const [dash, invoices, openQuotes, deliveries, prevMonthInvoices] =
           await Promise.all([
-            api.get("/bi/dashboards").catch(() => ({ data: {} })),
+            isSuper
+              ? api.get("/bi/dashboards").catch(() => ({ data: {} }))
+              : Promise.resolve({ data: {} }),
             api
               .get("/sales/reports/invoice-summary", {
                 params: { from, to },

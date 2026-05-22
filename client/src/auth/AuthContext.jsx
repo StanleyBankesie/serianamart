@@ -169,6 +169,15 @@ export function AuthProvider({ children }) {
         window.sessionStorage.removeItem("last_path");
       } catch {}
     }
+    // clear all cached/permission data
+    if (typeof window !== "undefined" && window.localStorage) {
+      try {
+        window.localStorage.removeItem("rbac.permission.snapshot.v1");
+        window.localStorage.removeItem("omnisuite.rememberedCreds");
+        window.localStorage.removeItem("omnisuite.rememberMe");
+        window.localStorage.removeItem("push_enabled");
+      } catch {}
+    }
     setAccess({ patterns: [], modules: [] });
     if (redirect && typeof window !== "undefined") {
       window.location.replace("/login");
