@@ -20,7 +20,9 @@ if (!DEV_MODE) {
         "/pwa-512x512.png",
         "/apple-touch-icon.png",
         "/OMNISUITE_ICON_CLEAR.png",
-      ]);
+      ,
+        "/assets/index-Cb9I7eFK.js"
+]);
       self.skipWaiting();
     })(),
   );

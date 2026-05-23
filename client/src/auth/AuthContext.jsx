@@ -19,6 +19,7 @@ import {
   getAuthChangedEventName,
   getLastActivity,
   INACTIVITY_TIMEOUT_MS,
+  isTokenExpired,
   readStoredAuth,
   touchLastActivity,
   writeStoredAuth,
@@ -40,6 +41,18 @@ export function AuthProvider({ children }) {
       const parsed = readStoredAuth();
       // Only attempt refresh if we have or had a session hint
       if (!parsed || (!parsed.token && !parsed.user)) {
+        if (mounted) setInitialized(true);
+        return;
+      }
+
+      // Offline path: restore from stored auth if token is still valid
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        if (parsed.token && !isTokenExpired(parsed.token)) {
+          setToken(parsed.token);
+          setUser(parsed.user);
+          setScope(parsed.scope || { companyId: 1, branchId: 1 });
+          touchLastActivity();
+        }
         if (mounted) setInitialized(true);
         return;
       }
@@ -68,13 +81,20 @@ export function AuthProvider({ children }) {
         touchLastActivity();
       } catch (err) {
         if (!mounted) return;
-        // Only clear if it was an actual 401/error, not a network failure
+        // Only clear if it was an actual 401, not a network/server failure
         if (err?.response?.status === 401) {
           clearStoredAuth();
           clearLastActivity();
           setToken(null);
           setUser(null);
           setScope({ companyId: 1, branchId: 1 });
+        } else if (parsed.token && !isTokenExpired(parsed.token)) {
+          // Refresh failed for a transient reason (offline, 5xx, timeout).
+          // Fall back to cached token if still valid.
+          setToken(parsed.token);
+          setUser(parsed.user);
+          setScope(parsed.scope || { companyId: 1, branchId: 1 });
+          touchLastActivity();
         }
       } finally {
         if (mounted) setInitialized(true);
