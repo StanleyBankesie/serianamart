@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 
@@ -74,6 +74,7 @@ export default function CreditNoteForm() {
   const [cnTaxCodeId, setCnTaxCodeId] = useState("");
   const [cnTaxComponentsByCode, setCnTaxComponentsByCode] = useState({});
   const [cnSalesAccountId, setCnSalesAccountId] = useState("");
+  const linesManuallyEdited = useRef(false);
   const [showCustomerLov, setShowCustomerLov] = useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
   const [rvForm, setRvForm] = useState({
@@ -338,6 +339,7 @@ export default function CreditNoteForm() {
       setCnSalesAccountId("");
       return;
     }
+    linesManuallyEdited.current = false;
     const acc = accounts.find((a) => String(a.id) === String(cnCustomerId));
     setCnCurrencyCode(String(acc?.currency_code || acc?.currency || ""));
     
@@ -409,6 +411,7 @@ export default function CreditNoteForm() {
   useEffect(() => {
     if (!isCN) return;
     if (!cnCustomerId) return;
+    if (linesManuallyEdited.current) return;
 
     const amt = Number(cnAmount || 0);
     const rate = Number(cnExchangeRate || 1) || 1;
@@ -580,7 +583,7 @@ export default function CreditNoteForm() {
         );
         const raw = String(res.data?.nextNo || "");
         const m = raw.match(/^CN-?(\d+)$/i);
-        const formatted = m ? `CN-${String(m[1]).padStart(6, "0")}` : raw;
+        const formatted = m ? `CN${String(m[1]).padStart(6, "0")}` : raw;
         setVoucherNoPreview(formatted);
       } catch {
         setVoucherNoPreview("");
@@ -718,6 +721,7 @@ export default function CreditNoteForm() {
           credit: Number(it.credit || 0),
         })) || [];
       setLines(mapped.length ? mapped : [emptyLine(), emptyLine()]);
+      linesManuallyEdited.current = true;
       if (isRV) {
         const debitLine = mapped.find((l) => Number(l.debit || 0) > 0);
         const creditLines = mapped.filter((l) => Number(l.credit || 0) > 0);
@@ -1653,6 +1657,7 @@ export default function CreditNoteForm() {
 
   function updateLine(index, patch) {
     if (readOnly) return;
+    linesManuallyEdited.current = true;
     setLines((prev) =>
       prev.map((l, i) => (i === index ? { ...l, ...patch } : l)),
     );
@@ -1660,11 +1665,13 @@ export default function CreditNoteForm() {
 
   function addLine() {
     if (readOnly) return;
+    linesManuallyEdited.current = true;
     setLines((prev) => [...prev, emptyLine()]);
   }
 
   function removeLine(index) {
     if (readOnly) return;
+    linesManuallyEdited.current = true;
     setLines((prev) =>
       prev.length <= 2 ? prev : prev.filter((_, i) => i !== index),
     );
@@ -3176,7 +3183,7 @@ export default function CreditNoteForm() {
                 </p>
               </div>
               <div className="flex gap-2">
-                <Link to=".." className="btn-success">
+                <Link to={isCN ? "/finance/credit-note" : ".."} className="btn-success">
                   Back
                 </Link>
                 {voucherStatus === "APPROVED" ? (
@@ -3852,7 +3859,7 @@ export default function CreditNoteForm() {
               </div>
 
               <div className="flex justify-end gap-3">
-                <Link to=".." className="btn-success">
+                <Link to={isCN ? "/finance/credit-note" : ".."} className="btn-success">
                   Cancel
                 </Link>
                 <button

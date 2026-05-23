@@ -97,13 +97,17 @@ export default function SalesReturnForm() {
     let mounted = true;
     async function load() {
       try {
-        const [custRes, whRes, itemsRes, taxRes, reasonRes] = await Promise.all([
-          api.get("/sales/customers?active=true"),
-          api.get("/inventory/warehouses"),
-          api.get("/inventory/items"),
-          api.get("/finance/tax-codes/by-page/19"),
-          api.get("/sales/return-reasons").catch(() => ({ data: { items: [] } })),
-        ]);
+        const [custRes, whRes, itemsRes, taxRes, reasonRes] = await Promise.all(
+          [
+            api.get("/sales/customers?active=true"),
+            api.get("/inventory/warehouses"),
+            api.get("/inventory/items"),
+            api.get("/finance/tax-codes/by-page/19"),
+            api
+              .get("/sales/return-reasons")
+              .catch(() => ({ data: { items: [] } })),
+          ],
+        );
         if (!mounted) return;
         setCustomers(
           Array.isArray(custRes.data?.items) ? custRes.data.items : [],
@@ -112,27 +116,19 @@ export default function SalesReturnForm() {
         setItemsMaster(
           Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : [],
         );
-        const taxItems = Array.isArray(taxRes.data?.items) ? taxRes.data.items : [];
+        const taxItems = Array.isArray(taxRes.data?.items)
+          ? taxRes.data.items
+          : [];
         setTaxes(taxItems);
 
-        const reasonItems = Array.isArray(reasonRes.data?.items) ? reasonRes.data.items : [];
+        const reasonItems = Array.isArray(reasonRes.data?.items)
+          ? reasonRes.data.items
+          : [];
         const activeReasons = reasonItems.filter((r) => r.is_active);
         setReturnReasons(activeReasons);
 
-        // Pre-populate default tax code defined for sales returns (page ID 19)
-        if (taxItems.length > 0) {
-          const defCode = taxItems.find(t => t.is_default) || taxItems[0];
-          if (defCode) {
-            setDefaultTaxId(String(defCode.id));
-            setLines((prev) =>
-              prev.map((l) => ({
-                ...l,
-                tax_type: String(defCode.id),
-              })),
-            );
-            fetchTaxComponentsForCode(defCode.id);
-          }
-        }
+        // Default to "No Tax" — user selects tax code per line
+        setDefaultTaxId("");
 
         if (activeReasons.length > 0 && !existingId) {
           const firstCode = activeReasons[0].reason_code;
@@ -182,7 +178,10 @@ export default function SalesReturnForm() {
             unitPrice: Number(d.unit_price || 0),
             reasonCode: String(d.reason_code || "DAMAGED"),
             remarks: String(d.remarks || ""),
-            tax_type: d.tax_type != null ? String(d.tax_type) : String(defCode?.id || ""),
+            tax_type:
+              d.tax_type != null
+                ? String(d.tax_type)
+                : String(defCode?.id || ""),
             taxAmount: Number(d.tax_amount || 0),
             uom: String(d.uom || ""),
           }));
@@ -264,9 +263,14 @@ export default function SalesReturnForm() {
           const item = itemsMaster.find(
             (i) => Number(i.id) === Number(d.item_id),
           );
-          const activeTaxId = String(item?.vat_on_sales_id || defaultTaxId || "");
+          const activeTaxId = String(
+            item?.vat_on_sales_id || defaultTaxId || "",
+          );
           const comps = taxComponentsByCode[activeTaxId] || [];
-          const rate = comps.reduce((sum, c) => sum + Number(c.rate_percent || 0), 0);
+          const rate = comps.reduce(
+            (sum, c) => sum + Number(c.rate_percent || 0),
+            0,
+          );
           const qty = Math.round(Number(d.quantity || 0) * 100) / 100;
           const price = Math.round(Number(d.unit_price || 0) * 100) / 100;
           const taxAmount =
@@ -302,7 +306,13 @@ export default function SalesReturnForm() {
       .catch(() => {
         // ignore
       });
-  }, [formData.invoiceId, itemsMaster, taxComponentsByCode, defaultTaxId, readOnly]);
+  }, [
+    formData.invoiceId,
+    itemsMaster,
+    taxComponentsByCode,
+    defaultTaxId,
+    readOnly,
+  ]);
 
   useEffect(() => {
     if (readOnly) return;
@@ -360,7 +370,10 @@ export default function SalesReturnForm() {
     const rate = comps.reduce((sum, c) => sum + Number(c.rate_percent || 0), 0);
 
     const qty = 1;
-    const price = Number(item?.selling_price || 0) || Number(item?.standard_price || 0) || 0;
+    const price =
+      Number(item?.selling_price || 0) ||
+      Number(item?.standard_price || 0) ||
+      0;
     const taxAmount = Math.round(((qty * price * rate) / 100) * 100) / 100;
 
     setLines(
@@ -411,7 +424,10 @@ export default function SalesReturnForm() {
         if (l.id !== lineId) return l;
         const patch = { ...l, [field]: value };
         const comps = taxComponentsByCode[String(patch.tax_type)] || [];
-        const rate = comps.reduce((sum, c) => sum + Number(c.rate_percent || 0), 0);
+        const rate = comps.reduce(
+          (sum, c) => sum + Number(c.rate_percent || 0),
+          0,
+        );
         const qty =
           Number(field === "qtyReturned" ? value : patch.qtyReturned) || 0;
         const price =
@@ -436,13 +452,17 @@ export default function SalesReturnForm() {
   }, [lines]);
 
   const calcTaxComponentsTotals = () => {
-    const sub = lines.reduce((s, i) => s + (Number(i.qtyReturned || 0) * Number(i.unitPrice || 0)), 0);
+    const sub = lines.reduce(
+      (s, i) => s + Number(i.qtyReturned || 0) * Number(i.unitPrice || 0),
+      0,
+    );
     const compTotals = {};
     lines.forEach((i) => {
       const comps = taxComponentsByCode[String(i.tax_type)] || [];
       comps.forEach((c) => {
         const rate = Number(c.rate_percent) || 0;
-        const amt = ((Number(i.qtyReturned || 0) * Number(i.unitPrice || 0)) * rate) / 100;
+        const amt =
+          (Number(i.qtyReturned || 0) * Number(i.unitPrice || 0) * rate) / 100;
         const name = c.component_name;
         if (!compTotals[name])
           compTotals[name] = { amount: 0, rate, sort_order: c.sort_order || 0 };
@@ -463,7 +483,10 @@ export default function SalesReturnForm() {
   };
 
   const totals = useMemo(() => {
-    const grossSub = lines.reduce((s, i) => s + (Number(i.qtyReturned || 0) * Number(i.unitPrice || 0)), 0);
+    const grossSub = lines.reduce(
+      (s, i) => s + Number(i.qtyReturned || 0) * Number(i.unitPrice || 0),
+      0,
+    );
     const tc = calcTaxComponentsTotals();
     const taxTotal = tc.taxTotal;
     const grand = grossSub + taxTotal;
@@ -493,8 +516,13 @@ export default function SalesReturnForm() {
         remarks: formData.remarks || null,
         items: normalizedItems,
       };
-      await api.post("/sales/returns", payload);
-      navigate("/sales/returns", { state: { refresh: true } });
+      const resp = await api.post("/sales/returns", payload);
+      const voucherId = resp.data?.voucher_id;
+      if (voucherId) {
+        navigate(`/finance/credit-note/${voucherId}?mode=view`);
+      } else {
+        navigate("/sales/returns", { state: { refresh: true } });
+      }
     } catch (e2) {
       setError(e2?.response?.data?.message || "Failed to save sales return");
     } finally {
@@ -554,8 +582,9 @@ export default function SalesReturnForm() {
                   required={!formData.customerId}
                   disabled={readOnly}
                   value={
-                    customers.find((c) => String(c.id) === String(formData.customerId))?.customer_name ||
-                    customerSearch
+                    customers.find(
+                      (c) => String(c.id) === String(formData.customerId),
+                    )?.customer_name || customerSearch
                   }
                   onChange={(e) => {
                     const val = e.target.value;
@@ -567,14 +596,21 @@ export default function SalesReturnForm() {
                     }));
                   }}
                 />
-                {!readOnly && customerSearch && (
+                {!readOnly &&
+                  customerSearch &&
                   (() => {
                     const q = customerSearch.toLowerCase();
-                    const matched = customers.filter(
-                      (c) =>
-                        String(c.customer_name || "").toLowerCase().includes(q) ||
-                        String(c.customer_code || "").toLowerCase().includes(q)
-                    ).slice(0, 10);
+                    const matched = customers
+                      .filter(
+                        (c) =>
+                          String(c.customer_name || "")
+                            .toLowerCase()
+                            .includes(q) ||
+                          String(c.customer_code || "")
+                            .toLowerCase()
+                            .includes(q),
+                      )
+                      .slice(0, 10);
                     return matched.length > 0 ? (
                       <div className="absolute z-30 w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto">
                         {matched.map((c) => (
@@ -591,14 +627,19 @@ export default function SalesReturnForm() {
                               setCustomerSearch("");
                             }}
                           >
-                            <div className="font-medium text-slate-800 dark:text-slate-200 text-sm">{c.customer_name}</div>
-                            {c.customer_code && <div className="text-xs text-slate-500">{c.customer_code}</div>}
+                            <div className="font-medium text-slate-800 dark:text-slate-200 text-sm">
+                              {c.customer_name}
+                            </div>
+                            {c.customer_code && (
+                              <div className="text-xs text-slate-500">
+                                {c.customer_code}
+                              </div>
+                            )}
                           </button>
                         ))}
                       </div>
                     ) : null;
-                  })()
-                )}
+                  })()}
               </div>
 
               <div>
@@ -620,7 +661,12 @@ export default function SalesReturnForm() {
                     ))}
                   </select>
                 ) : (
-                  <input className="input bg-gray-50" value="" readOnly placeholder="Select customer first" />
+                  <input
+                    className="input bg-gray-50"
+                    value=""
+                    readOnly
+                    placeholder="Select customer first"
+                  />
                 )}
               </div>
 
@@ -707,15 +753,15 @@ export default function SalesReturnForm() {
                 <table className="table w-full">
                   <thead>
                     <tr>
-                      <th className="w-80">Item</th>
-                      <th className="w-32">Code</th>
+                      <th className="w-1/2 min-w-[280px]">Item</th>
+                      <th className="w-24 min-w-[100px]">Code</th>
                       <th className="w-24">UOM</th>
                       <th className="text-right w-28">Qty</th>
-                      <th className="text-right w-32">Available</th>
+                      <th className="text-right w-32">Available Qty</th>
                       <th className="text-right w-32">Unit Price</th>
                       <th className="text-right w-32">Tax Code</th>
                       <th className="text-right w-28">Tax Amt</th>
-                      <th className="text-right w-32">Total</th>
+                      <th className="text-right w-32">Total Amount</th>
                       <th className="w-40">Reason</th>
                       <th className="w-64">Remarks</th>
                       {!readOnly && <th className="w-16"></th>}
@@ -725,17 +771,26 @@ export default function SalesReturnForm() {
                     {lines.map((ln) => {
                       const itemQuery = itemQueries[ln.id] || "";
                       const searchResults = itemQuery.trim()
-                        ? itemsMaster.filter((i) =>
-                            String(i.item_code || "").toLowerCase().includes(itemQuery.toLowerCase()) ||
-                            String(i.item_name || "").toLowerCase().includes(itemQuery.toLowerCase())
-                          ).slice(0, 10)
+                        ? itemsMaster
+                            .filter(
+                              (i) =>
+                                String(i.item_code || "")
+                                  .toLowerCase()
+                                  .includes(itemQuery.toLowerCase()) ||
+                                String(i.item_name || "")
+                                  .toLowerCase()
+                                  .includes(itemQuery.toLowerCase()),
+                            )
+                            .slice(0, 10)
                         : [];
 
                       return (
                         <tr key={ln.id}>
                           <td>
                             {readOnly ? (
-                              <div className="p-2 font-medium">{ln.itemName}</div>
+                              <div className="p-2 font-medium">
+                                {ln.itemName}
+                              </div>
                             ) : (
                               <div className="relative">
                                 <input
@@ -743,7 +798,11 @@ export default function SalesReturnForm() {
                                   autoComplete="off"
                                   className="input text-sm py-1 w-full"
                                   placeholder="Type to search items..."
-                                  value={itemQueries[ln.id] !== undefined ? itemQueries[ln.id] : (ln.itemName || "")}
+                                  value={
+                                    itemQueries[ln.id] !== undefined
+                                      ? itemQueries[ln.id]
+                                      : ln.itemName || ""
+                                  }
                                   onChange={(e) => {
                                     const val = e.target.value;
                                     setItemQueries((prev) => ({
@@ -755,26 +814,44 @@ export default function SalesReturnForm() {
                                     }
                                   }}
                                 />
-                                {searchResults.length > 0 && (
-                                  <div className="absolute z-50 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto mt-1 w-full">
-                                    {searchResults.map((o) => (
-                                      <button
-                                        type="button"
-                                        key={o.id}
-                                        className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs border-b border-slate-100 last:border-b-0"
-                                        onClick={() => {
-                                          handleItemChange(ln.id, String(o.id));
-                                          setItemQueries((prev) => ({
-                                            ...prev,
-                                            [ln.id]: o.item_name,
-                                          }));
+                                {searchResults.length > 0 &&
+                                  (() => {
+                                    const el = document.getElementById(
+                                      `sr-item-search-${ln.id}`,
+                                    );
+                                    const r = el
+                                      ? el.getBoundingClientRect()
+                                      : { bottom: 0, left: 0, width: 0 };
+                                    return (
+                                      <div
+                                        className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                        style={{
+                                          position: "fixed",
+                                          top: `${r.bottom + 4}px`,
+                                          left: `${r.left}px`,
+                                          width: `${r.width}px`,
+                                          zIndex: 9999,
                                         }}
                                       >
-                                        {o.item_code} - {o.item_name}
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
+                                        {searchResults.map((o) => (
+                                          <button
+                                            type="button"
+                                            key={o.id}
+                                            className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs border-b border-slate-100 last:border-b-0"
+                                            onClick={() => {
+                                              handleItemChange(ln.id, String(o.id));
+                                              setItemQueries((prev) => ({
+                                                ...prev,
+                                                [ln.id]: o.item_name,
+                                              }));
+                                            }}
+                                          >
+                                            {o.item_code} - {o.item_name}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    );
+                                  })()}
                               </div>
                             )}
                           </td>
@@ -807,7 +884,7 @@ export default function SalesReturnForm() {
                             <input
                               type="number"
                               min={0}
-                              step="0.01"
+                              step="1"
                               className="input text-right w-full min-w-[6rem]"
                               value={ln.unitPrice}
                               readOnly={readOnly}
@@ -821,7 +898,9 @@ export default function SalesReturnForm() {
                               className="input w-full min-w-[7rem]"
                               value={ln.tax_type}
                               disabled={readOnly}
-                              onChange={(e) => updateLine(ln.id, "tax_type", e.target.value)}
+                              onChange={(e) =>
+                                updateLine(ln.id, "tax_type", e.target.value)
+                              }
                             >
                               <option value="">No Tax</option>
                               {taxes.map((t) => (
@@ -867,7 +946,9 @@ export default function SalesReturnForm() {
                                 <>
                                   <option value="DAMAGED">Damaged</option>
                                   <option value="WRONG_ITEM">Wrong Item</option>
-                                  <option value="QUALITY_ISSUE">Quality Issue</option>
+                                  <option value="QUALITY_ISSUE">
+                                    Quality Issue
+                                  </option>
                                   <option value="EXCESS">Excess</option>
                                 </>
                               )}
@@ -906,12 +987,19 @@ export default function SalesReturnForm() {
                 <div className="w-80 space-y-3">
                   <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
                     <span>Subtotal</span>
-                    <span className="font-semibold">{totals.subTotal.toFixed(2)}</span>
+                    <span className="font-semibold">
+                      {totals.subTotal.toFixed(2)}
+                    </span>
                   </div>
 
                   {totals.components.map((c, idx) => (
-                    <div key={idx} className="flex justify-between text-sm text-slate-600 dark:text-slate-400 pl-4 border-l-2 border-slate-300">
-                      <span>{c.name} ({c.rate}%)</span>
+                    <div
+                      key={idx}
+                      className="flex justify-between text-sm text-slate-600 dark:text-slate-400 pl-4 border-l-2 border-slate-300"
+                    >
+                      <span>
+                        {c.name} ({c.rate}%)
+                      </span>
                       <span>{c.amount.toFixed(2)}</span>
                     </div>
                   ))}

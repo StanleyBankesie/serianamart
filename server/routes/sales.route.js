@@ -414,6 +414,19 @@ async function ensureSalesReturnTables() {
   `).catch(() => null);
 
   await query(`
+    CREATE TABLE IF NOT EXISTS sal_zones (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      zone_name VARCHAR(100) NOT NULL,
+      description VARCHAR(255) DEFAULT NULL,
+      is_active TINYINT DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_zone_name (company_id, zone_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `).catch(() => null);
+
+  await query(`
     CREATE TABLE IF NOT EXISTS sal_returns (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       company_id BIGINT UNSIGNED NOT NULL,
@@ -6533,6 +6546,79 @@ router.delete(
 );
 
 router.get(
+  "/zones",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureSalesReturnTables();
+      const companyId = req.scope.companyId;
+      const items = await query(
+        `SELECT id, zone_name, description, is_active FROM sal_zones WHERE company_id = :companyId ORDER BY zone_name ASC`,
+        { companyId }
+      );
+      res.json({ items: items || [] });
+    } catch (e) {
+      next(e);
+    }
+  }
+);
+
+router.post(
+  "/zones",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureSalesReturnTables();
+      const companyId = req.scope.companyId;
+      const { zones } = req.body;
+      if (!Array.isArray(zones)) {
+        return res.status(400).json({ message: "zones must be an array" });
+      }
+      for (const z of zones) {
+        if (!z.zone_name) continue;
+        if (z.id && /^\d+$/.test(String(z.id))) {
+          await query(
+            `UPDATE sal_zones
+                SET zone_name = :zone_name, description = :description, is_active = :is_active
+              WHERE id = :id AND company_id = :companyId`,
+            { id: Number(z.id), company_id: companyId, zone_name: z.zone_name, description: z.description || null, is_active: z.is_active ? 1 : 0 }
+          );
+        } else {
+          await query(
+            `INSERT INTO sal_zones (company_id, zone_name, description, is_active)
+             VALUES (:companyId, :zone_name, :description, 1)
+             ON DUPLICATE KEY UPDATE description = :description, is_active = 1`,
+            { companyId, zone_name: z.zone_name, description: z.description || null }
+          );
+        }
+      }
+      res.json({ message: "Zones saved successfully" });
+    } catch (e) {
+      next(e);
+    }
+  }
+);
+
+router.delete(
+  "/zones/:id",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureSalesReturnTables();
+      const companyId = req.scope.companyId;
+      const id = Number(req.params.id);
+      await query(`DELETE FROM sal_zones WHERE id = :id AND company_id = :companyId`, { id, companyId });
+      res.json({ message: "Zone deleted successfully" });
+    } catch (e) {
+      next(e);
+    }
+  }
+);
+
+router.get(
   "/returns",
   requireAuth,
   requireCompanyScope,
@@ -6834,6 +6920,7 @@ router.post(
         companyId,
       });
 
+      let voucherId = null;
       if (customerAccountId && fiscalYearId && voucherTypeId) {
         const [vIns] = await conn.execute(
           `INSERT INTO fin_vouchers
@@ -6855,7 +6942,7 @@ router.post(
             postedBy: created_by,
           },
         );
-        const voucherId = Number(vIns?.insertId || 0) || 0;
+        voucherId = Number(vIns?.insertId || 0) || 0;
         let lineNo = 1;
 
         // 1. DEBIT: Sales Accounts (Reversing Revenue)
@@ -6957,7 +7044,7 @@ router.post(
         return_no,
         total_amount,
         voucher_id: voucherId,
-        voucher_no: finalVoucherNo,
+        voucher_no: voucherNo,
       });
     } catch (e) {
       try {

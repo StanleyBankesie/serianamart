@@ -16,6 +16,7 @@ import PosDayManagement from "./day/PosDayManagement.jsx";
 import PosDashboard from "./dashboard/PosDashboard.jsx";
 import { useAuth } from "../../../auth/AuthContext.jsx";
 import useOfflineQueue from "../../../offline/useOfflineQueue.js";
+import { preloadPosData } from "../../../offline/posPreloader.js";
 import PosReconciliation from "./PosReconciliation.jsx";
 
 function PosLanding() {
@@ -215,6 +216,7 @@ function PosSyncStatus() {
 }
 
 export default function PosHome() {
+  useEffect(() => { preloadPosData(); }, []);
   return (
     <Routes>
       <Route path="/" element={<PosLanding />} />

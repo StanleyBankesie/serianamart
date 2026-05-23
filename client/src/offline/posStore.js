@@ -2,30 +2,8 @@ import { openDB } from "./db.js";
 
 const POS_SALES_STORE = "pos_sales";
 
-export async function ensurePosStore() {
-  const db = await openDB();
-  if (!db.objectStoreNames.contains(POS_SALES_STORE)) {
-    db.close();
-    // Re-open with upgraded schema
-    const req = indexedDB.open("OmniSuiteOffline", db.version + 1);
-    req.onupgradeneeded = (e) => {
-      const d = e.target.result;
-      if (!d.objectStoreNames.contains(POS_SALES_STORE)) {
-        const store = d.createObjectStore(POS_SALES_STORE, { keyPath: "id" });
-        store.createIndex("status", "status", { unique: false });
-        store.createIndex("createdAt", "createdAt", { unique: false });
-      }
-    };
-    return new Promise((resolve, reject) => {
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-  }
-  return db;
-}
-
 async function withStore(mode, callback) {
-  const db = await ensurePosStore();
+  const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(POS_SALES_STORE, mode);
     const store = tx.objectStore(POS_SALES_STORE);

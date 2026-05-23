@@ -63,11 +63,11 @@ export default function PurchaseReturnList() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/purchase/purchase-returns/new" className="btn btn-primary">
-                New Purchase Return
-              </Link>
               <Link to="/purchase" className="btn btn-secondary">
                 Return to Menu
+              </Link>
+              <Link to="/purchase/purchase-returns/new" className="btn btn-primary">
+                New Purchase Return
               </Link>
             </div>
           </div>

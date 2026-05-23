@@ -14,6 +14,7 @@ export default function ProspectConversion() {
   const [selectedProspectId, setSelectedProspectId] = useState("");
   const [priceTypes, setPriceTypes] = useState([]);
   const [currencies, setCurrencies] = useState([]);
+  const [zoneOptions, setZoneOptions] = useState([]);
   const [form, setForm] = useState({
     customer_code: "",
     customer_name: "",
@@ -38,6 +39,7 @@ export default function ProspectConversion() {
     fetchProspects();
     fetchPriceTypes();
     fetchCurrencies();
+    fetchZones();
     fetchNextCode();
   }, []);
 
@@ -73,6 +75,16 @@ export default function ProspectConversion() {
       );
     } catch (err) {
       console.error("Error fetching price types", err);
+    }
+  }
+
+  async function fetchZones() {
+    try {
+      const res = await api.get("/sales/zones");
+      const items = Array.isArray(res.data?.items) ? res.data.items : [];
+      setZoneOptions(items.filter((z) => z.is_active).map((z) => z.zone_name));
+    } catch (err) {
+      console.error("Error fetching zones", err);
     }
   }
 
@@ -338,11 +350,16 @@ export default function ProspectConversion() {
                   </div>
                   <div>
                     <label className="label">Zone</label>
-                    <input
+                    <select
                       className="input"
                       value={form.zone || ""}
                       onChange={(e) => update("zone", e.target.value)}
-                    />
+                    >
+                      <option value="">Select zone</option>
+                      {zoneOptions.map((z) => (
+                        <option key={z} value={z}>{z}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="label">Country</label>

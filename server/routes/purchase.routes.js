@@ -1948,6 +1948,90 @@ router.get(
 );
 
 router.get(
+  "/return-rejection-reasons",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensurePurchaseReturnTables();
+      const { companyId } = req.scope;
+      const items = await query(
+        `SELECT id, reason_code, reason_name, is_active FROM pur_return_rejection_reasons WHERE company_id = :companyId ORDER BY id ASC`,
+        { companyId },
+      );
+      res.json({ items: items || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.post(
+  "/return-rejection-reasons",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensurePurchaseReturnTables();
+      const { companyId } = req.scope;
+      const { reasons } = req.body;
+      if (!Array.isArray(reasons)) {
+        return res.status(400).json({ message: "reasons must be an array" });
+      }
+      for (const r of reasons) {
+        if (!r.reason_code || !r.reason_name) continue;
+        if (r.id && /^\d+$/.test(String(r.id))) {
+          await query(
+            `UPDATE pur_return_rejection_reasons
+                SET reason_code = :reason_code, reason_name = :reason_name, is_active = :is_active
+              WHERE id = :id AND company_id = :companyId`,
+            {
+              id: Number(r.id),
+              companyId,
+              reason_code: r.reason_code,
+              reason_name: r.reason_name,
+              is_active: r.is_active ? 1 : 0,
+            },
+          );
+        } else {
+          await query(
+            `INSERT INTO pur_return_rejection_reasons (company_id, reason_code, reason_name, is_active)
+             VALUES (:companyId, :reason_code, :reason_name, 1)
+             ON DUPLICATE KEY UPDATE reason_name = :reason_name, is_active = 1`,
+            { companyId, reason_code: r.reason_code, reason_name: r.reason_name },
+          );
+        }
+      }
+      res.json({ message: "Rejection reasons saved successfully" });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.delete(
+  "/return-rejection-reasons/:id",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensurePurchaseReturnTables();
+      const { companyId } = req.scope;
+      const id = Number(req.params.id);
+      await query(
+        `DELETE FROM pur_return_rejection_reasons WHERE id = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
+      res.json({ message: "Reason deleted successfully" });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+
+
+router.get(
   "/direct-purchases/:id",
   requireAuth,
   requireCompanyScope,
@@ -3319,6 +3403,7 @@ async function ensurePurchaseReturnTables() {
       unit_price DECIMAL(18,4) NOT NULL DEFAULT 0,
       total_amount DECIMAL(18,4) NOT NULL DEFAULT 0,
       tax_amount DECIMAL(18,4) NOT NULL DEFAULT 0,
+      tax_type VARCHAR(50),
       reason_code VARCHAR(50),
       remarks TEXT,
       PRIMARY KEY (id),
@@ -3327,6 +3412,19 @@ async function ensurePurchaseReturnTables() {
     )
   `).catch(() => null);
 }
+  await query(`
+    CREATE TABLE IF NOT EXISTS pur_return_rejection_reasons (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      reason_code VARCHAR(50) NOT NULL,
+      reason_name VARCHAR(255) NOT NULL,
+      is_active TINYINT DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_pur_reason_code (company_id, reason_code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `).catch(() => null);
+
 async function nextPurchaseReturnNo(companyId, branchId) {
   const rows = await query(
     `SELECT return_no,
@@ -4446,6 +4544,7 @@ router.post(
           unit_price,
           total_amount: line_total,
           tax_amount: line_tax,
+          tax_type: it.tax_type || null,
           reason_code,
           remarks: lineRemarks,
         });
@@ -4479,9 +4578,9 @@ router.post(
         await conn.execute(
           `
           INSERT INTO pur_return_details
-            (return_id, item_id, qty_returned, unit_price, total_amount, tax_amount, reason_code, remarks)
+            (return_id, item_id, qty_returned, unit_price, total_amount, tax_amount, tax_type, reason_code, remarks)
           VALUES
-            (:return_id, :item_id, :qty_returned, :unit_price, :total_amount, :tax_amount, :reason_code, :remarks)
+            (:return_id, :item_id, :qty_returned, :unit_price, :total_amount, :tax_amount, :tax_type, :reason_code, :remarks)
           `,
           {
             return_id,
@@ -4490,6 +4589,7 @@ router.post(
             unit_price: ln.unit_price,
             total_amount: ln.total_amount,
             tax_amount: ln.tax_amount,
+            tax_type: ln.tax_type,
             reason_code: ln.reason_code,
             remarks: ln.remarks,
           },

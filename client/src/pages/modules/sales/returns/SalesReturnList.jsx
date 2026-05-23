@@ -415,11 +415,11 @@ export default function SalesReturnList() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/sales/returns/new" className="btn btn-primary">
-                New Sales Return
-              </Link>
               <Link to="/sales" className="btn btn-secondary">
                 Return to Menu
+              </Link>
+              <Link to="/sales/returns/new" className="btn btn-primary">
+                New Sales Return
               </Link>
             </div>
           </div>

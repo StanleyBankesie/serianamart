@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 
@@ -74,6 +74,7 @@ export default function DebitNoteForm() {
   const [dnTaxCodeId, setDnTaxCodeId] = useState("");
   const [dnTaxComponentsByCode, setDnTaxComponentsByCode] = useState({});
   const [dnPurchaseAccountId, setDnPurchaseAccountId] = useState("");
+  const linesManuallyEdited = useRef(false);
   const [showSupplierLov, setShowSupplierLov] = useState(false);
   const [supplierSearch, setSupplierSearch] = useState("");
   const [rvForm, setRvForm] = useState({
@@ -338,6 +339,7 @@ export default function DebitNoteForm() {
       setDnPurchaseAccountId("");
       return;
     }
+    linesManuallyEdited.current = false;
     const acc = accounts.find((a) => String(a.id) === String(dnSupplierId));
     setDnCurrencyCode(String(acc?.currency_code || acc?.currency || ""));
     
@@ -405,10 +407,11 @@ export default function DebitNoteForm() {
     })();
   }, [isDN, dnTaxCodeId, dnTaxComponentsByCode]);
 
-  // Auto-populate posting lines for Debit Note (CN) dynamically
+  // Auto-populate posting lines for Debit Note (DN) dynamically
   useEffect(() => {
     if (!isDN) return;
     if (!dnSupplierId) return;
+    if (linesManuallyEdited.current) return;
 
     const amt = Number(dnAmount || 0);
     const rate = Number(dnExchangeRate || 1) || 1;
@@ -718,6 +721,7 @@ export default function DebitNoteForm() {
           credit: Number(it.credit || 0),
         })) || [];
       setLines(mapped.length ? mapped : [emptyLine(), emptyLine()]);
+      linesManuallyEdited.current = true;
       if (isRV) {
         const debitLine = mapped.find((l) => Number(l.debit || 0) > 0);
         const creditLines = mapped.filter((l) => Number(l.credit || 0) > 0);
@@ -1653,6 +1657,7 @@ export default function DebitNoteForm() {
 
   function updateLine(index, patch) {
     if (readOnly) return;
+    linesManuallyEdited.current = true;
     setLines((prev) =>
       prev.map((l, i) => (i === index ? { ...l, ...patch } : l)),
     );
@@ -1660,11 +1665,13 @@ export default function DebitNoteForm() {
 
   function addLine() {
     if (readOnly) return;
+    linesManuallyEdited.current = true;
     setLines((prev) => [...prev, emptyLine()]);
   }
 
   function removeLine(index) {
     if (readOnly) return;
+    linesManuallyEdited.current = true;
     setLines((prev) =>
       prev.length <= 2 ? prev : prev.filter((_, i) => i !== index),
     );

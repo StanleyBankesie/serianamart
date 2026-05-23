@@ -1,7 +1,8 @@
 const DB_NAME = "omnisuite_offline";
-const DB_VERSION = 3; // Incremented to force upgrade
+const DB_VERSION = 4;
 const QUEUE_STORE = "queue";
 const CACHE_STORE = "cache";
+const POS_SALES_STORE = "pos_sales";
 
 export function openDB() {
   return new Promise((resolve, reject) => {
@@ -20,6 +21,13 @@ export function openDB() {
       if (!db.objectStoreNames.contains(CACHE_STORE)) {
         const store = db.createObjectStore(CACHE_STORE, { keyPath: "key" });
         store.createIndex("updatedAt", "updatedAt", { unique: false });
+      }
+
+      // Create POS sales store if missing
+      if (!db.objectStoreNames.contains(POS_SALES_STORE)) {
+        const store = db.createObjectStore(POS_SALES_STORE, { keyPath: "id" });
+        store.createIndex("status", "status", { unique: false });
+        store.createIndex("createdAt", "createdAt", { unique: false });
       }
     };
     req.onsuccess = () => resolve(req.result);

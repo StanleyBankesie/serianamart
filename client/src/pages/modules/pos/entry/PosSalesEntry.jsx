@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Trash2 } from "lucide-react";
 import api from "../../../../api/client.js";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
@@ -7,6 +7,7 @@ import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterByPrefix } from "@/utils/searchUtils.js";
 import { saveLocalSale } from "../../../../offline/posStore.js";
+import { uuid } from "../../../../offline/uuid.js";
 import { toast } from "react-toastify";
 
 function FilterableSelect({
@@ -38,8 +39,9 @@ function FilterableSelect({
 }
 
 export default function PosSalesEntry() {
+  const navigate = useNavigate();
   const { user } = useAuth();
-  const { canEditDiscount } = usePermission();
+  const { canEditDiscount, canPerformAction } = usePermission();
   const [now, setNow] = useState(new Date());
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState([]);
@@ -56,6 +58,8 @@ export default function PosSalesEntry() {
   const [priceTypesLoading, setPriceTypesLoading] = useState(false);
   const [priceTypesError, setPriceTypesError] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [showItemNotFound, setShowItemNotFound] = useState(false);
+  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine !== false : true);
   const [saleTimestamp, setSaleTimestamp] = useState(null);
   const [paymentModes, setPaymentModes] = useState([]);
   const [paymentModesLoading, setPaymentModesLoading] = useState(false);
@@ -124,6 +128,16 @@ export default function PosSalesEntry() {
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
   }, []);
 
   useEffect(() => {
@@ -753,7 +767,10 @@ export default function PosSalesEntry() {
             String(p.barcode || "").toLowerCase() === barcodeCandidate,
         ) || null;
     }
-    if (!prod) return;
+    if (!prod) {
+      setShowItemNotFound(true);
+      return;
+    }
     addEntryToCartForProduct(prod);
   }
 
@@ -957,17 +974,34 @@ export default function PosSalesEntry() {
           return res;
         })(),
       };
-      const res = await api.post("/pos/sales", payload);
+      const res = await api.post("/pos/sales", payload, {
+        headers: { "x-skip-offline-queue": "1" },
+      });
       const rcp = String(res.data?.receipt_no || "");
       setReceiptNo(rcp);
       setSaleTimestamp(new Date());
       setShowModal(true);
     } catch (err) {
-      const message =
-        err?.response?.data?.message ||
-        err?.response?.data?.error ||
-        "Failed to complete sale";
-      alert(message);
+      if (!navigator.onLine) {
+        const localId = uuid();
+        await saveLocalSale({
+          id: localId,
+          ...payload,
+          status: "pending",
+          createdAt: Date.now(),
+          receipt_no: `OFFLINE-${Date.now()}`,
+        });
+        setReceiptNo(`OFFLINE-${Date.now()}`);
+        setSaleTimestamp(new Date());
+        setShowModal(true);
+        toast.info("Sale saved offline. It will sync when connectivity returns.");
+      } else {
+        const message =
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to complete sale";
+        alert(message);
+      }
     } finally {
       setSaving(false);
     }
@@ -1256,10 +1290,14 @@ export default function PosSalesEntry() {
           <div className="mt-1 text-xs">
             <span className="mr-2">Terminal:</span>
             <span className="font-semibold">{terminalCode || "-"}</span>
-            <span className="ml-3">
-              Status:
-              <span
-                className={`ml-1 px-2 py-0.5 rounded ${
+              <span className="ml-3">
+                <span className={`inline-block w-2 h-2 rounded-full mr-1 ${online ? "bg-green-500" : "bg-red-500"}`} />
+                {online ? "Online" : "Offline"}
+              </span>
+              <span className="ml-3">
+                Status:
+                <span
+                  className={`ml-1 px-2 py-0.5 rounded ${
                   dayOpen
                     ? "bg-green-100 text-green-700"
                     : "bg-red-100 text-red-700"

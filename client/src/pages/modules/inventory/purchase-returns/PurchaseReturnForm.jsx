@@ -11,8 +11,9 @@ export default function PurchaseReturnForm() {
   const [suppliers, setSuppliers] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [itemsMaster, setItemsMaster] = useState([]);
-  const [taxCodeRates, setTaxCodeRates] = useState({});
+  const [taxes, setTaxes] = useState([]);
   const [purchaseBills, setPurchaseBills] = useState([]);
+  const [returnReasons, setReturnReasons] = useState([]);
   const initialLineId = useMemo(() => Date.now(), []);
 
   const [formData, setFormData] = useState({
@@ -20,7 +21,7 @@ export default function PurchaseReturnForm() {
     returnDate: new Date().toISOString().split("T")[0],
     supplierId: "",
     warehouseId: "",
-    returnType: "DAMAGED",
+    returnType: "",
     remarks: "",
   });
 
@@ -32,9 +33,10 @@ export default function PurchaseReturnForm() {
       itemName: "",
       qtyReturned: 1,
       unitPrice: 0,
-      reasonCode: "DAMAGED",
-      remarks: "",
+      tax_type: "",
       taxAmount: 0,
+      reasonCode: "",
+      remarks: "",
     },
   ]);
   const [itemQueries, setItemQueries] = useState({ [initialLineId]: "" });
@@ -43,14 +45,13 @@ export default function PurchaseReturnForm() {
     let mounted = true;
     async function load() {
       try {
-        const [supRes, whRes, itemsRes, taxRes, nextNoRes] = await Promise.all([
+        const [supRes, whRes, itemsRes, taxRes, nextNoRes, reasonsRes] = await Promise.all([
           api.get("/purchase/suppliers?active=true"),
           api.get("/inventory/warehouses"),
           api.get("/inventory/items"),
-          api.get("/finance/tax-codes", {
-            params: { form: "PURCHASE_RETURN" },
-          }),
+          api.get("/finance/tax-codes/by-page/20"),
           api.get("/purchase/returns/next-no"),
+          api.get("/purchase/return-rejection-reasons").catch(() => ({ data: { items: [] } })),
         ]);
         if (!mounted) return;
         setSuppliers(
@@ -60,14 +61,28 @@ export default function PurchaseReturnForm() {
         setItemsMaster(
           Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : [],
         );
-        const map = {};
         const taxItems = Array.isArray(taxRes.data?.items)
           ? taxRes.data.items
           : [];
-        for (const t of taxItems) {
-          map[Number(t.id)] = Number(t.rate_percent || 0);
+        setTaxes(taxItems);
+
+        const reasonItems = Array.isArray(reasonsRes.data?.items)
+          ? reasonsRes.data.items
+          : [];
+        const activeReasons = reasonItems.filter((r) => r.is_active);
+        setReturnReasons(activeReasons);
+
+        if (activeReasons.length > 0) {
+          const firstCode = activeReasons[0].reason_code;
+          setFormData((p) => ({ ...p, returnType: firstCode }));
+          setLines((prev) =>
+            prev.map((l) => ({
+              ...l,
+              reasonCode: firstCode,
+            })),
+          );
         }
-        setTaxCodeRates(map);
+
         const nextNo = String(nextNoRes.data?.nextNo || "").trim();
         if (nextNo) {
           setFormData((p) => ({ ...p, returnNo: nextNo }));
@@ -83,79 +98,62 @@ export default function PurchaseReturnForm() {
     };
   }, []);
 
+  // When supplier changes, fetch PAID bills for that supplier
   useEffect(() => {
+    const supplierId = formData.supplierId;
+    if (!supplierId) {
+      setPurchaseBills([]);
+      setFormData((p) => ({ ...p, purchaseBillId: "" }));
+      return;
+    }
     api
-      .get("/purchase/bills")
+      .get("/purchase/bills/outstanding", {
+        params: { supplier_id: supplierId, status: "PAID" },
+      })
       .then((res) => {
         const items = Array.isArray(res.data?.items) ? res.data.items : [];
         setPurchaseBills(items);
+        if (!items.some((b) => String(b.id) === String(formData.purchaseBillId))) {
+          setFormData((p) => ({ ...p, purchaseBillId: "" }));
+        }
       })
       .catch(() => {
         setPurchaseBills([]);
       });
-  }, []);
+  }, [formData.supplierId]);
 
   useEffect(() => {
-    const billId = Number(formData.purchaseBillId || 0);
+    const billId = formData.purchaseBillId;
     if (!billId) return;
-    api
-      .get(`/purchase/bills/${billId}`)
-      .then(async (res) => {
-        const hdr = res.data?.item || {};
-        const details = Array.isArray(res.data?.details)
-          ? res.data.details
-          : [];
-        if (hdr?.warehouse_id) {
-          setFormData((p) => ({
-            ...p,
-            warehouseId: String(hdr.warehouse_id),
-          }));
-        } else if (hdr?.grn_id) {
-          try {
-            const grnRes = await api.get("/purchase/grns", {
-              params: { status: "APPROVED" },
-            });
-            const grns = Array.isArray(grnRes.data?.items)
-              ? grnRes.data.items
-              : [];
-            const match = grns.find((g) => Number(g.id) === Number(hdr.grn_id));
-            if (match?.warehouse_id) {
-              setFormData((p) => ({
-                ...p,
-                warehouseId: String(match.warehouse_id),
-              }));
-            }
-          } catch {}
-        }
-        const mapped = details.map((d, idx) => {
-          const item = itemsMaster.find(
-            (i) => Number(i.id) === Number(d.item_id),
-          );
-          const rate = Number(
-            taxCodeRates[Number(item?.vat_on_purchase_id || 0)] || 0,
-          );
-          const qty = Math.round(Number(d.qty || 0) * 1000) / 1000;
-          const price = Math.round(Number(d.unit_price || 0) * 100) / 100;
-          const taxAmount =
-            Math.round(((qty * price * rate) / 100) * 100) / 100;
-          return {
-            id: Date.now() + idx,
-            item_id: d.item_id ? String(d.item_id) : "",
-            itemCode: item?.item_code || "",
-            itemName: item?.item_name || "",
-            qtyReturned: qty,
-            unitPrice: price,
-            reasonCode: formData.returnType || "DAMAGED",
-            remarks: "",
-            taxAmount,
-          };
-        });
-        if (mapped.length) setLines(mapped);
-      })
-      .catch(() => {
-        // ignore
-      });
-  }, [formData.purchaseBillId, itemsMaster, taxCodeRates]);
+    const bill = purchaseBills.find((b) => String(b.id) === String(billId));
+    if (!bill) return;
+    const details = Array.isArray(bill.details) ? bill.details : [];
+    const mapped = details.map((d, idx) => {
+      const item = itemsMaster.find(
+        (i) => Number(i.id) === Number(d.item_id),
+      );
+      const taxId = String(item?.vat_on_purchase_id || "");
+      const taxCode = taxes.find((t) => String(t.id) === taxId);
+      const rate = Number(taxCode?.rate_percent || 0);
+      const qty = Math.round(Number(d.qty || 0) * 1000) / 1000;
+      const price = Math.round(Number(d.unit_price || 0) * 100) / 100;
+      const taxAmount =
+        Math.round(((qty * price * rate) / 100) * 100) / 100;
+      return {
+        id: Date.now() + idx,
+        item_id: d.item_id ? String(d.item_id) : "",
+        itemCode: d.item_code || "",
+        itemName: d.item_name || "",
+        qtyReturned: qty,
+        unitPrice: price,
+        tax_type: taxId,
+        taxAmount,
+        reasonCode: formData.returnType || (returnReasons[0]?.reason_code) || "",
+        remarks: "",
+      };
+    });
+    if (mapped.length) setLines(mapped);
+  }, [formData.purchaseBillId, purchaseBills, itemsMaster, taxes, returnReasons]);
 
   const totals = useMemo(() => {
     let subTotal = 0;
@@ -178,9 +176,10 @@ export default function PurchaseReturnForm() {
         itemName: "",
         qtyReturned: 1,
         unitPrice: 0,
-        reasonCode: formData.returnType || "DAMAGED",
-        remarks: "",
+        tax_type: "",
         taxAmount: 0,
+        reasonCode: formData.returnType || (returnReasons[0]?.reason_code) || "",
+        remarks: "",
       },
     ]);
     setItemQueries((prev) => ({ ...prev, [newId]: "" }));
@@ -200,15 +199,11 @@ export default function PurchaseReturnForm() {
       prev.map((l) => {
         if (l.id !== id) return l;
         const next = { ...l, ...patch };
-        const item = itemsMaster.find(
-          (it) => Number(it.id) === Number(next.item_id),
-        );
-        const rate = Number(
-          taxCodeRates[Number(item?.vat_on_purchase_id || 0)] || 0,
-        );
+        const taxCode = taxes.find((t) => String(t.id) === String(next.tax_type));
+        const rate = Number(taxCode?.rate_percent || 0);
         const qty = Number(next.qtyReturned || 0);
         const price = Number(next.unitPrice || 0);
-        next.taxAmount = Math.round(qty * price * rate) / 100;
+        next.taxAmount = Math.round(((qty * price * rate) / 100) * 100) / 100;
         return next;
       }),
     );
@@ -236,6 +231,7 @@ export default function PurchaseReturnForm() {
             item_id: Number(ln.item_id),
             qty_returned: Number(ln.qtyReturned),
             unit_price: Number(ln.unitPrice || 0),
+            tax_type: ln.tax_type || null,
             reason_code: ln.reasonCode || null,
             remarks: ln.remarks || null,
             tax_amount: Number(ln.taxAmount) || 0,
@@ -306,14 +302,20 @@ export default function PurchaseReturnForm() {
                 <select
                   className="input"
                   value={formData.returnType}
-                  onChange={(e) =>
-                    setFormData((p) => ({ ...p, returnType: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData((p) => ({ ...p, returnType: val }));
+                    setLines((prev) =>
+                      prev.map((l) => ({ ...l, reasonCode: val })),
+                    );
+                  }}
                 >
-                  <option value="DAMAGED">Damaged</option>
-                  <option value="INCORRECT">Incorrect Supply</option>
-                  <option value="EXCESS">Excess Supply</option>
-                  <option value="OTHER">Other</option>
+                  <option value="">Select reason</option>
+                  {returnReasons.map((r) => (
+                    <option key={r.id} value={r.reason_code}>
+                      {r.reason_name}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -365,7 +367,6 @@ export default function PurchaseReturnForm() {
                     setFormData((p) => ({ ...p, warehouseId: e.target.value }))
                   }
                 >
-                  <option value="">None / Branch-level</option>
                   {warehouses.map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.warehouse_name || w.warehouse_code}
@@ -375,9 +376,9 @@ export default function PurchaseReturnForm() {
               </div>
               <div>
                 <label className="label">Remarks</label>
-                <input
-                  type="text"
-                  className="input"
+                <textarea
+                  className="input w-full"
+                  rows={4}
                   placeholder="Reason for rejection / notes"
                   value={formData.remarks}
                   onChange={(e) =>
@@ -410,7 +411,10 @@ export default function PurchaseReturnForm() {
                         Unit Price
                       </th>
                       <th className="text-right" style={{ width: 150 }}>
-                        Tax
+                        Tax Code
+                      </th>
+                      <th className="text-right" style={{ width: 120 }}>
+                        Tax Amount
                       </th>
                       <th style={{ width: 180 }}>Reason</th>
                       <th>Remarks</th>
@@ -494,11 +498,13 @@ export default function PurchaseReturnForm() {
                                             const item = itemsMaster.find(
                                               (it) => Number(it.id) === Number(o.id),
                                             );
+                                            const taxId = String(item?.vat_on_purchase_id || "");
                                             setLine(ln.id, {
                                               item_id: o.id,
                                               itemCode: item?.item_code || "",
                                               itemName: item?.item_name || "",
                                               unitPrice: item?.cost_price != null ? Number(item.cost_price) : ln.unitPrice,
+                                              tax_type: taxId,
                                             });
                                             setItemQueries((prev) => ({
                                               ...prev,
@@ -545,9 +551,25 @@ export default function PurchaseReturnForm() {
                           />
                         </td>
                         <td className="text-right">
+                          <select
+                            className="input w-full min-w-[7rem]"
+                            value={ln.tax_type}
+                            onChange={(e) =>
+                              setLine(ln.id, { tax_type: e.target.value })
+                            }
+                          >
+                            <option value="">No Tax</option>
+                            {taxes.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.code} ({Number(t.rate_percent || 0)}%)
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="text-right">
                           <input
                             type="number"
-                            className="input text-right"
+                            className="input text-right bg-gray-50"
                             value={Number(ln.taxAmount || 0).toFixed(2)}
                             min="0"
                             step="0.01"
@@ -557,15 +579,17 @@ export default function PurchaseReturnForm() {
                         <td>
                           <select
                             className="input"
-                            value={ln.reasonCode}
+                            value={ln.reasonCode || ""}
                             onChange={(e) =>
                               setLine(ln.id, { reasonCode: e.target.value })
                             }
                           >
-                            <option value="DAMAGED">Damaged</option>
-                            <option value="INCORRECT">Incorrect Supply</option>
-                            <option value="EXCESS">Excess Supply</option>
-                            <option value="OTHER">Other</option>
+                            <option value="">Select reason</option>
+                            {returnReasons.map((r) => (
+                              <option key={r.id} value={r.reason_code}>
+                                {r.reason_name}
+                              </option>
+                            ))}
                           </select>
                         </td>
                         <td>

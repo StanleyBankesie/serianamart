@@ -6,6 +6,7 @@ import { Trash2, Plus, Save, RotateCcw } from "lucide-react";
 
 export default function SalesSetupPage() {
   const [reasons, setReasons] = useState([]);
+  const [zones, setZones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -17,13 +18,27 @@ export default function SalesSetupPage() {
       setReasons(Array.isArray(res.data?.items) ? res.data.items : []);
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to load return reasons");
-    } finally {
-      setLoading(false);
     }
   }
 
+  // Load existing zones
+  async function loadZones() {
+    try {
+      const res = await api.get("/sales/zones");
+      setZones(Array.isArray(res.data?.items) ? res.data.items : []);
+    } catch (e) {
+      toast.error(e?.response?.data?.message || "Failed to load zones");
+    }
+  }
+
+  async function loadAll() {
+    setLoading(true);
+    await Promise.all([loadReasons(), loadZones()]);
+    setLoading(false);
+  }
+
   useEffect(() => {
-    loadReasons();
+    loadAll();
   }, []);
 
   // Handle local text changes in the reasons rows
@@ -34,7 +49,7 @@ export default function SalesSetupPage() {
   }
 
   // Add an empty row for a new reason
-  function handleAddRow() {
+  function handleAddReasonRow() {
     setReasons((prev) => [
       ...prev,
       {
@@ -47,7 +62,7 @@ export default function SalesSetupPage() {
   }
 
   // Remove a row (delete from database if saved, or just remove from state if not saved)
-  async function handleRemoveRow(index, id) {
+  async function handleRemoveReasonRow(index, id) {
     if (!id) {
       setReasons((prev) => prev.filter((_, i) => i !== index));
       return;
@@ -70,8 +85,7 @@ export default function SalesSetupPage() {
   }
 
   // Save all reasons to the backend
-  async function handleSave() {
-    // Validate inputs
+  async function handleSaveReasons() {
     const invalid = reasons.some((r) => !r.reason_code.trim() || !r.reason_name.trim());
     if (invalid) {
       toast.error("Please fill in both the Reason Code and Reason Name for all rows.");
@@ -90,6 +104,67 @@ export default function SalesSetupPage() {
     }
   }
 
+  // ---- Zones handlers ----
+
+  function handleZoneChange(index, field, value) {
+    setZones((prev) =>
+      prev.map((z, i) => (i === index ? { ...z, [field]: value } : z))
+    );
+  }
+
+  function handleAddZoneRow() {
+    setZones((prev) => [
+      ...prev,
+      {
+        id: "",
+        zone_name: "",
+        description: "",
+        is_active: 1,
+      },
+    ]);
+  }
+
+  async function handleRemoveZoneRow(index, id) {
+    if (!id) {
+      setZones((prev) => prev.filter((_, i) => i !== index));
+      return;
+    }
+
+    if (!window.confirm("Are you sure you want to delete this zone?")) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await api.delete(`/sales/zones/${id}`);
+      toast.success("Zone deleted successfully");
+      setZones((prev) => prev.filter((_, i) => i !== index));
+    } catch (e) {
+      toast.error(e?.response?.data?.message || "Failed to delete zone");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveZones() {
+    const invalid = zones.some((z) => !z.zone_name.trim());
+    if (invalid) {
+      toast.error("Please fill in the Zone Name for all rows.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await api.post("/sales/zones", { zones });
+      toast.success("Zones saved successfully");
+      await loadZones();
+    } catch (e) {
+      toast.error(e?.response?.data?.message || "Failed to save zones");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -97,7 +172,7 @@ export default function SalesSetupPage() {
         <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-bold dark:text-brand-300">Sales Module Setup</h1>
-            <p className="text-sm mt-1">Configure return workflows, reasons, and parameters</p>
+            <p className="text-sm mt-1">Configure return workflows, zones, reasons, and parameters</p>
           </div>
           <div className="flex gap-2">
             <Link to="/sales" className="btn btn-secondary shadow-sm">
@@ -105,13 +180,123 @@ export default function SalesSetupPage() {
             </Link>
             <button
               className="btn btn-secondary flex items-center gap-1"
-              onClick={loadReasons}
+              onClick={loadAll}
               disabled={loading || saving}
             >
               <RotateCcw className="w-4 h-4" />
               Refresh
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Zones Configuration Card */}
+      <div className="card">
+        <div className="card-header bg-brand/10 dark:bg-brand/20 border-b border-slate-200 dark:border-slate-700 p-4 flex justify-between items-center">
+          <div className="font-semibold text-slate-800 dark:text-slate-200">
+            Zone Configuration
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm flex items-center gap-1"
+            onClick={handleAddZoneRow}
+            disabled={loading || saving}
+          >
+            <Plus className="w-4 h-4" />
+            Add Zone
+          </button>
+        </div>
+        <div className="card-body p-6">
+          {loading ? (
+            <div className="text-center py-12">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-brand" />
+              <div className="mt-2 text-slate-600 dark:text-slate-400">Loading configurations...</div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="overflow-x-auto">
+                <table className="table w-full">
+                  <thead>
+                    <tr>
+                      <th style={{ width: "30%" }}>Zone Name *</th>
+                      <th style={{ width: "50%" }}>Description</th>
+                      <th style={{ width: "12%", textAlign: "center" }}>Status</th>
+                      <th style={{ width: "8%", textAlign: "center" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {zones.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="text-center py-8 text-slate-500">
+                          No zones configured. Click "Add Zone" to create one.
+                        </td>
+                      </tr>
+                    ) : (
+                      zones.map((z, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                          <td>
+                            <input
+                              className="input font-semibold"
+                              placeholder="e.g. NORTH"
+                              value={z.zone_name}
+                              onChange={(e) =>
+                                handleZoneChange(idx, "zone_name", e.target.value.toUpperCase().replace(/\s+/g, "_"))
+                              }
+                              disabled={saving}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              className="input"
+                              placeholder="e.g. Northern Region"
+                              value={z.description || ""}
+                              onChange={(e) => handleZoneChange(idx, "description", e.target.value)}
+                              disabled={saving}
+                            />
+                          </td>
+                          <td className="text-center">
+                            <select
+                              className="input text-center"
+                              value={z.is_active}
+                              onChange={(e) => handleZoneChange(idx, "is_active", Number(e.target.value))}
+                              disabled={saving}
+                            >
+                              <option value={1}>Active</option>
+                              <option value={0}>Inactive</option>
+                            </select>
+                          </td>
+                          <td className="text-center">
+                            <button
+                              type="button"
+                              className="btn btn-outline hover:bg-red-500 hover:text-white p-2 rounded-lg text-red-500 border border-slate-200 dark:border-slate-700"
+                              onClick={() => handleRemoveZoneRow(idx, z.id)}
+                              disabled={saving}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {zones.length > 0 && (
+                <div className="flex justify-end pt-4 border-t border-slate-200 dark:border-slate-700">
+                  <button
+                    type="button"
+                    className="btn btn-success flex items-center gap-1 px-6"
+                    onClick={handleSaveZones}
+                    disabled={saving}
+                  >
+                    <Save className="w-4 h-4" />
+                    {saving ? "Saving Changes..." : "Save Changes"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -124,7 +309,7 @@ export default function SalesSetupPage() {
           <button
             type="button"
             className="btn btn-primary btn-sm flex items-center gap-1"
-            onClick={handleAddRow}
+            onClick={handleAddReasonRow}
             disabled={loading || saving}
           >
             <Plus className="w-4 h-4" />
@@ -194,7 +379,7 @@ export default function SalesSetupPage() {
                             <button
                               type="button"
                               className="btn btn-outline hover:bg-red-500 hover:text-white p-2 rounded-lg text-red-500 border border-slate-200 dark:border-slate-700"
-                              onClick={() => handleRemoveRow(idx, r.id)}
+                              onClick={() => handleRemoveReasonRow(idx, r.id)}
                               disabled={saving}
                             >
                               <Trash2 className="w-4 h-4" />
@@ -212,7 +397,7 @@ export default function SalesSetupPage() {
                   <button
                     type="button"
                     className="btn btn-success flex items-center gap-1 px-6"
-                    onClick={handleSave}
+                    onClick={handleSaveReasons}
                     disabled={saving}
                   >
                     <Save className="w-4 h-4" />

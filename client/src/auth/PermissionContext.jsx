@@ -643,8 +643,8 @@ export const PermissionProvider = ({ children }) => {
                 : action === "delete"
                   ? "can_delete"
                   : `can_${action}`;
-        if (typeof perms?.[k] === "boolean") {
-          return perms[k] === true;
+        if (typeof perms?.[k] === "boolean" && perms[k] === true) {
+          return true;
         }
       }
     } catch {}

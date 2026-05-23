@@ -213,7 +213,7 @@ async function nextVoucherNo({ companyId, voucherTypeId }) {
     const vt = rows?.[0];
     if (!vt) throw httpError(404, "NOT_FOUND", "Voucher type not found");
     const up = String(vt.code).toUpperCase();
-    const seq = ["PV", "PUV", "CV", "RV", "JV", "SV", "PAYV"].includes(up)
+    const seq = ["PV", "PUV", "CV", "RV", "JV", "SV", "PAYV", "CN"].includes(up)
       ? String(vt.next_number).padStart(6, "0")
       : String(vt.next_number);
 
@@ -223,7 +223,7 @@ async function nextVoucherNo({ companyId, voucherTypeId }) {
     else if (up === "PV" || up === "PUV") effectivePrefix = "PB";
 
     const voucherNo =
-      up === "PV" || up === "PUV" || up === "PAYV" || up === "SV" || up === "RV"
+      up === "PV" || up === "PUV" || up === "PAYV" || up === "SV" || up === "RV" || up === "CN"
         ? `${effectivePrefix}${seq}`
         : `${effectivePrefix}-${seq}`;
     await conn.execute(

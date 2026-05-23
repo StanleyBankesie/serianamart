@@ -1,9 +1,8 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { api } from "api/client";
+import api from "../../../api/client.js";
 import { toast } from "react-toastify";
 import { getUnsyncedSales, getFailedSales, deleteLocalSale } from "../../../offline/posStore.js";
-import { retryItem, retryAllFailed, getQueueSnapshot, onQueueUpdate } from "../../../offline/syncEngine.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
@@ -23,26 +22,46 @@ export default function PosReconciliation() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    const off = onQueueUpdate(() => load());
-    return () => off();
-  }, [load]);
 
   const handleRetry = async (id) => {
+    const item = items.find((i) => i.id === id);
+    if (!item) { toast.error("Item not found"); return; }
+    setSyncing(true);
     try {
-      await retryItem(id);
-      toast.success("Retry queued");
+      const { id: _id, syncStatus: _status, createdAt: _ts, receipt_no: _rcp, updatedAt: _upd, ...payload } = item;
+      await api.post("/pos/sales", payload, {
+        headers: { "x-skip-offline-queue": "1" },
+      });
+      await deleteLocalSale(id);
+      toast.success("Sale synced successfully");
       load();
-    } catch { toast.error("Retry failed"); }
+    } catch (err) {
+      if (err?.response?.data) {
+        toast.error(err.response.data.message || "Sync failed");
+      } else {
+        toast.error("Sync failed — still offline?");
+      }
+      load();
+    }
+    setSyncing(false);
   };
 
   const handleRetryAll = async () => {
     setSyncing(true);
-    try {
-      await retryAllFailed();
-      toast.success("Retrying all failed items");
-      load();
-    } catch { toast.error("Retry all failed"); }
+    const pending = items.filter((i) => i.syncStatus === "failed" || i.syncStatus === "pending");
+    for (const item of pending) {
+      try {
+        const { id: _id, syncStatus: _status, createdAt: _ts, receipt_no: _rcp, updatedAt: _upd, ...payload } = item;
+        await api.post("/pos/sales", payload, {
+          headers: { "x-skip-offline-queue": "1" },
+        });
+        await deleteLocalSale(item.id);
+      } catch {
+        // continue with next
+      }
+    }
+    toast.success("Retry complete");
+    load();
     setSyncing(false);
   };
 
@@ -96,8 +115,7 @@ export default function PosReconciliation() {
             <div className="text-center py-10 text-slate-500">Loading...</div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-10 text-slate-500">
-              <div className="text-3xl mb-2">✅</div>
-              <p>All sales are synced. No pending items.</p>
+              <div className="text-3xl mb-2">All sales are synced. No pending items.</div>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -107,7 +125,7 @@ export default function PosReconciliation() {
                     <SortableHeader label="Date/Time" sortKey="createdAt" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <th>Items</th>
-                    <SortableHeader label="Total" sortKey="total" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Total" sortKey="grand_total" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <SortableHeader label="Status" sortKey="syncStatus" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <th className="w-48">Actions</th>
                   </tr>
@@ -119,9 +137,11 @@ export default function PosReconciliation() {
                       <td>{item.customer_name || "Walk-in"}</td>
                       <td>{Array.isArray(item.items) ? item.items.length : 0}</td>
                       <td className="font-medium">
-                        {item.total
-                          ? Number(item.total).toLocaleString("en-US", { minimumFractionDigits: 2 })
-                          : "-"}
+                        {item.grand_total
+                          ? Number(item.grand_total).toLocaleString("en-US", { minimumFractionDigits: 2 })
+                          : item.total
+                            ? Number(item.total).toLocaleString("en-US", { minimumFractionDigits: 2 })
+                            : "-"}
                       </td>
                       <td>
                         <span className={`badge ${item.syncStatus === "failed" ? "badge-error" : "badge-warning"}`}>
@@ -130,7 +150,7 @@ export default function PosReconciliation() {
                       </td>
                       <td>
                         <div className="flex gap-2">
-                          <button className="btn-outline text-xs" onClick={() => handleRetry(item.id)}>
+                          <button className="btn-outline text-xs" onClick={() => handleRetry(item.id)} disabled={syncing}>
                             Retry Sync
                           </button>
                           <button className="btn-outline text-xs text-red-600 border-red-300 hover:bg-red-50" onClick={() => handleDiscard(item.id)}>

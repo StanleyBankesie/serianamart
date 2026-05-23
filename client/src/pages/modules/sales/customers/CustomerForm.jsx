@@ -21,6 +21,7 @@ export default function CustomerForm() {
   const [currencies, setCurrencies] = useState([]);
   const [countries, setCountries] = useState([]);
   const [salesAccounts, setSalesAccounts] = useState([]);
+  const [zoneOptions, setZoneOptions] = useState([]);
 
   const GHANA_REGIONS = [
     "Greater Accra",
@@ -61,6 +62,7 @@ export default function CustomerForm() {
     fetchCurrencies();
     fetchCountries();
     fetchSalesAccounts();
+    fetchZones();
     if (isEdit) {
       fetchCustomer();
     } else {
@@ -118,6 +120,16 @@ export default function CustomerForm() {
       }
     } catch (err) {
       console.error("Error fetching currencies", err);
+    }
+  }
+
+  async function fetchZones() {
+    try {
+      const res = await api.get("/sales/zones");
+      const items = Array.isArray(res.data?.items) ? res.data.items : [];
+      setZoneOptions(items.filter((z) => z.is_active).map((z) => z.zone_name));
+    } catch (err) {
+      console.error("Error fetching zones", err);
     }
   }
 
@@ -403,11 +415,16 @@ export default function CustomerForm() {
                   </div>
                   <div>
                     <label className="label">Zone</label>
-                    <input
+                    <select
                       className="input"
                       value={form.zone || ""}
                       onChange={(e) => update("zone", e.target.value)}
-                    />
+                    >
+                      <option value="">Select zone</option>
+                      {zoneOptions.map((z) => (
+                        <option key={z} value={z}>{z}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="label">Country</label>
