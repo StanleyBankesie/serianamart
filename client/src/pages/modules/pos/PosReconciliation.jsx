@@ -31,6 +31,7 @@ export default function PosReconciliation() {
       const { id: _id, syncStatus: _status, createdAt: _ts, receipt_no: _rcp, updatedAt: _upd, ...payload } = item;
       await api.post("/pos/sales", payload, {
         headers: { "x-skip-offline-queue": "1" },
+        timeout: 10000,
       });
       await deleteLocalSale(id);
       toast.success("Sale synced successfully");
@@ -54,6 +55,7 @@ export default function PosReconciliation() {
         const { id: _id, syncStatus: _status, createdAt: _ts, receipt_no: _rcp, updatedAt: _upd, ...payload } = item;
         await api.post("/pos/sales", payload, {
           headers: { "x-skip-offline-queue": "1" },
+          timeout: 10000,
         });
         await deleteLocalSale(item.id);
       } catch {

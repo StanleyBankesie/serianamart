@@ -199,6 +199,22 @@ export default function PosSalesEntry() {
         setDayOpen(status === "OPEN");
       } catch {
         if (cancelled) return;
+        // Offline fallback: use sessionStorage cache even if stale
+        try {
+          const raw = sessionStorage.getItem("omni.pos.day");
+          if (raw) {
+            const data = JSON.parse(raw);
+            const t = String(data?.terminal || data?.terminalCode || "");
+            const status = String(data?.status || "").toUpperCase();
+            if (status === "OPEN" && (!terminalCode || !t || t === terminalCode)) {
+              setDayExists(true);
+              setDayStatus("OPEN");
+              setDayOpen(true);
+              setDayLoading(false);
+              return;
+            }
+          }
+        } catch {}
         setDayExists(false);
         setDayStatus("");
         setDayOpen(false);
@@ -286,6 +302,12 @@ export default function PosSalesEntry() {
         setPaymentModesError(
           e?.response?.data?.message || "Failed to load payment modes",
         );
+        // Offline fallback: use a built-in Cash payment mode
+        const cashMode = { id: 1, name: "Cash", type: "cash", is_active: true };
+        setPaymentModes([cashMode]);
+        if (!selectedPaymentModeId) {
+          setSelectedPaymentModeId("1");
+        }
       })
       .finally(() => {
         if (!mounted) return;
@@ -976,6 +998,7 @@ export default function PosSalesEntry() {
       };
       const res = await api.post("/pos/sales", payload, {
         headers: { "x-skip-offline-queue": "1" },
+        timeout: 10000,
       });
       const rcp = String(res.data?.receipt_no || "");
       setReceiptNo(rcp);
