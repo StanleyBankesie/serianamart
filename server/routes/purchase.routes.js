@@ -5188,6 +5188,7 @@ router.post(
         `INSERT INTO pur_suppliers (company_id, supplier_code, supplier_name, contact_person, email, phone, address, city, state, country, payment_terms, supplier_type, currency_id, service_contractor, is_active, expense_account_id)
          VALUES (:companyId, :supplierCode, :supplierName, :contactPerson, :email, :phone, :address, :city, :state, :country, :paymentTerms, :supplierType, :currencyId, :serviceContractor, :isActive, :expenseAccountId)`,
         {
+          companyId,
           supplierCode,
           supplierName: body.supplier_name || null,
           contactPerson: body.contact_person || null,
@@ -5216,46 +5217,59 @@ router.post(
               : Number(body.expense_account_id || 0) || null,
         },
       );
-      const [grpByCode] = await conn.execute(
-        "SELECT id FROM fin_account_groups WHERE company_id = :companyId AND code = 'CREDITORS' LIMIT 1",
-        { companyId },
+      const supId = resHeader.insertId;
+      const [supRow] = await conn.execute(
+        "SELECT id, supplier_code, supplier_name, currency_id FROM pur_suppliers WHERE company_id = :companyId AND id = :id LIMIT 1",
+        { companyId, id: supId },
       );
-      let groupId = Number(grpByCode?.[0]?.id || 0);
-      if (!groupId) {
-        try {
-          const [insGrp] = await conn.execute(
-            "INSERT INTO fin_account_groups (company_id, code, name, nature, parent_id, is_active) VALUES (:companyId, 'CREDITORS', 'Creditors', 'LIABILITY', NULL, 1)",
-            { companyId },
-          );
-          groupId = Number(insGrp.insertId || 0);
-        } catch {
-          const [retry] = await conn.execute(
-            "SELECT id FROM fin_account_groups WHERE company_id = :companyId AND (code = 'CREDITORS' OR name = 'Creditors') LIMIT 1",
-            { companyId },
-          );
-          groupId = Number(retry?.[0]?.id || 0);
-        }
-      }
-      if (groupId) {
-        const finCode = supplierCode;
-        const [exists] = await conn.execute(
+      const sup = supRow?.[0] || null;
+      if (sup) {
+        let accCode =
+          sup.supplier_code && String(sup.supplier_code).trim()
+            ? String(sup.supplier_code).trim()
+            : `S${String(Number(sup.id || 0)).padStart(5, "0")}`;
+        let [existingAcc] = await conn.execute(
           "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
-          { companyId, code: finCode },
+          { companyId, code: accCode },
         );
-        if (!Array.isArray(exists) || !exists.length) {
-          await conn.execute(
-            `INSERT INTO fin_accounts (company_id, group_id, code, name, currency_id, is_control_account, is_postable, is_active)
-             VALUES (:companyId, :groupId, :code, :name, :currencyId, 0, 1, 1)`,
-            {
-              groupId,
-              code: finCode,
-              name: body.supplier_name,
-              currencyId:
-                body.currency_id === undefined || body.currency_id === null
-                  ? null
-                  : Number(body.currency_id || 0) || null,
-            },
+        let attempt = 0;
+        while (existingAcc?.length && attempt < 100) {
+          const suff = String(Number(sup.id || 0) + attempt).padStart(5, "0");
+          accCode = `S${suff}`;
+          [existingAcc] = await conn.execute(
+            "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
+            { companyId, code: accCode },
           );
+          attempt++;
+        }
+        if (!existingAcc?.length) {
+          const credGroupId = await ensureGroupIdTx(conn, {
+            companyId,
+            code: "CREDITORS",
+            name: "Creditors",
+            nature: "LIABILITY",
+          });
+          let accCurrencyId = sup.currency_id || null;
+          if (!accCurrencyId) {
+            const [curRows] = await conn.execute(
+              "SELECT id FROM fin_currencies WHERE company_id = :companyId AND is_base = 1 LIMIT 1",
+              { companyId },
+            );
+            accCurrencyId = Number(curRows?.[0]?.id || 0) || null;
+          }
+          if (credGroupId) {
+            await conn.execute(
+              `INSERT INTO fin_accounts (company_id, group_id, code, name, currency_id, is_control_account, is_postable, is_active)
+               VALUES (:companyId, :groupId, :code, :name, :currencyId, 0, 1, 1)`,
+              {
+                companyId,
+                groupId: credGroupId,
+                code: accCode,
+                name: sup.supplier_name || null,
+                currencyId: accCurrencyId,
+              },
+            );
+          }
         }
       }
       await conn.commit();
@@ -5309,7 +5323,8 @@ router.put(
          WHERE id = :id AND company_id = :companyId`,
         {
           id,
-          supplierName: body.supplier_name,
+          companyId,
+          supplierName: body.supplier_name || null,
           contactPerson: body.contact_person || null,
           email: body.email || null,
           phone: body.phone || null,
