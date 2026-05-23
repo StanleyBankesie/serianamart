@@ -5189,7 +5189,7 @@ router.post(
          VALUES (:companyId, :supplierCode, :supplierName, :contactPerson, :email, :phone, :address, :city, :state, :country, :paymentTerms, :supplierType, :currencyId, :serviceContractor, :isActive, :expenseAccountId)`,
         {
           supplierCode,
-          supplierName: body.supplier_name,
+          supplierName: body.supplier_name || null,
           contactPerson: body.contact_person || null,
           email: body.email || null,
           phone: body.phone || null,

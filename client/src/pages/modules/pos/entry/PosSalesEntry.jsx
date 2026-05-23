@@ -927,14 +927,13 @@ export default function PosSalesEntry() {
 
   async function checkout() {
     if (!cart.length || saving) return;
-    // Enforce open-day on next calendar day: require a Day record to exist for today.
-    // If no day exists for today, block checkout and ask user to open day via Day Management.
     if (!dayExists) {
       alert(
         "Please open POS Day for today before making sales. Go to POS → Start/End Business Day to open the day.",
       );
       return;
     }
+    const saleCart = cart;
     let payload;
     try {
       setSaving(true);
@@ -959,7 +958,7 @@ export default function PosSalesEntry() {
         alert("Please configure a POS payment mode before completing a sale.");
         return;
       }
-      const lines = cart.map((it) => ({
+      const lines = saleCart.map((it) => ({
         item_id: it.id,
         name: it.name,
         quantity: Number(it.quantity || 0),
@@ -1020,6 +1019,30 @@ export default function PosSalesEntry() {
         headers: { "x-skip-offline-queue": "1" },
         timeout: 10000,
       });
+      setProducts((prev) =>
+        prev.map((p) => {
+          const sold = saleCart.find((c) => c.id === p.id);
+          if (sold) {
+            return {
+              ...p,
+              availQty: Math.max(0, Number(p.availQty || 0) - Number(sold.quantity || 0)),
+            };
+          }
+          return p;
+        }),
+      );
+      setSelectedItems((prev) =>
+        prev.map((p) => {
+          const sold = saleCart.find((c) => c.id === p.id);
+          if (sold) {
+            return {
+              ...p,
+              availQty: Math.max(0, Number(p.availQty || 0) - Number(sold.quantity || 0)),
+            };
+          }
+          return p;
+        }),
+      );
       const rcp = String(res.data?.receipt_no || "");
       setReceiptNo(rcp);
       setSaleTimestamp(new Date());
@@ -1033,6 +1056,30 @@ export default function PosSalesEntry() {
         })();
         try { localStorage.setItem("omnisuite.pos.offlineSeq", String(offSeq)); } catch {}
         const offReceipt = `POS-${String(offSeq).padStart(6, "0")}-OFF`;
+        setProducts((prev) =>
+          prev.map((p) => {
+            const sold = saleCart.find((c) => c.id === p.id);
+            if (sold) {
+              return {
+                ...p,
+                availQty: Math.max(0, Number(p.availQty || 0) - Number(sold.quantity || 0)),
+              };
+            }
+            return p;
+          }),
+        );
+        setSelectedItems((prev) =>
+          prev.map((p) => {
+            const sold = saleCart.find((c) => c.id === p.id);
+            if (sold) {
+              return {
+                ...p,
+                availQty: Math.max(0, Number(p.availQty || 0) - Number(sold.quantity || 0)),
+              };
+            }
+            return p;
+          }),
+        );
         await saveLocalSale({
           id: localId,
           ...payload,

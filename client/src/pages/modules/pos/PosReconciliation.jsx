@@ -6,11 +6,24 @@ import { getUnsyncedSales, getFailedSales, deleteLocalSale } from "../../../offl
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+function sendBrowserNotification(title, body) {
+  try {
+    if (Notification.permission === "granted") {
+      new Notification(title, { body, icon: "/pwa-192x192.png" });
+    } else if (Notification.permission !== "denied") {
+      Notification.requestPermission().then((p) => {
+        if (p === "granted") new Notification(title, { body, icon: "/pwa-192x192.png" });
+      });
+    }
+  } catch {}
+}
+
 export default function PosReconciliation() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [filter, setFilter] = useState("all");
+  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine !== false : true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -22,6 +35,67 @@ export default function PosReconciliation() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Auto-sync when coming back online
+  useEffect(() => {
+    const onLine = () => {
+      setOnline(true);
+      load().then(() => {
+        // Small delay so load finishes before retry
+        setTimeout(() => autoRetryAll(), 500);
+      });
+    };
+    const offLine = () => setOnline(false);
+    window.addEventListener("online", onLine);
+    window.addEventListener("offline", offLine);
+    return () => {
+      window.removeEventListener("online", onLine);
+      window.removeEventListener("offline", offLine);
+    };
+  }, [load]);
+
+  // Also try auto-sync on initial mount if online and items exist
+  useEffect(() => {
+    if (online && items.length > 0 && !syncing) {
+      const hasPending = items.some((i) => i.syncStatus === "pending" || i.syncStatus === "failed");
+      if (hasPending) autoRetryAll();
+    }
+  }, [online, items.length]);
+
+  async function autoRetryAll() {
+    const current = await getUnsyncedSales();
+    const failedItems = await getFailedSales();
+    const all = [...current, ...failedItems];
+    if (!all.length) return;
+    setSyncing(true);
+    let successCount = 0;
+    let failCount = 0;
+    for (const item of all) {
+      try {
+        const { id: _id, syncStatus: _status, createdAt: _ts, receipt_no: _rcp, updatedAt: _upd, ...payload } = item;
+        await api.post("/pos/sales", payload, {
+          headers: { "x-skip-offline-queue": "1" },
+          timeout: 10000,
+        });
+        await deleteLocalSale(item.id);
+        successCount++;
+      } catch {
+        failCount++;
+      }
+    }
+    await load();
+    setSyncing(false);
+    if (successCount > 0) {
+      toast.success(`${successCount} sale(s) synced automatically`);
+    }
+    if (failCount > 0) {
+      sendBrowserNotification(
+        "POS Sync Failed",
+        `${failCount} offline sale(s) could not be synced. Open POS Reconciliation to retry.`,
+      );
+      toast.error(`${failCount} sale(s) failed to sync — click Retry to try again`);
+    }
+  }
 
   const handleRetry = async (id) => {
     const item = items.find((i) => i.id === id);
@@ -50,6 +124,8 @@ export default function PosReconciliation() {
   const handleRetryAll = async () => {
     setSyncing(true);
     const pending = items.filter((i) => i.syncStatus === "failed" || i.syncStatus === "pending");
+    let successCount = 0;
+    let failCount = 0;
     for (const item of pending) {
       try {
         const { id: _id, syncStatus: _status, createdAt: _ts, receipt_no: _rcp, updatedAt: _upd, ...payload } = item;
@@ -58,11 +134,13 @@ export default function PosReconciliation() {
           timeout: 10000,
         });
         await deleteLocalSale(item.id);
+        successCount++;
       } catch {
-        // continue with next
+        failCount++;
       }
     }
-    toast.success("Retry complete");
+    const msg = successCount > 0 && failCount === 0 ? "All sales synced" : failCount > 0 ? `${successCount} synced, ${failCount} failed` : "Nothing to sync";
+    toast.success(msg);
     load();
     setSyncing(false);
   };
@@ -105,10 +183,16 @@ export default function PosReconciliation() {
               <option value="pending">Pending Sync</option>
               <option value="failed">Failed</option>
             </select>
-            <div className="flex-1" />
-            {hasFailed && (
+            <div className="flex-1">
+              {items.length > 0 && (
+                <span className="text-xs text-slate-500 ml-2">
+                  {online ? "\u{1F7E2} Online" : "\u{1F534} Offline"}
+                </span>
+              )}
+            </div>
+            {(items.length > 0) && (
               <button className="btn-primary" disabled={syncing} onClick={handleRetryAll}>
-                {syncing ? "Retrying..." : "Retry All Failed"}
+                {syncing ? "Syncing..." : "Retry All"}
               </button>
             )}
           </div>
@@ -139,9 +223,9 @@ export default function PosReconciliation() {
                       <td>{item.customer_name || "Walk-in"}</td>
                       <td>{Array.isArray(item.items) ? item.items.length : Array.isArray(item.lines) ? item.lines.length : 0}</td>
                       <td className="font-medium">
-                        {item.grand_total
+                        {item.grand_total != null
                           ? Number(item.grand_total).toLocaleString("en-US", { minimumFractionDigits: 2 })
-                          : item.total
+                          : item.total != null
                             ? Number(item.total).toLocaleString("en-US", { minimumFractionDigits: 2 })
                             : "-"}
                       </td>
@@ -168,9 +252,9 @@ export default function PosReconciliation() {
           )}
 
           <div className="text-xs text-slate-500 space-y-1">
-            <p>• <strong>Pending</strong> items will sync automatically when online</p>
-            <p>• <strong>Failed</strong> items have exceeded max retries — click Retry to attempt again</p>
-            <p>• <strong>Discard</strong> removes the sale from the queue — it will NOT be sent to the server</p>
+            <p>• <strong>Pending</strong> items sync automatically when connectivity returns</p>
+            <p>• <strong>Failed</strong> items receive a browser notification — click Retry to attempt again</p>
+            <p>• <strong>Discard</strong> removes the sale — it will NOT be sent to the server</p>
           </div>
         </div>
       </div>

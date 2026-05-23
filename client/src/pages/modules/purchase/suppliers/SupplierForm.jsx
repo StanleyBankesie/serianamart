@@ -257,7 +257,7 @@ export default function SupplierForm() {
       // Prepare payload - currently only sending fields supported by backend
       const payload = {
         supplier_code: formData.supplier_code || null,
-        supplier_name: formData.supplier_name,
+        supplier_name: formData.supplier_name || null,
         contact_person: formData.contact_person || null,
         email: formData.email || null,
         phone: formData.phone || null,
