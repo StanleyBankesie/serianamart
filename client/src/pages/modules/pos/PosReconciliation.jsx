@@ -137,7 +137,7 @@ export default function PosReconciliation() {
                     <tr key={item.id}>
                       <td>{item.createdAt ? new Date(item.createdAt).toLocaleString() : "-"}</td>
                       <td>{item.customer_name || "Walk-in"}</td>
-                      <td>{Array.isArray(item.items) ? item.items.length : 0}</td>
+                      <td>{Array.isArray(item.items) ? item.items.length : Array.isArray(item.lines) ? item.lines.length : 0}</td>
                       <td className="font-medium">
                         {item.grand_total
                           ? Number(item.grand_total).toLocaleString("en-US", { minimumFractionDigits: 2 })

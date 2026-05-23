@@ -978,8 +978,14 @@ export default function PosSalesEntry() {
           ? String(chosenCustomer.customer_name || chosenCustomer.name || "")
           : null,
         lines,
+        items: lines,
         status: "COMPLETED",
         terminal: terminalCode || "",
+        subtotal,
+        tax_total: tax,
+        grand_total: total,
+        amount_paid: tendered,
+        change_due: changeDue,
         tax_rate_percent: taxActive ? taxRatePercent : 0,
         tax_type: taxActive ? taxType : "Exclusive",
         tax_code_id: taxActive && taxCodeId ? Number(taxCodeId) : null,
@@ -1022,14 +1028,19 @@ export default function PosSalesEntry() {
       const isNetworkError = !err?.response;
       if (isNetworkError) {
         const localId = uuid();
+        const offSeq = (() => {
+          try { return Number(localStorage.getItem("omnisuite.pos.offlineSeq") || "0") + 1; } catch { return 1; }
+        })();
+        try { localStorage.setItem("omnisuite.pos.offlineSeq", String(offSeq)); } catch {}
+        const offReceipt = `POS-${String(offSeq).padStart(6, "0")}-OFF`;
         await saveLocalSale({
           id: localId,
           ...payload,
           status: "pending",
           createdAt: Date.now(),
-          receipt_no: `OFFLINE-${Date.now()}`,
+          receipt_no: offReceipt,
         });
-        setReceiptNo(`OFFLINE-${Date.now()}`);
+        setReceiptNo(offReceipt);
         setSaleTimestamp(new Date());
         setShowModal(true);
         toast.info("Sale saved offline. It will sync when connectivity returns.");
