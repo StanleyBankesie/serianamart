@@ -1470,6 +1470,10 @@ export default function PosSalesEntry() {
                       onChange={(e) => setEntryBarcode(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
+                          if (barcodeDebounceRef.current) {
+                            clearTimeout(barcodeDebounceRef.current);
+                            barcodeDebounceRef.current = null;
+                          }
                           if (itemSearchResults.length) {
                             handleSelectItemById(itemSearchResults[0].value);
                           } else {
