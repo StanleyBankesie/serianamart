@@ -982,7 +982,8 @@ export default function PosSalesEntry() {
       setSaleTimestamp(new Date());
       setShowModal(true);
     } catch (err) {
-      if (!navigator.onLine) {
+      const isNetworkError = !err?.response;
+      if (isNetworkError) {
         const localId = uuid();
         await saveLocalSale({
           id: localId,

@@ -21,7 +21,7 @@ if (!DEV_MODE) {
         "/apple-touch-icon.png",
         "/OMNISUITE_ICON_CLEAR.png",
       ,
-        "/assets/index-Cb9I7eFK.js"
+        "/assets/index-CwO_gcA2.js"
 ]);
       self.skipWaiting();
     })(),
