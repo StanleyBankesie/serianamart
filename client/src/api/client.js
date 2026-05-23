@@ -8,8 +8,11 @@ import {
   writeStoredAuth,
 } from "../auth/authStorage.js";
 
+const AXIOS_TIMEOUT_MS = 30000;
+
 export const api = axios.create({
   withCredentials: true,
+  timeout: AXIOS_TIMEOUT_MS,
   headers: {
     "Content-Type": "application/json",
   },
@@ -90,6 +93,7 @@ async function requestTokenRefresh() {
       url: "/auth/refresh",
       method: "post",
       withCredentials: true,
+      timeout: AXIOS_TIMEOUT_MS,
       headers: {
         "Content-Type": "application/json",
       },

@@ -935,6 +935,7 @@ export default function PosSalesEntry() {
       );
       return;
     }
+    let payload;
     try {
       setSaving(true);
       let effectivePaymentModeId = selectedPaymentModeId
@@ -969,7 +970,7 @@ export default function PosSalesEntry() {
         customers.find((c) => String(c.id) === String(selectedCustomerId)) ||
         null;
       const method = resolvePaymentMethodForSale(selectedPaymentMode);
-      const payload = {
+      payload = {
         payment_method: method,
         payment_mode_id: Number(effectivePaymentModeId),
         customer_id: chosenCustomer ? Number(chosenCustomer.id) : null,
