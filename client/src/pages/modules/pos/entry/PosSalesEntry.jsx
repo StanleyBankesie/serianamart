@@ -486,22 +486,35 @@ export default function PosSalesEntry() {
       .then((res) => {
         if (!mounted) return;
         const raw = Array.isArray(res.data?.items) ? res.data.items : [];
-        const mapped = raw
-          .filter((it) => it && it.is_active !== false)
-          .map((it) => ({
-            id: it.id,
-            name: it.item_name || "",
-            code: it.item_code || "",
-            price: Number(it.selling_price ?? 0),
-            availQty: Number(it.stock_level ?? 0),
-            image_url: it.image_url || "",
-            barcode: it.barcode || "",
-          }));
-        setProducts(mapped);
+        if (raw.length) {
+          const mapped = raw
+            .filter((it) => it && it.is_active !== false)
+            .map((it) => ({
+              id: it.id,
+              name: it.item_name || "",
+              code: it.item_code || "",
+              price: Number(it.selling_price ?? 0),
+              availQty: Number(it.stock_level ?? 0),
+              image_url: it.image_url || "",
+              barcode: it.barcode || "",
+            }));
+          setProducts(mapped);
+          try { localStorage.setItem("omnisuite.pos.products", JSON.stringify(mapped)); } catch {}
+        } else {
+          // Offline fallback: use cached products from localStorage
+          try {
+            const cached = localStorage.getItem("omnisuite.pos.products");
+            if (cached) setProducts(JSON.parse(cached));
+          } catch {}
+        }
       })
-      .catch((e) => {
+      .catch(() => {
         if (!mounted) return;
-        setItemsError(e?.response?.data?.message || "Failed to load items");
+        // Offline fallback: use cached products from localStorage
+        try {
+          const cached = localStorage.getItem("omnisuite.pos.products");
+          if (cached) setProducts(JSON.parse(cached));
+        } catch {}
       })
       .finally(() => {
         if (!mounted) return;
