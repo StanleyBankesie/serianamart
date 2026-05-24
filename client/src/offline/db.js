@@ -4,35 +4,53 @@ const QUEUE_STORE = "queue";
 const CACHE_STORE = "cache";
 const POS_SALES_STORE = "pos_sales";
 
-export function openDB() {
+let _db = null;
+
+export async function openDB() {
+  if (_db) return _db;
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = (e) => {
       const db = req.result;
 
-      // Create queue store if missing
       if (!db.objectStoreNames.contains(QUEUE_STORE)) {
         const store = db.createObjectStore(QUEUE_STORE, { keyPath: "id" });
         store.createIndex("status", "status", { unique: false });
         store.createIndex("createdAt", "createdAt", { unique: false });
       }
 
-      // Create cache store if missing
       if (!db.objectStoreNames.contains(CACHE_STORE)) {
         const store = db.createObjectStore(CACHE_STORE, { keyPath: "key" });
         store.createIndex("updatedAt", "updatedAt", { unique: false });
       }
 
-      // Create POS sales store if missing
       if (!db.objectStoreNames.contains(POS_SALES_STORE)) {
         const store = db.createObjectStore(POS_SALES_STORE, { keyPath: "id" });
         store.createIndex("status", "status", { unique: false });
         store.createIndex("createdAt", "createdAt", { unique: false });
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => {
+        db.close();
+        _db = null;
+      };
+      db.onclose = () => {
+        _db = null;
+      };
+      _db = db;
+      resolve(db);
+    };
     req.onerror = () => reject(req.error);
   });
+}
+
+export function closeDB() {
+  if (_db) {
+    try { _db.close(); } catch {}
+    _db = null;
+  }
 }
 
 export async function addQueueItem(item) {

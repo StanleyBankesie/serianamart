@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 
 export default function ItemForm() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const isNew = id === "new";
+  const returnTo = location.state?.from || "/inventory/items";
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -306,7 +308,7 @@ export default function ItemForm() {
         await api.put(`/inventory/items/${id}`, payload);
       }
 
-      navigate("/inventory/items");
+      navigate(returnTo);
     } catch (e2) {
       setError(e2?.response?.data?.message || "Failed to save item");
     } finally {
@@ -328,7 +330,7 @@ export default function ItemForm() {
               </p>
             </div>
             <Link
-              to="/inventory/items"
+              to={returnTo}
               className="btn-success w-full md:w-auto text-center"
             >
               Back to List
@@ -837,7 +839,7 @@ export default function ItemForm() {
 
             <div className="flex flex-col-reverse md:flex-row justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
               <Link
-                to="/inventory/items"
+                to={returnTo}
                 className="btn-secondary w-full md:w-auto text-center"
               >
                 Cancel

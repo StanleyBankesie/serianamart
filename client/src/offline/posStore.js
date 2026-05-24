@@ -8,19 +8,15 @@ async function withStore(mode, callback) {
     const tx = db.transaction(POS_SALES_STORE, mode);
     const store = tx.objectStore(POS_SALES_STORE);
     callback(store, resolve, reject);
-    tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
 }
 
 export async function saveLocalSale(sale) {
   return withStore("readwrite", (store, resolve, reject) => {
-    const req = store.put({
-      ...sale,
-      updatedAt: Date.now(),
-    });
-    req.onsuccess = () => resolve(req.result);
+    const req = store.put({ ...sale, updatedAt: Date.now() });
     req.onerror = () => reject(req.error);
+    req.transaction.oncomplete = () => resolve(req.result);
   });
 }
 
@@ -50,8 +46,8 @@ export async function getAllLocalSales(status) {
 export async function deleteLocalSale(id) {
   return withStore("readwrite", (store, resolve, reject) => {
     const req = store.delete(id);
-    req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
+    req.transaction.oncomplete = () => resolve();
   });
 }
 

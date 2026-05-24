@@ -44,15 +44,9 @@ self.addEventListener("activate", (event) => {
 });
 
 function buildApiFallbackResponse(request) {
-  let path = null;
-  try {
-    const url = new URL(request.url);
-    path = url.searchParams.get("path");
-  } catch {}
   return new Response(
     JSON.stringify({
       message: "Network unavailable",
-      path,
       offline: true,
     }),
     {
@@ -67,6 +61,10 @@ function buildApiFallbackResponse(request) {
   );
 }
 
+function isApiRequest(url) {
+  return url.pathname.startsWith("/api") || /\/api\//.test(url.pathname);
+}
+
 async function staleWhileRevalidate(cacheName, request) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
@@ -78,7 +76,6 @@ async function staleWhileRevalidate(cacheName, request) {
         const canCache =
           t === "basic" ||
           t === "default" ||
-          // allow opaque only when request is same-origin path
           (t === "opaque" &&
             typeof request.url === "string" &&
             request.url.startsWith(self.location.origin));
@@ -86,7 +83,6 @@ async function staleWhileRevalidate(cacheName, request) {
           try {
             await cache.put(request, resp.clone());
           } catch (e) {
-            // swallow cache put errors (opaque, vary:*, etc.)
           }
         }
       }
@@ -104,7 +100,6 @@ if (!DEV_MODE) {
   const req = event.request;
   const url = new URL(req.url);
 
-  // Don't intercept cross-origin requests (e.g. API on a different domain)
   if (url.origin !== self.location.origin) return;
 
   if (req.mode === "navigate") {
@@ -138,7 +133,7 @@ if (!DEV_MODE) {
     return;
   }
 
-  if (url.pathname.startsWith("/api") && req.method === "GET") {
+  if (isApiRequest(url) && req.method === "GET") {
     event.respondWith(staleWhileRevalidate(API_CACHE, req));
     return;
   }

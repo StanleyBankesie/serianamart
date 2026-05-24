@@ -14,6 +14,14 @@ let snapshot = { pending: 0, failed: 0, completed: 0, items: [] };
 let isSyncing = false;
 let intervalId = null;
 
+function isOnline() {
+  try {
+    return navigator.onLine !== false;
+  } catch {
+    return true;
+  }
+}
+
 function emit(event, payload) {
   snapshot = payload?.snapshot || snapshot;
   for (const l of listeners) {
@@ -63,10 +71,10 @@ export async function queueMutation({ method, url, data, headers }) {
   await addQueueItem(item);
   await refreshSnapshot();
   emit("queued", { id, item, snapshot });
-  if (navigator.onLine) {
+  if (isOnline()) {
     processQueue();
   }
-  return { id, queued: true, offline: !navigator.onLine };
+  return { id, queued: true, offline: !isOnline() };
 }
 
 async function sendItem(item) {
@@ -96,30 +104,33 @@ async function sendItem(item) {
 export async function processQueue() {
   if (isSyncing) return;
   isSyncing = true;
-  const items = await getPendingItems();
-  for (const item of items) {
-    await sendItem(item);
+  try {
+    const items = await getPendingItems();
+    for (const item of items) {
+      await sendItem(item);
+    }
+    await refreshSnapshot();
+    emit("synced", { snapshot });
+  } finally {
+    isSyncing = false;
   }
-  await refreshSnapshot();
-  emit("synced", { snapshot });
-  isSyncing = false;
 }
 
 export function startSyncEngine() {
   window.addEventListener("online", () => {
-    retryAllFailed();
     processQueue();
   });
-  if (navigator.onLine) {
+  window.addEventListener("offline", () => {});
+  if (isOnline()) {
     processQueue();
   }
   if (!intervalId) {
     intervalId = setInterval(() => {
-      if (navigator.onLine) processQueue();
+      processQueue();
     }, 30000);
   }
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && navigator.onLine) {
+    if (document.visibilityState === "visible") {
       processQueue();
     }
   });

@@ -15,7 +15,12 @@ let preloaded = false;
 
 export function preloadPosData() {
   if (preloaded) return;
-  if (typeof navigator === "undefined" || !navigator.onLine) return;
+  if (typeof navigator === "undefined") return;
+  try {
+    if (navigator.onLine === false) return;
+  } catch {
+    return;
+  }
   preloaded = true;
   for (const url of POS_ENDPOINTS) {
     api.get(url).catch(() => {});
@@ -24,8 +29,6 @@ export function preloadPosData() {
 
 if (typeof window !== "undefined") {
   window.addEventListener("online", () => {
-    setTimeout(() => {
-      preloaded = false;
-    }, 1000);
+    preloaded = false;
   });
 }

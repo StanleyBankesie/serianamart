@@ -41,7 +41,7 @@ function FilterableSelect({
 export default function PosSalesEntry() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { canEditDiscount, canPerformAction } = usePermission();
+  const { canEditDiscount, canPerformAction, canAccessPath } = usePermission();
   const [now, setNow] = useState(new Date());
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState([]);
@@ -59,6 +59,7 @@ export default function PosSalesEntry() {
   const [priceTypesError, setPriceTypesError] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [showItemNotFound, setShowItemNotFound] = useState(false);
+  const [showNoPermission, setShowNoPermission] = useState(false);
   const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine !== false : true);
   const [saleTimestamp, setSaleTimestamp] = useState(null);
   const [paymentModes, setPaymentModes] = useState([]);
@@ -807,6 +808,15 @@ export default function PosSalesEntry() {
       return;
     }
     addEntryToCartForProduct(prod);
+  }
+
+  function handleRegisterItem() {
+    setShowItemNotFound(false);
+    if (canAccessPath("/inventory/items/new")) {
+      navigate("/inventory/items/new", { state: { from: "/pos/sales-entry" } });
+    } else {
+      setShowNoPermission(true);
+    }
   }
 
   function addToCart(prod) {
@@ -1847,6 +1857,56 @@ export default function PosSalesEntry() {
                 onClick={printReceipt}
               >
                 Print Receipt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showItemNotFound && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm mx-4">
+            <div className="text-lg font-bold text-red-600">Item Not Registered</div>
+            <p className="mt-2 text-sm text-slate-600">
+              The scanned item is not registered in the system.
+            </p>
+            <div className="mt-6 flex gap-2">
+              <button
+                type="button"
+                className="btn-secondary flex-1"
+                onClick={() => {
+                  setEntryBarcode("");
+                  setShowItemNotFound(false);
+                }}
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                className="btn-primary flex-1"
+                onClick={handleRegisterItem}
+              >
+                Register Item
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showNoPermission && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm mx-4">
+            <div className="text-lg font-bold text-red-600">Permission Denied</div>
+            <p className="mt-2 text-sm text-slate-600">
+              You do not have permission to register new items. Contact your administrator.
+            </p>
+            <div className="mt-6 flex justify-center">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setShowNoPermission(false)}
+              >
+                OK
               </button>
             </div>
           </div>
