@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Link, Route, Routes } from "react-router-dom";
 
 import PosReports from "./reports/PosReports.jsx";
 import PosCustomerHistory from "./reports/PosCustomerHistory.jsx";
