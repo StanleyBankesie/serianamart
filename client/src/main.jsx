@@ -20,7 +20,6 @@ async function clearPwaCachesOnce() {
       const names = await caches.keys();
       await Promise.all(names.map((n) => caches.delete(n)));
     }
-    window.location.reload();
   } catch {
     try {
       localStorage.setItem(key, "1");

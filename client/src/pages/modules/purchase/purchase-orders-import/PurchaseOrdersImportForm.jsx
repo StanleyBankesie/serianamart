@@ -62,6 +62,7 @@ export default function PurchaseOrdersImportForm() {
   const [standardPrices, setStandardPrices] = useState([]);
   const [taxes, setTaxes] = useState([]);
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
+  const [projects, setProjects] = useState([]);
   const [unitConversions, setUnitConversions] = useState([]);
   const pdfRef = useRef(null);
   const dataLoadedRef = useRef(false); // tracks whether existing PO data has been fetched
@@ -98,6 +99,7 @@ export default function PurchaseOrdersImportForm() {
     shipping_date: "",
     insurance_required: false,
     // Summary fields
+    project_id: "",
     freight_amount: 0,
     other_charges: 0,
     discount_amount: 0,
@@ -148,7 +150,7 @@ export default function PurchaseOrdersImportForm() {
     let mounted = true;
     async function loadLookups() {
       try {
-        const [supRes, whRes, itemsRes, quotRes, convRes, reqRes] =
+        const [supRes, whRes, itemsRes, quotRes, convRes, reqRes, projRes] =
           await Promise.allSettled([
             api.get("/purchase/suppliers"),
             api.get("/inventory/warehouses"),
@@ -162,6 +164,7 @@ export default function PurchaseOrdersImportForm() {
                 only_unlinked: 1,
               },
             }),
+            api.get("/projects/projects"),
           ]);
 
         if (!mounted) return;
@@ -217,36 +220,12 @@ export default function PurchaseOrdersImportForm() {
               : [],
           );
         }
-
-        if (supRes.status === "rejected" && quotRes.status === "fulfilled") {
-          const rawQuotations = Array.isArray(quotRes.value.data?.items)
-            ? quotRes.value.data.items
-            : [];
-          const seen = new Set();
-          const derivedSuppliers = [];
-          for (const q of rawQuotations) {
-            const sid = q.supplier_id;
-            if (sid && !seen.has(String(sid))) {
-              seen.add(String(sid));
-              derivedSuppliers.push({
-                id: sid,
-                supplier_name: q.supplier_name,
-                supplier_type: q.supplier_type || null,
-              });
-            }
-          }
-          if (derivedSuppliers.length) {
-            setSuppliers(derivedSuppliers);
-          }
-        }
-
-        if (
-          supRes.status === "rejected" &&
-          whRes.status === "rejected" &&
-          itemsRes.status === "rejected" &&
-          quotRes.status === "rejected"
-        ) {
-          setError("Failed to load lookups");
+        if (projRes.status === "fulfilled") {
+          setProjects(
+            Array.isArray(projRes.value.data?.items)
+              ? projRes.value.data.items
+              : [],
+          );
         }
       } catch (e) {
         if (!mounted) return;
@@ -505,6 +484,7 @@ export default function PurchaseOrdersImportForm() {
           discount_amount: Number(po.discount_amount) || 0,
           tax_amount: Number(po.tax_amount) || 0,
           terms_conditions: po.terms_conditions || formData.terms_conditions,
+          project_id: po.project_id || "",
         });
         // Mark data as loaded so the exchange rate effect no longer skips
         dataLoadedRef.current = true;
@@ -1005,6 +985,7 @@ export default function PurchaseOrdersImportForm() {
         payment_terms: Number(formData.payment_terms) || 0,
         delivery_terms: formData.delivery_terms || "",
         remarks: formData.remarks || "",
+        project_id: formData.project_id || null,
         port_loading: formData.port_loading || "",
         port_discharge: formData.port_discharge || "",
         incoterms: formData.incoterms || "",
@@ -1603,6 +1584,24 @@ export default function PurchaseOrdersImportForm() {
                     className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
                     readOnly
                   />
+                </div>
+                <div className="flex flex-col">
+                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5">
+                    Project
+                  </label>
+                  <select
+                    name="project_id"
+                    value={formData.project_id}
+                    onChange={handleInputChange}
+                    className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
+                  >
+                    <option value="">-- Select Project --</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.project_name || p.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

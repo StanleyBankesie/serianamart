@@ -73,7 +73,7 @@ export default function PosPostToFinance() {
   const [transactions, setTransactions] = useState([]);
   const [allAccounts, setAllAccounts] = useState([]);
   const [selectedReturnsAccount, setSelectedReturnsAccount] = useState("");
-  const [selectedSalesAccount, setSelectedSalesAccount] = useState("");
+  const [selectedSalesAccount, setSelectedSalesAccount] = useState("123");
 
   const [denomCounts, setDenomCounts] = useState(DENOMINATIONS.map(() => 0));
 

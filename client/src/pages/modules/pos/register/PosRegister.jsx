@@ -17,7 +17,7 @@ function FilterableSelect({
   return (
     <div>
       <select
-        className="input"
+        className="input w-full"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
@@ -129,6 +129,7 @@ export default function PosRegister() {
             items: [],
             total_amount: Number(it.total_amount || 0),
             items_count: Number(it.items_count || 0),
+            has_returns: Boolean(it.has_returns),
           };
         });
         setTransactions(mapped);
@@ -237,6 +238,7 @@ export default function PosRegister() {
         name: String(d.item_name || ""),
         price: Number(d.unit_price || 0),
         quantity: Number(d.qty || 0),
+        returned_qty: Number(d.returned_qty || 0),
       }));
       setSelected({ ...t, items });
     } catch {
@@ -291,8 +293,8 @@ export default function PosRegister() {
 
       <div className="card">
         <div className="card-body flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-          <div className="grid grid-cols-1 md:grid-cols-6 gap-3 flex-1">
-            <div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 flex-1">
+            <div className="min-w-0">
               <label className="label">Terminal</label>
               <FilterableSelect
                 value={terminalCode}
@@ -313,25 +315,25 @@ export default function PosRegister() {
                 filterPlaceholder="Filter terminals..."
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="label">From</label>
               <input
                 type="date"
-                className="input"
+                className="input w-full"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="label">To</label>
               <input
                 type="date"
-                className="input"
+                className="input w-full"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="label">Status</label>
               <FilterableSelect
                 value={statusFilter}
@@ -345,7 +347,7 @@ export default function PosRegister() {
                 filterPlaceholder="Filter status..."
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="label">Payment</label>
               <FilterableSelect
                 value={paymentFilter}
@@ -359,10 +361,10 @@ export default function PosRegister() {
                 filterPlaceholder="Filter payments..."
               />
             </div>
-            <div className="md:col-span-2">
+            <div className="min-w-0 md:col-span-2">
               <label className="label">Search</label>
               <input
-                className="input"
+                className="input w-full"
                 placeholder="Search receipt or customer"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -417,7 +419,12 @@ export default function PosRegister() {
                       onClick={() => openDetails(t)}
                       className="cursor-pointer"
                     >
-                      <td className="font-medium">{t.receiptNo}</td>
+                      <td className="font-medium">
+                        {t.receiptNo}
+                        {t.has_returns && (
+                          <span className="ml-1 badge badge-warning text-[10px]">RTN</span>
+                        )}
+                      </td>
                       <td>
                         {t.date}
                         <div className="text-xs text-slate-500">{t.time}</div>
@@ -572,6 +579,11 @@ export default function PosRegister() {
                       <div className="font-medium">{it.name}</div>
                       <div className="text-xs text-slate-600">
                         {it.quantity} × GH₵ {Number(it.price).toFixed(2)}
+                        {it.returned_qty > 0 && (
+                          <span className="ml-2 text-red-500">
+                            ( {it.returned_qty} returned )
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="font-semibold">
@@ -610,6 +622,7 @@ export default function PosRegister() {
           </div>
         </div>
       )}
+
     </div>
   );
 }

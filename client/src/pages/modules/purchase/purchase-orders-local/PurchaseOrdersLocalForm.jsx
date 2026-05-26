@@ -64,6 +64,7 @@ export default function PurchaseOrdersLocalForm() {
   const [unitConversions, setUnitConversions] = useState([]);
   const [taxes, setTaxes] = useState([]);
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
+  const [projects, setProjects] = useState([]);
   const pdfRef = useRef(null);
   const dataLoadedRef = useRef(false); // tracks whether existing PO data has been fetched
 
@@ -90,6 +91,7 @@ export default function PurchaseOrdersLocalForm() {
     shipping_date: "",
     insurance_required: false,
     // Summary fields
+    project_id: "",
     freight_amount: 0,
     other_charges: 0,
     discount_amount: 0,
@@ -147,7 +149,7 @@ export default function PurchaseOrdersLocalForm() {
     let mounted = true;
     async function loadLookups() {
       try {
-        const [supRes, whRes, itemsRes, quotRes, convRes, reqRes] =
+        const [supRes, whRes, itemsRes, quotRes, convRes, reqRes, projRes] =
           await Promise.allSettled([
             api.get("/purchase/suppliers"),
             api.get("/inventory/warehouses"),
@@ -161,6 +163,7 @@ export default function PurchaseOrdersLocalForm() {
                 only_unlinked: 1,
               },
             }),
+            api.get("/projects/projects"),
           ]);
 
         if (!mounted) return;
@@ -210,6 +213,13 @@ export default function PurchaseOrdersLocalForm() {
           setApprovedItemRequisitions(
             Array.isArray(reqRes.value.data?.items)
               ? reqRes.value.data.items
+              : [],
+          );
+        }
+        if (projRes.status === "fulfilled") {
+          setProjects(
+            Array.isArray(projRes.value.data?.items)
+              ? projRes.value.data.items
               : [],
           );
         }
@@ -497,6 +507,7 @@ export default function PurchaseOrdersLocalForm() {
           discount_amount: Number(po.discount_amount) || 0,
           tax_amount: Number(po.tax_amount) || 0,
           terms_conditions: po.terms_conditions || formData.terms_conditions,
+          project_id: po.project_id || "",
         });
         // Mark data as loaded so the exchange rate effect no longer skips
         dataLoadedRef.current = true;
@@ -966,6 +977,7 @@ export default function PurchaseOrdersLocalForm() {
         payment_type: String(formData.payment_type || "CASH"),
         payment_terms: Number(formData.payment_terms) || 0,
         remarks: formData.remarks || "",
+        project_id: formData.project_id || null,
         port_loading: formData.port_loading || "",
         port_discharge: formData.port_discharge || "",
         incoterms: formData.incoterms || "",
@@ -1693,6 +1705,24 @@ export default function PurchaseOrdersLocalForm() {
                     className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
                     readOnly
                   />
+                </div>
+                <div className="flex flex-col">
+                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5">
+                    Project
+                  </label>
+                  <select
+                    name="project_id"
+                    value={formData.project_id}
+                    onChange={handleInputChange}
+                    className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
+                  >
+                    <option value="">-- Select Project --</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.project_name || p.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

@@ -139,6 +139,8 @@ export default function ReceiptVoucherForm() {
   const [currencies, setCurrencies] = useState([]);
   const [dncnExchangeRate, setDncnExchangeRate] = useState("");
   const [rvItemExchangeRates, setRvItemExchangeRates] = useState({});
+  const [projects, setProjects] = useState([]);
+  const [projectId, setProjectId] = useState("");
   const { getExchangeRate } = useExchangeRate();
   const baseCurrency = useMemo(() => {
     const arr = Array.isArray(currencies) ? currencies : [];
@@ -179,7 +181,7 @@ export default function ReceiptVoucherForm() {
       };
       const formParam = formIdMap[vTypeCode] || null;
 
-      const [vtRes, fyRes, accRes, taxRes, custRes, supRes, curRes] =
+      const [vtRes, fyRes, accRes, taxRes, custRes, supRes, curRes, projRes] =
         await Promise.all([
           api.get("/finance/voucher-types"),
           api.get("/finance/fiscal-years"),
@@ -188,6 +190,7 @@ export default function ReceiptVoucherForm() {
           api.get("/sales/customers?active=true"),
           api.get("/purchase/suppliers?active=true"),
           api.get("/finance/currencies"),
+          api.get("/projects/projects"),
         ]);
       const vt = vtRes.data?.items || [];
       const fys = fyRes.data?.items || [];
@@ -231,6 +234,7 @@ export default function ReceiptVoucherForm() {
       setPayees(combinedPayees);
       setCurrencies(currs);
       setSuppliers(suppliers);
+      setProjects(projRes.data?.items || []);
 
       if (!fiscalYearId && fys.length) setFiscalYearId(String(fys[0].id));
     } catch (e) {
@@ -494,6 +498,7 @@ export default function ReceiptVoucherForm() {
         );
       }
       setNarration(v.narration || data.voucher?.narration || "");
+      setProjectId(v.project_id || data.voucher?.project_id || "");
       setVoucherHeaderAmounts({
         totalDebit: Number(v.total_debit || 0),
         totalCredit: Number(v.total_credit || 0),
@@ -1791,6 +1796,7 @@ export default function ReceiptVoucherForm() {
                       .join(" | ")
                   : narration,
         lines: cleaned,
+        projectId: projectId || null,
       };
 
       if (isEdit) {
@@ -3588,14 +3594,6 @@ export default function ReceiptVoucherForm() {
                   </div>
                 )}
                 <div>
-                  <label className="label">Voucher No</label>
-                  <input
-                    className="input md:w-64"
-                    value={voucherNoPreview || "RV-000001"}
-                    disabled
-                  />
-                </div>
-                <div>
                   <label className="label">Voucher Date *</label>
                   <input
                     className={`input ${disabledClass}`}
@@ -3605,6 +3603,22 @@ export default function ReceiptVoucherForm() {
                     required
                     disabled={readOnly}
                   />
+                </div>
+                <div>
+                  <label className="label">Project</label>
+                  <select
+                    className="input"
+                    value={projectId}
+                    onChange={(e) => setProjectId(e.target.value)}
+                    disabled={readOnly}
+                  >
+                    <option value="">-- Select Project --</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.project_name || p.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 {!(isPAYV || isRV) && (
                   <div>

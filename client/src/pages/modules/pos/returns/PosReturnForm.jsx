@@ -33,12 +33,15 @@ function FilterableSelect({
 export default function PosReturnForm() {
   const [now, setNow] = useState(new Date());
   const [searchSaleId, setSearchSaleId] = useState("");
-  const [searchDate, setSearchDate] = useState(new Date().toISOString().slice(0, 10));
+  const [searchDate, setSearchDate] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
   const [searchPhone, setSearchPhone] = useState("");
   const [searchPayment, setSearchPayment] = useState("");
   const [receiptsLoading, setReceiptsLoading] = useState(false);
   const [currentReceipt, setCurrentReceipt] = useState(null);
   const [returnItems, setReturnItems] = useState([]);
+  const [returnReasons, setReturnReasons] = useState([]);
   const [refundMethod, setRefundMethod] = useState("cash");
   const [notes, setNotes] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -63,6 +66,47 @@ export default function PosReturnForm() {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    api
+      .get("/pos/return-reasons")
+      .then((res) => {
+        if (!mounted) return;
+        const rows = Array.isArray(res.data?.items) ? res.data.items : [];
+        const list = rows
+          .map((r) => String(r.reason || "").trim())
+          .filter(Boolean);
+        setReturnReasons(list);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setReturnReasons([
+          "Defective",
+          "Wrong Item",
+          "Damaged",
+          "Unwanted",
+          "Other",
+        ]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const reasonOptions = useMemo(() => {
+    const base = Array.isArray(returnReasons) ? returnReasons : [];
+    const cleaned = Array.from(
+      new Set(base.map((r) => String(r || "").trim()).filter(Boolean)),
+    );
+    if (!cleaned.some((r) => r.toLowerCase() === "other"))
+      cleaned.push("Other");
+    return cleaned;
+  }, [returnReasons]);
+
+  const defaultReason = useMemo(() => {
+    return reasonOptions[0] || "Defective";
+  }, [reasonOptions]);
 
   useEffect(() => {
     let cancelled = false;
@@ -226,12 +270,13 @@ export default function PosReturnForm() {
               : [];
           const mapped = rows.map((it) => ({
             id: it.id,
-            receiptNo: String(it.sale_no || ""),
+            receiptNo: String(it.receipt_no || it.sale_no || ""),
             date: String(it.sale_date || "").slice(0, 10),
             customer: String(it.customer_id || ""),
             payment: String(it.payment_method || "").replace(/^./, (c) =>
               c.toUpperCase(),
             ),
+            has_returns: Boolean(it.has_returns),
           }));
           setReceipts(mapped);
         } catch {
@@ -282,12 +327,13 @@ export default function PosReturnForm() {
         if (cancelled) return;
         const mapped = rows.map((it) => ({
           id: it.id,
-          receiptNo: String(it.sale_no || ""),
+          receiptNo: String(it.receipt_no || it.sale_no || ""),
           date: String(it.sale_date || "").slice(0, 10),
           customer: String(it.customer_id || ""),
           payment: String(it.payment_method || "").replace(/^./, (c) =>
             c.toUpperCase(),
           ),
+          has_returns: Boolean(it.has_returns),
         }));
         setReceipts(mapped);
       } catch {
@@ -319,11 +365,13 @@ export default function PosReturnForm() {
     try {
       const res = await api.get(`/pos/sales/${match.id}`);
       const details = Array.isArray(res.data?.details) ? res.data.details : [];
-      const items = details.map((d, idx) => ({
-        id: idx + 1,
+      const items = details.map((d) => ({
+        id: Number(d.sale_line_id || d.id || 0),
+        itemId: d.item_id ? Number(d.item_id) : null,
         name: String(d.item_name || ""),
         price: Number(d.unit_price || 0),
         quantity: Number(d.qty || 0),
+        returned_qty: Number(d.returned_qty || 0),
       }));
       setCurrentReceipt({ ...match, items });
       setReturnItems([]);
@@ -337,6 +385,8 @@ export default function PosReturnForm() {
     if (!currentReceipt) return;
     const item = currentReceipt.items.find((i) => i.id === itemId);
     if (!item) return;
+    const remaining = item.quantity - (item.returned_qty || 0);
+    if (checked && remaining <= 0) return;
     if (checked) {
       (async () => {
         const prod =
@@ -354,11 +404,12 @@ export default function PosReturnForm() {
           : item.price;
         const entry = {
           id: item.id,
+          itemId: item.itemId,
           name: item.name,
           price: resolvedPrice,
           soldQty: item.quantity,
           returnQuantity: 1,
-          reason: "defective",
+          reason: defaultReason,
         };
         setReturnItems((prev) => {
           const idx = prev.findIndex((p) => p.id === itemId);
@@ -397,24 +448,46 @@ export default function PosReturnForm() {
     setReturnItems([]);
   }
 
-  function processReturn() {
-    if (!returnItems.length) return;
-    const ref = "RTN-" + Date.now();
-    const ts = new Date();
-    setModalData({
-      amount: totalRefund,
-      method:
-        refundMethod === "cash"
-          ? "Cash"
-          : refundMethod === "card"
-            ? "Card Refund"
-            : refundMethod === "mobile"
-              ? "Mobile Money"
-              : "Store Credit",
-      ref,
-    });
-    setReturnTimestamp(ts);
-    setShowModal(true);
+  async function processReturn() {
+    if (!returnItems.length || !currentReceipt) return;
+    try {
+      const payload = {
+        saleId: currentReceipt.id,
+        receiptNo: currentReceipt.receiptNo || currentReceipt.sale_no || "RTN-" + Date.now(),
+        returnItems: returnItems.map((i) => ({
+          saleLineId: i.id,
+          itemId: i.itemId,
+          itemName: i.name,
+          returnQuantity: i.returnQuantity,
+          unitPrice: i.price,
+          reason: i.reason || "",
+        })),
+        refundMethod: refundMethod.toUpperCase(),
+        notes,
+        totalRefund,
+      };
+      const res = await api.post("/pos/returns", payload);
+      if (res.data?.success) {
+        const ref = "RTN-" + res.data.returnId;
+        const ts = new Date();
+        setModalData({
+          amount: totalRefund,
+          method:
+            refundMethod === "cash"
+              ? "Cash"
+              : refundMethod === "card"
+                ? "Card Refund"
+                : refundMethod === "mobile"
+                  ? "Mobile Money"
+                  : "Store Credit",
+          ref,
+        });
+        setReturnTimestamp(ts);
+        setShowModal(true);
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || "Return failed");
+    }
   }
 
   function closeModal() {
@@ -483,7 +556,7 @@ export default function PosReturnForm() {
         )}</span></div>
         <div class="row"><span>Original Receipt:</span><span>${String(
           currentReceipt.receiptNo || "-",
-        )}</span></div>
+        )}${currentReceipt.date ? ` • ${String(currentReceipt.date)}` : ""}</span></div>
         <div class="row"><span>Sale Date:</span><span>${String(
           currentReceipt.date || "-",
         )}</span></div>
@@ -572,7 +645,7 @@ export default function PosReturnForm() {
         return true;
       })
       .map((r) => {
-        const no = String(r.receiptNo || "-");
+        const no = String(r.receiptNo || r.id || "-");
         const dt = String(r.date || "");
         const label = dt ? `${no} • ${dt}` : no;
         return { value: String(r.id), label };
@@ -665,7 +738,7 @@ export default function PosReturnForm() {
                     filterPlaceholder="Filter receipts..."
                   />
                 </div>
-                <div style={{ display: 'none' }}>
+                <div style={{ display: "none" }}>
                   <label className="label">Customer Phone</label>
                   <input
                     className="input"
@@ -720,7 +793,9 @@ export default function PosReturnForm() {
                     <div className="flex justify-between">
                       <div className="text-slate-500">Receipt Number</div>
                       <div className="font-medium">
-                        {currentReceipt.receiptNo}
+                        {currentReceipt.date
+                          ? `${currentReceipt.receiptNo} • ${currentReceipt.date}`
+                          : currentReceipt.receiptNo}
                       </div>
                     </div>
                     <div className="flex justify-between">
@@ -766,7 +841,7 @@ export default function PosReturnForm() {
                         <th>Return</th>
                         <th>Item Name</th>
                         <th className="text-right">Price</th>
-                        <th className="text-right">Sold Qty</th>
+                        <th className="text-right">Qty</th>
                         <th className="text-right">Return Qty</th>
                         <th>Reason</th>
                       </tr>
@@ -792,13 +867,20 @@ export default function PosReturnForm() {
                             <td className="text-right">
                               {`GH₵ ${Number(item.price).toFixed(2)}`}
                             </td>
-                            <td className="text-right">{item.quantity}</td>
+                            <td className="text-right">
+                              {item.quantity}
+                              {item.returned_qty > 0 && (
+                                <span className="text-red-500 text-xs ml-1">
+                                  ({item.returned_qty} returned)
+                                </span>
+                              )}
+                            </td>
                             <td className="text-right">
                               <input
                                 type="number"
                                 className="input w-24 text-right"
                                 min={1}
-                                max={item.quantity}
+                                max={Math.max(0, item.quantity - item.returned_qty)}
                                 value={selected ? selected.returnQuantity : 1}
                                 disabled={!selected}
                                 onChange={(e) =>
@@ -809,17 +891,19 @@ export default function PosReturnForm() {
                             <td>
                               <select
                                 className="input"
-                                value={selected ? selected.reason : "defective"}
+                                value={
+                                  selected ? selected.reason : defaultReason
+                                }
                                 disabled={!selected}
                                 onChange={(e) =>
                                   updateReason(item.id, e.target.value)
                                 }
                               >
-                                <option value="defective">Defective</option>
-                                <option value="wrong">Wrong Item</option>
-                                <option value="damaged">Damaged</option>
-                                <option value="unwanted">Unwanted</option>
-                                <option value="other">Other</option>
+                                {reasonOptions.map((r) => (
+                                  <option key={r} value={r}>
+                                    {r}
+                                  </option>
+                                ))}
                               </select>
                             </td>
                           </tr>

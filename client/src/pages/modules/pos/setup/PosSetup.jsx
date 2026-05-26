@@ -2186,6 +2186,9 @@ function GeneralSettingsTab() {
   const [autoLogoutAfterShiftClose, setAutoLogoutAfterShiftClose] =
     useState(false);
   const [autoPrintReceipt, setAutoPrintReceipt] = useState(false);
+  const [returnReasons, setReturnReasons] = useState([]);
+  const [returnReasonsLoading, setReturnReasonsLoading] = useState(false);
+  const [newReturnReason, setNewReturnReason] = useState("");
 
   useEffect(() => {
     try {
@@ -2210,6 +2213,32 @@ function GeneralSettingsTab() {
     } catch {}
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    setReturnReasonsLoading(true);
+    api
+      .get("/pos/return-reasons")
+      .then((res) => {
+        if (!mounted) return;
+        const rows = Array.isArray(res.data?.items) ? res.data.items : [];
+        const list = rows
+          .map((r) => String(r.reason || "").trim())
+          .filter(Boolean);
+        setReturnReasons(list);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setReturnReasons(["Defective", "Wrong Item", "Damaged", "Unwanted", "Other"]);
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setReturnReasonsLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   function saveGeneralSettings() {
     const payload = {
       defaultCurrency,
@@ -2226,6 +2255,46 @@ function GeneralSettingsTab() {
       toast.success("General settings saved");
     } catch {
       toast.error("Failed to save general settings");
+    }
+  }
+
+  function addReturnReason() {
+    const r = String(newReturnReason || "").trim();
+    if (!r) return;
+    setReturnReasons((prev) => {
+      const next = Array.isArray(prev) ? prev.slice() : [];
+      if (!next.some((x) => String(x).toLowerCase() === r.toLowerCase())) {
+        next.push(r);
+      }
+      next.sort((a, b) => String(a).localeCompare(String(b)));
+      return next;
+    });
+    setNewReturnReason("");
+  }
+
+  function removeReturnReason(reason) {
+    const r = String(reason || "");
+    setReturnReasons((prev) => (Array.isArray(prev) ? prev.filter((x) => String(x) !== r) : []));
+  }
+
+  async function saveReturnReasons() {
+    const list = Array.isArray(returnReasons) ? returnReasons : [];
+    const cleaned = Array.from(
+      new Set(list.map((r) => String(r || "").trim()).filter(Boolean)),
+    );
+    if (!cleaned.length) {
+      toast.warn("Add at least one return reason");
+      return;
+    }
+    try {
+      setReturnReasonsLoading(true);
+      await api.put("/pos/return-reasons", { reasons: cleaned });
+      toast.success("Return reasons saved");
+      setReturnReasons(cleaned.sort((a, b) => String(a).localeCompare(String(b))));
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to save return reasons");
+    } finally {
+      setReturnReasonsLoading(false);
     }
   }
 
@@ -2327,6 +2396,71 @@ function GeneralSettingsTab() {
               onClick={saveGeneralSettings}
             >
               Save General Settings
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-body space-y-4">
+          <div className="text-lg font-semibold text-slate-900">
+            Return Reasons
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="label">Add Reason</label>
+              <div className="flex gap-2">
+                <input
+                  className="input flex-1"
+                  value={newReturnReason}
+                  onChange={(e) => setNewReturnReason(e.target.value)}
+                  placeholder="e.g., Expired, Incorrect Price"
+                  disabled={returnReasonsLoading}
+                />
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={addReturnReason}
+                  disabled={returnReasonsLoading}
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+            <div className="md:col-span-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {(Array.isArray(returnReasons) ? returnReasons : []).map((r) => (
+                  <div
+                    key={r}
+                    className="flex items-center justify-between gap-2 p-2 rounded border border-slate-200 bg-white"
+                  >
+                    <div className="text-sm text-slate-800">{r}</div>
+                    <button
+                      type="button"
+                      className="btn btn-xs btn-danger"
+                      onClick={() => removeReturnReason(r)}
+                      disabled={returnReasonsLoading}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                {!returnReasonsLoading &&
+                  (!Array.isArray(returnReasons) || returnReasons.length === 0) && (
+                    <div className="text-sm text-slate-500">
+                      No reasons yet. Add at least one.
+                    </div>
+                  )}
+              </div>
+            </div>
+          </div>
+          <div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={saveReturnReasons}
+              disabled={returnReasonsLoading}
+            >
+              Save Return Reasons
             </button>
           </div>
         </div>

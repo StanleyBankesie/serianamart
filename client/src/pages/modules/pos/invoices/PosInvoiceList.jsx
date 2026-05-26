@@ -60,9 +60,14 @@ export default function PosInvoiceList() {
   const [now, setNow] = useState(new Date());
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
+  const [toDate, setToDate] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
   const [status, setStatus] = useState("ALL");
+  const [paymentMethod, setPaymentMethod] = useState("ALL");
   const [searchTerm, setSearchTerm] = useState("");
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [terminalCode, setTerminalCode] = useState("");
@@ -246,18 +251,22 @@ export default function PosInvoiceList() {
     let base = items.filter((it) => {
       const statusMatch =
         status === "ALL" ? true : String(it.payment_status || "") === status;
+      const paymentMatch =
+        paymentMethod === "ALL"
+          ? true
+          : String(it.payment_method || "").toUpperCase() === paymentMethod;
       const d = String(it.sale_date || "").slice(0, 10);
       const fromOk = fromDate ? d >= fromDate : true;
       const toOk = toDate ? d <= toDate : true;
-      return statusMatch && fromOk && toOk;
+      return statusMatch && paymentMatch && fromOk && toOk;
     });
     const q = String(searchTerm || "").trim();
     if (!q) return base;
     return filterAndSort(base, {
       query: q,
-      getKeys: (it) => [it.sale_no, it.customer_id],
+      getKeys: (it) => [it.sale_no, it.receipt_no, it.customer_name],
     });
-  }, [items, searchTerm, status, fromDate, toDate]);
+  }, [items, searchTerm, status, paymentMethod, fromDate, toDate]);
 
   const totals = useMemo(() => {
     const count = filtered.length;
@@ -805,11 +814,11 @@ export default function PosInvoiceList() {
 
       <div className="card">
         <div className="card-body flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-          <div className="grid grid-cols-1 md:grid-cols-6 gap-3 flex-1">
-            <div>
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 flex-1">
+            <div className="md:col-span-3">
               <label className="label">Terminal</label>
               <select
-                className="input"
+                className="input w-full"
                 value={terminalCode}
                 onChange={(e) => setTerminalCode(e.target.value)}
                 disabled={terminalsLoading}
@@ -829,28 +838,28 @@ export default function PosInvoiceList() {
                 ))}
               </select>
             </div>
-            <div>
+            <div className="md:col-span-2">
               <label className="label">From</label>
               <input
                 type="date"
-                className="input"
+                className="input w-full"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
               />
             </div>
-            <div>
+            <div className="md:col-span-2">
               <label className="label">To</label>
               <input
                 type="date"
-                className="input"
+                className="input w-full"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
               />
             </div>
-            <div>
+            <div className="md:col-span-2">
               <label className="label">Status</label>
               <select
-                className="input"
+                className="input w-full"
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
               >
@@ -859,10 +868,23 @@ export default function PosInvoiceList() {
                 <option value="PENDING">Pending</option>
               </select>
             </div>
-            <div className="md:col-span-2">
+            <div className="md:col-span-3">
+              <label className="label">Payment</label>
+              <select
+                className="input w-full"
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+              >
+                <option value="ALL">All Payments</option>
+                <option value="CASH">Cash</option>
+                <option value="CARD">Card</option>
+                <option value="MOBILE">Mobile Money</option>
+              </select>
+            </div>
+            <div className="md:col-span-12">
               <label className="label">Search</label>
               <input
-                className="input"
+                className="input w-full"
                 placeholder="Search invoice no or customer"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -911,19 +933,19 @@ export default function PosInvoiceList() {
                 <th>Customer</th>
                 <th className="text-right">Amount</th>
                 <th>Status</th>
+                <th>Created By</th>
+                <th>Created At</th>
                 <th>Actions</th>
-                            <th>Created By</th>
-              <th>Created Date</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="5">Loading...</td>
+                  <td colSpan="8">Loading...</td>
                 </tr>
               ) : !filtered.length ? (
                 <tr>
-                  <td colSpan="6">
+                  <td colSpan="8">
                     <div className="text-center text-slate-600 py-6">
                       No invoices found
                     </div>
@@ -932,13 +954,15 @@ export default function PosInvoiceList() {
               ) : (
                 filtered.map((it) => (
                   <tr key={it.id} className="border-t">
-                    <td className="font-medium">{it.sale_no}</td>
+                    <td className="font-medium">
+                      {it.sale_no || it.receipt_no || "-"}
+                    </td>
                     <td>
                       {String(it.sale_date || "")
                         .replace("T", " ")
                         .slice(0, 16)}
                     </td>
-                    <td>{it.customer_id ? `#${it.customer_id}` : "-"}</td>
+                    <td>{String(it.customer_name || "-")}</td>
                     <td className="text-right">
                       {`GH₵ ${Number(it.total_amount || 0).toFixed(2)}`}
                     </td>
@@ -952,6 +976,12 @@ export default function PosInvoiceList() {
                       >
                         {String(it.payment_status || "")}
                       </span>
+                    </td>
+                    <td>{String(it.created_by_name || "-")}</td>
+                    <td>
+                      {String(it.created_at || it.sale_date || "")
+                        .replace("T", " ")
+                        .slice(0, 16) || "-"}
                     </td>
                     <td>
                       <div className="flex gap-2">

@@ -19,17 +19,35 @@ const ModuleDashboard = ({
   const { canAccessPath, canAccessFeatureKey, canViewDashboardElement } =
     usePermission();
 
+  const isDashboardPath = (path) => {
+    const parts = String(path || "").split("/").filter(Boolean);
+    const last = String(parts[parts.length - 1] || "");
+    return last.toLowerCase() === "dashboard";
+  };
+
   // Auto-inject a Dashboard button if the module has registered dashboards
   const resolvedHeaderActions = useMemo(() => {
     const actions = Array.isArray(headerActions) ? [...headerActions] : [];
     const mk = moduleKey || (location.pathname.split("/").filter(Boolean)[0] || "");
     const moduleInfo = MODULES_REGISTRY[mk];
     const hasDashboards = moduleInfo && moduleInfo.dashboards && moduleInfo.dashboards.length > 0;
-    if (mk && hasDashboards && !actions.some((a) => String(a.path || "") === `/${mk}/dashboard`)) {
+    if (
+      mk &&
+      hasDashboards &&
+      canAccessPath(`/${mk}/dashboard`) &&
+      canViewDashboardElement(mk, "dashboard", "dashboard") &&
+      !actions.some((a) => String(a.path || "") === `/${mk}/dashboard`)
+    ) {
       actions.push({ label: "Dashboard", path: `/${mk}/dashboard`, icon: "📊" });
     }
-    return actions;
-  }, [headerActions, moduleKey, location.pathname]);
+    return actions.filter((a) => {
+      const p = String(a?.path || "");
+      if (mk && isDashboardPath(p)) {
+        return canViewDashboardElement(mk, "dashboard", "dashboard") !== false;
+      }
+      return true;
+    });
+  }, [headerActions, moduleKey, location.pathname, canAccessPath, canViewDashboardElement]);
   const [searchTerm, setSearchTerm] = useState("");
 
   const handleNavigate = (path, e) => {
@@ -77,6 +95,9 @@ const ModuleDashboard = ({
     const fk = String(item.feature_key || parts[1] || "");
 
     if (showAll) return true;
+    if (mk && isDashboardPath(path)) {
+      return canViewDashboardElement(mk, "dashboard", "dashboard") === true;
+    }
     if (mk && fk) {
       if (canAccessFeatureKey(mk, fk)) return true;
       if (!item.feature_key && parts.length > 2) {

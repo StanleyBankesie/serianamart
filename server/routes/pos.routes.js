@@ -13,6 +13,7 @@ import * as posController from "../controllers/pos.controller.js";
 import {
   consumeStockFIFOTx,
   ensureStockBalancesWarehouseInfrastructure,
+  recordMovementTx,
 } from "../services/stock.service.js";
 import { ensureCustomerFinAccountIdTx } from "../controllers/finance.controller.js";
 import multer from "multer";
@@ -603,6 +604,49 @@ async function ensurePosTables() {
     );
   }
 
+  if (!(await hasColumn("pos_sale_lines", "returned_qty"))) {
+    await query(
+      "ALTER TABLE pos_sale_lines ADD COLUMN returned_qty DECIMAL(18,3) NOT NULL DEFAULT 0 AFTER qty",
+    );
+  }
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS pos_returns (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      sale_id BIGINT UNSIGNED NOT NULL,
+      receipt_no VARCHAR(50) NOT NULL,
+      return_datetime DATETIME NOT NULL,
+      refund_method ENUM('CASH','CARD','MOBILE') NOT NULL DEFAULT 'CASH',
+      total_refund DECIMAL(18,2) NOT NULL DEFAULT 0,
+      notes TEXT NULL,
+      created_by BIGINT UNSIGNED NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_pos_return_company (company_id),
+      KEY idx_pos_return_branch (branch_id),
+      KEY idx_pos_return_sale (sale_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS pos_return_lines (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      return_id BIGINT UNSIGNED NOT NULL,
+      sale_line_id BIGINT UNSIGNED NOT NULL,
+      item_id BIGINT UNSIGNED NULL,
+      item_name VARCHAR(150) NOT NULL,
+      qty DECIMAL(18,3) NOT NULL DEFAULT 0,
+      unit_price DECIMAL(18,2) NOT NULL DEFAULT 0,
+      line_total DECIMAL(18,2) NOT NULL DEFAULT 0,
+      reason VARCHAR(255) NULL,
+      PRIMARY KEY (id),
+      KEY idx_pos_return_line_return (return_id),
+      KEY idx_pos_return_line_item (item_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
   await query(`
     CREATE TABLE IF NOT EXISTS pos_day_status (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -736,6 +780,22 @@ async function ensurePosTables() {
       "ALTER TABLE pos_receipt_settings ADD COLUMN company_name VARCHAR(255) NULL AFTER branch_id",
     );
   }
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS pos_return_reasons (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      reason VARCHAR(150) NOT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_pos_return_reason (company_id, branch_id, reason),
+      KEY idx_pos_return_reason_company (company_id),
+      KEY idx_pos_return_reason_branch (branch_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
 }
 
 async function ensurePosSessionPostingTables() {
@@ -1086,6 +1146,7 @@ router.get(
           p.tax_amount,
           p.net_amount AS total_amount,
           (SELECT COUNT(*) FROM pos_sale_lines l WHERE l.sale_id = p.id) AS items_count,
+          (SELECT COALESCE(SUM(l.returned_qty), 0) > 0 FROM pos_sale_lines l WHERE l.sale_id = p.id) AS has_returns,
           CASE WHEN p.status = 'COMPLETED' THEN 'PAID' ELSE 'UNPAID' END AS payment_status,
           COALESCE(t.code, '') AS terminal_code,
           COALESCE(t.warehouse, '') AS warehouse
@@ -1720,12 +1781,13 @@ router.get(
              ELSE status 
            END AS payment_status,
            payment_method,
+           (SELECT COALESCE(SUM(l.returned_qty), 0) > 0 FROM pos_sale_lines l WHERE l.sale_id = ps.id) AS has_returns,
           created_at,
           u.username AS created_by_name
-         FROM pos_sales
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND branch_id = :branchId${terminalFilterSql}
-         ORDER BY sale_datetime DESC
+         FROM pos_sales ps
+        LEFT JOIN adm_users u ON u.id = ps.created_by
+         WHERE ps.company_id = :companyId AND ps.branch_id = :branchId${terminalFilterSql}
+         ORDER BY ps.sale_datetime DESC
          LIMIT ${limit}`,
         finalParams,
       );
@@ -1774,7 +1836,7 @@ router.get(
       );
       if (!items.length) throw httpError(404, "NOT_FOUND", "Sale not found");
       const details = await query(
-        `SELECT item_name, qty, unit_price, line_total,
+        `SELECT id AS sale_line_id, item_id, item_name, qty, returned_qty, unit_price, line_total,
           created_at,
           u.username AS created_by_name
          FROM pos_sale_lines
@@ -1786,6 +1848,115 @@ router.get(
       res.json({ item: items[0], details });
     } catch (err) {
       next(err);
+    }
+  },
+);
+
+router.post(
+  "/returns",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId } = req.scope;
+      const userId = req.user?.id;
+      const {
+        saleId,
+        receiptNo,
+        returnItems,
+        refundMethod,
+        notes,
+        totalRefund,
+      } = req.body;
+
+      const refundMethodEnum = ["CASH", "CARD", "MOBILE"].includes(
+        String(refundMethod || "").toUpperCase(),
+      )
+        ? String(refundMethod).toUpperCase()
+        : "CASH";
+
+      if (!saleId) throw httpError(400, "VALIDATION_ERROR", "saleId is required");
+      if (!returnItems?.length) throw httpError(400, "VALIDATION_ERROR", "returnItems is required");
+
+      // Get original sale to find terminal for warehouse
+      const [saleRow] = await query(
+        `SELECT id, terminal_id, receipt_no, sale_datetime
+         FROM pos_sales WHERE id = :saleId AND company_id = :companyId AND branch_id = :branchId`,
+        { saleId, companyId, branchId },
+      );
+      if (!saleRow) throw httpError(404, "NOT_FOUND", "Sale not found");
+
+      // Get warehouse from terminal
+      let warehouseId = null;
+      if (saleRow.terminal_id) {
+        const [termRow] = await query(
+          "SELECT warehouse_id FROM pos_terminals WHERE id = :id",
+          { id: saleRow.terminal_id },
+        );
+        warehouseId = termRow?.warehouse_id || null;
+      }
+
+      await conn.beginTransaction();
+
+      // Insert return header
+      const returnResult = await conn.execute(
+        `INSERT INTO pos_returns
+          (company_id, branch_id, sale_id, receipt_no, return_datetime,
+           refund_method, total_refund, notes, created_by)
+         VALUES
+          (:companyId, :branchId, :saleId, :receiptNo, NOW(),
+           :refundMethodEnum, :totalRefund, :notes, :userId)`,
+        { companyId, branchId, saleId, receiptNo, refundMethodEnum, totalRefund, notes, userId },
+      );
+      const returnId = returnResult[0].insertId;
+
+      for (const item of returnItems) {
+        const { saleLineId, itemId, itemName, returnQuantity, unitPrice, reason } = item;
+        if (!saleLineId || !returnQuantity || returnQuantity <= 0) continue;
+
+        const lineTotal = Math.round(Number(unitPrice || 0) * Number(returnQuantity) * 100) / 100;
+
+        // Insert return line
+        await conn.execute(
+          `INSERT INTO pos_return_lines
+            (return_id, sale_line_id, item_id, item_name, qty, unit_price, line_total, reason)
+           VALUES
+            (:returnId, :saleLineId, :itemId, :itemName, :returnQuantity, :unitPrice, :lineTotal, :reason)`,
+          { returnId, saleLineId, itemId, itemName, returnQuantity, unitPrice, lineTotal, reason },
+        );
+
+        // Update returned_qty on the sale line
+        await conn.execute(
+          `UPDATE pos_sale_lines SET returned_qty = returned_qty + :returnQuantity WHERE id = :saleLineId`,
+          { returnQuantity, saleLineId },
+        );
+
+        // Restore stock if item_id is known and we have a warehouse
+        if (itemId && warehouseId) {
+          await recordMovementTx(conn, {
+            companyId,
+            branchId,
+            warehouseId,
+            itemId,
+            transactionType: "POS_RETURN",
+            qtyChange: Number(returnQuantity),
+            sourceRef: receiptNo,
+            createdBy: userId,
+            sourceType: "pos_return",
+            sourceId: returnId,
+          });
+        }
+      }
+
+      await conn.commit();
+      res.json({ success: true, returnId });
+    } catch (err) {
+      await conn.rollback().catch(() => {});
+      next(err);
+    } finally {
+      conn.release();
     }
   },
 );
@@ -2198,8 +2369,9 @@ router.get(
       const { companyId, branchId } = req.scope;
       const terminal = String(req.query.terminal || "").trim();
       const requestedDate = String(req.query.date || "").trim();
-      const businessDate =
-        /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : null;
+      const businessDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
+        ? requestedDate
+        : null;
       await ensurePosTables();
       const rows = await query(
         `
@@ -2310,11 +2482,27 @@ router.post(
            AND sale_datetime BETWEEN :startTime AND :endTime`,
         { companyId, branchId, startTime, endTime },
       );
-      const cashTotal = roundTo2(aggRows?.cash_total || 0);
-      const cardTotal = roundTo2(aggRows?.card_total || 0);
-      const mobileTotal = roundTo2(aggRows?.mobile_total || 0);
-      const taxTotal = roundTo2(aggRows?.tax_total || 0);
-      const netTotal = roundTo2(aggRows?.net_total || 0);
+      const [retRows] = await conn.execute(
+        `SELECT
+           SUM(CASE WHEN refund_method='CASH' THEN total_refund ELSE 0 END) AS cash_return,
+           SUM(CASE WHEN refund_method='CARD' THEN total_refund ELSE 0 END) AS card_return,
+           SUM(CASE WHEN refund_method='MOBILE' THEN total_refund ELSE 0 END) AS mobile_return,
+           SUM(total_refund) AS return_total
+         FROM pos_returns
+         WHERE company_id = :companyId
+           AND branch_id = :branchId
+           AND return_datetime BETWEEN :startTime AND :endTime`,
+        { companyId, branchId, startTime, endTime },
+      );
+      const cashTotal = roundTo2((aggRows?.cash_total || 0) - (retRows?.cash_return || 0));
+      const cardTotal = roundTo2((aggRows?.card_total || 0) - (retRows?.card_return || 0));
+      const mobileTotal = roundTo2((aggRows?.mobile_total || 0) - (retRows?.mobile_return || 0));
+      const rawNetTotal = roundTo2(aggRows?.net_total || 0);
+      const rawTaxTotal = roundTo2(aggRows?.tax_total || 0);
+      const returnTotal = roundTo2(retRows?.return_total || 0);
+      const netTotal = roundTo2(rawNetTotal - returnTotal);
+      const taxRatio = rawNetTotal > 0 ? rawTaxTotal / rawNetTotal : 0;
+      const taxTotal = roundTo2(rawTaxTotal - returnTotal * taxRatio);
       let baseSales = roundTo2(netTotal - taxTotal);
       if (baseSales < 0) baseSales = 0;
       let bankTotal = roundTo2(cashTotal + cardTotal + mobileTotal);
@@ -2401,7 +2589,7 @@ router.post(
           voucherTypeId,
           voucherNo,
           voucherDate,
-          narration: `POS Aggregated Sales for Session ${sessionNo} - ${sess.cashier_name || 'Cashier'}`,
+          narration: `POS Aggregated Sales for Session ${sessionNo} - ${sess.cashier_name || "Cashier"}`,
           totalDebit: bankTotal,
           totalCredit: roundTo2(baseSales + taxTotal),
           ba: bankTotal,
@@ -2580,8 +2768,13 @@ router.post(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
-      const { terminal, openingDateTime, openingFloat, notes, denominationCounts } =
-        req.body || {};
+      const {
+        terminal,
+        openingDateTime,
+        openingFloat,
+        notes,
+        denominationCounts,
+      } = req.body || {};
       if (!terminal || !openingDateTime) {
         throw httpError(
           400,
@@ -2633,7 +2826,8 @@ router.post(
           opening_float: Number(openingFloat || 0),
           supervisor_name: null,
           open_notes: notes || null,
-          open_denomination_counts: normalizeDenominationCounts(denominationCounts),
+          open_denomination_counts:
+            normalizeDenominationCounts(denominationCounts),
         },
       );
       const [item] = await query(
@@ -2739,11 +2933,39 @@ router.post(
              ${filterSql}`,
           params,
         );
-        cashTotal = roundTo2(aggRows?.cash_total || 0);
-        cardTotal = roundTo2(aggRows?.card_total || 0);
-        mobileTotal = roundTo2(aggRows?.mobile_total || 0);
-        taxTotal = roundTo2(aggRows?.tax_total || 0);
-        netTotal = roundTo2(aggRows?.net_total || 0);
+        const returnFilterSql = filterSql.replace(
+          /p\./g,
+          "ps.",
+        ).replace(
+          /t\.code/g,
+          "t.code",
+        );
+        const retParams = { ...params };
+        const [retRows] = await conn.execute(
+          `SELECT
+             SUM(CASE WHEN r.refund_method='CASH' THEN r.total_refund ELSE 0 END) AS cash_return,
+             SUM(CASE WHEN r.refund_method='CARD' THEN r.total_refund ELSE 0 END) AS card_return,
+             SUM(CASE WHEN r.refund_method='MOBILE' THEN r.total_refund ELSE 0 END) AS mobile_return,
+             SUM(r.total_refund) AS return_total
+           FROM pos_returns r
+           JOIN pos_sales ps ON ps.id = r.sale_id
+           LEFT JOIN pos_terminals t
+             ON t.id = ps.terminal_id AND t.company_id = ps.company_id AND t.branch_id = ps.branch_id
+           WHERE r.company_id = :companyId
+             AND r.branch_id = :branchId
+             AND r.return_datetime BETWEEN :startTime AND :endTime
+             ${filterSql.replace(/p\./g, "ps.")}`,
+          retParams,
+        );
+        cashTotal = roundTo2((aggRows?.cash_total || 0) - (retRows?.cash_return || 0));
+        cardTotal = roundTo2((aggRows?.card_total || 0) - (retRows?.card_return || 0));
+        mobileTotal = roundTo2((aggRows?.mobile_total || 0) - (retRows?.mobile_return || 0));
+        const rawNetTotal = roundTo2(aggRows?.net_total || 0);
+        const rawTaxTotal = roundTo2(aggRows?.tax_total || 0);
+        const returnTotal = roundTo2(retRows?.return_total || 0);
+        netTotal = roundTo2(rawNetTotal - returnTotal);
+        const taxRatio = rawNetTotal > 0 ? rawTaxTotal / rawNetTotal : 0;
+        taxTotal = roundTo2(rawTaxTotal - returnTotal * taxRatio);
         baseSales = roundTo2(netTotal - taxTotal);
         bankTotal = roundTo2(cashTotal + cardTotal + mobileTotal);
         if (bankTotal <= 0 || baseSales < 0) {
@@ -2827,7 +3049,7 @@ router.post(
             nature: "LIABILITY",
           }));
       }
-      const narration = `POS Aggregated Sales for Day ${dateStr}${terminalCode ? ' - Terminal ' + terminalCode : ''}`;
+      const narration = `POS Aggregated Sales for Day ${dateStr}${terminalCode ? " - Terminal " + terminalCode : ""}`;
       const [existingV] = await conn.execute(
         `SELECT id FROM fin_vouchers
          WHERE company_id = :companyId AND branch_id = :branchId
@@ -3673,6 +3895,103 @@ router.put(
         },
       );
       res.status(201).json({ id: result.insertId });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/return-reasons",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensurePosTables();
+      const defaults = [
+        "Defective",
+        "Wrong Item",
+        "Damaged",
+        "Unwanted",
+        "Other",
+      ];
+      const existing = await query(
+        `SELECT id FROM pos_return_reasons WHERE company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+        { companyId, branchId },
+      );
+      if (!existing?.length) {
+        for (const r of defaults) {
+          await query(
+            `INSERT INTO pos_return_reasons (company_id, branch_id, reason, is_active)
+             VALUES (:companyId, :branchId, :reason, 1)
+             ON DUPLICATE KEY UPDATE is_active = 1`,
+            { companyId, branchId, reason: r },
+          );
+        }
+      }
+      const rows = await query(
+        `SELECT id, reason, is_active, created_at, updated_at
+         FROM pos_return_reasons
+         WHERE company_id = :companyId
+           AND branch_id = :branchId
+           AND is_active = 1
+         ORDER BY reason ASC`,
+        { companyId, branchId },
+      );
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.put(
+  "/return-reasons",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const reasons = Array.isArray(req.body?.reasons) ? req.body.reasons : [];
+      const cleaned = Array.from(
+        new Set(
+          reasons
+            .map((r) => String(r || "").trim())
+            .filter(Boolean)
+            .map((r) => r.slice(0, 150)),
+        ),
+      );
+      if (!cleaned.length) {
+        return res
+          .status(400)
+          .json({ message: "reasons must be a non-empty array" });
+      }
+      await ensurePosTables();
+      for (const reason of cleaned) {
+        await query(
+          `INSERT INTO pos_return_reasons (company_id, branch_id, reason, is_active)
+           VALUES (:companyId, :branchId, :reason, 1)
+           ON DUPLICATE KEY UPDATE is_active = 1`,
+          { companyId, branchId, reason },
+        );
+      }
+      const params = { companyId, branchId };
+      const placeholders = cleaned.map((_, i) => `:r${i}`).join(", ");
+      cleaned.forEach((r, i) => {
+        params[`r${i}`] = r;
+      });
+      await query(
+        `UPDATE pos_return_reasons
+         SET is_active = 0
+         WHERE company_id = :companyId
+           AND branch_id = :branchId
+           AND reason NOT IN (${placeholders})`,
+        params,
+      );
+      res.json({ ok: true });
     } catch (err) {
       next(err);
     }

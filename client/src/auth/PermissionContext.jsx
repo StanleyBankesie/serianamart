@@ -23,6 +23,7 @@ import { MODULES_REGISTRY } from "../data/modulesRegistry.js";
 const PermissionContext = createContext();
 const RBAC_CACHE_KEY = "rbac.permission.snapshot.v1";
 const PAGE_PERM_RETRY_MS = 30_000;
+const DASHBOARD_PERM_POLL_MS = 1_500;
 
 function isTransientBackendError(err) {
   const status = Number(err?.response?.status || 0);
@@ -271,9 +272,15 @@ export const PermissionProvider = ({ children }) => {
         const snapshot = readPermissionSnapshot();
         if (snapshot) {
           setModules(
-            new Set(snapshot.modules.map((m) => String(m || "").trim()).filter(Boolean)),
+            new Set(
+              snapshot.modules
+                .map((m) => String(m || "").trim())
+                .filter(Boolean),
+            ),
           );
-          setPermissions(Array.isArray(snapshot.permissions) ? snapshot.permissions : []);
+          setPermissions(
+            Array.isArray(snapshot.permissions) ? snapshot.permissions : [],
+          );
           setRoleFeatures(
             new Set(
               snapshot.roleFeatures
@@ -284,7 +291,11 @@ export const PermissionProvider = ({ children }) => {
           setExceptionalPerms(
             new Set(
               snapshot.exceptionalPerms
-                .map((c) => String(c || "").toUpperCase().trim())
+                .map((c) =>
+                  String(c || "")
+                    .toUpperCase()
+                    .trim(),
+                )
                 .filter(Boolean),
             ),
           );
@@ -302,17 +313,33 @@ export const PermissionProvider = ({ children }) => {
   // Dashboard element view permissions (cards/tickers/dashboards)
   const [dashboardViewMap, setDashboardViewMap] = useState(() => new Map());
   const [dashboardViewLoaded, setDashboardViewLoaded] = useState(false);
+  const dashboardPermVersionRef = useRef(null);
+  const dashboardPermCheckInFlightRef = useRef(false);
+
+  const extractDashboardPermVersion = (items) => {
+    const rows = Array.isArray(items) ? items : [];
+    let best = null;
+    for (const it of rows) {
+      const v = it?.updated_at || it?.created_at || null;
+      if (!v) continue;
+      if (best == null || String(v) > String(best)) best = v;
+    }
+    return best;
+  };
+
   const loadDashboardPermissions = async () => {
     try {
       if (!initialized || !token) {
         setDashboardViewMap(new Map());
         setDashboardViewLoaded(true);
+        dashboardPermVersionRef.current = null;
         return;
       }
       const userId = Number(user?.id || user?.sub || 0);
       if (!Number.isFinite(userId) || !userId) {
         setDashboardViewMap(new Map());
         setDashboardViewLoaded(true);
+        dashboardPermVersionRef.current = null;
         return;
       }
       const res = await api.get("/access/dashboard-permissions");
@@ -337,9 +364,35 @@ export const PermissionProvider = ({ children }) => {
       }
       setDashboardViewMap(m);
       setDashboardViewLoaded(true);
+      dashboardPermVersionRef.current = extractDashboardPermVersion(items);
     } catch {
       setDashboardViewMap(new Map());
       setDashboardViewLoaded(true);
+      dashboardPermVersionRef.current = null;
+    }
+  };
+
+  const checkDashboardPermissionsVersion = async () => {
+    if (!initialized || !token) return;
+    const userId = Number(user?.id || user?.sub || 0);
+    if (!Number.isFinite(userId) || !userId) return;
+    if (dashboardPermCheckInFlightRef.current) return;
+    try {
+      if (typeof document !== "undefined" && document.hidden) return;
+    } catch {}
+
+    dashboardPermCheckInFlightRef.current = true;
+    try {
+      const res = await api.get("/access/dashboard-permissions/version");
+      const latest = res?.data?.updated_at || null;
+      const current = dashboardPermVersionRef.current || null;
+      if (latest !== current && (latest || current)) {
+        await loadDashboardPermissions();
+      }
+    } catch {
+      return;
+    } finally {
+      dashboardPermCheckInFlightRef.current = false;
     }
   };
 
@@ -579,7 +632,8 @@ export const PermissionProvider = ({ children }) => {
   const hasRoleFeature = (allowKey) => {
     const k = String(allowKey || "").trim();
     if (!k) return false;
-    if (hasExplicitRoleConfig) return roleFeatures.has(k) || permByFeatureKey.has(k);
+    if (hasExplicitRoleConfig)
+      return roleFeatures.has(k) || permByFeatureKey.has(k);
     if (isSuper) return true;
     return roleFeatures.has(k) || permByFeatureKey.has(k);
   };
@@ -589,7 +643,8 @@ export const PermissionProvider = ({ children }) => {
     if (!p) return false;
     if (p === "/" || p === "/dashboard") return true;
     if (hasExplicitRoleConfig && globalOverrides.view) return true;
-    if (!hasExplicitRoleConfig && (isSuper || globalOverrides.view)) return true;
+    if (!hasExplicitRoleConfig && (isSuper || globalOverrides.view))
+      return true;
 
     const parts = p.split("/").filter(Boolean);
     if (parts[0] === "home") {
@@ -699,13 +754,11 @@ export const PermissionProvider = ({ children }) => {
    */
   const featureKeyFromPath = (path) => {
     const base = basePathFrom(path || window?.location?.pathname || "/");
-    const parts = String(base || "/").split("/").filter(Boolean);
+    const parts = String(base || "/")
+      .split("/")
+      .filter(Boolean);
     if (parts.length < 2) return null;
-    if (
-      parts[0] === "administration" &&
-      parts[1] === "access" &&
-      parts[2]
-    ) {
+    if (parts[0] === "administration" && parts[1] === "access" && parts[2]) {
       return `administration:${parts[2]}`;
     }
     return `${parts[0]}:${parts[1]}`;
@@ -834,6 +887,31 @@ export const PermissionProvider = ({ children }) => {
     if (!initialized) return;
     loadDashboardPermissions();
   }, [initialized, token, user?.id]);
+
+  useEffect(() => {
+    if (!initialized || !token) return;
+    const userId = Number(user?.id || user?.sub || 0);
+    if (!Number.isFinite(userId) || !userId) return;
+
+    const id = setInterval(() => {
+      checkDashboardPermissionsVersion();
+    }, DASHBOARD_PERM_POLL_MS);
+
+    const onFocus = () => checkDashboardPermissionsVersion();
+    const onVis = () => checkDashboardPermissionsVersion();
+    try {
+      window.addEventListener("focus", onFocus);
+      document.addEventListener("visibilitychange", onVis);
+    } catch {}
+
+    return () => {
+      clearInterval(id);
+      try {
+        window.removeEventListener("focus", onFocus);
+        document.removeEventListener("visibilitychange", onVis);
+      } catch {}
+    };
+  }, [initialized, token, user?.id]);
   useEffect(() => {
     try {
       if (typeof document !== "undefined" && document.body) {
@@ -909,10 +987,14 @@ export const PermissionProvider = ({ children }) => {
       const canDelete = canDeleteOnPage(path);
       document.body.classList.toggle("create-guard-disabled", !canCreate);
       document.body.classList.toggle("delete-guard-disabled", !canDelete);
-      if (canCreate && canDelete) { guardCleanupRef.current = null; return; }
+      if (canCreate && canDelete) {
+        guardCleanupRef.current = null;
+        return;
+      }
 
       let timer = null;
-      const createSelectors = 'a[href*="/new"], a[href*="/create"], .btn-success, .btn-primary';
+      const createSelectors =
+        'a[href*="/new"], a[href*="/create"], .btn-success, .btn-primary';
       const applyGuards = () => {
         if (timer) return;
         timer = requestAnimationFrame(() => {
@@ -925,29 +1007,47 @@ export const PermissionProvider = ({ children }) => {
               if (exempt) return;
               const text = (el.textContent || "").trim();
               const href = (el.getAttribute("href") || "").toLowerCase();
-              if (href.includes("/new") || href.includes("/create") || /^\+/.test(text) || /\bNew\b/.test(text) || /\bCreate\b/.test(text)) {
+              if (
+                href.includes("/new") ||
+                href.includes("/create") ||
+                /^\+/.test(text) ||
+                /\bNew\b/.test(text) ||
+                /\bCreate\b/.test(text)
+              ) {
                 if (!el.hasAttribute("data-create-guard")) {
-                  el.setAttribute("data-create-guard", el.style.display === "none" ? "hidden" : "visible");
+                  el.setAttribute(
+                    "data-create-guard",
+                    el.style.display === "none" ? "hidden" : "visible",
+                  );
                   el.style.display = "none";
                 }
               }
             });
           }
           if (!canDelete) {
-            document.querySelectorAll('.btn-danger, a[href*="/delete"]').forEach((el) => {
-              const exempt =
-                el.getAttribute?.("data-rbac-exempt") === "" ||
-                el.getAttribute?.("data-rbac-exempt") === "true";
-              if (exempt) return;
-              const text = (el.textContent || "").trim().toLowerCase();
-              const href = (el.getAttribute("href") || "").toLowerCase();
-              if (href.includes("delete") || text === "delete" || (text.includes("delete") && text.length < 15)) {
-                if (!el.hasAttribute("data-delete-guard")) {
-                  el.setAttribute("data-delete-guard", el.style.display === "none" ? "hidden" : "visible");
-                  el.style.display = "none";
+            document
+              .querySelectorAll('.btn-danger, a[href*="/delete"]')
+              .forEach((el) => {
+                const exempt =
+                  el.getAttribute?.("data-rbac-exempt") === "" ||
+                  el.getAttribute?.("data-rbac-exempt") === "true";
+                if (exempt) return;
+                const text = (el.textContent || "").trim().toLowerCase();
+                const href = (el.getAttribute("href") || "").toLowerCase();
+                if (
+                  href.includes("delete") ||
+                  text === "delete" ||
+                  (text.includes("delete") && text.length < 15)
+                ) {
+                  if (!el.hasAttribute("data-delete-guard")) {
+                    el.setAttribute(
+                      "data-delete-guard",
+                      el.style.display === "none" ? "hidden" : "visible",
+                    );
+                    el.style.display = "none";
+                  }
                 }
-              }
-            });
+              });
           }
         });
       };
@@ -959,11 +1059,13 @@ export const PermissionProvider = ({ children }) => {
         if (timer) cancelAnimationFrame(timer);
         obs.disconnect();
         document.querySelectorAll("[data-create-guard]").forEach((el) => {
-          if (el.getAttribute("data-create-guard") === "visible") el.style.display = "";
+          if (el.getAttribute("data-create-guard") === "visible")
+            el.style.display = "";
           el.removeAttribute("data-create-guard");
         });
         document.querySelectorAll("[data-delete-guard]").forEach((el) => {
-          if (el.getAttribute("data-delete-guard") === "visible") el.style.display = "";
+          if (el.getAttribute("data-delete-guard") === "visible")
+            el.style.display = "";
           el.removeAttribute("data-delete-guard");
         });
       };
@@ -1030,15 +1132,16 @@ export const PermissionProvider = ({ children }) => {
         .trim()
         .replace(/\s+/g, "-")
         .replace(/[^a-z0-9-]/g, "");
-      // Wait for dashboard permissions to load before showing elements
       if (!dashboardViewLoaded) return false;
-      // If dashboard permissions have been explicitly configured, respect them
-      // even for superadmins (same as canViewModule sidebar logic).
-      if (dashboardViewMap.size > 0) {
-        const comp = `${mk}|${t}|${normKey}`;
+      const comp = `${mk}|${t}|${normKey}`;
+      // If this item has an explicit permission entry, respect it
+      if (dashboardViewMap.has(comp)) {
         return dashboardViewMap.get(comp) === true;
       }
-      // No dashboard permissions configured yet — fall back to isSuper
+      // No explicit config for this item — fall back to module-level RBAC
+      if (mk) {
+        return canAccessPath(`/${mk}`);
+      }
       return isSuper;
     },
     setActionSessionOverride: (fk, action, value) => {

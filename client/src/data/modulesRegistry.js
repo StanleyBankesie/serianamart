@@ -223,11 +223,16 @@ export const MODULES_REGISTRY = {
     features: [
       { key: "projects", label: "Projects", type: "feature" },
       { key: "tasks", label: "Task Management", type: "feature" },
+      { key: "setup", label: "Setup", type: "feature" },
+      { key: "material-requisition", label: "Material Requisition", type: "feature" },
+      { key: "material-utilization", label: "Material Utilization", type: "feature" },
+      { key: "material-receipt", label: "Materials Receipt", type: "feature" },
       { key: "milestones", label: "Milestones", type: "feature" },
       { key: "resources", label: "Resource Management", type: "feature" },
       { key: "timesheets", label: "Timesheets", type: "feature" },
       { key: "expenses", label: "Project Expenses", type: "feature" },
       { key: "project-reports", label: "Project Reports", type: "feature" },
+      { key: "project-status-report", label: "Project Status Report", type: "feature" },
     ],
     dashboards: [
       { key: "project-overview", label: "Project Overview Dashboard", type: "dashboard" },

@@ -77,7 +77,15 @@ export default function ItemForm() {
             ? d.item_types
             : [];
         setItemGroups(loadedItemGroups);
-        setAccounts(Array.isArray(d.accounts) ? d.accounts : []);
+        const accs = Array.isArray(d.accounts) ? d.accounts : [];
+        setAccounts(accs);
+        if (isNew) {
+          setFormData((prev) => ({
+            ...prev,
+            purchase_account_id: "36",
+            sales_account_id: "123",
+          }));
+        }
         setTaxes(Array.isArray(d.taxes) ? d.taxes : []);
         setCurrencies(Array.isArray(d.currencies) ? d.currencies : []);
         setUoms(loadedUoms);
@@ -158,9 +166,15 @@ export default function ItemForm() {
             ? categoriesRes.data.items
             : [],
         );
-        setAccounts(
-          Array.isArray(accountsRes.data?.items) ? accountsRes.data.items : [],
-        );
+        const fallbackAccs = Array.isArray(accountsRes.data?.items) ? accountsRes.data.items : [];
+        setAccounts(fallbackAccs);
+        if (isNew) {
+          setFormData((prev) => ({
+            ...prev,
+            purchase_account_id: "36",
+            sales_account_id: "123",
+          }));
+        }
         setTaxes(
           Array.isArray(taxesRes.data?.items) ? taxesRes.data.items : [],
         );

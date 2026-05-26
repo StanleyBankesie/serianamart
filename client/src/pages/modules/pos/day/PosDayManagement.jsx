@@ -108,6 +108,7 @@ export default function PosDayManagement() {
     DENOMINATIONS.map(() => 0),
   );
   const [showCashConfirmModal, setShowCashConfirmModal] = useState(false);
+  const [showCloseConfirmModal, setShowCloseConfirmModal] = useState(false);
   const cashVariance = useMemo(() => {
     const v = Number(closing.actualCash || 0) - Number(expectedCash || 0);
     return v;
@@ -1143,7 +1144,15 @@ export default function PosDayManagement() {
               </div>
 
               <div className="flex gap-2">
-                <button type="submit" className="btn-danger flex-1 px-4 py-2">
+                <button
+                  type="button"
+                  className="btn-danger flex-1 px-4 py-2"
+                  onClick={() => {
+                    if (!dayOpen) { toast.error("Open the day first"); return; }
+                    if (!closing.dateTime) { toast.warn("Provide closing date/time"); return; }
+                    setShowCloseConfirmModal(true);
+                  }}
+                >
                   🌙 Close Day
                 </button>
                 <button
@@ -1158,6 +1167,79 @@ export default function PosDayManagement() {
           </div>
         </div>
       </div>
+
+      {showCloseConfirmModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="text-xl font-bold mb-4">Confirm Day Closing</div>
+            <div className="space-y-4">
+              <div className="rounded-lg border">
+                <div className="p-3 font-semibold text-sm">Denomination Count</div>
+                <div className="overflow-x-auto">
+                  <table className="table text-sm">
+                    <thead>
+                      <tr>
+                        <th>Denom</th>
+                        <th>Count</th>
+                        <th>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {DENOMINATIONS.map((d, idx) => (
+                        <tr key={String(d)}>
+                          <td>GH₵ {d}</td>
+                          <td>
+                            <input
+                              type="number"
+                              className="input w-20"
+                              min={0}
+                              value={String(closeDenomCounts[idx] ?? 0)}
+                              onChange={(e) => {
+                                const next = closeDenomCounts.slice();
+                                next[idx] = Math.max(0, Number(e.target.value) || 0);
+                                setCloseDenomCounts(next);
+                              }}
+                            />
+                          </td>
+                          <td>{(d * Number(closeDenomCounts[idx] || 0)).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="font-bold">
+                        <td>Total</td>
+                        <td></td>
+                        <td>{closeDenomTotal.toFixed(2)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="btn btn-secondary flex-1"
+                  onClick={() => setShowCloseConfirmModal(false)}
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  className="btn-danger flex-1"
+                  onClick={async () => {
+                    setShowCloseConfirmModal(false);
+                    const e = { preventDefault: () => {} };
+                    await handleCloseSubmit(e);
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <div className="card-header">

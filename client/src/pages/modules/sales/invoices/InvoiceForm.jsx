@@ -53,6 +53,7 @@ export default function InvoiceForm() {
     country: "",
     phone: "",
     remarks: "",
+    project_id: "",
   });
 
   const [lines, setLines] = useState([]);
@@ -104,6 +105,7 @@ export default function InvoiceForm() {
   });
   const [unitConversions, setUnitConversions] = useState([]);
   const [autoDelivery, setAutoDelivery] = useState(false);
+  const [projects, setProjects] = useState([]);
 
   const baseCurrencyCode = React.useMemo(() => {
     return (
@@ -187,6 +189,7 @@ export default function InvoiceForm() {
     fetchCurrencies();
     fetchTaxCodes();
     fetchCompanyInfo();
+    fetchProjects();
     if (isEdit) {
       fetchInvoice();
     } else {
@@ -583,6 +586,15 @@ export default function InvoiceForm() {
     }
   };
 
+  const fetchProjects = async () => {
+    try {
+      const res = await api.get("/projects/projects");
+      setProjects(Array.isArray(res.data?.items) ? res.data.items : []);
+    } catch {
+      setProjects([]);
+    }
+  };
+
   const fetchInvoice = async () => {
     try {
       setLoading(true);
@@ -608,6 +620,7 @@ export default function InvoiceForm() {
           currency_id: data.currency_id || "",
           exchange_rate: Number(data.exchange_rate || 1),
           sales_order_id: data.sales_order_id || "",
+          project_id: data.project_id || "",
         });
         const cust = customers.find(
           (c) => String(c.id) === String(data.customer_id),
@@ -1539,6 +1552,22 @@ export default function InvoiceForm() {
                   {warehouses.map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.warehouse_code} - {w.warehouse_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">Project</label>
+                <select
+                  className="input"
+                  value={form.project_id}
+                  onChange={(e) => update("project_id", e.target.value)}
+                  disabled={readOnly}
+                >
+                  <option value="">-- Select Project --</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.project_name || p.name}
                     </option>
                   ))}
                 </select>

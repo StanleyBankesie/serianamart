@@ -531,13 +531,14 @@ export default function AppShell() {
       cancelled = true;
     };
   }, [token]);
+  const authFailedRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
     let pollTimer = null;
 
     async function loadUnread() {
       try {
-        if (!token || !online) return;
+        if (!token || !online || authFailedRef.current) return;
         const res = await api.get("/workflows/notifications");
         const items = Array.isArray(res.data?.items) ? res.data.items : [];
         const unread = items.filter((n) => Number(n.is_read) !== 1).length;
@@ -585,7 +586,9 @@ export default function AppShell() {
             localStorage.setItem(storeKey, JSON.stringify(Array.from(prevSet)));
           } catch {}
         }
-      } catch {}
+      } catch (err) {
+        if (err?.response?.status === 401) authFailedRef.current = true;
+      }
     }
 
     async function checkLowStock() {

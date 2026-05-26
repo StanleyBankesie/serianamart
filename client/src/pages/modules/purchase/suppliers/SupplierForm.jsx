@@ -532,22 +532,8 @@ export default function SupplierForm() {
                 🏢 Supplier Information
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-800 mb-1">
-                    Supplier Code
-                  </label>
-                  <input
-                    type="text"
-                    name="supplier_code"
-                    className={`w-full px-3 py-2 border border-slate-300 rounded-md ${isNew ? "bg-gray-50" : "bg-gray-100 text-slate-500"}`}
-                    value={formData.supplier_code}
-                    onChange={handleChange}
-                    placeholder={
-                      isNew ? "Auto-generated" : "Locked for existing supplier"
-                    }
-                    readOnly={!isNew}
-                  />
-                </div>
+                {/* Supplier Code field hidden per user request */}
+                
                 <div>
                   <label className="block text-sm font-semibold text-slate-800 mb-1">
                     Supplier Name *

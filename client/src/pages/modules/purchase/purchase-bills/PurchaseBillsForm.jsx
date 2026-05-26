@@ -40,6 +40,7 @@ export default function PurchaseBillsForm() {
     id && id !== "new" ? Number(id) : null,
   );
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
+  const [projects, setProjects] = useState([]);
 
   const [formData, setFormData] = useState({
     bill_no: "",
@@ -52,6 +53,7 @@ export default function PurchaseBillsForm() {
     currency_id: 4,
     exchange_rate: 1,
     payment_terms: 30,
+    project_id: "",
     status: "DRAFT",
 
     discount_amount: 0,
@@ -96,7 +98,7 @@ export default function PurchaseBillsForm() {
               : `PLB-${String(1).padStart(6, "0")}`;
           setFormData((prev) => ({ ...prev, bill_no: initialNo }));
         }
-        const [supRes, poRes, itemsRes, uomsRes, taxesRes, curRes] =
+        const [supRes, poRes, itemsRes, uomsRes, taxesRes, curRes, projRes] =
           await Promise.all([
             api
               .get("/purchase/suppliers")
@@ -111,6 +113,9 @@ export default function PurchaseBillsForm() {
               .catch(() => ({ data: { items: [] } })),
             api
               .get("/finance/currencies")
+              .catch(() => ({ data: { items: [] } })),
+            api
+              .get("/projects/projects")
               .catch(() => ({ data: { items: [] } })),
           ]);
 
@@ -134,6 +139,9 @@ export default function PurchaseBillsForm() {
           setTaxCodes(fetchedTaxCodes);
           setFinCurrencies(
             Array.isArray(curRes.data?.items) ? curRes.data.items : [],
+          );
+          setProjects(
+            Array.isArray(projRes.data?.items) ? projRes.data.items : [],
           );
           // Auto-select the first tax code for new (blank) items
           if (fetchedTaxCodes.length > 0) {
@@ -364,6 +372,7 @@ export default function PurchaseBillsForm() {
           discount_amount: Number(h.discount_amount) || 0,
           freight_charges: Number(h.freight_charges) || 0,
           other_charges: Number(h.other_charges) || 0,
+          project_id: h.project_id || "",
         });
 
         setLines(
@@ -1232,6 +1241,23 @@ export default function PurchaseBillsForm() {
               value={formData.due_date}
               onChange={handleChange}
             />
+          </div>
+
+          <div className="form-group">
+            <label className="label">Project</label>
+            <select
+              className="input"
+              name="project_id"
+              value={formData.project_id}
+              onChange={handleChange}
+            >
+              <option value="">-- Select Project --</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.project_name || p.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="form-group">

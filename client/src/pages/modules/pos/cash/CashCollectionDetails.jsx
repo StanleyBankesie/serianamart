@@ -17,7 +17,7 @@ function FilterableSelect({
   return (
     <div className="space-y-2">
       <select
-        className="input"
+        className="input w-full"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
@@ -655,7 +655,7 @@ export default function CashCollectionDetails() {
                 <label className="label">From Date</label>
                 <input
                   type="date"
-                  className="input"
+                  className="input w-full"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
                 />
@@ -664,7 +664,7 @@ export default function CashCollectionDetails() {
                 <label className="label">To Date</label>
                 <input
                   type="date"
-                  className="input"
+                  className="input w-full"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
                 />
@@ -672,7 +672,7 @@ export default function CashCollectionDetails() {
               <div>
                 <label className="label">Status</label>
                 <select
-                  className="input"
+                  className="input w-full"
                   value={status}
                   onChange={(e) => setStatus(e.target.value)}
                 >
@@ -694,7 +694,7 @@ export default function CashCollectionDetails() {
               <div className="md:col-span-4">
                 <label className="label">Invoice No</label>
                 <input
-                  className="input"
+                  className="input w-full"
                   placeholder="Search by invoice number"
                   value={searchNo}
                   onChange={(e) => setSearchNo(e.target.value)}

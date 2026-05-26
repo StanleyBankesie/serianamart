@@ -1,103 +1,130 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../api/client.js";
-import { toast } from "react-toastify";
 import { MODULES_REGISTRY } from "../../data/modulesRegistry.js";
 
 export default function DashboardPermissions() {
   const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [selectedUserId, setSelectedUserId] = useState("");
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [perms, setPerms] = useState([]);
 
   const modules = useMemo(() => {
-    const base = Object.entries(MODULES_REGISTRY).map(([key, val]) => ({
-      key,
-      name: val.name,
-      icon: val.icon,
-      dashboards: val.dashboards || [],
-    }));
+    const base = Object.entries(MODULES_REGISTRY).map(([key, val]) => {
+      const fromRegistry = Array.isArray(val.dashboards) ? val.dashboards : [];
+      const existing = new Set(fromRegistry.map((d) => String(d.key || "")));
+      const extras = [{ key: "dashboard", name: "Dashboard" }];
+      if (key === "business-intelligence") {
+        extras.unshift({ key: "dashboards", name: "Dashboards" });
+      }
+      const dashboards = [
+        ...extras.filter((d) => !existing.has(String(d.key || ""))),
+        ...fromRegistry,
+      ];
+      return {
+        key,
+        name: val.name,
+        icon: val.icon,
+        dashboards,
+      };
+    });
     base.unshift({ key: "home", name: "Home", icon: "🏠", dashboards: [] });
     return base;
   }, []);
 
-  const KNOWN_CARDS = useMemo(() => ({
-    home: [
-      { key: "today-sales", label: "Today Sales" },
-      { key: "total-customers", label: "Total Customers" },
-      { key: "average-order", label: "Average Order" },
-      { key: "monthly-revenue", label: "Monthly Revenue" },
-    ],
-    administration: [
-      { key: "total-users", label: "Total Users" },
-      { key: "active-sessions", label: "Active Sessions" },
-      { key: "pending-workflows", label: "Pending Workflows" },
-    ],
-    sales: [
-      { key: "total-sales", label: "Total Sales" },
-      { key: "open-orders", label: "Open Orders" },
-      { key: "pending-deliveries", label: "Pending Deliveries" },
-    ],
-    purchase: [
-      { key: "pending-orders", label: "Pending Orders" },
-      { key: "pending-grns", label: "Pending GRNs" },
-      { key: "active-suppliers", label: "Active Suppliers" },
-    ],
-    inventory: [
-      { key: "items-tracked", label: "Items Tracked" },
-      { key: "pending-requisitions", label: "Pending Requisitions" },
-      { key: "incoming-transfers", label: "Incoming Transfers" },
-    ],
-    finance: [
-      { key: "cash-balance", label: "Cash Balance" },
-      { key: "pending-vouchers", label: "Pending Vouchers" },
-      { key: "monthly-expenses", label: "Monthly Expenses" },
-    ],
-    "human-resources": [
-      { key: "active-employees", label: "Active Employees" },
-      { key: "on-leave", label: "On Leave" },
-      { key: "payroll-status", label: "Payroll Status" },
-    ],
-    maintenance: [
-      { key: "open-work-orders", label: "Open Work Orders" },
-      { key: "overdue-pms", label: "Overdue PMs" },
-      { key: "asset-health", label: "Asset Health" },
-    ],
-    production: [
-      { key: "active-work-orders", label: "Active Work Orders" },
-      { key: "efficiency", label: "Efficiency" },
-      { key: "active-boms", label: "Active BOMs" },
-    ],
-    "project-management": [
-      { key: "active-projects", label: "Active Projects" },
-      { key: "open-tasks", label: "Open Tasks" },
-      { key: "on-time-completion", label: "On Time Completion" },
-    ],
-    pos: [
-      { key: "today-sales", label: "Today Sales" },
-      { key: "total-customers", label: "Total Customers" },
-      { key: "average-order", label: "Average Order" },
-      { key: "monthly-revenue", label: "Monthly Revenue" },
-    ],
-    "business-intelligence": [
-      { key: "active-dashboards", label: "Active Dashboards" },
-      { key: "scheduled-reports", label: "Scheduled Reports" },
-      { key: "data-sources", label: "Data Sources" },
-    ],
-    "service-management": [
-      { key: "open-requests", label: "Open Requests" },
-      { key: "pending-bills", label: "Pending Bills" },
-      { key: "confirmed-services", label: "Confirmed Services" },
-    ],
-    "executive-overview": [
-      { key: "executive-metrics", label: "Executive Metrics" },
-      { key: "kpi-summary", label: "KPI Summary" },
-      { key: "goal-tracking", label: "Goal Tracking" },
-    ],
-  }), []);
+  const KNOWN_CARDS = useMemo(
+    () => ({
+      home: [
+        { key: "today-sales", label: "Today Sales" },
+        { key: "total-customers", label: "Total Customers" },
+        { key: "average-order", label: "Average Order" },
+        { key: "monthly-revenue", label: "Monthly Revenue" },
+      ],
+      administration: [
+        { key: "total-users", label: "Total Users" },
+        { key: "active-sessions", label: "Active Sessions" },
+        { key: "pending-workflows", label: "Pending Workflows" },
+      ],
+      sales: [
+        { key: "sales-this-month", label: "Total Sales This Month" },
+        { key: "open-quotations", label: "Open Quotations" },
+        { key: "pending-deliveries", label: "Pending Deliveries" },
+        { key: "overdue-invoices", label: "Overdue Invoices" },
+        { key: "total-revenue", label: "Total Revenue" },
+        { key: "sales-growth", label: "Sales Growth %" },
+        { key: "total-sales", label: "Total Sales" },
+        { key: "open-orders", label: "Open Orders" },
+      ],
+      purchase: [
+        { key: "total-purchases", label: "Total Purchases" },
+        { key: "active-purchase-orders", label: "Active Purchase Orders" },
+        { key: "active-suppliers", label: "Active Suppliers" },
+        { key: "pending-approvals", label: "Pending Approvals" },
+        { key: "outstanding-payables", label: "Outstanding Payables" },
+        { key: "pending-orders", label: "Pending Orders" },
+        { key: "pending-grns", label: "Pending GRNs" },
+      ],
+      inventory: [
+        { key: "items-tracked", label: "Items Tracked" },
+        { key: "pending-requisitions", label: "Pending Requisitions" },
+        { key: "incoming-transfers", label: "Incoming Transfers" },
+      ],
+      finance: [
+        { key: "cash-balance", label: "Cash Balance" },
+        { key: "pending-vouchers", label: "Pending Vouchers" },
+        { key: "monthly-expenses", label: "Monthly Expenses" },
+      ],
+      "human-resources": [
+        { key: "active-employees", label: "Active Employees" },
+        { key: "on-leave", label: "On Leave" },
+        { key: "payroll-status", label: "Payroll Status" },
+      ],
+      maintenance: [
+        { key: "open-requests", label: "New Requests" },
+        { key: "active-jobs", label: "Jobs In Progress" },
+        { key: "open-work-orders", label: "Open Work Orders" },
+        { key: "overdue-pms", label: "Overdue PMs" },
+        { key: "asset-health", label: "Asset Health" },
+      ],
+      production: [
+        { key: "active-work-orders", label: "Active Work Orders" },
+        { key: "efficiency", label: "Efficiency" },
+        { key: "active-boms", label: "Active BOMs" },
+      ],
+      "project-management": [
+        { key: "active-projects", label: "Active Projects" },
+        { key: "active-tasks", label: "Active Tasks" },
+        { key: "total-budget", label: "Total Budget" },
+        { key: "logged-hours", label: "Logged Hours" },
+        { key: "open-tasks", label: "Open Tasks" },
+        { key: "on-time-completion", label: "On Time Completion" },
+      ],
+      pos: [
+        { key: "today-sales", label: "Today Sales" },
+        { key: "total-customers", label: "Total Customers" },
+        { key: "average-order", label: "Average Order" },
+        { key: "monthly-revenue", label: "Monthly Revenue" },
+      ],
+      "business-intelligence": [
+        { key: "active-dashboards", label: "Active Dashboards" },
+        { key: "scheduled-reports", label: "Scheduled Reports" },
+        { key: "data-sources", label: "Data Sources" },
+      ],
+      "service-management": [
+        { key: "open-requests", label: "Open Requests" },
+        { key: "pending-bills", label: "Pending Bills" },
+        { key: "confirmed-services", label: "Confirmed Services" },
+      ],
+      "executive-overview": [
+        { key: "executive-metrics", label: "Executive Metrics" },
+        { key: "kpi-summary", label: "KPI Summary" },
+        { key: "goal-tracking", label: "Goal Tracking" },
+      ],
+    }),
+    [],
+  );
 
   useEffect(() => {
     async function loadUsers() {
@@ -127,7 +154,12 @@ export default function DashboardPermissions() {
         const res = await api.get(
           `/access/dashboard-permissions?user_id=${selectedUserId}`,
         );
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        const items =
+          (res.data && res.data.data && Array.isArray(res.data.data.items)
+            ? res.data.data.items
+            : Array.isArray(res.data?.items)
+              ? res.data.items
+              : []) || [];
         setPerms(items);
       } catch {
         setPerms([]);
@@ -142,85 +174,85 @@ export default function DashboardPermissions() {
     card_key = null,
     ticker_key = null,
   ) => {
-    const row = perms.find(
+    const match = perms.filter(
       (p) =>
         String(p.module_key) === String(module_key) &&
         String(p.dashboard_key || "") === String(dashboard_key || "") &&
         String(p.card_key || "") === String(card_key || "") &&
         String(p.ticker_key || "") === String(ticker_key || ""),
     );
-    return !!row?.can_view;
+    // No explicit permission → fallback in canViewDashboardElement
+    // uses canAccessPath("/module"), which grants access → show checked
+    if (match.length === 0) return true;
+    // With explicit records, show checked if ANY grants access
+    return match.some((p) => Number(p.can_view) === 1);
   };
   const setView = (module_key, dashboard_key, card_key, ticker_key, value) => {
     setPerms((prev) => {
-      const next = [...prev];
-      const idx = next.findIndex(
+      const matched = prev.filter(
         (p) =>
           String(p.module_key) === String(module_key) &&
           String(p.dashboard_key || "") === String(dashboard_key || "") &&
           String(p.card_key || "") === String(card_key || "") &&
           String(p.ticker_key || "") === String(ticker_key || ""),
       );
-      if (idx >= 0) {
-        next[idx] = { ...next[idx], can_view: value ? 1 : 0 };
-      } else {
-        next.push({
+      if (matched.length > 0) {
+        // Update ALL matching records (handles duplicates)
+        return prev.map((p) =>
+          String(p.module_key) === String(module_key) &&
+          String(p.dashboard_key || "") === String(dashboard_key || "") &&
+          String(p.card_key || "") === String(card_key || "") &&
+          String(p.ticker_key || "") === String(ticker_key || "")
+            ? { ...p, can_view: value ? 1 : 0 }
+            : p,
+        );
+      }
+      return [
+        ...prev,
+        {
           user_id: Number(selectedUserId),
           module_key,
           dashboard_key: dashboard_key || null,
           card_key: card_key || null,
           ticker_key: ticker_key || null,
           can_view: value ? 1 : 0,
-        });
-      }
-      return next;
+        },
+      ];
     });
   };
 
   const persistPermission = async (module_key, type, key, allow) => {
     if (!selectedUserId) return;
+    const dashboard_key = type === "dashboard" ? key : null;
+    const card_key = type === "card" ? key : null;
+    const ticker_key = type === "ticker" ? key : null;
+    setView(module_key, dashboard_key, card_key, ticker_key, allow);
     try {
       await api.put("/access/dashboard-permissions", {
         user_id: Number(selectedUserId),
         permissions: [
           {
-            user_id: Number(selectedUserId),
             module_key,
-            dashboard_key: type === "dashboard" ? key : null,
-            card_key: type === "card" ? key : null,
-            ticker_key: type === "ticker" ? key : null,
+            dashboard_key,
+            card_key,
+            ticker_key,
             can_view: allow ? 1 : 0,
           },
         ],
       });
-      toast.success("Permission updated");
-    } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to update permission");
-    }
-  };
-
-  async function saveAll() {
-    if (!selectedUserId) {
-      setError("Please choose a user");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      await api.put("/access/dashboard-permissions", {
-        user_id: Number(selectedUserId),
-        permissions: perms,
-      });
-      setSuccess("Dashboard permissions saved");
-      toast.success("Dashboard permissions saved");
-      setTimeout(() => setSuccess(""), 1500);
-      navigate("/administration/access/dashboard-permissions");
+      setError("");
+      const msg = `${String(module_key || "").toUpperCase()}: ${String(
+        type === "dashboard" ? "Dashboard" : type === "card" ? "Card" : "Ticker",
+      )} ${String(key || "")} ${allow ? "enabled" : "disabled"}`;
+      setSuccess(msg);
+      setTimeout(() => {
+        setSuccess((cur) => (cur === msg ? "" : cur));
+      }, 1500);
     } catch (err) {
       setError(err.response?.data?.message || "Failed to save");
-    } finally {
-      setLoading(false);
+      setSuccess("");
     }
-  }
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -265,7 +297,8 @@ export default function DashboardPermissions() {
                 const cards = KNOWN_CARDS[m.key] || [];
                 const hasDashboards = m.dashboards.length > 0;
                 const hasCards = cards.length > 0;
-                if (!hasDashboards && !hasCards && m.key !== "home") return null;
+                if (!hasDashboards && !hasCards && m.key !== "home")
+                  return null;
 
                 return (
                   <div key={m.key} className="border rounded-lg">
@@ -279,14 +312,25 @@ export default function DashboardPermissions() {
                             type="checkbox"
                             className="checkbox checkbox-sm"
                             checked={
-                              (hasDashboards && m.dashboards.every((d) => getView(m.key, d.key))) &&
-                              (hasCards && cards.every((c) => getView(m.key, null, c.key, null)))
+                              hasDashboards &&
+                              m.dashboards.every((d) =>
+                                getView(m.key, d.key),
+                              ) &&
+                              hasCards &&
+                              cards.every((c) =>
+                                getView(m.key, null, c.key, null),
+                              )
                             }
                             onChange={(e) => {
                               const val = e.target.checked;
                               m.dashboards.forEach((d) => {
                                 setView(m.key, d.key, null, null, val);
-                                persistPermission(m.key, "dashboard", d.key, val);
+                                persistPermission(
+                                  m.key,
+                                  "dashboard",
+                                  d.key,
+                                  val,
+                                );
                               });
                               cards.forEach((c) => {
                                 setView(m.key, null, c.key, null, val);
@@ -307,46 +351,87 @@ export default function DashboardPermissions() {
                               className="checkbox checkbox-sm"
                               checked={getView(m.key, d.key)}
                               onChange={(e) => {
-                                setView(m.key, d.key, null, null, e.target.checked);
-                                persistPermission(m.key, "dashboard", d.key, e.target.checked);
+                                setView(
+                                  m.key,
+                                  d.key,
+                                  null,
+                                  null,
+                                  e.target.checked,
+                                );
+                                persistPermission(
+                                  m.key,
+                                  "dashboard",
+                                  d.key,
+                                  e.target.checked,
+                                );
                               }}
                             />
                             <span>📊 {d.name || d.label}</span>
                           </label>
                           <div className="ml-7 space-y-1">
-                            {(cards.length > 0) && cards.map((c) => (
-                              <label
-                                key={c.key}
-                                className="flex items-center gap-2 pl-2 border-l-2 border-slate-200"
-                              >
-                                <input
-                                  type="checkbox"
-                                  className="checkbox checkbox-xs"
-                                  checked={getView(m.key, null, c.key, null)}
-                                  onChange={(e) => {
-                                    setView(m.key, null, c.key, null, e.target.checked);
-                                    persistPermission(m.key, "card", c.key, e.target.checked);
-                                  }}
-                                />
-                                <span className="text-sm text-slate-600">{c.label}</span>
-                              </label>
-                            ))}
+                            {cards.length > 0 &&
+                              cards.map((c) => (
+                                <label
+                                  key={c.key}
+                                  className="flex items-center gap-2 pl-2 border-l-2 border-slate-200"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    className="checkbox checkbox-xs"
+                                    checked={getView(m.key, null, c.key, null)}
+                                    onChange={(e) => {
+                                      setView(
+                                        m.key,
+                                        null,
+                                        c.key,
+                                        null,
+                                        e.target.checked,
+                                      );
+                                      persistPermission(
+                                        m.key,
+                                        "card",
+                                        c.key,
+                                        e.target.checked,
+                                      );
+                                    }}
+                                  />
+                                  <span className="text-sm text-slate-600">
+                                    {c.label}
+                                  </span>
+                                </label>
+                              ))}
                           </div>
                         </div>
                       ))}
                       {m.dashboards.length === 0 && cards.length > 0 && (
                         <div>
-                          <h4 className="font-medium mb-2">📊 Dashboard Cards</h4>
+                          <h4 className="font-medium mb-2">
+                            📊 Dashboard Cards
+                          </h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                             {cards.map((c) => (
-                              <label key={c.key} className="flex items-center gap-2">
+                              <label
+                                key={c.key}
+                                className="flex items-center gap-2"
+                              >
                                 <input
                                   type="checkbox"
                                   className="checkbox checkbox-sm"
                                   checked={getView(m.key, null, c.key, null)}
                                   onChange={(e) => {
-                                    setView(m.key, null, c.key, null, e.target.checked);
-                                    persistPermission(m.key, "card", c.key, e.target.checked);
+                                    setView(
+                                      m.key,
+                                      null,
+                                      c.key,
+                                      null,
+                                      e.target.checked,
+                                    );
+                                    persistPermission(
+                                      m.key,
+                                      "card",
+                                      c.key,
+                                      e.target.checked,
+                                    );
                                   }}
                                 />
                                 <span className="text-sm">{c.label}</span>

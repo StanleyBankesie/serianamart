@@ -36,7 +36,6 @@ export default function UserOverrides() {
   const [role, setRole] = useState(null);
   const [roleModules, setRoleModules] = useState([]);
   const [rolePermissions, setRolePermissions] = useState({});
-  const [overrides, setOverrides] = useState({});
   const [exPerms, setExPerms] = useState({});
   const [exSaving, setExSaving] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -89,22 +88,6 @@ export default function UserOverrides() {
         setRoleModules([]);
         setRolePermissions({});
       }
-      try {
-        const oRes = await api
-          .get(`/access/users/${userId}/overrides`)
-          .catch(() => ({ data: { overrides: [] } }));
-        const oList = oRes?.data?.overrides || [];
-        const byModuleOverride = {};
-        for (const o of oList) {
-          byModuleOverride[o.module_key] = {
-            can_view: o.can_view,
-            can_create: o.can_create,
-            can_edit: o.can_edit,
-            can_delete: o.can_delete,
-          };
-        }
-        setOverrides(byModuleOverride);
-      } catch {}
       // Load exceptional permissions for user
       try {
         const exRes = await api.get(
@@ -135,45 +118,6 @@ export default function UserOverrides() {
       );
     } finally {
       setLoading(false);
-    }
-  }
-
-  function display(val) {
-    if (val == null) return "—";
-    return val ? "Yes" : "No";
-  }
-
-  function toggleOverride(mk, key) {
-    setOverrides((prev) => {
-      const next = { ...prev };
-      const row = next[mk] || {
-        can_view: null,
-        can_create: null,
-        can_edit: null,
-        can_delete: null,
-      };
-      const current = row[key];
-      row[key] = current == null ? true : current ? false : null;
-      next[mk] = row;
-      return next;
-    });
-  }
-
-  async function saveOverrides() {
-    try {
-      const payload = roleModules.map((mk) => ({
-        module_key: mk,
-        can_view: overrides[mk]?.can_view ?? null,
-        can_create: overrides[mk]?.can_create ?? null,
-        can_edit: overrides[mk]?.can_edit ?? null,
-        can_delete: overrides[mk]?.can_delete ?? null,
-      }));
-      await api.put(`/access/users/${selectedUser}/overrides`, {
-        overrides: payload,
-      });
-      alert("Saved");
-    } catch (err) {
-      setError(err?.response?.data?.message || "Failed to save");
     }
   }
 
