@@ -4261,12 +4261,15 @@ router.post(
         payload += esc + rs + String.fromCharCode(1) + t1; // Line 1
         payload += esc + rs + String.fromCharCode(2) + t2; // Line 2
       } else {
-        // Generic: clear then send text lines
-        payload = cr.repeat(3) + t1 + cr + lf + t2 + lf;
+        // Generic: overwrite lines with spaces to clear, then write text
+        const lineLen = 20;
+        payload = cr + " ".repeat(lineLen) + cr + " ".repeat(lineLen) + cr;
+        payload += (t1 + " ".repeat(lineLen)).slice(0, lineLen) + cr + lf;
+        payload += (t2 + " ".repeat(lineLen)).slice(0, lineLen) + lf;
       }
 
       // Send via TCP with a short timeout
-      const net = require("net");
+      const { default: net } = await import("node:net");
       await new Promise((resolve, reject) => {
         const sock = new net.Socket();
         const timeout = setTimeout(() => {

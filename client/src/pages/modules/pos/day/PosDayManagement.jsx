@@ -772,7 +772,7 @@ export default function PosDayManagement() {
       <head>
         <title>POS End of Day Report</title>
         <style>
-          body { font-family: 'Courier New', monospace; padding: 20px; max-width: 700px; margin: 0 auto; }
+          body { font-family: 'Courier New', monospace; padding: 20px 24px; max-width: 700px; margin: 0 auto; overflow-wrap: break-word; }
           h1 { text-align: center; border-bottom: 2px solid #0E3646; padding-bottom: 10px; color: #0E3646; }
           .row { display: flex; justify-content: space-between; margin: 5px 0; }
           table { width: 100%; border-collapse: collapse; margin: 20px 0; }

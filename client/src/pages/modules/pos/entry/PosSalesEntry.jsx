@@ -60,7 +60,9 @@ export default function PosSalesEntry() {
   const [showModal, setShowModal] = useState(false);
   const [showItemNotFound, setShowItemNotFound] = useState(false);
   const [showNoPermission, setShowNoPermission] = useState(false);
-  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine !== false : true);
+  const [online, setOnline] = useState(
+    typeof navigator !== "undefined" ? navigator.onLine !== false : true,
+  );
   const [saleTimestamp, setSaleTimestamp] = useState(null);
   const [paymentModes, setPaymentModes] = useState([]);
   const [paymentModesLoading, setPaymentModesLoading] = useState(false);
@@ -207,7 +209,10 @@ export default function PosSalesEntry() {
             const data = JSON.parse(raw);
             const t = String(data?.terminal || data?.terminalCode || "");
             const status = String(data?.status || "").toUpperCase();
-            if (status === "OPEN" && (!terminalCode || !t || t === terminalCode)) {
+            if (
+              status === "OPEN" &&
+              (!terminalCode || !t || t === terminalCode)
+            ) {
               setDayExists(true);
               setDayStatus("OPEN");
               setDayOpen(true);
@@ -500,7 +505,12 @@ export default function PosSalesEntry() {
               barcode: it.barcode || "",
             }));
           setProducts(mapped);
-          try { localStorage.setItem("omnisuite.pos.products", JSON.stringify(mapped)); } catch {}
+          try {
+            localStorage.setItem(
+              "omnisuite.pos.products",
+              JSON.stringify(mapped),
+            );
+          } catch {}
         } else {
           // Offline fallback: use cached products from localStorage
           try {
@@ -588,6 +598,17 @@ export default function PosSalesEntry() {
   const barcodeDebounceRef = useRef(null);
   const barcodeInputRef = useRef(null);
   const vfdDebounceRef = useRef(null);
+  const lastVfdItemRef = useRef(null);
+
+  function toAsciiPrintable(input) {
+    return String(input || "").replace(/[^\x20-\x7E]/g, "");
+  }
+
+  function trimToMax(input, maxLen) {
+    const s = toAsciiPrintable(input);
+    if (!maxLen || maxLen <= 0) return s;
+    return s.length > maxLen ? s.slice(0, maxLen) : s;
+  }
 
   const selectedPaymentMode = useMemo(() => {
     if (!paymentModes.length || !selectedPaymentModeId) return null;
@@ -640,11 +661,18 @@ export default function PosSalesEntry() {
       prod.price,
     );
     setCart((prev) => {
-      const existing = prev.find((p) => p.id === prod.id);
+      const base = Array.isArray(prev) ? prev : [];
+      const existing = base.find((p) => p.id === prod.id);
       if (existing) {
-        return prev.map((p) => {
+        const nextQty = Number(existing.quantity || 0) + qty;
+        lastVfdItemRef.current = {
+          id: prod.id,
+          name: prod.name,
+          quantity: nextQty,
+          price: unitPrice,
+        };
+        return base.map((p) => {
           if (p.id !== prod.id) return p;
-          const nextQty = p.quantity + qty;
           return {
             ...p,
             quantity: nextQty,
@@ -653,8 +681,14 @@ export default function PosSalesEntry() {
           };
         });
       }
+      lastVfdItemRef.current = {
+        id: prod.id,
+        name: prod.name,
+        quantity: qty,
+        price: unitPrice,
+      };
       return [
-        ...prev,
+        ...base,
         {
           id: prod.id,
           name: prod.name,
@@ -717,11 +751,18 @@ export default function PosSalesEntry() {
         const idx = next.findIndex((p) => p.id === prod.id);
         if (idx >= 0) {
           const existing = next[idx];
+          const nextQty = Number(existing.quantity || 0) + qty;
           next[idx] = {
             ...existing,
-            quantity: Number(existing.quantity || 0) + qty,
+            quantity: nextQty,
             price: unitPrice,
             discount: Number(existing.discount || 0),
+          };
+          lastVfdItemRef.current = {
+            id: prod.id,
+            name: prod.name,
+            quantity: nextQty,
+            price: unitPrice,
           };
         } else {
           next.push({
@@ -732,6 +773,12 @@ export default function PosSalesEntry() {
             quantity: qty,
             discount: canEditDiscount() ? Number(headerDiscount || 0) : 0,
           });
+          lastVfdItemRef.current = {
+            id: prod.id,
+            name: prod.name,
+            quantity: qty,
+            price: unitPrice,
+          };
         }
       }
       return next;
@@ -824,23 +871,46 @@ export default function PosSalesEntry() {
     setCart((prev) => {
       const existing = prev.find((p) => p.id === prod.id);
       if (existing) {
+        const nextQty = Number(existing.quantity || 0) + 1;
+        lastVfdItemRef.current = {
+          id: prod.id,
+          name: prod.name,
+          quantity: nextQty,
+          price: Number(prod.price || 0),
+        };
         return prev.map((p) =>
           p.id === prod.id
             ? {
                 ...p,
-                quantity: p.quantity + 1,
+                quantity: nextQty,
                 discount: Number(p.discount || 0),
               }
             : p,
         );
       }
+      lastVfdItemRef.current = {
+        id: prod.id,
+        name: prod.name,
+        quantity: 1,
+        price: Number(prod.price || 0),
+      };
       return [...prev, { ...prod, quantity: 1, discount: 0 }];
     });
   }
 
   function updateQuantity(id, delta) {
     setCart((prev) => {
-      const next = prev
+      const target = prev.find((p) => p.id === id);
+      if (target) {
+        const nextQty = Math.max(0, Number(target.quantity || 0) + delta);
+        lastVfdItemRef.current = {
+          id: target.id,
+          name: target.name,
+          quantity: nextQty,
+          price: Number(target.price || 0),
+        };
+      }
+      return prev
         .map((p) =>
           p.id === id
             ? {
@@ -850,7 +920,6 @@ export default function PosSalesEntry() {
             : p,
         )
         .filter((p) => Number(p.quantity || 0) > 0);
-      return next;
     });
   }
 
@@ -859,6 +928,18 @@ export default function PosSalesEntry() {
       // Hard guard: ignore discount updates when user lacks exceptional permission
       if (field === "discount" && !canEditDiscount()) {
         return prev;
+      }
+      if (field === "quantity") {
+        const target = prev.find((p) => p.id === id);
+        if (target) {
+          const v = Number(value || 0);
+          lastVfdItemRef.current = {
+            id: target.id,
+            name: target.name,
+            quantity: v > 0 ? v : 0,
+            price: Number(target.price || 0),
+          };
+        }
       }
       return prev
         .map((p) => {
@@ -880,6 +961,7 @@ export default function PosSalesEntry() {
   function removeFromCart(id) {
     setCart((prev) => prev.filter((p) => p.id !== id));
     setSelectedItems((prev) => prev.filter((p) => p.id !== id));
+    lastVfdItemRef.current = null;
     setEntryQty(1);
   }
 
@@ -891,6 +973,7 @@ export default function PosSalesEntry() {
     if (!cart.length) return;
     setCart([]);
     setSelectedItems([]);
+    lastVfdItemRef.current = null;
   }
 
   useEffect(() => {
@@ -932,24 +1015,26 @@ export default function PosSalesEntry() {
     if (vfdDebounceRef.current) clearTimeout(vfdDebounceRef.current);
     if (!cart.length || !terminalCode) return;
     vfdDebounceRef.current = setTimeout(() => {
-      const first = cart[0];
-      const line1 = `${first.name} - ${Number(first.price || 0).toFixed(2)}`;
-      const totalQty = cart.reduce((sum, c) => sum + Number(c.quantity || 1), 0);
-      const totalAmount = cart.reduce(
-        (sum, c) => sum + Number(c.price || 0) * Number(c.quantity || 1),
-        0,
+      const last =
+        lastVfdItemRef.current || cart[cart.length - 1] || cart[0] || null;
+      const lastName = trimToMax(last?.name || "ITEM", 14);
+      const lastQty = Number(last?.quantity || 1);
+      const lastPrice = Number(last?.price || 0);
+      const line1 = trimToMax(
+        `${lastName} ${lastQty}x${lastPrice.toFixed(2)}`,
+        20,
       );
-      const line2 = `Total: ${totalAmount.toFixed(2)} | Qty: ${totalQty}`;
+      const line2 = trimToMax(`TOTAL GHS ${Number(total || 0).toFixed(2)}`, 20);
       api.post("/pos/vfd/display", {
         terminal_code: terminalCode,
         line1,
         line2,
-      });
+      }).catch(() => {});
     }, 300);
     return () => {
       if (vfdDebounceRef.current) clearTimeout(vfdDebounceRef.current);
     };
-  }, [cart, terminalCode]);
+  }, [cart, terminalCode, total]);
   useEffect(() => {
     if (barcodeInputRef.current) {
       try {
@@ -1058,7 +1143,10 @@ export default function PosSalesEntry() {
           if (sold) {
             return {
               ...p,
-              availQty: Math.max(0, Number(p.availQty || 0) - Number(sold.quantity || 0)),
+              availQty: Math.max(
+                0,
+                Number(p.availQty || 0) - Number(sold.quantity || 0),
+              ),
             };
           }
           return p;
@@ -1070,7 +1158,10 @@ export default function PosSalesEntry() {
           if (sold) {
             return {
               ...p,
-              availQty: Math.max(0, Number(p.availQty || 0) - Number(sold.quantity || 0)),
+              availQty: Math.max(
+                0,
+                Number(p.availQty || 0) - Number(sold.quantity || 0),
+              ),
             };
           }
           return p;
@@ -1085,9 +1176,18 @@ export default function PosSalesEntry() {
       if (isNetworkError) {
         const localId = uuid();
         const offSeq = (() => {
-          try { return Number(localStorage.getItem("omnisuite.pos.offlineSeq") || "0") + 1; } catch { return 1; }
+          try {
+            return (
+              Number(localStorage.getItem("omnisuite.pos.offlineSeq") || "0") +
+              1
+            );
+          } catch {
+            return 1;
+          }
         })();
-        try { localStorage.setItem("omnisuite.pos.offlineSeq", String(offSeq)); } catch {}
+        try {
+          localStorage.setItem("omnisuite.pos.offlineSeq", String(offSeq));
+        } catch {}
         const offReceipt = `POS-${String(offSeq).padStart(6, "0")}-OFF`;
         setProducts((prev) =>
           prev.map((p) => {
@@ -1095,7 +1195,10 @@ export default function PosSalesEntry() {
             if (sold) {
               return {
                 ...p,
-                availQty: Math.max(0, Number(p.availQty || 0) - Number(sold.quantity || 0)),
+                availQty: Math.max(
+                  0,
+                  Number(p.availQty || 0) - Number(sold.quantity || 0),
+                ),
               };
             }
             return p;
@@ -1107,7 +1210,10 @@ export default function PosSalesEntry() {
             if (sold) {
               return {
                 ...p,
-                availQty: Math.max(0, Number(p.availQty || 0) - Number(sold.quantity || 0)),
+                availQty: Math.max(
+                  0,
+                  Number(p.availQty || 0) - Number(sold.quantity || 0),
+                ),
               };
             }
             return p;
@@ -1123,7 +1229,9 @@ export default function PosSalesEntry() {
         setReceiptNo(offReceipt);
         setSaleTimestamp(new Date());
         setShowModal(true);
-        toast.info("Sale saved offline. It will sync when connectivity returns.");
+        toast.info(
+          "Sale saved offline. It will sync when connectivity returns.",
+        );
       } else {
         const message =
           err?.response?.data?.message ||
@@ -1290,7 +1398,7 @@ export default function PosSalesEntry() {
         <meta charset="utf-8" />
         <title>POS Receipt</title>
         <style>
-          body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 16px; max-width: 480px; margin: 0 auto; }
+          body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 16px 24px; max-width: 480px; margin: 0 auto; overflow-wrap: break-word; }
           h1 { text-align: center; margin: 0 0 4px; font-size: 18px; }
           .center { text-align: center; }
           .muted { font-size: 12px; color: #555; }
@@ -1419,14 +1527,16 @@ export default function PosSalesEntry() {
           <div className="mt-1 text-xs">
             <span className="mr-2">Terminal:</span>
             <span className="font-semibold">{terminalCode || "-"}</span>
-              <span className="ml-3">
-                <span className={`inline-block w-2 h-2 rounded-full mr-1 ${online ? "bg-green-500" : "bg-red-500"}`} />
-                {online ? "Online" : "Offline"}
-              </span>
-              <span className="ml-3">
-                Status:
-                <span
-                  className={`ml-1 px-2 py-0.5 rounded ${
+            <span className="ml-3">
+              <span
+                className={`inline-block w-2 h-2 rounded-full mr-1 ${online ? "bg-green-500" : "bg-red-500"}`}
+              />
+              {online ? "Online" : "Offline"}
+            </span>
+            <span className="ml-3">
+              Status:
+              <span
+                className={`ml-1 px-2 py-0.5 rounded ${
                   dayOpen
                     ? "bg-green-100 text-green-700"
                     : "bg-red-100 text-red-700"
@@ -1889,7 +1999,9 @@ export default function PosSalesEntry() {
       {showItemNotFound && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-sm mx-4">
-            <div className="text-lg font-bold text-red-600">Item Not Registered</div>
+            <div className="text-lg font-bold text-red-600">
+              Item Not Registered
+            </div>
             <p className="mt-2 text-sm text-slate-600">
               The scanned item is not registered in the system.
             </p>
@@ -1919,9 +2031,12 @@ export default function PosSalesEntry() {
       {showNoPermission && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-sm mx-4">
-            <div className="text-lg font-bold text-red-600">Permission Denied</div>
+            <div className="text-lg font-bold text-red-600">
+              Permission Denied
+            </div>
             <p className="mt-2 text-sm text-slate-600">
-              You do not have permission to register new items. Contact your administrator.
+              You do not have permission to register new items. Contact your
+              administrator.
             </p>
             <div className="mt-6 flex justify-center">
               <button

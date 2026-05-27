@@ -353,7 +353,7 @@ export default function CashCollectionDetails() {
         <meta charset="utf-8" />
         <title>POS Invoice</title>
         <style>
-          body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 16px; max-width: 480px; margin: 0 auto; }
+          body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 16px 24px; max-width: 480px; margin: 0 auto; overflow-wrap: break-word; }
           h1 { text-align: center; margin: 0 0 4px; font-size: 18px; }
           .center { text-align: center; }
           .muted { font-size: 12px; color: #555; }
