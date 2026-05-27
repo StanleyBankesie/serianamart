@@ -1,15 +1,36 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "react-toastify";
 import { api } from "../../api/client.js";
 import { MODULES_REGISTRY } from "../../data/modulesRegistry.js";
+
+function permKey(module_key, dashboard_key, card_key, ticker_key) {
+  return `${module_key}|${dashboard_key || ""}|${card_key || ""}|${ticker_key || ""}`;
+}
 
 export default function DashboardPermissions() {
   const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [selectedUserId, setSelectedUserId] = useState("");
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [perms, setPerms] = useState([]);
+  const [userToggles, setUserToggles] = useState({});
+  const [togglesInitialized, setTogglesInitialized] = useState(false);
+
+  useEffect(() => {
+    setUserToggles({});
+    setTogglesInitialized(false);
+  }, [selectedUserId]);
+
+  useEffect(() => {
+    if (togglesInitialized || perms.length === 0) return;
+    const map = {};
+    for (const p of perms) {
+      const key = permKey(p.module_key, p.dashboard_key, p.card_key, p.ticker_key);
+      map[key] = Number(p.can_view) === 1;
+    }
+    setUserToggles(map);
+    setTogglesInitialized(true);
+  }, [perms, togglesInitialized]);
 
   const modules = useMemo(() => {
     const base = Object.entries(MODULES_REGISTRY).map(([key, val]) => {
@@ -168,12 +189,22 @@ export default function DashboardPermissions() {
     loadPerms();
   }, [selectedUserId]);
 
+  function makeToggleHandler(module_key, dashboard_key, card_key, ticker_key, onChange) {
+    return (e) => {
+      const key = permKey(module_key, dashboard_key, card_key, ticker_key);
+      setUserToggles((prev) => ({ ...prev, [key]: e.target.checked }));
+      onChange(e.target.checked);
+    };
+  }
+
   const getView = (
     module_key,
     dashboard_key,
     card_key = null,
     ticker_key = null,
   ) => {
+    const key = permKey(module_key, dashboard_key, card_key, ticker_key);
+    if (key in userToggles) return userToggles[key];
     const match = perms.filter(
       (p) =>
         String(p.module_key) === String(module_key) &&
@@ -181,10 +212,7 @@ export default function DashboardPermissions() {
         String(p.card_key || "") === String(card_key || "") &&
         String(p.ticker_key || "") === String(ticker_key || ""),
     );
-    // No explicit permission → fallback in canViewDashboardElement
-    // uses canAccessPath("/module"), which grants access → show checked
     if (match.length === 0) return true;
-    // With explicit records, show checked if ANY grants access
     return match.some((p) => Number(p.can_view) === 1);
   };
   const setView = (module_key, dashboard_key, card_key, ticker_key, value) => {
@@ -240,17 +268,12 @@ export default function DashboardPermissions() {
           },
         ],
       });
-      setError("");
       const msg = `${String(module_key || "").toUpperCase()}: ${String(
         type === "dashboard" ? "Dashboard" : type === "card" ? "Card" : "Ticker",
       )} ${String(key || "")} ${allow ? "enabled" : "disabled"}`;
-      setSuccess(msg);
-      setTimeout(() => {
-        setSuccess((cur) => (cur === msg ? "" : cur));
-      }, 1500);
+      toast.success(msg);
     } catch (err) {
-      setError(err.response?.data?.message || "Failed to save");
-      setSuccess("");
+      toast.error(err.response?.data?.message || "Failed to save");
     }
   };
 
@@ -270,9 +293,6 @@ export default function DashboardPermissions() {
           Back to Admin
         </button>
       </div>
-      {error && <div className="alert alert-error">{error}</div>}
-      {success && <div className="alert alert-success">{success}</div>}
-
       <div className="card">
         <div className="card-body space-y-4">
           <div className="max-w-md">
@@ -323,19 +343,20 @@ export default function DashboardPermissions() {
                             }
                             onChange={(e) => {
                               const val = e.target.checked;
+                              const updates = {};
                               m.dashboards.forEach((d) => {
+                                const k = permKey(m.key, d.key, null, null);
+                                updates[k] = val;
                                 setView(m.key, d.key, null, null, val);
-                                persistPermission(
-                                  m.key,
-                                  "dashboard",
-                                  d.key,
-                                  val,
-                                );
+                                persistPermission(m.key, "dashboard", d.key, val);
                               });
                               cards.forEach((c) => {
+                                const k = permKey(m.key, null, c.key, null);
+                                updates[k] = val;
                                 setView(m.key, null, c.key, null, val);
                                 persistPermission(m.key, "card", c.key, val);
                               });
+                              setUserToggles((prev) => ({ ...prev, ...updates }));
                             }}
                           />
                           <span>Select All</span>
@@ -350,91 +371,44 @@ export default function DashboardPermissions() {
                               type="checkbox"
                               className="checkbox checkbox-sm"
                               checked={getView(m.key, d.key)}
-                              onChange={(e) => {
-                                setView(
-                                  m.key,
-                                  d.key,
-                                  null,
-                                  null,
-                                  e.target.checked,
-                                );
-                                persistPermission(
-                                  m.key,
-                                  "dashboard",
-                                  d.key,
-                                  e.target.checked,
-                                );
-                              }}
+                              onChange={makeToggleHandler(m.key, d.key, null, null, (val) => {
+                                setView(m.key, d.key, null, null, val);
+                                persistPermission(m.key, "dashboard", d.key, val);
+                              })}
                             />
                             <span>📊 {d.name || d.label}</span>
                           </label>
-                          <div className="ml-7 space-y-1">
-                            {cards.length > 0 &&
-                              cards.map((c) => (
-                                <label
-                                  key={c.key}
-                                  className="flex items-center gap-2 pl-2 border-l-2 border-slate-200"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    className="checkbox checkbox-xs"
-                                    checked={getView(m.key, null, c.key, null)}
-                                    onChange={(e) => {
-                                      setView(
-                                        m.key,
-                                        null,
-                                        c.key,
-                                        null,
-                                        e.target.checked,
-                                      );
-                                      persistPermission(
-                                        m.key,
-                                        "card",
-                                        c.key,
-                                        e.target.checked,
-                                      );
-                                    }}
-                                  />
-                                  <span className="text-sm text-slate-600">
-                                    {c.label}
-                                  </span>
-                                </label>
-                              ))}
-                          </div>
                         </div>
                       ))}
-                      {m.dashboards.length === 0 && cards.length > 0 && (
-                        <div>
-                          <h4 className="font-medium mb-2">
-                            📊 Dashboard Cards
-                          </h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {cards.length > 0 && (
+                        <div className={m.dashboards.length > 0 ? "ml-7 space-y-1" : ""}>
+                          {m.dashboards.length > 0 && (
+                            <h4 className="font-medium text-sm text-slate-700 mb-1">
+                              Dashboard Cards
+                            </h4>
+                          )}
+                          <div className={m.dashboards.length > 0 ? "space-y-1" : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"}>
                             {cards.map((c) => (
                               <label
                                 key={c.key}
-                                className="flex items-center gap-2"
+                                className={
+                                  m.dashboards.length > 0
+                                    ? "flex items-center gap-2 pl-2 border-l-2 border-slate-200"
+                                    : "flex items-center gap-2"
+                                }
                               >
                                 <input
                                   type="checkbox"
-                                  className="checkbox checkbox-sm"
+                                  className={m.dashboards.length > 0 ? "checkbox checkbox-xs" : "checkbox checkbox-sm"}
                                   checked={getView(m.key, null, c.key, null)}
-                                  onChange={(e) => {
-                                    setView(
-                                      m.key,
-                                      null,
-                                      c.key,
-                                      null,
-                                      e.target.checked,
-                                    );
-                                    persistPermission(
-                                      m.key,
-                                      "card",
-                                      c.key,
-                                      e.target.checked,
-                                    );
-                                  }}
+                                  onChange={makeToggleHandler(m.key, null, c.key, null, (val) => {
+                                    setView(m.key, null, c.key, null, val);
+                                    persistPermission(m.key, "card", c.key, val);
+                                  })}
                                 />
-                                <span className="text-sm">{c.label}</span>
+                                <span className={"text-sm" + (m.dashboards.length > 0 ? " text-slate-600" : "")}>
+                                  {c.label}
+                                </span>
                               </label>
                             ))}
                           </div>

@@ -271,14 +271,14 @@ export default function PosInvoiceList() {
   const totals = useMemo(() => {
     const count = filtered.length;
     const totalAmount = filtered.reduce(
-      (sum, it) => sum + Number(it.total_amount || 0),
+      (sum, it) => sum + Number(it.net_after_returns ?? it.total_amount ?? 0),
       0,
     );
     const paid = filtered.reduce(
       (sum, it) =>
         sum +
         (String(it.payment_status || "") === "PAID"
-          ? Number(it.total_amount || 0)
+          ? Number(it.net_after_returns ?? it.total_amount ?? 0)
           : 0),
       0,
     );
@@ -294,7 +294,7 @@ export default function PosInvoiceList() {
         .replace("T", " ")
         .slice(0, 16),
       it.customer_id ? `#${it.customer_id}` : "-",
-      Number(it.total_amount || 0).toFixed(2),
+      Number(it.net_after_returns ?? it.total_amount ?? 0).toFixed(2),
       String(it.payment_status || ""),
     ]);
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -352,7 +352,10 @@ export default function PosInvoiceList() {
     const tax = Number(sale?.tax_amount || 0);
     const subtotal = gross - discountAmt;
     const total = Number(
-      sale?.net_amount || sale?.total_amount || subtotal + tax,
+      sale?.net_after_returns ??
+        sale?.net_amount ??
+        sale?.total_amount ??
+        subtotal + tax,
     );
 
     const itemsArr = (Array.isArray(details) ? details : []).map((d) => {
@@ -479,7 +482,10 @@ export default function PosInvoiceList() {
     const tax = Number(sale?.tax_amount || 0);
     const subtotal = gross - discount;
     const total = Number(
-      sale?.net_amount || sale?.total_amount || subtotal + tax,
+      sale?.net_after_returns ??
+        sale?.net_amount ??
+        sale?.total_amount ??
+        subtotal + tax,
     );
     const html = `
       <!DOCTYPE html>
@@ -672,7 +678,10 @@ export default function PosInvoiceList() {
       const tax = Number(sale?.tax_amount || 0);
       const subtotal = gross - discount;
       const total = Number(
-        sale?.net_amount || sale?.total_amount || subtotal + tax,
+        sale?.net_after_returns ??
+          sale?.net_amount ??
+          sale?.total_amount ??
+          subtotal + tax,
       );
       const doc = new jsPDF("p", "mm", "a4");
       let y = 15;
@@ -964,7 +973,7 @@ export default function PosInvoiceList() {
                     </td>
                     <td>{String(it.customer_name || "-")}</td>
                     <td className="text-right">
-                      {`GH₵ ${Number(it.total_amount || 0).toFixed(2)}`}
+                      {`GH₵ ${Number(it.net_after_returns ?? it.total_amount ?? 0).toFixed(2)}`}
                     </td>
                     <td>
                       <span
@@ -987,7 +996,7 @@ export default function PosInvoiceList() {
                       <div className="flex gap-2">
                         <button
                           type="button"
-                          className={`text-brand hover:text-brand-600 font-medium text-sm ${!canPerformAction("pos:invoices", "view") ? 'invisible pointer-events-none' : ''}`}
+                          className={`text-brand hover:text-brand-600 font-medium text-sm ${!canPerformAction("pos:invoices", "view") ? "invisible pointer-events-none" : ""}`}
                           onClick={() => handleView(it)}
                           disabled={actionLoadingId === it.id}
                         >
@@ -1012,7 +1021,11 @@ export default function PosInvoiceList() {
                       </div>
                     </td>
                     <td>{it.created_by_name || "-"}</td>
-                    <td>{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
+                    <td>
+                      {it.created_at
+                        ? new Date(it.created_at).toLocaleDateString()
+                        : "-"}
+                    </td>
                   </tr>
                 ))
               )}

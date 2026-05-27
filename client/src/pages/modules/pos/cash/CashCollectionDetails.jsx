@@ -218,14 +218,15 @@ export default function CashCollectionDetails() {
 
   const totals = useMemo(() => {
     const totalAmount = filtered.reduce(
-      (sum, it) => sum + Number(it.total_amount || 0),
+      (sum, it) =>
+        sum + Number(it.net_after_returns ?? it.total_amount ?? 0),
       0,
     );
     const cashCollected = filtered.reduce(
       (sum, it) =>
         sum +
         (String(it.payment_status || "") === "PAID"
-          ? Number(it.total_amount || 0)
+          ? Number(it.net_after_returns ?? it.total_amount ?? 0)
           : 0),
       0,
     );
@@ -242,7 +243,7 @@ export default function CashCollectionDetails() {
     const map = {};
     for (const it of filtered) {
       const method = String(it.payment_method || "").toUpperCase() || "UNKNOWN";
-      const amount = Number(it.total_amount || 0);
+      const amount = Number(it.net_after_returns ?? it.total_amount ?? 0);
       const isPaid = String(it.payment_status || "") === "PAID";
       if (!map[method]) {
         map[method] = {
@@ -340,7 +341,10 @@ export default function CashCollectionDetails() {
     const tax = Number(sale?.tax_amount || 0);
     const subtotal = gross - discount;
     const total = Number(
-      sale?.net_amount || sale?.total_amount || subtotal + tax,
+      sale?.net_after_returns ??
+        sale?.net_amount ??
+        sale?.total_amount ??
+        subtotal + tax,
     );
     const html = `
       <!DOCTYPE html>
@@ -529,7 +533,10 @@ export default function CashCollectionDetails() {
       const tax = Number(sale?.tax_amount || 0);
       const subtotal = gross - discount;
       const total = Number(
-        sale?.net_amount || sale?.total_amount || subtotal + tax,
+        sale?.net_after_returns ??
+          sale?.net_amount ??
+          sale?.total_amount ??
+          subtotal + tax,
       );
       const doc = new jsPDF("p", "mm", "a4");
       let y = 15;
@@ -855,7 +862,7 @@ export default function CashCollectionDetails() {
                         {String(it.payment_method || "").toUpperCase() || "-"}
                       </td>
                       <td className="p-2 text-right">
-                        {`GH₵ ${Number(it.total_amount || 0).toFixed(2)}`}
+                        {`GH₵ ${Number(it.net_after_returns ?? it.total_amount ?? 0).toFixed(2)}`}
                       </td>
                       <td className="p-2">
                         {it.collector_username || it.collector_full_name || "-"}

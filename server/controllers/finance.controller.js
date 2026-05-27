@@ -5064,3 +5064,199 @@ export const createVoucherType = async (req, res, next) => {
     next(e);
   }
 };
+
+export const getDashboardMetrics = async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req.scope;
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+
+    const [fyRow] = await query(
+      `SELECT start_date FROM fin_fiscal_years
+       WHERE company_id = :companyId ORDER BY start_date DESC LIMIT 1`,
+      { companyId },
+    ).catch(() => []);
+    const now = new Date();
+    const toDate = to ? new Date(String(to)) : now;
+    const fyStart = fyRow?.start_date
+      ? new Date(fyRow.start_date)
+      : new Date(now.getFullYear(), 0, 1);
+    const fromDate = from ? new Date(String(from)) : fyStart;
+    const fromStr = fromDate.toISOString().slice(0, 10);
+    const toStr = toDate.toISOString().slice(0, 10);
+
+    const groups = await query(
+      `SELECT id, code, name, nature FROM fin_account_groups
+       WHERE company_id = :companyId AND is_active = 1`,
+      { companyId },
+    );
+    const gMap = {};
+    for (const g of groups) {
+      const c = String(g.code || "").toUpperCase();
+      if (/DEBTOR/.test(c) || /AR$/.test(c) || c === "AST_AR") gMap.debtors = (gMap.debtors || []).concat(g.id);
+      if (/CREDITOR/.test(c) || /AP$/.test(c) || c === "LIAB_AP") gMap.creditors = (gMap.creditors || []).concat(g.id);
+      if (c === "AST_CASH") gMap.cash = (gMap.cash || []).concat(g.id);
+      if (c === "AST_BANK") gMap.bank = (gMap.bank || []).concat(g.id);
+      if (g.nature === "INCOME") gMap.income = (gMap.income || []).concat(g.id);
+      if (g.nature === "EXPENSE" && c !== "EXP_COGS") gMap.expense = (gMap.expense || []).concat(g.id);
+    }
+    if (!gMap.debtors || !gMap.debtors.length) {
+      gMap.debtors = groups.filter(g => g.nature === "ASSET" && (/receivable/i.test(g.name) || /debtor/i.test(g.name))).map(g => g.id);
+    }
+    if (!gMap.creditors || !gMap.creditors.length) {
+      gMap.creditors = groups.filter(g => g.nature === "LIABILITY" && (/payable/i.test(g.name) || /creditor/i.test(g.name))).map(g => g.id);
+    }
+
+    const balanceForGroups = async (groupIds, periodFrom, periodTo) => {
+      if (!groupIds || !groupIds.length) return { debit: 0, credit: 0 };
+      const rows = await query(
+        `SELECT COALESCE(SUM(vl.debit),0) AS dr, COALESCE(SUM(vl.credit),0) AS cr
+         FROM fin_voucher_lines vl
+         JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId
+           AND (:branchId IS NULL OR v.branch_id = :branchId)
+           AND v.status = 'POSTED'
+           AND v.voucher_date BETWEEN :from AND :to
+         JOIN fin_accounts a ON a.id = vl.account_id AND a.company_id = :companyId
+         WHERE a.group_id IN (:groupIds)`,
+        { companyId, branchId: branchId || null, from: periodFrom, to: periodTo, groupIds },
+      );
+      return { debit: Number(rows[0]?.dr || 0), credit: Number(rows[0]?.cr || 0) };
+    };
+
+    const [debtorsBal, creditorsBal, cashBal, bankBal, incomeBal, expenseBal] = await Promise.all([
+      balanceForGroups(gMap.debtors, fromStr, toStr),
+      balanceForGroups(gMap.creditors, fromStr, toStr),
+      balanceForGroups(gMap.cash, fromStr, toStr),
+      balanceForGroups(gMap.bank, fromStr, toStr),
+      balanceForGroups(gMap.income, fromStr, toStr),
+      balanceForGroups(gMap.expense, fromStr, toStr),
+    ]);
+
+    const debtorsNet = debtorsBal.debit - debtorsBal.credit;
+    const creditorsNet = creditorsBal.credit - creditorsBal.debit;
+    const cashNet = cashBal.debit - cashBal.credit;
+    const bankNet = bankBal.debit - bankBal.credit;
+    const salesNet = incomeBal.credit - incomeBal.debit;
+    const expenseNet = expenseBal.debit - expenseBal.credit;
+
+    const monthlyMovements = await query(
+      `SELECT DATE_FORMAT(v.voucher_date, '%Y-%m') AS ym,
+              vl.account_id, a.group_id, SUM(vl.debit) AS dr, SUM(vl.credit) AS cr
+       FROM fin_voucher_lines vl
+       JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId
+         AND (:branchId IS NULL OR v.branch_id = :branchId)
+         AND v.status = 'POSTED'
+         AND v.voucher_date BETWEEN :from AND :to
+       JOIN fin_accounts a ON a.id = vl.account_id AND a.company_id = :companyId
+       GROUP BY ym, vl.account_id, a.group_id
+       ORDER BY ym ASC`,
+      { companyId, branchId: branchId || null, from: fromStr, to: toStr },
+    );
+
+    const gidSet = (key) => new Set(gMap[key] || []);
+    const isInGroup = (gid, set) => set.has(Number(gid));
+
+    const accumulate = (rows, groupKey, balFn) => {
+      const map = {};
+      const set = gidSet(groupKey);
+      for (const r of rows) {
+        if (isInGroup(r.group_id, set)) {
+          const b = balFn(r);
+          map[r.ym] = (map[r.ym] || 0) + b;
+        }
+      }
+      return Object.entries(map).map(([ym, value]) => ({ ym, value: Math.round(value * 100) / 100 }));
+    };
+
+    const ar_trend = accumulate(monthlyMovements, "debtors", r => Number(r.dr || 0) - Number(r.cr || 0));
+    const ap_trend = accumulate(monthlyMovements, "creditors", r => Number(r.cr || 0) - Number(r.dr || 0));
+    const cash_trend = accumulate(monthlyMovements, "cash", r => Number(r.dr || 0) - Number(r.cr || 0));
+    const bank_trend = accumulate(monthlyMovements, "bank", r => Number(r.dr || 0) - Number(r.cr || 0));
+
+    const cashGidSet = gidSet("cash");
+    const bankGidSet = gidSet("bank");
+    const cashflowMap = {};
+    for (const r of monthlyMovements) {
+      if (isInGroup(r.group_id, cashGidSet) || isInGroup(r.group_id, bankGidSet)) {
+        cashflowMap[r.ym] = cashflowMap[r.ym] || { inflow: 0, outflow: 0 };
+        cashflowMap[r.ym].inflow += Math.round(Number(r.dr || 0) * 100) / 100;
+        cashflowMap[r.ym].outflow += Math.round(Number(r.cr || 0) * 100) / 100;
+      }
+    }
+    const cashflow_trend = Object.entries(cashflowMap).map(([ym, v]) => ({ ym, ...v }));
+
+    const incGidSet = gidSet("income");
+    const expGidSet = gidSet("expense");
+    const ieMap = {};
+    for (const r of monthlyMovements) {
+      const gid = Number(r.group_id);
+      ieMap[r.ym] = ieMap[r.ym] || { income: 0, expense: 0 };
+      if (incGidSet.has(gid)) ieMap[r.ym].income += Math.round((Number(r.cr || 0) - Number(r.dr || 0)) * 100) / 100;
+      if (expGidSet.has(gid)) ieMap[r.ym].expense += Math.round((Number(r.dr || 0) - Number(r.cr || 0)) * 100) / 100;
+    }
+    const income_expense_trend = Object.entries(ieMap).map(([ym, v]) => ({ ym, ...v }));
+
+    let ar_breakdown = [];
+    if (gMap.debtors && gMap.debtors.length) {
+      const arRows = await query(
+        `SELECT a.name, SUM(vl.debit - vl.credit) AS value
+         FROM fin_voucher_lines vl
+         JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId
+           AND (:branchId IS NULL OR v.branch_id = :branchId)
+           AND v.status = 'POSTED'
+           AND v.voucher_date BETWEEN :from AND :to
+         JOIN fin_accounts a ON a.id = vl.account_id AND a.company_id = :companyId
+         WHERE a.group_id IN (:groupIds)
+         GROUP BY a.id, a.name
+         HAVING value != 0
+         ORDER BY ABS(value) DESC
+         LIMIT 15`,
+        { companyId, branchId: branchId || null, from: fromStr, to: toStr, groupIds: gMap.debtors },
+      );
+      ar_breakdown = arRows.map(r => ({ name: r.name, value: Math.round(Math.abs(Number(r.value)) * 100) / 100 }));
+    }
+
+    let ap_breakdown = [];
+    if (gMap.creditors && gMap.creditors.length) {
+      const apRows = await query(
+        `SELECT a.name, SUM(vl.credit - vl.debit) AS value
+         FROM fin_voucher_lines vl
+         JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId
+           AND (:branchId IS NULL OR v.branch_id = :branchId)
+           AND v.status = 'POSTED'
+           AND v.voucher_date BETWEEN :from AND :to
+         JOIN fin_accounts a ON a.id = vl.account_id AND a.company_id = :companyId
+         WHERE a.group_id IN (:groupIds)
+         GROUP BY a.id, a.name
+         HAVING value != 0
+         ORDER BY ABS(value) DESC
+         LIMIT 15`,
+        { companyId, branchId: branchId || null, from: fromStr, to: toStr, groupIds: gMap.creditors },
+      );
+      ap_breakdown = apRows.map(r => ({ name: r.name, value: Math.round(Math.abs(Number(r.value)) * 100) / 100 }));
+    }
+
+    res.json({
+      ytd: {
+        debtors: Math.round(debtorsNet * 100) / 100,
+        debtors_side: debtorsNet >= 0 ? "DEBIT" : "CREDIT",
+        creditors: Math.round(creditorsNet * 100) / 100,
+        creditors_side: creditorsNet >= 0 ? "CREDIT" : "DEBIT",
+        cash_in_hand: Math.round(cashNet * 100) / 100,
+        bank_total: Math.round(bankNet * 100) / 100,
+        indirect_expenses: Math.round(expenseNet * 100) / 100,
+        sales: Math.round(salesNet * 100) / 100,
+      },
+      ar_trend,
+      ap_trend,
+      ar_breakdown,
+      ap_breakdown,
+      bank_trend,
+      cash_trend,
+      cashflow_trend,
+      income_expense_trend,
+    });
+  } catch (e) {
+    next(e);
+  }
+};

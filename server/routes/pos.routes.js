@@ -527,6 +527,21 @@ async function ensurePosTables() {
       "ALTER TABLE pos_terminals ADD COLUMN ip_address VARCHAR(50) NULL",
     );
   }
+  if (!(await hasColumn("pos_terminals", "enable_vfd"))) {
+    await query(
+      "ALTER TABLE pos_terminals ADD COLUMN enable_vfd TINYINT(1) NOT NULL DEFAULT 0 AFTER ip_address",
+    );
+  }
+  if (!(await hasColumn("pos_terminals", "vfd_type"))) {
+    await query(
+      "ALTER TABLE pos_terminals ADD COLUMN vfd_type VARCHAR(30) NULL DEFAULT 'generic' AFTER enable_vfd",
+    );
+  }
+  if (!(await hasColumn("pos_terminals", "vfd_port"))) {
+    await query(
+      "ALTER TABLE pos_terminals ADD COLUMN vfd_port INT NULL DEFAULT 9100 AFTER vfd_type",
+    );
+  }
 
   await query(`
     CREATE TABLE IF NOT EXISTS pos_terminal_users (
@@ -892,42 +907,54 @@ router.get(
     try {
       const { companyId, branchId } = req.scope;
       await ensurePosTables();
-      const [today] = await query(
+      const [todaySales] = await query(
         `SELECT 
-           COALESCE(SUM(total_amount), 0) AS total, 
-           COALESCE(AVG(total_amount), 0) AS avg_amt, 
+           COALESCE(SUM(net_amount), 0) AS total, 
+           COALESCE(AVG(net_amount), 0) AS avg_amt, 
            COUNT(*) AS count,
           created_at,
           u.username AS created_by_name
-         FROM sal_invoices
+         FROM pos_sales
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId 
            AND branch_id = :branchId 
-           AND DATE(invoice_date) = CURDATE()`,
+           AND DATE(sale_datetime) = CURDATE()
+           AND status = 'COMPLETED'`,
         { companyId, branchId },
       );
-      const [month] = await query(
-        `SELECT COALESCE(SUM(total_amount), 0) AS total,
-          created_at,
-          u.username AS created_by_name
-         FROM sal_invoices
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId 
-           AND branch_id = :branchId 
-           AND YEAR(invoice_date) = YEAR(CURDATE()) 
-           AND MONTH(invoice_date) = MONTH(CURDATE())`,
+      const [todayReturns] = await query(
+        `SELECT 
+           COALESCE(SUM(total_refund), 0) AS total
+         FROM pos_returns
+         WHERE company_id = :companyId
+           AND branch_id = :branchId
+           AND DATE(return_datetime) = CURDATE()`,
         { companyId, branchId },
       );
-      const [monthAvg] = await query(
-        `SELECT COALESCE(AVG(total_amount), 0) AS avg_amt,
+      const [monthSales] = await query(
+        `SELECT 
+           COALESCE(SUM(net_amount), 0) AS total,
+           COALESCE(AVG(net_amount), 0) AS avg_amt,
+           COUNT(*) AS count,
           created_at,
           u.username AS created_by_name
-         FROM sal_invoices
+         FROM pos_sales
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId 
            AND branch_id = :branchId 
-           AND YEAR(invoice_date) = YEAR(CURDATE()) 
-           AND MONTH(invoice_date) = MONTH(CURDATE())`,
+           AND YEAR(sale_datetime) = YEAR(CURDATE()) 
+           AND MONTH(sale_datetime) = MONTH(CURDATE())
+           AND status = 'COMPLETED'`,
+        { companyId, branchId },
+      );
+      const [monthReturns] = await query(
+        `SELECT 
+           COALESCE(SUM(total_refund), 0) AS total
+         FROM pos_returns
+         WHERE company_id = :companyId
+           AND branch_id = :branchId
+           AND YEAR(return_datetime) = YEAR(CURDATE())
+           AND MONTH(return_datetime) = MONTH(CURDATE())`,
         { companyId, branchId },
       );
       const [customers] = await query(
@@ -939,12 +966,19 @@ router.get(
          WHERE company_id = :companyId`,
         { companyId },
       );
+      const rawTodayTotal = Number(todaySales?.total || 0);
+      const todayReturnTotal = Number(todayReturns?.total || 0);
+      const rawMonthTotal = Number(monthSales?.total || 0);
+      const monthReturnTotal = Number(monthReturns?.total || 0);
+      const todayNet = roundTo2(rawTodayTotal - todayReturnTotal);
+      const monthNet = roundTo2(rawMonthTotal - monthReturnTotal);
+      const monthCount = Number(monthSales?.count || 0) || 0;
+      const avgOrder = monthCount > 0 ? roundTo2(monthNet / monthCount) : 0;
       res.json({
-        todaySales: Number(today?.total || 0),
-        // Average order amount for current month
-        averageOrder: Number(monthAvg?.avg_amt || 0),
-        transactions: Number(today?.count || 0),
-        monthlyRevenue: Number(month?.total || 0),
+        todaySales: todayNet,
+        averageOrder: avgOrder,
+        transactions: Number(todaySales?.count || 0),
+        monthlyRevenue: monthNet,
         totalCustomers: Number(customers?.count || 0),
       });
     } catch (err) {
@@ -977,6 +1011,23 @@ router.get(
         `,
         { companyId, branchId },
       );
+      const returnRows = await query(
+        `
+        SELECT refund_method, COUNT(*) AS cnt, COALESCE(SUM(total_refund), 0) AS amt
+         FROM pos_returns
+         WHERE company_id = :companyId
+          AND branch_id = :branchId
+          AND DATE(return_datetime) = CURDATE()
+        GROUP BY refund_method
+        `,
+        { companyId, branchId },
+      );
+      const returnsByMethod = new Map(
+        (Array.isArray(returnRows) ? returnRows : []).map((r) => [
+          String(r.refund_method || "").toUpperCase(),
+          Number(r.amt || 0),
+        ]),
+      );
       const summary = {
         cashCount: 0,
         cashAmount: 0,
@@ -1000,6 +1051,15 @@ router.get(
           summary.mobileAmount += amount;
         }
       }
+      summary.cashAmount = roundTo2(
+        summary.cashAmount - (returnsByMethod.get("CASH") || 0),
+      );
+      summary.cardAmount = roundTo2(
+        summary.cardAmount - (returnsByMethod.get("CARD") || 0),
+      );
+      summary.mobileAmount = roundTo2(
+        summary.mobileAmount - (returnsByMethod.get("MOBILE") || 0),
+      );
       res.json({ summary });
     } catch (err) {
       next(err);
@@ -1041,7 +1101,45 @@ router.get(
         `,
         { companyId, branchId },
       );
-      res.json({ items });
+      const returnRows = await query(
+        `
+        SELECT 
+          COALESCE(
+            NULLIF(a.username, ''),
+            NULLIF(a.email, ''),
+            CONCAT('User ', a.id)
+          ) AS user_label,
+          COALESCE(SUM(r.total_refund), 0) AS return_total
+         FROM pos_returns r
+         JOIN pos_sales p
+           ON p.id = r.sale_id
+          AND p.company_id = r.company_id
+          AND p.branch_id = r.branch_id
+        LEFT JOIN adm_users a
+          ON a.id = p.created_by AND a.company_id = p.company_id AND a.branch_id = p.branch_id
+         WHERE r.company_id = :companyId
+          AND r.branch_id = :branchId
+          AND DATE(r.return_datetime) = CURDATE()
+        GROUP BY user_label
+        `,
+        { companyId, branchId },
+      );
+      const returnsByUser = new Map(
+        (Array.isArray(returnRows) ? returnRows : []).map((r) => [
+          String(r.user_label || ""),
+          Number(r.return_total || 0),
+        ]),
+      );
+      const adjusted = (Array.isArray(items) ? items : []).map((it) => {
+        const label = String(it.user_label || "");
+        const ret = returnsByUser.get(label) || 0;
+        return {
+          ...it,
+          total: roundTo2(Number(it.total || 0) - ret),
+        };
+      });
+      adjusted.sort((a, b) => Number(b.total || 0) - Number(a.total || 0));
+      res.json({ items: adjusted });
     } catch (err) {
       next(err);
     }
@@ -1079,7 +1177,52 @@ router.get(
         `,
         { companyId, branchId },
       );
-      res.json({ items });
+      const returnRows = await query(
+        `
+        SELECT 
+          COALESCE(t.code, 'UNKNOWN') AS terminal,
+          SUM(CASE WHEN r.refund_method='CASH' THEN r.total_refund ELSE 0 END) AS cash_return,
+          SUM(CASE WHEN r.refund_method='CARD' THEN r.total_refund ELSE 0 END) AS card_return,
+          SUM(CASE WHEN r.refund_method='MOBILE' THEN r.total_refund ELSE 0 END) AS mobile_return
+         FROM pos_returns r
+         JOIN pos_sales p
+           ON p.id = r.sale_id
+          AND p.company_id = r.company_id
+          AND p.branch_id = r.branch_id
+        LEFT JOIN pos_terminals t
+          ON t.id = p.terminal_id AND t.company_id = p.company_id AND t.branch_id = p.branch_id
+         WHERE r.company_id = :companyId
+          AND r.branch_id = :branchId
+          AND DATE(r.return_datetime) = CURDATE()
+        GROUP BY COALESCE(t.code, 'UNKNOWN')
+        `,
+        { companyId, branchId },
+      );
+      const returnsByTerminal = new Map(
+        (Array.isArray(returnRows) ? returnRows : []).map((r) => [
+          String(r.terminal || "UNKNOWN"),
+          {
+            cash: Number(r.cash_return || 0),
+            card: Number(r.card_return || 0),
+            mobile: Number(r.mobile_return || 0),
+          },
+        ]),
+      );
+      const adjusted = (Array.isArray(items) ? items : []).map((it) => {
+        const key = String(it.terminal || "UNKNOWN");
+        const ret = returnsByTerminal.get(key) || {
+          cash: 0,
+          card: 0,
+          mobile: 0,
+        };
+        return {
+          ...it,
+          cash_total: roundTo2(Number(it.cash_total || 0) - ret.cash),
+          card_total: roundTo2(Number(it.card_total || 0) - ret.card),
+          mobile_total: roundTo2(Number(it.mobile_total || 0) - ret.mobile),
+        };
+      });
+      res.json({ items: adjusted });
     } catch (err) {
       next(err);
     }
@@ -1113,7 +1256,31 @@ router.get(
         `,
         { companyId, branchId },
       );
-      res.json({ items });
+      const returnRows = await query(
+        `
+        SELECT 
+          DATE(return_datetime) AS date,
+          COALESCE(SUM(total_refund), 0) AS return_total
+         FROM pos_returns
+         WHERE company_id = :companyId
+          AND branch_id = :branchId
+          AND DATE(return_datetime) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        GROUP BY DATE(return_datetime)
+        `,
+        { companyId, branchId },
+      );
+      const returnsByDate = new Map(
+        (Array.isArray(returnRows) ? returnRows : []).map((r) => [
+          String(r.date || "").slice(0, 10),
+          Number(r.return_total || 0),
+        ]),
+      );
+      const adjusted = (Array.isArray(items) ? items : []).map((it) => {
+        const d = String(it.date || "").slice(0, 10);
+        const ret = returnsByDate.get(d) || 0;
+        return { ...it, total: roundTo2(Number(it.total || 0) - ret) };
+      });
+      res.json({ items: adjusted });
     } catch (err) {
       next(err);
     }
@@ -1145,6 +1312,16 @@ router.get(
           p.discount_amount,
           p.tax_amount,
           p.net_amount AS total_amount,
+          (SELECT COALESCE(SUM(r.total_refund), 0) 
+             FROM pos_returns r 
+            WHERE r.sale_id = p.id 
+              AND r.company_id = p.company_id 
+              AND r.branch_id = p.branch_id) AS return_total,
+          (p.net_amount - (SELECT COALESCE(SUM(r.total_refund), 0) 
+             FROM pos_returns r 
+            WHERE r.sale_id = p.id 
+              AND r.company_id = p.company_id 
+              AND r.branch_id = p.branch_id)) AS net_after_returns,
           (SELECT COUNT(*) FROM pos_sale_lines l WHERE l.sale_id = p.id) AS items_count,
           (SELECT COALESCE(SUM(l.returned_qty), 0) > 0 FROM pos_sale_lines l WHERE l.sale_id = p.id) AS has_returns,
           CASE WHEN p.status = 'COMPLETED' THEN 'PAID' ELSE 'UNPAID' END AS payment_status,
@@ -1267,7 +1444,31 @@ router.get(
         `,
         { companyId, branchId },
       );
-      res.json({ items });
+      const returnRows = await query(
+        `
+        SELECT 
+          DATE_FORMAT(return_datetime, '%Y-%m') AS ym,
+          COALESCE(SUM(total_refund), 0) AS return_total
+         FROM pos_returns
+         WHERE company_id = :companyId
+          AND branch_id = :branchId
+          AND return_datetime >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+        GROUP BY DATE_FORMAT(return_datetime, '%Y-%m')
+        `,
+        { companyId, branchId },
+      );
+      const returnsByYm = new Map(
+        (Array.isArray(returnRows) ? returnRows : []).map((r) => [
+          String(r.ym || ""),
+          Number(r.return_total || 0),
+        ]),
+      );
+      const adjusted = (Array.isArray(items) ? items : []).map((it) => {
+        const ym = String(it.ym || "");
+        const ret = returnsByYm.get(ym) || 0;
+        return { ...it, total: roundTo2(Number(it.total || 0) - ret) };
+      });
+      res.json({ items: adjusted });
     } catch (err) {
       next(err);
     }
@@ -1301,7 +1502,31 @@ router.get(
         `,
         { companyId, branchId },
       );
-      res.json({ items });
+      const returnRows = await query(
+        `
+        SELECT
+          DAYOFWEEK(return_datetime) AS dow,
+          COALESCE(SUM(total_refund), 0) AS return_total
+         FROM pos_returns
+         WHERE company_id = :companyId
+          AND branch_id = :branchId
+          AND YEARWEEK(return_datetime, 1) = YEARWEEK(CURDATE(), 1)
+        GROUP BY DAYOFWEEK(return_datetime)
+        `,
+        { companyId, branchId },
+      );
+      const returnsByDow = new Map(
+        (Array.isArray(returnRows) ? returnRows : []).map((r) => [
+          Number(r.dow || 0),
+          Number(r.return_total || 0),
+        ]),
+      );
+      const adjusted = (Array.isArray(items) ? items : []).map((it) => {
+        const dow = Number(it.dow || 0);
+        const ret = returnsByDow.get(dow) || 0;
+        return { ...it, total: roundTo2(Number(it.total || 0) - ret) };
+      });
+      res.json({ items: adjusted });
     } catch (err) {
       next(err);
     }
@@ -1336,7 +1561,32 @@ router.get(
         `,
         { companyId, branchId },
       );
-      res.json({ items });
+      const returnRows = await query(
+        `
+        SELECT
+          HOUR(return_datetime) AS hr,
+          COALESCE(SUM(total_refund), 0) AS return_total
+         FROM pos_returns
+         WHERE company_id = :companyId
+          AND branch_id = :branchId
+          AND DATE(return_datetime) = CURDATE()
+          AND HOUR(return_datetime) BETWEEN 7 AND 22
+        GROUP BY HOUR(return_datetime)
+        `,
+        { companyId, branchId },
+      );
+      const returnsByHour = new Map(
+        (Array.isArray(returnRows) ? returnRows : []).map((r) => [
+          Number(r.hr || 0),
+          Number(r.return_total || 0),
+        ]),
+      );
+      const adjusted = (Array.isArray(items) ? items : []).map((it) => {
+        const hr = Number(it.hr || 0);
+        const ret = returnsByHour.get(hr) || 0;
+        return { ...it, total: roundTo2(Number(it.total || 0) - ret) };
+      });
+      res.json({ items: adjusted });
     } catch (err) {
       next(err);
     }
@@ -1425,7 +1675,53 @@ router.get(
         `,
         params,
       );
-      res.json({ items });
+      const retWhere = ["company_id = :companyId", "branch_id = :branchId"];
+      const retParams = { companyId, branchId };
+      if (startDate && endDate) {
+        retParams.startDate = startDate;
+        retParams.endDate = endDate;
+        retWhere.push(
+          "DATE(return_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
+        );
+      } else {
+        retWhere.push(
+          "DATE(return_datetime) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)",
+        );
+      }
+      const returnRows = await query(
+        `
+        SELECT
+          DATE(return_datetime) AS date,
+          COALESCE(SUM(total_refund), 0) AS return_total
+         FROM pos_returns
+         WHERE ${retWhere.join(" AND ")}
+        GROUP BY DATE(return_datetime)
+        `,
+        retParams,
+      );
+      const returnsByDate = new Map(
+        (Array.isArray(returnRows) ? returnRows : []).map((r) => [
+          String(r.date || "").slice(0, 10),
+          Number(r.return_total || 0),
+        ]),
+      );
+      const adjusted = (Array.isArray(items) ? items : []).map((it) => {
+        const d = String(it.date || "").slice(0, 10);
+        const rawNet = Number(it.net || 0);
+        const rawTax = Number(it.tax || 0);
+        const ret = returnsByDate.get(d) || 0;
+        const net = roundTo2(rawNet - ret);
+        const taxRatio = rawNet > 0 ? rawTax / rawNet : 0;
+        const tax = roundTo2(rawTax - ret * taxRatio);
+        return {
+          ...it,
+          tax,
+          net,
+          return_total: roundTo2(ret),
+          net_after_returns: net,
+        };
+      });
+      res.json({ items: adjusted });
     } catch (err) {
       next(err);
     }
@@ -1475,7 +1771,160 @@ router.get(
         `,
         params,
       );
+      const retWhere = ["company_id = :companyId", "branch_id = :branchId"];
+      const retParams = { companyId, branchId };
+      if (startDate && endDate) {
+        retParams.startDate = startDate;
+        retParams.endDate = endDate;
+        retWhere.push(
+          "DATE(return_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
+        );
+      } else {
+        retWhere.push("DATE(return_datetime) = CURDATE()");
+      }
+      const returnRows = await query(
+        `
+        SELECT
+          COALESCE(refund_method, 'UNKNOWN') AS method,
+          COALESCE(SUM(total_refund), 0) AS return_total
+         FROM pos_returns
+         WHERE ${retWhere.join(" AND ")}
+        GROUP BY COALESCE(refund_method, 'UNKNOWN')
+        `,
+        retParams,
+      );
+      const returnsByMethod = new Map(
+        (Array.isArray(returnRows) ? returnRows : []).map((r) => [
+          String(r.method || "UNKNOWN").toUpperCase(),
+          Number(r.return_total || 0),
+        ]),
+      );
+      const adjusted = (Array.isArray(items) ? items : []).map((it) => {
+        const m = String(it.method || "UNKNOWN").toUpperCase();
+        const ret = returnsByMethod.get(m) || 0;
+        return { ...it, total: roundTo2(Number(it.total || 0) - ret) };
+      });
+      res.json({ items: adjusted });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/returns",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      await ensurePosTables();
+      const where = ["r.company_id = :companyId", "r.branch_id = :branchId"];
+      const params = { companyId, branchId };
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        where.push(
+          "DATE(r.return_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
+        );
+      } else {
+        where.push(
+          "DATE(r.return_datetime) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)",
+        );
+      }
+      const items = await query(
+        `
+        SELECT
+          r.id,
+          r.receipt_no,
+          r.return_datetime,
+          r.refund_method,
+          r.total_refund,
+          r.notes,
+          r.sale_id,
+          ps.receipt_no AS sale_receipt_no,
+          COALESCE(t.code, '') AS terminal_code,
+          COALESCE(t.warehouse, '') AS warehouse,
+          (SELECT COUNT(*) FROM pos_return_lines rl WHERE rl.return_id = r.id) AS items_count,
+          r.created_at,
+          u.username AS created_by_name
+        FROM pos_returns r
+        JOIN pos_sales ps
+          ON ps.id = r.sale_id
+         AND ps.company_id = r.company_id
+         AND ps.branch_id = r.branch_id
+        LEFT JOIN pos_terminals t
+          ON t.id = ps.terminal_id
+         AND t.company_id = ps.company_id
+         AND t.branch_id = ps.branch_id
+        LEFT JOIN adm_users u
+          ON u.id = r.created_by
+        WHERE ${where.join(" AND ")}
+        ORDER BY r.return_datetime DESC, r.id DESC
+        `,
+        params,
+      );
       res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/returns-summary",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      await ensurePosTables();
+      const where = ["company_id = :companyId", "branch_id = :branchId"];
+      const params = { companyId, branchId };
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        where.push(
+          "DATE(return_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
+        );
+      } else {
+        where.push(
+          "DATE(return_datetime) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)",
+        );
+      }
+      const byDay = await query(
+        `
+        SELECT
+          DATE(return_datetime) AS date,
+          COUNT(*) AS count,
+          COALESCE(SUM(total_refund), 0) AS total
+        FROM pos_returns
+        WHERE ${where.join(" AND ")}
+        GROUP BY DATE(return_datetime)
+        ORDER BY date ASC
+        `,
+        params,
+      );
+      const byMethod = await query(
+        `
+        SELECT
+          COALESCE(refund_method, 'UNKNOWN') AS method,
+          COUNT(*) AS count,
+          COALESCE(SUM(total_refund), 0) AS total
+        FROM pos_returns
+        WHERE ${where.join(" AND ")}
+        GROUP BY COALESCE(refund_method, 'UNKNOWN')
+        ORDER BY total DESC
+        `,
+        params,
+      );
+      res.json({ byDay, byMethod });
     } catch (err) {
       next(err);
     }
@@ -1517,8 +1966,8 @@ router.get(
         `
         SELECT 
           COALESCE(l.item_name, 'Unknown') AS item,
-          COALESCE(SUM(l.qty), 0) AS qty,
-          COALESCE(SUM(l.line_total), 0) AS amount,
+          COALESCE(SUM(l.qty - COALESCE(l.returned_qty, 0)), 0) AS qty,
+          COALESCE(SUM(l.line_total - (COALESCE(l.returned_qty, 0) * l.unit_price)), 0) AS amount,
           l.created_at,
           u.username AS created_by_name
          FROM pos_sale_lines l
@@ -1586,7 +2035,53 @@ router.get(
         `,
         params,
       );
-      res.json({ items });
+      const retWhere = ["company_id = :companyId", "branch_id = :branchId"];
+      const retParams = { companyId, branchId };
+      if (startDate && endDate) {
+        retParams.startDate = startDate;
+        retParams.endDate = endDate;
+        retWhere.push(
+          "DATE(return_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
+        );
+      } else {
+        retWhere.push(
+          "DATE(return_datetime) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)",
+        );
+      }
+      const returnRows = await query(
+        `
+        SELECT
+          DATE(return_datetime) AS date,
+          COALESCE(SUM(total_refund), 0) AS return_total
+         FROM pos_returns
+         WHERE ${retWhere.join(" AND ")}
+        GROUP BY DATE(return_datetime)
+        `,
+        retParams,
+      );
+      const returnsByDate = new Map(
+        (Array.isArray(returnRows) ? returnRows : []).map((r) => [
+          String(r.date || "").slice(0, 10),
+          Number(r.return_total || 0),
+        ]),
+      );
+      const adjusted = (Array.isArray(items) ? items : []).map((it) => {
+        const d = String(it.date || "").slice(0, 10);
+        const rawNet = Number(it.net || 0);
+        const rawTax = Number(it.tax || 0);
+        const ret = returnsByDate.get(d) || 0;
+        const net = roundTo2(rawNet - ret);
+        const taxRatio = rawNet > 0 ? rawTax / rawNet : 0;
+        const tax = roundTo2(rawTax - ret * taxRatio);
+        return {
+          ...it,
+          tax,
+          net,
+          return_total: roundTo2(ret),
+          net_after_returns: net,
+        };
+      });
+      res.json({ items: adjusted });
     } catch (err) {
       next(err);
     }
@@ -1634,7 +2129,40 @@ router.get(
         `,
         params,
       );
-      res.json({ items });
+      const retWhere = ["company_id = :companyId", "branch_id = :branchId"];
+      const retParams = { companyId, branchId };
+      if (startDate && endDate) {
+        retParams.startDate = startDate;
+        retParams.endDate = endDate;
+        retWhere.push(
+          "DATE(return_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
+        );
+      } else {
+        retWhere.push("DATE(return_datetime) = CURDATE()");
+      }
+      const returnRows = await query(
+        `
+        SELECT
+          COALESCE(refund_method, 'UNKNOWN') AS method,
+          COALESCE(SUM(total_refund), 0) AS return_total
+         FROM pos_returns
+         WHERE ${retWhere.join(" AND ")}
+        GROUP BY COALESCE(refund_method, 'UNKNOWN')
+        `,
+        retParams,
+      );
+      const returnsByMethod = new Map(
+        (Array.isArray(returnRows) ? returnRows : []).map((r) => [
+          String(r.method || "UNKNOWN").toUpperCase(),
+          Number(r.return_total || 0),
+        ]),
+      );
+      const adjusted = (Array.isArray(items) ? items : []).map((it) => {
+        const m = String(it.method || "UNKNOWN").toUpperCase();
+        const ret = returnsByMethod.get(m) || 0;
+        return { ...it, total: roundTo2(Number(it.total || 0) - ret) };
+      });
+      res.json({ items: adjusted });
     } catch (err) {
       next(err);
     }
@@ -1675,8 +2203,8 @@ router.get(
         `
         SELECT 
           COALESCE(l.item_name, 'Unknown') AS item,
-          COALESCE(SUM(l.qty), 0) AS qty,
-          COALESCE(SUM(l.line_total), 0) AS amount,
+          COALESCE(SUM(l.qty - COALESCE(l.returned_qty, 0)), 0) AS qty,
+          COALESCE(SUM(l.line_total - (COALESCE(l.returned_qty, 0) * l.unit_price)), 0) AS amount,
           l.created_at,
           u.username AS created_by_name
          FROM pos_sale_lines l
@@ -1821,6 +2349,16 @@ router.get(
            tax_amount,
            tax_components,
            net_amount,
+           (SELECT COALESCE(SUM(r.total_refund), 0)
+              FROM pos_returns r
+             WHERE r.sale_id = pos_sales.id
+               AND r.company_id = pos_sales.company_id
+               AND r.branch_id = pos_sales.branch_id) AS return_total,
+           (net_amount - (SELECT COALESCE(SUM(r.total_refund), 0)
+              FROM pos_returns r
+             WHERE r.sale_id = pos_sales.id
+               AND r.company_id = pos_sales.company_id
+               AND r.branch_id = pos_sales.branch_id)) AS net_after_returns,
            CASE status 
              WHEN 'COMPLETED' THEN 'PAID' 
              WHEN 'DRAFT' THEN 'PENDING' 
@@ -1852,6 +2390,87 @@ router.get(
   },
 );
 
+router.get(
+  "/returns",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensurePosTables();
+      const date = String(req.query.date || "").trim();
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      const terminalId = toNumber(
+        req.query.terminal_id || req.query.terminalId,
+      );
+      const terminalCode = String(req.query.terminal || "").trim();
+      const warehouseName = String(req.query.warehouse || "").trim();
+
+      let sql = `
+        SELECT
+          r.id,
+          r.receipt_no,
+          r.return_datetime,
+          r.refund_method,
+          r.total_refund,
+          r.notes,
+          r.sale_id,
+          ps.receipt_no AS sale_receipt_no,
+          ps.sale_datetime AS sale_datetime,
+          COALESCE(t.code, '') AS terminal_code,
+          COALESCE(t.warehouse, '') AS warehouse,
+          (SELECT COUNT(*) FROM pos_return_lines rl WHERE rl.return_id = r.id) AS items_count,
+          r.created_at,
+          u.username AS created_by_name
+        FROM pos_returns r
+        JOIN pos_sales ps
+          ON ps.id = r.sale_id
+         AND ps.company_id = r.company_id
+         AND ps.branch_id = r.branch_id
+        LEFT JOIN pos_terminals t
+          ON t.id = ps.terminal_id
+         AND t.company_id = ps.company_id
+         AND t.branch_id = ps.branch_id
+        LEFT JOIN adm_users u
+          ON u.id = r.created_by
+        WHERE r.company_id = :companyId
+          AND r.branch_id = :branchId
+      `;
+      const params = { companyId, branchId };
+      if (date) {
+        sql += " AND DATE(r.return_datetime) = DATE(:date)";
+        params.date = date;
+      } else if (startDate && endDate) {
+        sql +=
+          " AND DATE(r.return_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)";
+        params.startDate = startDate;
+        params.endDate = endDate;
+      }
+
+      if (terminalId) {
+        sql += " AND ps.terminal_id = :terminalId";
+        params.terminalId = terminalId;
+      } else if (terminalCode) {
+        sql += " AND UPPER(t.code) = :terminalCode";
+        params.terminalCode = terminalCode.toUpperCase();
+      }
+      if (warehouseName) {
+        sql += " AND COALESCE(t.warehouse,'') = :warehouseName";
+        params.warehouseName = warehouseName;
+      }
+
+      sql += " ORDER BY r.return_datetime DESC, r.id DESC";
+
+      const items = await query(sql, params);
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 router.post(
   "/returns",
   requireAuth,
@@ -1877,8 +2496,10 @@ router.post(
         ? String(refundMethod).toUpperCase()
         : "CASH";
 
-      if (!saleId) throw httpError(400, "VALIDATION_ERROR", "saleId is required");
-      if (!returnItems?.length) throw httpError(400, "VALIDATION_ERROR", "returnItems is required");
+      if (!saleId)
+        throw httpError(400, "VALIDATION_ERROR", "saleId is required");
+      if (!returnItems?.length)
+        throw httpError(400, "VALIDATION_ERROR", "returnItems is required");
 
       // Get original sale to find terminal for warehouse
       const [saleRow] = await query(
@@ -1897,6 +2518,16 @@ router.post(
         );
         warehouseId = termRow?.warehouse_id || null;
       }
+      const hasStockItems =
+        Array.isArray(returnItems) &&
+        returnItems.some((x) => Number(x?.itemId || 0) > 0);
+      if (hasStockItems && !warehouseId) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "Terminal warehouse is required to adjust stock for POS returns.",
+        );
+      }
 
       await conn.beginTransaction();
 
@@ -1908,15 +2539,60 @@ router.post(
          VALUES
           (:companyId, :branchId, :saleId, :receiptNo, NOW(),
            :refundMethodEnum, :totalRefund, :notes, :userId)`,
-        { companyId, branchId, saleId, receiptNo, refundMethodEnum, totalRefund, notes, userId },
+        {
+          companyId,
+          branchId,
+          saleId,
+          receiptNo,
+          refundMethodEnum,
+          totalRefund,
+          notes,
+          userId,
+        },
       );
       const returnId = returnResult[0].insertId;
 
       for (const item of returnItems) {
-        const { saleLineId, itemId, itemName, returnQuantity, unitPrice, reason } = item;
+        const {
+          saleLineId,
+          itemId,
+          itemName,
+          returnQuantity,
+          unitPrice,
+          reason,
+        } = item;
         if (!saleLineId || !returnQuantity || returnQuantity <= 0) continue;
 
-        const lineTotal = Math.round(Number(unitPrice || 0) * Number(returnQuantity) * 100) / 100;
+        const [lineRow] = await conn.execute(
+          `SELECT id, sale_id, qty, returned_qty, item_id
+           FROM pos_sale_lines
+           WHERE id = :saleLineId AND sale_id = :saleId
+           LIMIT 1`,
+          { saleLineId, saleId },
+        );
+        const line = Array.isArray(lineRow) ? lineRow[0] : null;
+        if (!line) {
+          throw httpError(
+            400,
+            "VALIDATION_ERROR",
+            `Invalid saleLineId ${saleLineId} for sale ${saleId}`,
+          );
+        }
+        const soldQty = Number(line.qty || 0);
+        const alreadyReturned = Number(line.returned_qty || 0);
+        const remaining = soldQty - alreadyReturned;
+        if (Number(returnQuantity) > remaining + 1e-6) {
+          throw httpError(
+            400,
+            "VALIDATION_ERROR",
+            `Return quantity exceeds remaining qty for sale line ${saleLineId}`,
+          );
+        }
+
+        const effectiveItemId = Number(line.item_id || itemId || 0) || null;
+        const lineTotal =
+          Math.round(Number(unitPrice || 0) * Number(returnQuantity) * 100) /
+          100;
 
         // Insert return line
         await conn.execute(
@@ -1924,7 +2600,16 @@ router.post(
             (return_id, sale_line_id, item_id, item_name, qty, unit_price, line_total, reason)
            VALUES
             (:returnId, :saleLineId, :itemId, :itemName, :returnQuantity, :unitPrice, :lineTotal, :reason)`,
-          { returnId, saleLineId, itemId, itemName, returnQuantity, unitPrice, lineTotal, reason },
+          {
+            returnId,
+            saleLineId,
+            itemId: effectiveItemId,
+            itemName,
+            returnQuantity,
+            unitPrice,
+            lineTotal,
+            reason,
+          },
         );
 
         // Update returned_qty on the sale line
@@ -1934,12 +2619,12 @@ router.post(
         );
 
         // Restore stock if item_id is known and we have a warehouse
-        if (itemId && warehouseId) {
+        if (effectiveItemId && warehouseId) {
           await recordMovementTx(conn, {
             companyId,
             branchId,
             warehouseId,
-            itemId,
+            itemId: effectiveItemId,
             transactionType: "POS_RETURN",
             qtyChange: Number(returnQuantity),
             sourceRef: receiptNo,
@@ -2373,6 +3058,37 @@ router.get(
         ? requestedDate
         : null;
       await ensurePosTables();
+      const coerceJsonValue = (value) => {
+        if (value === null || value === undefined) return null;
+        if (typeof value === "string") {
+          try {
+            return JSON.parse(value);
+          } catch {
+            return value;
+          }
+        }
+        if (Buffer.isBuffer(value)) {
+          try {
+            return JSON.parse(value.toString("utf8"));
+          } catch {
+            return value.toString("utf8");
+          }
+        }
+        if (
+          value &&
+          typeof value === "object" &&
+          value.type === "Buffer" &&
+          Array.isArray(value.data)
+        ) {
+          try {
+            const text = Buffer.from(value.data).toString("utf8");
+            return JSON.parse(text);
+          } catch {
+            return value;
+          }
+        }
+        return value;
+      };
       const rows = await query(
         `
         SELECT
@@ -2406,6 +3122,14 @@ router.get(
           : { companyId, branchId, businessDate },
       );
       const item = rows.length ? rows[0] : null;
+      if (item) {
+        item.open_denomination_counts = coerceJsonValue(
+          item.open_denomination_counts,
+        );
+        item.close_denomination_counts = coerceJsonValue(
+          item.close_denomination_counts,
+        );
+      }
       let nextOpeningFloat = null;
       if (!item) {
         const fallbackRows = await query(
@@ -2494,9 +3218,15 @@ router.post(
            AND return_datetime BETWEEN :startTime AND :endTime`,
         { companyId, branchId, startTime, endTime },
       );
-      const cashTotal = roundTo2((aggRows?.cash_total || 0) - (retRows?.cash_return || 0));
-      const cardTotal = roundTo2((aggRows?.card_total || 0) - (retRows?.card_return || 0));
-      const mobileTotal = roundTo2((aggRows?.mobile_total || 0) - (retRows?.mobile_return || 0));
+      const cashTotal = roundTo2(
+        (aggRows?.cash_total || 0) - (retRows?.cash_return || 0),
+      );
+      const cardTotal = roundTo2(
+        (aggRows?.card_total || 0) - (retRows?.card_return || 0),
+      );
+      const mobileTotal = roundTo2(
+        (aggRows?.mobile_total || 0) - (retRows?.mobile_return || 0),
+      );
       const rawNetTotal = roundTo2(aggRows?.net_total || 0);
       const rawTaxTotal = roundTo2(aggRows?.tax_total || 0);
       const returnTotal = roundTo2(retRows?.return_total || 0);
@@ -2933,13 +3663,9 @@ router.post(
              ${filterSql}`,
           params,
         );
-        const returnFilterSql = filterSql.replace(
-          /p\./g,
-          "ps.",
-        ).replace(
-          /t\.code/g,
-          "t.code",
-        );
+        const returnFilterSql = filterSql
+          .replace(/p\./g, "ps.")
+          .replace(/t\.code/g, "t.code");
         const retParams = { ...params };
         const [retRows] = await conn.execute(
           `SELECT
@@ -2957,9 +3683,15 @@ router.post(
              ${filterSql.replace(/p\./g, "ps.")}`,
           retParams,
         );
-        cashTotal = roundTo2((aggRows?.cash_total || 0) - (retRows?.cash_return || 0));
-        cardTotal = roundTo2((aggRows?.card_total || 0) - (retRows?.card_return || 0));
-        mobileTotal = roundTo2((aggRows?.mobile_total || 0) - (retRows?.mobile_return || 0));
+        cashTotal = roundTo2(
+          (aggRows?.cash_total || 0) - (retRows?.cash_return || 0),
+        );
+        cardTotal = roundTo2(
+          (aggRows?.card_total || 0) - (retRows?.card_return || 0),
+        );
+        mobileTotal = roundTo2(
+          (aggRows?.mobile_total || 0) - (retRows?.mobile_return || 0),
+        );
         const rawNetTotal = roundTo2(aggRows?.net_total || 0);
         const rawTaxTotal = roundTo2(aggRows?.tax_total || 0);
         const returnTotal = roundTo2(retRows?.return_total || 0);
@@ -3317,6 +4049,7 @@ router.get(
       await ensurePosTables();
       const items = await query(
         `SELECT id, code, name, warehouse, warehouse_id, counter_no, ip_address, is_active,
+          enable_vfd, vfd_type, vfd_port,
           created_at,
           u.username AS created_by_name
          FROM pos_terminals
@@ -3345,6 +4078,7 @@ router.get(
       await ensurePosTables();
       const items = await query(
         `SELECT id, code, name, warehouse, warehouse_id, counter_no, ip_address, is_active,
+          enable_vfd, vfd_type, vfd_port,
           created_at,
           u.username AS created_by_name
          FROM pos_terminals
@@ -3378,13 +4112,16 @@ router.post(
         counter_no,
         ip_address,
         active,
+        enable_vfd,
+        vfd_type,
+        vfd_port,
       } = req.body || {};
       if (!code || !name)
         throw httpError(400, "VALIDATION_ERROR", "code and name are required");
       await ensurePosTables();
       const result = await query(
-        `INSERT INTO pos_terminals (company_id, branch_id, code, name, warehouse, warehouse_id, counter_no, ip_address, is_active)
-         VALUES (:companyId, :branchId, :code, :name, :warehouse, :warehouse_id, :counter_no, :ip_address, :is_active)`,
+        `INSERT INTO pos_terminals (company_id, branch_id, code, name, warehouse, warehouse_id, counter_no, ip_address, is_active, enable_vfd, vfd_type, vfd_port)
+         VALUES (:companyId, :branchId, :code, :name, :warehouse, :warehouse_id, :counter_no, :ip_address, :is_active, :enable_vfd, :vfd_type, :vfd_port)`,
         {
           companyId,
           branchId,
@@ -3395,6 +4132,9 @@ router.post(
           counter_no: counter_no ? Number(counter_no) : null,
           ip_address: ip_address || null,
           is_active: active ? 1 : 0,
+          enable_vfd: enable_vfd ? 1 : 0,
+          vfd_type: vfd_type || "generic",
+          vfd_port: vfd_port ? Number(vfd_port) : 9100,
         },
       );
       res.status(201).json({ id: result.insertId });
@@ -3422,6 +4162,9 @@ router.put(
         counter_no,
         ip_address,
         active,
+        enable_vfd,
+        vfd_type,
+        vfd_port,
       } = req.body || {};
       await ensurePosTables();
       const [existing] = await query(
@@ -3436,7 +4179,7 @@ router.put(
       if (!existing) throw httpError(404, "NOT_FOUND", "Terminal not found");
       await query(
         `UPDATE pos_terminals
-         SET code = :code, name = :name, warehouse = :warehouse, warehouse_id = :warehouse_id, counter_no = :counter_no, ip_address = :ip_address, is_active = :is_active
+         SET code = :code, name = :name, warehouse = :warehouse, warehouse_id = :warehouse_id, counter_no = :counter_no, ip_address = :ip_address, is_active = :is_active, enable_vfd = :enable_vfd, vfd_type = :vfd_type, vfd_port = :vfd_port
          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
         {
           id,
@@ -3449,6 +4192,9 @@ router.put(
           counter_no: counter_no ? Number(counter_no) : null,
           ip_address: ip_address || null,
           is_active: active ? 1 : 0,
+          enable_vfd: enable_vfd ? 1 : 0,
+          vfd_type: vfd_type || "generic",
+          vfd_port: vfd_port ? Number(vfd_port) : 9100,
         },
       );
       res.json({ id });
@@ -3458,6 +4204,97 @@ router.put(
   },
 );
 
+router.post(
+  "/vfd/display",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const { terminal_id, terminal_code, line1, line2 } = req.body || {};
+      if (!terminal_id && !terminal_code) {
+        return res
+          .status(400)
+          .json({ message: "terminal_id or terminal_code is required" });
+      }
+      await ensurePosTables();
+      const rows = await query(
+        `SELECT enable_vfd, ip_address, vfd_port, vfd_type
+         FROM pos_terminals
+         WHERE ${terminal_id ? "id = :id" : "code = :code"}
+           AND company_id = :companyId AND branch_id = :branchId
+         LIMIT 1`,
+        terminal_id
+          ? { id: Number(terminal_id), companyId, branchId }
+          : { code: String(terminal_code || "").trim(), companyId, branchId },
+      );
+      const term = rows?.[0];
+      if (!term || !Number(term.enable_vfd)) {
+        return res.json({ sent: false, reason: "VFD not enabled" });
+      }
+      const host = String(term.ip_address || "").trim();
+      const port = Number(term.vfd_port) || 9100;
+      if (!host) {
+        return res.json({ sent: false, reason: "VFD IP not configured" });
+      }
+
+      // Build ESC/POS display commands
+      const esc = String.fromCharCode(27);
+      const lf = String.fromCharCode(10);
+      const ff = String.fromCharCode(12);
+      const cr = String.fromCharCode(13);
+
+      const t1 = String(line1 || "")
+        .trim()
+        .slice(0, 40);
+      const t2 = String(line2 || "")
+        .trim()
+        .slice(0, 40);
+      let payload;
+
+      const type = String(term.vfd_type || "generic").toLowerCase();
+      if (type === "epson-dm-d") {
+        // Epson DM-D protocol: ESC RS n (n=1 line1, n=2 line2) + text
+        const rs = String.fromCharCode(30);
+        payload = esc + "@"; // Initialize
+        payload += esc + rs + String.fromCharCode(1) + t1; // Line 1
+        payload += esc + rs + String.fromCharCode(2) + t2; // Line 2
+      } else {
+        // Generic: clear then send text lines
+        payload = cr.repeat(3) + t1 + cr + lf + t2 + lf;
+      }
+
+      // Send via TCP with a short timeout
+      const net = require("net");
+      await new Promise((resolve, reject) => {
+        const sock = new net.Socket();
+        const timeout = setTimeout(() => {
+          sock.destroy();
+          reject(new Error("VFD connection timeout"));
+        }, 3000);
+        sock.connect(port, host, () => {
+          sock.write(Buffer.from(payload, "ascii"));
+          sock.end();
+          clearTimeout(timeout);
+          resolve();
+        });
+        sock.on("error", (err) => {
+          clearTimeout(timeout);
+          sock.destroy();
+          reject(err);
+        });
+      });
+
+      res.json({ sent: true });
+    } catch (err) {
+      res.json({
+        sent: false,
+        reason: err.message || "VFD communication failed",
+      });
+    }
+  },
+);
 router.get(
   "/terminal-users",
   requireAuth,

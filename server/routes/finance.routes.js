@@ -677,4 +677,12 @@ router.delete(
   financeController.deleteBankReconciliationLine,
 );
 
+router.get(
+  "/dashboard/metrics",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.getDashboardMetrics,
+);
+
 export default router;

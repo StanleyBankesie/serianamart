@@ -587,6 +587,7 @@ export default function PosSalesEntry() {
   const cartRef = useRef(null);
   const barcodeDebounceRef = useRef(null);
   const barcodeInputRef = useRef(null);
+  const vfdDebounceRef = useRef(null);
 
   const selectedPaymentMode = useMemo(() => {
     if (!paymentModes.length || !selectedPaymentModeId) return null;
@@ -927,6 +928,28 @@ export default function PosSalesEntry() {
       ),
     );
   }, [cart]);
+  useEffect(() => {
+    if (vfdDebounceRef.current) clearTimeout(vfdDebounceRef.current);
+    if (!cart.length || !terminalCode) return;
+    vfdDebounceRef.current = setTimeout(() => {
+      const first = cart[0];
+      const line1 = `${first.name} - ${Number(first.price || 0).toFixed(2)}`;
+      const totalQty = cart.reduce((sum, c) => sum + Number(c.quantity || 1), 0);
+      const totalAmount = cart.reduce(
+        (sum, c) => sum + Number(c.price || 0) * Number(c.quantity || 1),
+        0,
+      );
+      const line2 = `Total: ${totalAmount.toFixed(2)} | Qty: ${totalQty}`;
+      api.post("/pos/vfd/display", {
+        terminal_code: terminalCode,
+        line1,
+        line2,
+      });
+    }, 300);
+    return () => {
+      if (vfdDebounceRef.current) clearTimeout(vfdDebounceRef.current);
+    };
+  }, [cart, terminalCode]);
   useEffect(() => {
     if (barcodeInputRef.current) {
       try {

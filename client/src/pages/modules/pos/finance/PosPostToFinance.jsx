@@ -15,6 +15,35 @@ function parseDenominationCounts(input) {
       return DENOMINATIONS.map(() => 0);
     }
   }
+  if (
+    parsed &&
+    typeof parsed === "object" &&
+    parsed.type === "Buffer" &&
+    Array.isArray(parsed.data)
+  ) {
+    try {
+      const text = new TextDecoder().decode(new Uint8Array(parsed.data));
+      parsed = JSON.parse(text);
+    } catch {
+      return DENOMINATIONS.map(() => 0);
+    }
+  }
+  if (parsed instanceof ArrayBuffer) {
+    try {
+      const text = new TextDecoder().decode(new Uint8Array(parsed));
+      parsed = JSON.parse(text);
+    } catch {
+      return DENOMINATIONS.map(() => 0);
+    }
+  }
+  if (parsed instanceof Uint8Array) {
+    try {
+      const text = new TextDecoder().decode(parsed);
+      parsed = JSON.parse(text);
+    } catch {
+      return DENOMINATIONS.map(() => 0);
+    }
+  }
   if (Array.isArray(parsed)) {
     return DENOMINATIONS.map((_, idx) => {
       const n = Number(parsed[idx] || 0);
@@ -71,6 +100,8 @@ export default function PosPostToFinance() {
   const [actionsOpen, setActionsOpen] = useState(false);
 
   const [transactions, setTransactions] = useState([]);
+  const [salesForDate, setSalesForDate] = useState([]);
+  const [returnsForDate, setReturnsForDate] = useState([]);
   const [allAccounts, setAllAccounts] = useState([]);
   const [selectedReturnsAccount, setSelectedReturnsAccount] = useState("");
   const [selectedSalesAccount, setSelectedSalesAccount] = useState("123");
@@ -194,6 +225,27 @@ export default function PosPostToFinance() {
     );
   }, [transactions]);
 
+  const salesReturnsImpact = useMemo(() => {
+    const salesCount = Array.isArray(salesForDate) ? salesForDate.length : 0;
+    const salesTotal = roundTo2(
+      (Array.isArray(salesForDate) ? salesForDate : []).reduce(
+        (s, x) => s + Number(x?.total_amount || 0),
+        0,
+      ),
+    );
+    const returnsCount = Array.isArray(returnsForDate)
+      ? returnsForDate.length
+      : 0;
+    const returnsTotal = roundTo2(
+      (Array.isArray(returnsForDate) ? returnsForDate : []).reduce(
+        (s, x) => s + Number(x?.total_refund || 0),
+        0,
+      ),
+    );
+    const netSales = roundTo2(salesTotal - returnsTotal);
+    return { salesCount, salesTotal, returnsCount, returnsTotal, netSales };
+  }, [salesForDate, returnsForDate]);
+
   const denomTotals = useMemo(() => {
     return DENOMINATIONS.map((d, idx) =>
       roundTo2(d * Number(denomCounts[idx] || 0)),
@@ -280,12 +332,15 @@ export default function PosPostToFinance() {
           api.get("/finance/accounts", { params: { postable: 1, active: 1 } }),
           api.get("/pos/tax-settings"),
           api.get("/pos/payment-modes"),
-          api.get("/sales/returns", {
-            params: {
-              date: voucherDate,
-              // We match the warehouse selected in POS to the returns warehouse
-            }
-          }).catch(() => ({ data: { items: [] } }))
+          api
+            .get("/pos/returns", {
+              params: {
+                date: voucherDate,
+                terminal_id: tillId ? Number(tillId) : undefined,
+                warehouse: String(warehouse || "").trim() || undefined,
+              },
+            })
+            .catch(() => ({ data: { items: [] } })),
         ]);
 
       const allSales = Array.isArray(salesRes.data?.items)
@@ -312,16 +367,14 @@ export default function PosPostToFinance() {
         return paid;
       });
 
-      // Filter returns by warehouse if specified
-      const returns = allReturns.filter(r => {
-        if (!warehouse) return true;
-        // In POS terminal table, warehouse is a string (name). In sal_returns, it's warehouse_id.
-        // We'll try to match by resolving the warehouse ID if possible, but for now we'll accept all for the date if no clear ID link.
-        return true; 
-      });
+      const returns = allReturns.slice();
+      setSalesForDate(sales);
+      setReturnsForDate(returns);
 
       if (!sales.length && !returns.length) {
         setTransactions([]);
+        setSalesForDate([]);
+        setReturnsForDate([]);
         window.alert("No POS sales or returns found for the selected date.");
         return;
       }
@@ -364,6 +417,8 @@ export default function PosPostToFinance() {
 
       let totalSalesBase = 0;
       let totalTax = 0;
+      let rawNetTotal = 0;
+      let rawTaxTotal = 0;
       const paymentTotals = new Map();
       const componentTotals = new Map();
 
@@ -374,6 +429,8 @@ export default function PosPostToFinance() {
         const subtotal = roundTo2(gross - discount);
         const tax = roundTo2(Number(s.tax_amount || 0));
         const total = roundTo2(Number(s.total_amount || 0));
+        rawNetTotal = roundTo2(rawNetTotal + total);
+        rawTaxTotal = roundTo2(rawTaxTotal + tax);
 
         let base = subtotal;
         if (taxActive && taxMode === "inclusive" && tax > 0 && subtotal > 0) {
@@ -406,30 +463,32 @@ export default function PosPostToFinance() {
       }
 
       // Process Returns (Subtract from totals)
-      for (const r of returns) {
-        const sub = Number(r.sub_total || 0);
-        const tax = Number(r.tax_amount || 0);
-        const total = Number(r.total_amount || 0);
+      const returnTotal = roundTo2(
+        returns.reduce((s, r) => s + Number(r?.total_refund || 0), 0),
+      );
+      const taxRatio = rawNetTotal > 0 ? rawTaxTotal / rawNetTotal : 0;
+      const returnsTaxTotal = roundTo2(returnTotal * taxRatio);
+      const returnsBaseTotal = roundTo2(returnTotal - returnsTaxTotal);
 
-        totalSalesBase = roundTo2(totalSalesBase - sub);
-        totalTax = roundTo2(totalTax - tax);
+      totalSalesBase = roundTo2(totalSalesBase - returnsBaseTotal);
+      totalTax = roundTo2(totalTax - returnsTaxTotal);
 
-        // Subtract tax components proportionally if breakdown is used
-        if (taxActive && taxComponents.length > 0 && tax > 0) {
-          for (const comp of taxComponents) {
-            const rate = Number(comp.rate_percent || 0);
-            const compTax = roundTo2((sub * rate) / 100);
-            if (compTax > 0) {
-              componentTotals.set(
-                comp.id,
-                roundTo2((componentTotals.get(comp.id) || 0) - compTax),
-              );
-            }
+      if (taxActive && taxComponents.length > 0 && returnsTaxTotal > 0) {
+        for (const comp of taxComponents) {
+          const rate = Number(comp.rate_percent || 0);
+          const compTax = roundTo2((returnsBaseTotal * rate) / 100);
+          if (compTax > 0) {
+            componentTotals.set(
+              comp.id,
+              roundTo2((componentTotals.get(comp.id) || 0) - compTax),
+            );
           }
         }
+      }
 
-        // Subtract from payment totals (Defaulting to Cash for returns)
-        const method = "CASH"; 
+      for (const r of returns) {
+        const total = roundTo2(Number(r?.total_refund || 0));
+        const method = String(r?.refund_method || "CASH").toUpperCase();
         paymentTotals.set(
           method,
           roundTo2((paymentTotals.get(method) || 0) - total),
@@ -467,7 +526,10 @@ export default function PosPostToFinance() {
             if (!compAccountId) continue;
             if (Math.abs(amt) < 0.01) continue;
             next.push({
-              account: accountLabelFromAccountsById(accountsById, compAccountId),
+              account: accountLabelFromAccountsById(
+                accountsById,
+                compAccountId,
+              ),
               credit: amt > 0 ? amt : 0,
               debit: amt < 0 ? Math.abs(amt) : 0,
             });
@@ -510,10 +572,10 @@ export default function PosPostToFinance() {
           pm?.account,
         );
         if (!payLabel) continue;
-        next.push({ 
-          account: payLabel, 
-          credit: amt < 0 ? Math.abs(amt) : 0, 
-          debit: amt > 0 ? amt : 0 
+        next.push({
+          account: payLabel,
+          credit: amt < 0 ? Math.abs(amt) : 0,
+          debit: amt > 0 ? amt : 0,
         });
       }
 
@@ -673,30 +735,30 @@ export default function PosPostToFinance() {
                 Account to be credited for sales revenue
               </small>
             </div>
-          {/* Hidden as per user request */}
-          <div className="hidden">
-            <div>
-              <label className="label">Returns Account</label>
-              <select
-                className="input"
-                value={selectedReturnsAccount}
-                onChange={(e) => setSelectedReturnsAccount(e.target.value)}
-              >
-                <option value="">Default (4000 - Sales Revenue)</option>
-                {allAccounts
-                  .filter(
-                    (a) =>
-                      String(a.nature || "").toUpperCase() === "INCOME" ||
-                      String(a.code || "").match(/^40/),
-                  )
-                  .map((a) => (
-                    <option key={a.id} value={String(a.id)}>
-                      {a.code} — {a.name}
-                    </option>
-                  ))}
-              </select>
+            {/* Hidden as per user request */}
+            <div className="hidden">
+              <div>
+                <label className="label">Returns Account</label>
+                <select
+                  className="input"
+                  value={selectedReturnsAccount}
+                  onChange={(e) => setSelectedReturnsAccount(e.target.value)}
+                >
+                  <option value="">Default (4000 - Sales Revenue)</option>
+                  {allAccounts
+                    .filter(
+                      (a) =>
+                        String(a.nature || "").toUpperCase() === "INCOME" ||
+                        String(a.code || "").match(/^40/),
+                    )
+                    .map((a) => (
+                      <option key={a.id} value={String(a.id)}>
+                        {a.code} — {a.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
             </div>
-          </div>
           </div>
 
           <div>
@@ -767,6 +829,48 @@ export default function PosPostToFinance() {
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                <div className="rounded border border-slate-200 bg-white p-3">
+                  <div className="text-xs text-slate-500">Paid Sales</div>
+                  <div className="text-sm font-semibold">
+                    {`GH₵ ${salesReturnsImpact.salesTotal.toFixed(2)}`}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {`${salesReturnsImpact.salesCount} txns`}
+                  </div>
+                </div>
+                <div className="rounded border border-slate-200 bg-white p-3">
+                  <div className="text-xs text-slate-500">POS Returns</div>
+                  <div className="text-sm font-semibold text-red-700">
+                    {`GH₵ ${salesReturnsImpact.returnsTotal.toFixed(2)}`}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {`${salesReturnsImpact.returnsCount} returns`}
+                  </div>
+                </div>
+                <div className="rounded border border-slate-200 bg-white p-3">
+                  <div className="text-xs text-slate-500">Net Sales</div>
+                  <div className="text-sm font-semibold">
+                    {`GH₵ ${salesReturnsImpact.netSales.toFixed(2)}`}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {`Date: ${voucherDate || "-"}`}
+                  </div>
+                </div>
+                <div className="rounded border border-slate-200 bg-white p-3">
+                  <div className="text-xs text-slate-500">Voucher Debit</div>
+                  <div className="text-sm font-semibold">
+                    {totals.debit.toFixed(2)}
+                  </div>
+                </div>
+                <div className="rounded border border-slate-200 bg-white p-3">
+                  <div className="text-xs text-slate-500">Voucher Credit</div>
+                  <div className="text-sm font-semibold">
+                    {totals.credit.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+
               <div className="overflow-x-auto rounded border border-slate-200">
                 <table className="min-w-full text-sm">
                   <thead className="bg-slate-800 text-white">
@@ -829,6 +933,71 @@ export default function PosPostToFinance() {
 
               <div className="flex justify-end text-xs text-slate-600">
                 {paginationText}
+              </div>
+
+              <div className="overflow-x-auto rounded border border-slate-200">
+                <div className="px-3 py-2 bg-slate-50 flex items-center justify-between">
+                  <div className="text-sm font-semibold">POS Returns</div>
+                  <div className="text-xs text-slate-600">
+                    {`${salesReturnsImpact.returnsCount} returns • GH₵ ${salesReturnsImpact.returnsTotal.toFixed(2)}`}
+                  </div>
+                </div>
+                <table className="min-w-full text-sm">
+                  <thead className="bg-slate-800 text-white">
+                    <tr>
+                      <th className="text-left p-2 text-xs uppercase">
+                        Return #
+                      </th>
+                      <th className="text-left p-2 text-xs uppercase">Time</th>
+                      <th className="text-left p-2 text-xs uppercase">
+                        Refund Method
+                      </th>
+                      <th className="text-left p-2 text-xs uppercase">
+                        Sale Receipt
+                      </th>
+                      <th className="text-right p-2 text-xs uppercase">
+                        Amount
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white">
+                    {!returnsForDate.length ? (
+                      <tr>
+                        <td
+                          className="p-6 text-center text-slate-500"
+                          colSpan={5}
+                        >
+                          No returns for selected date
+                        </td>
+                      </tr>
+                    ) : (
+                      returnsForDate.map((r) => {
+                        const dt = String(r.return_datetime || "");
+                        const time = dt.includes("T")
+                          ? dt.split("T")[1].slice(0, 8)
+                          : dt.slice(11, 19);
+                        return (
+                          <tr key={String(r.id)} className="border-t">
+                            <td className="p-2">
+                              {String(r.receipt_no || r.id || "-")}
+                            </td>
+                            <td className="p-2">{time || "-"}</td>
+                            <td className="p-2">
+                              {String(r.refund_method || "").toUpperCase() ||
+                                "-"}
+                            </td>
+                            <td className="p-2">
+                              {String(r.sale_receipt_no || "-")}
+                            </td>
+                            <td className="p-2 text-right">
+                              {Number(r.total_refund || 0).toFixed(2)}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
 

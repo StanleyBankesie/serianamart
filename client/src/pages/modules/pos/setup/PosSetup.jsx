@@ -102,6 +102,9 @@ function TerminalsTab() {
     warehouse_id: "",
     ip_address: "",
     active: true,
+    enable_vfd: false,
+    vfd_type: "generic",
+    vfd_port: "9100",
   });
 
   function getNextTerminalCode() {
@@ -158,6 +161,9 @@ function TerminalsTab() {
       warehouse_id: "",
       ip_address: "",
       active: true,
+      enable_vfd: false,
+      vfd_type: "generic",
+      vfd_port: "9100",
     });
     setShowModal(true);
   }
@@ -183,6 +189,9 @@ function TerminalsTab() {
       warehouse_id: wId,
       ip_address: t?.ip_address || "",
       active: !!t?.active,
+      enable_vfd: !!t?.enable_vfd,
+      vfd_type: t?.vfd_type || "generic",
+      vfd_port: String(t?.vfd_port || "9100"),
     });
     setShowModal(true);
   }
@@ -216,6 +225,9 @@ function TerminalsTab() {
           counter_no: current.counter_no || null,
           ip_address: draft.ip_address || null,
           active: !!draft.active,
+          enable_vfd: !!draft.enable_vfd,
+          vfd_type: draft.vfd_type || "generic",
+          vfd_port: draft.vfd_port ? Number(draft.vfd_port) : 9100,
         });
       } else {
         await api.post("/pos/terminals", {
@@ -226,6 +238,9 @@ function TerminalsTab() {
           counter_no: null,
           ip_address: draft.ip_address || null,
           active: !!draft.active,
+          enable_vfd: !!draft.enable_vfd,
+          vfd_type: draft.vfd_type || "generic",
+          vfd_port: draft.vfd_port ? Number(draft.vfd_port) : 9100,
         });
       }
       setShowModal(false);
@@ -255,6 +270,9 @@ function TerminalsTab() {
         counter_no: current.counter_no || null,
         ip_address: current.ip_address || null,
         active: false,
+        enable_vfd: !!current.enable_vfd,
+        vfd_type: current.vfd_type || "generic",
+        vfd_port: current.vfd_port ? Number(current.vfd_port) : 9100,
       });
       refresh();
       toast.success("Terminal deactivated");
@@ -539,6 +557,45 @@ function TerminalsTab() {
                     }
                     placeholder="Printer name or IP"
                   />
+                </div>
+                <div className="border-t border-slate-200 pt-3 col-span-1 md:col-span-2">
+                  <div className="text-sm font-semibold text-slate-700 mb-2">Customer Display (VFD)</div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={!!draft.enable_vfd}
+                        onChange={(e) =>
+                          setDraft((p) => ({ ...p, enable_vfd: e.target.checked }))
+                        }
+                      />
+                      <span>Enable VFD</span>
+                    </label>
+                    <div>
+                      <label className="label text-xs">Display Type</label>
+                      <select
+                        className="input text-sm"
+                        value={draft.vfd_type}
+                        onChange={(e) =>
+                          setDraft((p) => ({ ...p, vfd_type: e.target.value }))
+                        }
+                      >
+                        <option value="generic">Generic</option>
+                        <option value="epson-dm-d">Epson DM-D</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label text-xs">Port</label>
+                      <input
+                        className="input text-sm"
+                        value={draft.vfd_port}
+                        onChange={(e) =>
+                          setDraft((p) => ({ ...p, vfd_port: e.target.value }))
+                        }
+                        placeholder="9100"
+                      />
+                    </div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <input

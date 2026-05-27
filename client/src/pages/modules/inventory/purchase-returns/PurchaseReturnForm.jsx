@@ -98,7 +98,7 @@ export default function PurchaseReturnForm() {
     };
   }, []);
 
-  // When supplier changes, fetch PAID bills for that supplier
+  // When supplier changes, fetch bills for that supplier
   useEffect(() => {
     const supplierId = formData.supplierId;
     if (!supplierId) {
@@ -108,7 +108,7 @@ export default function PurchaseReturnForm() {
     }
     api
       .get("/purchase/bills/outstanding", {
-        params: { supplier_id: supplierId, status: "PAID" },
+        params: { supplier_id: supplierId },
       })
       .then((res) => {
         const items = Array.isArray(res.data?.items) ? res.data.items : [];

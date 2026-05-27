@@ -10,6 +10,8 @@ export default function PosReports() {
   const [dailyItems, setDailyItems] = useState([]);
   const [paymentItems, setPaymentItems] = useState([]);
   const [topItems, setTopItems] = useState([]);
+  const [returnByDay, setReturnByDay] = useState([]);
+  const [returnByMethod, setReturnByMethod] = useState([]);
 
   useEffect(() => {
     const today = new Date();
@@ -37,8 +39,11 @@ export default function PosReports() {
       api.get("/pos/reports/top-items", {
         params: { startDate, endDate, limit: 20 },
       }),
+      api.get("/pos/reports/returns-summary", {
+        params: { startDate, endDate },
+      }),
     ])
-      .then(([dailyRes, payRes, topRes]) => {
+      .then(([dailyRes, payRes, topRes, retRes]) => {
         if (!mounted) return;
         setDailyItems(
           Array.isArray(dailyRes.data?.items) ? dailyRes.data.items : [],
@@ -47,6 +52,10 @@ export default function PosReports() {
           Array.isArray(payRes.data?.items) ? payRes.data.items : [],
         );
         setTopItems(Array.isArray(topRes.data?.items) ? topRes.data.items : []);
+        setReturnByDay(Array.isArray(retRes.data?.byDay) ? retRes.data.byDay : []);
+        setReturnByMethod(
+          Array.isArray(retRes.data?.byMethod) ? retRes.data.byMethod : [],
+        );
       })
       .catch((e) => {
         if (!mounted) return;
@@ -167,6 +176,88 @@ export default function PosReports() {
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="card">
+          <div className="card-header bg-slate-50 rounded-t-lg">
+            <div className="font-semibold">Returns Summary (By Day)</div>
+            <div className="text-xs text-slate-500">Totals per day</div>
+          </div>
+          <div className="card-body">
+            <div className="overflow-auto">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th className="text-right">Count</th>
+                    <th className="text-right">Total Refund</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {returnByDay.map((d, idx) => (
+                    <tr key={idx}>
+                      <td>{String(d.date)}</td>
+                      <td className="text-right">
+                        {Number(d.count || 0).toLocaleString()}
+                      </td>
+                      <td className="text-right font-semibold">
+                        {fmtCurrency(d.total)}
+                      </td>
+                    </tr>
+                  ))}
+                  {!returnByDay.length ? (
+                    <tr>
+                      <td colSpan={3} className="text-center text-slate-500">
+                        No returns
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-header bg-slate-50 rounded-t-lg">
+            <div className="font-semibold">Returns Summary (By Method)</div>
+            <div className="text-xs text-slate-500">Cash/Card/Mobile totals</div>
+          </div>
+          <div className="card-body">
+            <div className="overflow-auto">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Method</th>
+                    <th className="text-right">Count</th>
+                    <th className="text-right">Total Refund</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {returnByMethod.map((m, idx) => (
+                    <tr key={idx}>
+                      <td>{String(m.method || "").toUpperCase()}</td>
+                      <td className="text-right">
+                        {Number(m.count || 0).toLocaleString()}
+                      </td>
+                      <td className="text-right font-semibold">
+                        {fmtCurrency(m.total)}
+                      </td>
+                    </tr>
+                  ))}
+                  {!returnByMethod.length ? (
+                    <tr>
+                      <td colSpan={3} className="text-center text-slate-500">
+                        No returns
+                      </td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </div>

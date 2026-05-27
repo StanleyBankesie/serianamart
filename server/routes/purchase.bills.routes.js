@@ -19,7 +19,7 @@ router.get(
       const companyId = Number(req.user?.companyId || req.companyId || 0);
       const branchId = Number(req.user?.branchId || req.branchId || 0);
       const supplierId = Number(req.query.supplier_id || 0);
-      const statusFilter = req.query.status || "UNPAID,PARTIAL PAYMENT";
+      const statusFilter = req.query.status || "";
 
       if (!supplierId) {
         return res.json({ items: [] });
@@ -29,9 +29,8 @@ router.get(
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
-      const statusPlaceholders = statuses.map(() => "?").join(",");
 
-      const sql = `
+      let sql = `
         SELECT 
           b.id,
           b.bill_no,
@@ -51,12 +50,18 @@ router.get(
         WHERE b.company_id = ?
           AND (b.branch_id = ? OR b.branch_id IS NULL)
           AND b.supplier_id = ?
-          AND b.payment_status IN (${statusPlaceholders})
           AND b.status = 'POSTED'
-        ORDER BY b.bill_date ASC, b.bill_no ASC
       `;
 
-      const params = [companyId, branchId, supplierId, ...statuses];
+      const params = [companyId, branchId, supplierId];
+
+      if (statuses.length > 0) {
+        const placeholders = statuses.map(() => "?").join(",");
+        sql += ` AND b.payment_status IN (${placeholders})`;
+        params.push(...statuses);
+      }
+
+      sql += ` ORDER BY b.bill_date ASC, b.bill_no ASC`;
       const rows = await query(sql, params);
 
       // Fetch bill details for each bill

@@ -128,6 +128,12 @@ export default function PosRegister() {
             status: String(it.payment_status || "").toLowerCase(),
             items: [],
             total_amount: Number(it.total_amount || 0),
+            net_after_returns: Number(
+              it.net_after_returns !== null && it.net_after_returns !== undefined
+                ? it.net_after_returns
+                : it.total_amount || 0,
+            ),
+            return_total: Number(it.return_total || 0),
             items_count: Number(it.items_count || 0),
             has_returns: Boolean(it.has_returns),
           };
@@ -411,7 +417,11 @@ export default function PosRegister() {
                 </tr>
               ) : (
                 pageItems.map((t) => {
-                  const total = Number(t.total_amount || 0);
+                  const total = Number(
+                    t.net_after_returns !== null && t.net_after_returns !== undefined
+                      ? t.net_after_returns
+                      : t.total_amount || 0,
+                  );
                   const itemCount = Number(t.items_count || 0);
                   return (
                     <tr
