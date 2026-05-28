@@ -83,33 +83,39 @@ function LineChart({
   formatY,
   color = "#ef4444",
   areaColor = "rgba(239,68,68,0.2)",
+  showXLabels = false,
+  showAmounts = true,
+  scrollX = false,
 }) {
   const maxY = Math.max(1, ...points.map((p) => Number(p.y || 0)));
-  const w = Math.max(240, points.length * 32);
+  const xLabelH = showXLabels ? 24 : 0;
+  const chartH = height - xLabelH;
+  const w = Math.max(240, points.length * 36);
   const stepX = w / Math.max(1, points.length - 1);
   const coords = points.map((p, i) => {
     const x = Math.round(i * stepX);
-    const y = Math.round(height - (Number(p.y || 0) / maxY) * height);
+    const y = Math.round(chartH - (Number(p.y || 0) / maxY) * chartH);
     return { x, y, label: p.x, value: Number(p.y || 0) };
   });
   const path = coords.length
     ? coords.map((c, i) => `${i === 0 ? "M" : "L"} ${c.x} ${c.y}`).join(" ")
-    : `M 0 ${height}`;
+    : `M 0 ${chartH}`;
   const area = coords.length
-    ? `${path} L ${coords[coords.length - 1].x} ${height} L 0 ${height} Z`
-    : `M 0 ${height} L ${w} ${height}`;
-  return (
-    <div className="w-full">
-      <svg
-        width="100%"
-        viewBox={`0 0 ${w} ${height}`}
-        preserveAspectRatio="none"
-      >
-        <path d={area} fill={areaColor} />
-        <path d={path} fill="none" stroke={color} strokeWidth="2" />
-        {coords.map((c, idx) => (
-          <g key={idx}>
-            <circle cx={c.x} cy={c.y} r="3" fill={color} />
+    ? `${path} L ${coords[coords.length - 1].x} ${chartH} L 0 ${chartH} Z`
+    : `M 0 ${chartH} L ${w} ${chartH}`;
+  const svg = (
+    <svg
+      width={scrollX ? "100%" : "100%"}
+      style={scrollX ? { minWidth: `${w}px` } : undefined}
+      viewBox={`0 0 ${w} ${height}`}
+      preserveAspectRatio={scrollX ? "xMinYMin" : "none"}
+    >
+      <path d={area} fill={areaColor} />
+      <path d={path} fill="none" stroke={color} strokeWidth="2" />
+      {coords.map((c, idx) => (
+        <g key={idx}>
+          <circle cx={c.x} cy={c.y} r="3" fill={color} />
+          {showAmounts ? (
             <text
               x={c.x}
               y={Math.max(10, c.y - 6)}
@@ -119,9 +125,31 @@ function LineChart({
             >
               {formatY ? formatY(c.value) : c.value.toLocaleString()}
             </text>
-          </g>
-        ))}
-      </svg>
+          ) : null}
+          {showXLabels ? (
+            <text
+              x={c.x}
+              y={height - 4}
+              fontSize="9"
+              textAnchor="end"
+              transform={`rotate(-20 ${c.x} ${height - 4})`}
+              fill="#334155"
+              fontWeight="500"
+            >
+              {c.label}
+            </text>
+          ) : null}
+        </g>
+      ))}
+    </svg>
+  );
+  return (
+    <div className="w-full">
+      {scrollX ? (
+        <div className="overflow-x-auto pb-2">{svg}</div>
+      ) : (
+        svg
+      )}
       <div className="flex justify-between items-center mt-2">
         <div className="text-[10px] text-slate-500">{yLabel || ""}</div>
         <div className="text-[10px] text-slate-500">{xLabel || ""}</div>
@@ -263,7 +291,7 @@ function UserBarChart({
               <text
                 x={x + 8}
                 y={v >= 0 ? y - 4 : y + barHeight + 10}
-                fontSize="10"
+                fontSize="5"
                 textAnchor="middle"
                 fill="#0f172a"
               >
@@ -272,7 +300,7 @@ function UserBarChart({
               <text
                 x={x + 8}
                 y={height - 2}
-                fontSize="10"
+                fontSize="5"
                 textAnchor="middle"
                 fill="#64748b"
               >
@@ -283,8 +311,8 @@ function UserBarChart({
         })}
       </svg>
       <div className="flex justify-between items-center mt-2">
-        <div className="text-[10px] text-slate-500">{yLabel || ""}</div>
-        <div className="text-[10px] text-slate-500">{xLabel || ""}</div>
+        <div className="text-[5px] text-slate-500">{yLabel || ""}</div>
+        <div className="text-[5px] text-slate-500">{xLabel || ""}</div>
       </div>
     </div>
   );
@@ -303,21 +331,34 @@ export default function PosDashboard() {
   const [categoryShare, setCategoryShare] = useState([]);
   const [topItems, setTopItems] = useState([]);
   const [daysRange, setDaysRange] = useState(30);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState(todayStr);
+  const [endDate, setEndDate] = useState(todayStr);
+  const [showTrendAmounts, setShowTrendAmounts] = useState(true);
+  const [showMonthlyAmounts, setShowMonthlyAmounts] = useState(true);
+  const [selectedMonth, setSelectedMonth] = useState("all");
+
+  const dateLabel = useMemo(() => {
+    if (startDate && endDate) return `${startDate} – ${endDate}`;
+    return "Today";
+  }, [startDate, endDate]);
 
   useEffect(() => {
     let mounted = true;
     setLoading(true);
     setError("");
+    const dateParams = { startDate, endDate };
+    const trendParams = { days: daysRange };
     Promise.all([
-      api.get("/pos/analytics/day-summary"),
-      api.get("/pos/analytics/day-terminal-methods"),
-      api.get("/pos/analytics/day-user-sales"),
-      api.get("/pos/analytics/sales-30-days"),
+      api.get("/pos/analytics/day-summary", { params: dateParams }),
+      api.get("/pos/analytics/day-terminal-methods", { params: dateParams }),
+      api.get("/pos/analytics/day-user-sales", { params: dateParams }),
+      api.get("/pos/analytics/sales-30-days", { params: trendParams }),
       api.get("/pos/analytics/sales-monthly"),
-      api.get("/pos/analytics/weekday-current-week"),
-      api.get("/pos/analytics/hourly-today"),
-      api.get("/pos/analytics/category-share"),
-      api.get("/pos/reports/top-items", { params: { limit: 10 } }),
+      api.get("/pos/analytics/weekday-current-week", { params: dateParams }),
+      api.get("/pos/analytics/hourly-today", { params: dateParams }),
+      api.get("/pos/analytics/category-share", { params: dateParams }),
+      api.get("/pos/reports/top-items", { params: { ...dateParams, limit: 10 } }),
     ])
       .then(
         ([
@@ -376,7 +417,7 @@ export default function PosDashboard() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [startDate, endDate, daysRange]);
 
   const paymentBars = useMemo(() => {
     const s = daySummary || {};
@@ -419,13 +460,45 @@ export default function PosDashboard() {
   );
 
   const sales30Points = useMemo(
-    () => sales30.map((d) => ({ x: String(d.date), y: Number(d.total || 0) })),
+    () => sales30.map((d) => {
+      const dateStr = String(d.date || "");
+      const parts = dateStr.split("T")[0].split("-");
+      return { x: parts[2] || dateStr.slice(-2), y: Number(d.total || 0) };
+    }),
     [sales30],
   );
   const salesMonthlyPoints = useMemo(
     () =>
       salesMonthly.map((d) => ({ x: String(d.ym), y: Number(d.total || 0) })),
     [salesMonthly],
+  );
+  const monthOptions = useMemo(
+    () =>
+      [...new Set(salesMonthlyPoints.map((p) => p.x))].sort(),
+    [salesMonthlyPoints],
+  );
+
+  useEffect(() => {
+    if (selectedMonth !== "all" && !monthOptions.includes(selectedMonth)) {
+      setSelectedMonth("all");
+    }
+  }, [monthOptions, selectedMonth]);
+  const filteredMonthlyPoints = useMemo(
+    () =>
+      selectedMonth === "all"
+        ? salesMonthlyPoints
+        : salesMonthlyPoints.filter((p) => p.x === selectedMonth),
+    [salesMonthlyPoints, selectedMonth],
+  );
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const formatMonth = (ym) => {
+    if (!ym || !ym.includes("-")) return ym;
+    const [y, m] = ym.split("-");
+    return `${monthNames[parseInt(m, 10) - 1] || m} ${y}`;
+  };
+  const formattedMonthlyPoints = useMemo(
+    () => filteredMonthlyPoints.map((p) => ({ ...p, x: formatMonth(p.x) })),
+    [filteredMonthlyPoints],
   );
 
   const weekdayLabels = [
@@ -477,7 +550,7 @@ export default function PosDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <Link
             to="/pos"
@@ -488,9 +561,22 @@ export default function PosDashboard() {
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             POS Dashboard
           </h1>
-          <p className="text-sm mt-1">Today and recent sales analytics</p>
+          <p className="text-sm mt-1">{dateLabel} sales analytics</p>
         </div>
-        <div className="text-right">
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="input text-xs py-1 px-2 w-36"
+          />
+          <span className="text-xs text-slate-500">to</span>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="input text-xs py-1 px-2 w-36"
+          />
           <span className="badge">{loading ? "Loading" : "Updated"}</span>
         </div>
       </div>
@@ -500,12 +586,12 @@ export default function PosDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="card">
           <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Terminal Collection (Today)</div>
+            <div className="font-semibold">Terminal Collection</div>
             <div className="text-xs text-slate-500">
-              Terminals on X; Sales grouped by payment
+              Terminals grouped by payment ({dateLabel})
             </div>
           </div>
-          <div className="card-body">
+          <div className="card-body overflow-x-auto">
             <GroupedBarChart
               categories={terminalGrouped.categories}
               series={terminalGrouped.series}
@@ -518,10 +604,10 @@ export default function PosDashboard() {
 
         <div className="card">
           <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Users Sales (Today)</div>
-            <div className="text-xs text-slate-500">By cashier</div>
+            <div className="font-semibold">Users Sales</div>
+            <div className="text-xs text-slate-500">By cashier ({dateLabel})</div>
           </div>
-          <div className="card-body">
+          <div className="card-body overflow-x-auto">
             <UserBarChart
               data={userBars}
               xLabel="User"
@@ -534,11 +620,22 @@ export default function PosDashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="card">
-          <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Sales Trend</div>
-            <div className="text-xs text-slate-500">Last {daysRange} days</div>
+          <div className="card-header bg-slate-50 rounded-t-lg flex items-center justify-between">
+            <div>
+              <div className="font-semibold">Sales Trend</div>
+              <div className="text-xs text-slate-500">Last {daysRange} days</div>
+            </div>
+            <label className="flex items-center gap-1 text-xs cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showTrendAmounts}
+                onChange={(e) => setShowTrendAmounts(e.target.checked)}
+                className="accent-brand"
+              />
+              Amounts
+            </label>
           </div>
-          <div className="card-body">
+          <div className="card-body overflow-x-auto">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-[10px]">Days</span>
               <input
@@ -551,24 +648,55 @@ export default function PosDashboard() {
               <span className="badge">{daysRange}</span>
             </div>
             <LineChart
-              points={sales30Points.slice(-daysRange)}
+              points={sales30Points}
               xLabel="Date"
               yLabel="Sales (GH₵)"
               formatY={fmtCurrency}
+              showXLabels
+              showAmounts={showTrendAmounts}
+              scrollX
             />
           </div>
         </div>
         <div className="card">
-          <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Month-to-Month Sales</div>
-            <div className="text-xs text-slate-500">Last 12 months</div>
+          <div className="card-header bg-slate-50 rounded-t-lg flex items-center justify-between">
+            <div>
+              <div className="font-semibold">Month-to-Month Sales</div>
+              <div className="text-xs text-slate-500">{dateLabel}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="input text-xs py-1 px-2 w-28"
+              >
+                <option value="all">All Months</option>
+                {monthOptions.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <label className="flex items-center gap-1 text-xs cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={showMonthlyAmounts}
+                  onChange={(e) => setShowMonthlyAmounts(e.target.checked)}
+                  className="accent-brand"
+                />
+                Amounts
+              </label>
+            </div>
           </div>
-          <div className="card-body">
+          <div className="card-body overflow-x-auto">
             <LineChart
-              points={salesMonthlyPoints}
+              points={formattedMonthlyPoints}
               xLabel="Month"
               yLabel="Sales (GH₵)"
               formatY={fmtCurrency}
+              showXLabels
+              showAmounts={showMonthlyAmounts}
+              scrollX
             />
           </div>
         </div>
@@ -580,7 +708,7 @@ export default function PosDashboard() {
             <div className="font-semibold">Weekday Sales</div>
             <div className="text-xs text-slate-500">Monday to Sunday</div>
           </div>
-          <div className="card-body">
+          <div className="card-body overflow-x-auto">
             <BarChart
               data={weekdayBars}
               xKey="label"
@@ -594,17 +722,19 @@ export default function PosDashboard() {
         </div>
         <div className="card">
           <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Hourly Sales (Today)</div>
-            <div className="text-xs text-slate-500">07–08 to 22–23</div>
+            <div className="font-semibold">Hourly Sales</div>
+            <div className="text-xs text-slate-500">07–08 to 22–23 ({dateLabel})</div>
           </div>
-          <div className="card-body">
+          <div className="card-body overflow-x-auto">
             <LineChart
               points={hourlyPoints}
-              xLabel="Date"
+              xLabel="Hour"
               yLabel="Sales (GH₵)"
               formatY={fmtCurrency}
               color="#2563eb"
               areaColor="rgba(37,99,235,0.2)"
+              showXLabels
+              scrollX
             />
           </div>
         </div>
@@ -613,10 +743,10 @@ export default function PosDashboard() {
       <div className="grid grid-cols-1">
         <div className="card">
           <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Busy Sales Hours (Today)</div>
-            <div className="text-xs text-slate-500">Area emphasis by hour</div>
+            <div className="font-semibold">Busy Sales Hours</div>
+            <div className="text-xs text-slate-500">Area emphasis by hour ({dateLabel})</div>
           </div>
-          <div className="card-body">
+          <div className="card-body overflow-x-auto">
             <LineChart
               points={hourlyPoints}
               xLabel="Hour"
@@ -624,6 +754,8 @@ export default function PosDashboard() {
               formatY={fmtCurrency}
               color="#22c55e"
               areaColor="rgba(34,197,94,0.25)"
+              showXLabels
+              scrollX
             />
           </div>
         </div>
@@ -633,9 +765,9 @@ export default function PosDashboard() {
         <div className="card">
           <div className="card-header bg-slate-50 rounded-t-lg">
             <div className="font-semibold">Sales by Item Category</div>
-            <div className="text-xs text-slate-500">Last 30 days</div>
+            <div className="text-xs text-slate-500">{dateLabel}</div>
           </div>
-          <div className="card-body">
+          <div className="card-body overflow-x-auto">
             <PieChart data={pieData} label="Category • Sales (GH₵)" />
           </div>
         </div>
@@ -643,17 +775,17 @@ export default function PosDashboard() {
           <div className="card-header bg-slate-50 rounded-t-lg">
             <div className="font-semibold">Top Selling Items</div>
             <div className="text-xs text-slate-500">
-              Best performers (Today)
+              Best performers ({dateLabel})
             </div>
           </div>
-          <div className="card-body">
+          <div className="card-body overflow-x-auto">
             <div className="overflow-auto">
               <table className="table">
                 <thead>
                   <tr>
                     <th>Item</th>
                     <th className="text-right">Qty</th>
-                    <th className="text-right">Amount</th>
+                    <th className="text-right w-24">Amount</th>
                   </tr>
                 </thead>
                 <tbody>

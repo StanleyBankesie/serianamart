@@ -995,6 +995,17 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      const params = { companyId, branchId };
+      let salesDateCond = "DATE(sale_datetime) = CURDATE()";
+      let returnDateCond = "DATE(return_datetime) = CURDATE()";
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        salesDateCond = "DATE(sale_datetime) BETWEEN :startDate AND :endDate";
+        returnDateCond = "DATE(return_datetime) BETWEEN :startDate AND :endDate";
+      }
       await ensurePosTables();
       const rows = await query(
         `
@@ -1005,11 +1016,11 @@ router.get(
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
           AND branch_id = :branchId
-          AND DATE(sale_datetime) = CURDATE()
+          AND ${salesDateCond}
           AND status = 'COMPLETED'
         GROUP BY payment_method
         `,
-        { companyId, branchId },
+        params,
       );
       const returnRows = await query(
         `
@@ -1017,10 +1028,10 @@ router.get(
          FROM pos_returns
          WHERE company_id = :companyId
           AND branch_id = :branchId
-          AND DATE(return_datetime) = CURDATE()
+          AND ${returnDateCond}
         GROUP BY refund_method
         `,
-        { companyId, branchId },
+        params,
       );
       const returnsByMethod = new Map(
         (Array.isArray(returnRows) ? returnRows : []).map((r) => [
@@ -1075,6 +1086,17 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      const params = { companyId, branchId };
+      let salesDateCond = "DATE(p.sale_datetime) = CURDATE()";
+      let returnDateCond = "DATE(r.return_datetime) = CURDATE()";
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        salesDateCond = "DATE(p.sale_datetime) BETWEEN :startDate AND :endDate";
+        returnDateCond = "DATE(r.return_datetime) BETWEEN :startDate AND :endDate";
+      }
       await ensurePosTables();
       const items = await query(
         `
@@ -1094,12 +1116,12 @@ router.get(
         LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.company_id = :companyId
           AND p.branch_id = :branchId
-          AND DATE(p.sale_datetime) = CURDATE()
+          AND ${salesDateCond}
           AND p.status = 'COMPLETED'
         GROUP BY user_label
         ORDER BY total DESC
         `,
-        { companyId, branchId },
+        params,
       );
       const returnRows = await query(
         `
@@ -1119,10 +1141,10 @@ router.get(
           ON a.id = p.created_by AND a.company_id = p.company_id AND a.branch_id = p.branch_id
          WHERE r.company_id = :companyId
           AND r.branch_id = :branchId
-          AND DATE(r.return_datetime) = CURDATE()
+          AND ${returnDateCond}
         GROUP BY user_label
         `,
-        { companyId, branchId },
+        params,
       );
       const returnsByUser = new Map(
         (Array.isArray(returnRows) ? returnRows : []).map((r) => [
@@ -1154,6 +1176,17 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      const params = { companyId, branchId };
+      let salesDateCond = "DATE(p.sale_datetime) = CURDATE()";
+      let returnDateCond = "DATE(r.return_datetime) = CURDATE()";
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        salesDateCond = "DATE(p.sale_datetime) BETWEEN :startDate AND :endDate";
+        returnDateCond = "DATE(r.return_datetime) BETWEEN :startDate AND :endDate";
+      }
       await ensurePosTables();
       const items = await query(
         `
@@ -1170,12 +1203,12 @@ router.get(
         LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.company_id = :companyId
           AND p.branch_id = :branchId
-          AND DATE(p.sale_datetime) = CURDATE()
+          AND ${salesDateCond}
           AND p.status = 'COMPLETED'
         GROUP BY COALESCE(t.code, 'UNKNOWN')
         ORDER BY terminal ASC
         `,
-        { companyId, branchId },
+        params,
       );
       const returnRows = await query(
         `
@@ -1193,10 +1226,10 @@ router.get(
           ON t.id = p.terminal_id AND t.company_id = p.company_id AND t.branch_id = p.branch_id
          WHERE r.company_id = :companyId
           AND r.branch_id = :branchId
-          AND DATE(r.return_datetime) = CURDATE()
+          AND ${returnDateCond}
         GROUP BY COALESCE(t.code, 'UNKNOWN')
         `,
-        { companyId, branchId },
+        params,
       );
       const returnsByTerminal = new Map(
         (Array.isArray(returnRows) ? returnRows : []).map((r) => [
@@ -1236,6 +1269,22 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      const rawDays = Number(req.query.days || 30);
+      const days = Number.isFinite(rawDays) && rawDays > 0 ? Math.min(365, Math.floor(rawDays)) : 30;
+      const params = { companyId, branchId };
+      let salesDateCond, returnDateCond;
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        salesDateCond = "DATE(p.sale_datetime) BETWEEN :startDate AND :endDate";
+        returnDateCond = "DATE(return_datetime) BETWEEN :startDate AND :endDate";
+      } else {
+        params.days = days;
+        salesDateCond = "DATE(p.sale_datetime) >= DATE_SUB(CURDATE(), INTERVAL :days DAY)";
+        returnDateCond = "DATE(return_datetime) >= DATE_SUB(CURDATE(), INTERVAL :days DAY)";
+      }
       await ensurePosTables();
       const items = await query(
         `
@@ -1249,12 +1298,12 @@ router.get(
         LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.company_id = :companyId
           AND p.branch_id = :branchId
-          AND DATE(p.sale_datetime) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+          AND ${salesDateCond}
           AND p.status = 'COMPLETED'
         GROUP BY DATE(p.sale_datetime)
         ORDER BY date ASC
         `,
-        { companyId, branchId },
+        params,
       );
       const returnRows = await query(
         `
@@ -1264,10 +1313,10 @@ router.get(
          FROM pos_returns
          WHERE company_id = :companyId
           AND branch_id = :branchId
-          AND DATE(return_datetime) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+          AND ${returnDateCond}
         GROUP BY DATE(return_datetime)
         `,
-        { companyId, branchId },
+        params,
       );
       const returnsByDate = new Map(
         (Array.isArray(returnRows) ? returnRows : []).map((r) => [
@@ -1425,6 +1474,17 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      const params = { companyId, branchId };
+      let salesDateCond = "p.sale_datetime >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)";
+      let returnDateCond = "return_datetime >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)";
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        salesDateCond = "DATE(p.sale_datetime) BETWEEN :startDate AND :endDate";
+        returnDateCond = "DATE(return_datetime) BETWEEN :startDate AND :endDate";
+      }
       await ensurePosTables();
       const items = await query(
         `
@@ -1438,11 +1498,11 @@ router.get(
          WHERE p.company_id = :companyId
           AND p.branch_id = :branchId
           AND p.status = 'COMPLETED'
-          AND p.sale_datetime >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+          AND ${salesDateCond}
         GROUP BY DATE_FORMAT(p.sale_datetime, '%Y-%m')
         ORDER BY ym ASC
         `,
-        { companyId, branchId },
+        params,
       );
       const returnRows = await query(
         `
@@ -1452,10 +1512,10 @@ router.get(
          FROM pos_returns
          WHERE company_id = :companyId
           AND branch_id = :branchId
-          AND return_datetime >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+          AND ${returnDateCond}
         GROUP BY DATE_FORMAT(return_datetime, '%Y-%m')
         `,
-        { companyId, branchId },
+        params,
       );
       const returnsByYm = new Map(
         (Array.isArray(returnRows) ? returnRows : []).map((r) => [
@@ -1483,6 +1543,17 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      const params = { companyId, branchId };
+      let salesDateCond = "YEARWEEK(p.sale_datetime, 1) = YEARWEEK(CURDATE(), 1)";
+      let returnDateCond = "YEARWEEK(return_datetime, 1) = YEARWEEK(CURDATE(), 1)";
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        salesDateCond = "DATE(p.sale_datetime) BETWEEN :startDate AND :endDate";
+        returnDateCond = "DATE(return_datetime) BETWEEN :startDate AND :endDate";
+      }
       await ensurePosTables();
       const items = await query(
         `
@@ -1495,12 +1566,12 @@ router.get(
         LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.company_id = :companyId
           AND p.branch_id = :branchId
-          AND YEARWEEK(p.sale_datetime, 1) = YEARWEEK(CURDATE(), 1)
+          AND ${salesDateCond}
           AND p.status = 'COMPLETED'
         GROUP BY DAYOFWEEK(p.sale_datetime)
         ORDER BY dow ASC
         `,
-        { companyId, branchId },
+        params,
       );
       const returnRows = await query(
         `
@@ -1510,10 +1581,10 @@ router.get(
          FROM pos_returns
          WHERE company_id = :companyId
           AND branch_id = :branchId
-          AND YEARWEEK(return_datetime, 1) = YEARWEEK(CURDATE(), 1)
+          AND ${returnDateCond}
         GROUP BY DAYOFWEEK(return_datetime)
         `,
-        { companyId, branchId },
+        params,
       );
       const returnsByDow = new Map(
         (Array.isArray(returnRows) ? returnRows : []).map((r) => [
@@ -1541,6 +1612,17 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      const params = { companyId, branchId };
+      let salesDateCond = "DATE(p.sale_datetime) = CURDATE()";
+      let returnDateCond = "DATE(return_datetime) = CURDATE()";
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        salesDateCond = "DATE(p.sale_datetime) BETWEEN :startDate AND :endDate";
+        returnDateCond = "DATE(return_datetime) BETWEEN :startDate AND :endDate";
+      }
       await ensurePosTables();
       const items = await query(
         `
@@ -1553,13 +1635,13 @@ router.get(
         LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.company_id = :companyId
           AND p.branch_id = :branchId
-          AND DATE(p.sale_datetime) = CURDATE()
+          AND ${salesDateCond}
           AND p.status = 'COMPLETED'
           AND HOUR(p.sale_datetime) BETWEEN 7 AND 22
         GROUP BY HOUR(p.sale_datetime)
         ORDER BY hr ASC
         `,
-        { companyId, branchId },
+        params,
       );
       const returnRows = await query(
         `
@@ -1569,11 +1651,11 @@ router.get(
          FROM pos_returns
          WHERE company_id = :companyId
           AND branch_id = :branchId
-          AND DATE(return_datetime) = CURDATE()
+          AND ${returnDateCond}
           AND HOUR(return_datetime) BETWEEN 7 AND 22
         GROUP BY HOUR(return_datetime)
         `,
-        { companyId, branchId },
+        params,
       );
       const returnsByHour = new Map(
         (Array.isArray(returnRows) ? returnRows : []).map((r) => [
@@ -1601,6 +1683,15 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      const params = { companyId, branchId };
+      let dateCond = "DATE(i.invoice_date) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        dateCond = "DATE(i.invoice_date) BETWEEN :startDate AND :endDate";
+      }
       const items = await query(
         `
         SELECT 
@@ -1616,11 +1707,11 @@ router.get(
         LEFT JOIN adm_users u ON u.id = i.created_by
          WHERE i.company_id = :companyId
           AND i.branch_id = :branchId
-          AND DATE(i.invoice_date) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+          AND ${dateCond}
         GROUP BY COALESCE(it.item_type, 'Uncategorized')
         ORDER BY total DESC
         `,
-        { companyId, branchId },
+        params,
       );
       res.json({ items });
     } catch (err) {
