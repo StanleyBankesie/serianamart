@@ -77,7 +77,7 @@ function BarChart({
 
 function LineChart({
   points,
-  height = 180,
+  height = 220,
   xLabel,
   yLabel,
   formatY,
@@ -88,9 +88,9 @@ function LineChart({
   scrollX = false,
 }) {
   const maxY = Math.max(1, ...points.map((p) => Number(p.y || 0)));
-  const xLabelH = showXLabels ? 24 : 0;
+  const xLabelH = showXLabels ? 56 : 0;
   const chartH = height - xLabelH;
-  const w = Math.max(240, points.length * 36);
+  const w = Math.max(720, points.length * 92);
   const stepX = w / Math.max(1, points.length - 1);
   const coords = points.map((p, i) => {
     const x = Math.round(i * stepX);
@@ -105,8 +105,7 @@ function LineChart({
     : `M 0 ${chartH} L ${w} ${chartH}`;
   const svg = (
     <svg
-      width={scrollX ? "100%" : "100%"}
-      style={scrollX ? { minWidth: `${w}px` } : undefined}
+      width={scrollX ? w : "100%"}
       viewBox={`0 0 ${w} ${height}`}
       preserveAspectRatio={scrollX ? "xMinYMin" : "none"}
     >
@@ -119,9 +118,10 @@ function LineChart({
             <text
               x={c.x}
               y={Math.max(10, c.y - 6)}
-              fontSize="10"
+              fontSize="13"
               textAnchor="middle"
               fill="#0f172a"
+              fontWeight="600"
             >
               {formatY ? formatY(c.value) : c.value.toLocaleString()}
             </text>
@@ -129,12 +129,12 @@ function LineChart({
           {showXLabels ? (
             <text
               x={c.x}
-              y={height - 4}
-              fontSize="9"
+              y={height - 16}
+              fontSize="13"
               textAnchor="end"
-              transform={`rotate(-20 ${c.x} ${height - 4})`}
+              transform={`rotate(-20 ${c.x} ${height - 16})`}
               fill="#334155"
-              fontWeight="500"
+              fontWeight="600"
             >
               {c.label}
             </text>
@@ -145,38 +145,69 @@ function LineChart({
   );
   return (
     <div className="w-full">
-      {scrollX ? (
-        <div className="overflow-x-auto pb-2">{svg}</div>
-      ) : (
-        svg
-      )}
+      {scrollX ? <div className="overflow-x-auto pb-2">{svg}</div> : svg}
       <div className="flex justify-between items-center mt-2">
-        <div className="text-[10px] text-slate-500">{yLabel || ""}</div>
-        <div className="text-[10px] text-slate-500">{xLabel || ""}</div>
+        <div className="text-xs font-medium text-slate-500">{yLabel || ""}</div>
+        <div className="text-xs font-medium text-slate-500">{xLabel || ""}</div>
       </div>
     </div>
   );
 }
 
 function PieChart({ data, label }) {
-  return (
-    <div className="flex items-start gap-4">
-      <div className="min-w-[240px] w-[240px] h-[240px]">
-        <ChartPie data={data} donut />
+  if (!data || data.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[240px] text-slate-400 bg-slate-50/50 rounded-lg border border-dashed border-slate-200">
+        <div className="text-2xl mb-2">📊</div>
+        <div className="text-sm">No data available for this period</div>
       </div>
-      <div className="text-xs space-y-1">
-        {label ? (
-          <div className="font-semibold text-slate-600 mb-1">{label}</div>
-        ) : null}
-        {data.map((d, idx) => (
-          <div key={idx} className="flex items-center gap-2">
-            <span className="inline-block w-3 h-3 rounded" />
-            <span className="flex-1">{d.label}</span>
-            <span className="font-semibold">
-              {Number(d.value || 0).toLocaleString()}
-            </span>
-          </div>
-        ))}
+    );
+  }
+  return (
+    <div className="flex flex-col lg:flex-row items-center lg:items-start gap-6">
+      <div className="w-full max-w-[280px] h-[280px] relative">
+        <ChartPie data={data} donut={data.length > 1} height={280} />
+      </div>
+      <div className="flex-1 w-full pr-2">
+        <div className="text-xs space-y-2">
+          {label ? (
+            <div className="font-bold text-slate-700 mb-2 pb-1 border-b border-slate-100">
+              {label}
+            </div>
+          ) : null}
+          {data.map((d, idx) => {
+            const palette = [
+              "#6366f1",
+              "#22c55e",
+              "#ef4444",
+              "#f59e0b",
+              "#06b6d4",
+              "#a855f7",
+              "#0ea5e9",
+              "#84cc16",
+              "#fb7185",
+              "#f97316",
+            ];
+            const color = palette[idx % palette.length];
+            return (
+              <div
+                key={idx}
+                className="flex items-center gap-2 p-1 hover:bg-slate-50 rounded transition-colors"
+              >
+                <span
+                  className="inline-block w-3 h-3 rounded-full shadow-sm"
+                  style={{ backgroundColor: color }}
+                />
+                <span className="flex-1 text-slate-600 truncate">
+                  {d.label}
+                </span>
+                <span className="font-bold text-slate-900">
+                  {Number(d.value || 0).toLocaleString()}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -194,49 +225,56 @@ function GroupedBarChart({
     1,
     ...series.flatMap((s) => categories.map((c) => Number(s.data[c] || 0))),
   );
+  const w = Math.max(240, categories.length * 80);
   return (
     <div className="w-full">
-      <div className="flex items-end gap-3 w-full" style={{ height }}>
-        {categories.map((cat, idx) => (
-          <div key={idx} className="flex flex-col items-center">
-            <div className="flex items-end gap-1">
-              {series.map((s, j) => {
-                const val = Number(s.data[cat] || 0);
-                const h = Math.round((val / maxVal) * height);
-                return (
-                  <div
-                    key={j}
-                    className="rounded-t"
-                    style={{
-                      width: 10,
-                      height: `${Math.max(4, h)}px`,
-                      backgroundImage: `linear-gradient(${shade(s.color, 0.35)}, ${s.color})`,
-                      boxShadow:
-                        "inset 0 2px 4px rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.15), 2px -2px 0 rgba(0,0,0,0.08)",
-                    }}
-                    title={`${s.label} @ ${cat} • ${formatY ? formatY(val) : val.toLocaleString()}`}
-                  />
-                );
-              })}
+      <div className="overflow-x-auto pb-2">
+        <div className="flex items-end gap-3" style={{ height, minWidth: w }}>
+          {categories.map((cat, idx) => (
+            <div key={idx} className="flex flex-col items-center flex-1">
+              <div className="flex items-end gap-1">
+                {series.map((s, j) => {
+                  const val = Number(s.data[cat] || 0);
+                  const h = Math.round((val / maxVal) * height);
+                  return (
+                    <div
+                      key={j}
+                      className="rounded-t"
+                      style={{
+                        width: 12,
+                        height: `${Math.max(4, h)}px`,
+                        backgroundImage: `linear-gradient(${shade(s.color, 0.35)}, ${s.color})`,
+                        boxShadow:
+                          "inset 0 2px 4px rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.15), 2px -2px 0 rgba(0,0,0,0.08)",
+                      }}
+                      title={`${s.label} @ ${cat} • ${formatY ? formatY(val) : val.toLocaleString()}`}
+                    />
+                  );
+                })}
+              </div>
+              <div className="text-[10px] mt-2 font-medium text-slate-600 text-center w-full truncate">
+                {cat}
+              </div>
             </div>
-            <div className="text-[10px] mt-1 text-center w-16 truncate">
-              {cat}
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
-      <div className="flex justify-between items-center mt-2">
-        <div className="text-[10px] text-slate-500">{yLabel || ""}</div>
-        <div className="text-[10px] text-slate-500">{xLabel || ""}</div>
+      <div className="flex justify-between items-center mt-3 pt-2 border-t border-slate-100">
+        <div className="text-[10px] text-slate-500 font-medium">
+          {yLabel || ""}
+        </div>
+        <div className="text-[10px] text-slate-500 font-medium">
+          {xLabel || ""}
+        </div>
       </div>
-      <div className="flex gap-4 mt-2">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
         {series.map((s, j) => (
           <div
             key={j}
-            className="flex items-center gap-2 text-[10px] text-slate-600"
+            className="flex items-center gap-1.5 text-[10px] text-slate-600"
           >
             <span
-              className="inline-block w-3 h-3 rounded"
+              className="inline-block w-2.5 h-2.5 rounded-sm"
               style={{ backgroundColor: s.color }}
             />
             <span>{s.label}</span>
@@ -264,55 +302,73 @@ function UserBarChart({
   const totalRange = posMax + negMax || 1;
   const posHeight = Math.round((posMax / totalRange) * height);
   const baselineY = height - posHeight;
+  const w = Math.max(240, data.length * 56);
   return (
     <div className="w-full">
-      <svg
-        width="100%"
-        viewBox={`0 0 ${data.length * 36} ${height}`}
-        preserveAspectRatio="none"
-      >
-        <line
-          x1="0"
-          y1={baselineY}
-          x2={data.length * 36}
-          y2={baselineY}
-          stroke="#94a3b8"
-          strokeWidth="1"
-        />
-        {data.map((d, idx) => {
-          const v = Number(d.total || 0);
-          const barHeight =
-            Math.round((Math.abs(v) / totalRange) * height) || 0;
-          const x = idx * 36 + 12;
-          const y = v >= 0 ? baselineY - barHeight : baselineY;
-          return (
-            <g key={idx}>
-              <rect x={x} y={y} width="16" height={barHeight} fill={color} />
-              <text
-                x={x + 8}
-                y={v >= 0 ? y - 4 : y + barHeight + 10}
-                fontSize="5"
-                textAnchor="middle"
-                fill="#0f172a"
-              >
-                {formatY ? formatY(v) : v.toLocaleString()}
-              </text>
-              <text
-                x={x + 8}
-                y={height - 2}
-                fontSize="5"
-                textAnchor="middle"
-                fill="#64748b"
-              >
-                {String(d.label || "")}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
+      <div className="overflow-x-auto pb-2">
+        <svg
+          width={w}
+          height={height}
+          viewBox={`0 0 ${w} ${height}`}
+          preserveAspectRatio="none"
+        >
+          <line
+            x1="0"
+            y1={baselineY}
+            x2={w}
+            y2={baselineY}
+            stroke="#94a3b8"
+            strokeWidth="1"
+          />
+          {data.map((d, idx) => {
+            const v = Number(d.total || 0);
+            const barHeight =
+              Math.round((Math.abs(v) / totalRange) * height) || 0;
+            const step = w / data.length;
+            const x = idx * step + step / 4;
+            const y = v >= 0 ? baselineY - barHeight : baselineY;
+            return (
+              <g key={idx}>
+                <rect
+                  x={x}
+                  y={y}
+                  width={step / 2}
+                  height={barHeight}
+                  fill={color}
+                  rx="2"
+                />
+                <text
+                  x={x + step / 4}
+                  y={
+                    v >= 0
+                      ? Math.max(8, y - 4)
+                      : Math.min(height - 4, y + barHeight + 8)
+                  }
+                  fontSize="10"
+                  textAnchor="middle"
+                  fill="#0f172a"
+                  fontWeight="600"
+                >
+                  {formatY ? formatY(v) : v.toLocaleString()}
+                </text>
+                <text
+                  x={x + step / 4}
+                  y={height - 10}
+                  fontSize="10"
+                  textAnchor="middle"
+                  fill="#64748b"
+                  fontWeight="600"
+                >
+                  {String(d.label || "")}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
       <div className="flex justify-between items-center mt-2">
-        <div className="text-[5px] text-slate-500">{yLabel || ""}</div>
-        <div className="text-[5px] text-slate-500">{xLabel || ""}</div>
+        <div className="text-[10px] text-slate-500">{yLabel || ""}</div>
+        <div className="text-[10px] text-slate-500">{xLabel || ""}</div>
       </div>
     </div>
   );
@@ -358,7 +414,9 @@ export default function PosDashboard() {
       api.get("/pos/analytics/weekday-current-week", { params: dateParams }),
       api.get("/pos/analytics/hourly-today", { params: dateParams }),
       api.get("/pos/analytics/category-share", { params: dateParams }),
-      api.get("/pos/reports/top-items", { params: { ...dateParams, limit: 10 } }),
+      api.get("/pos/reports/top-items", {
+        params: { ...dateParams, limit: 10 },
+      }),
     ])
       .then(
         ([
@@ -402,7 +460,11 @@ export default function PosDashboard() {
               : [],
           );
           setTopItems(
-            Array.isArray(topRes.data?.items) ? topRes.data.items : [],
+            Array.isArray(topRes.data?.items)
+              ? [...topRes.data.items].sort(
+                  (a, b) => Number(b.qty || 0) - Number(a.qty || 0),
+                )
+              : [],
           );
         },
       )
@@ -460,11 +522,11 @@ export default function PosDashboard() {
   );
 
   const sales30Points = useMemo(
-    () => sales30.map((d) => {
-      const dateStr = String(d.date || "");
-      const parts = dateStr.split("T")[0].split("-");
-      return { x: parts[2] || dateStr.slice(-2), y: Number(d.total || 0) };
-    }),
+    () =>
+      sales30.map((d) => {
+        const dateStr = String(d.date || "");
+        return { x: dateStr.split("T")[0], y: Number(d.total || 0) };
+      }),
     [sales30],
   );
   const salesMonthlyPoints = useMemo(
@@ -473,8 +535,7 @@ export default function PosDashboard() {
     [salesMonthly],
   );
   const monthOptions = useMemo(
-    () =>
-      [...new Set(salesMonthlyPoints.map((p) => p.x))].sort(),
+    () => [...new Set(salesMonthlyPoints.map((p) => p.x))].sort(),
     [salesMonthlyPoints],
   );
 
@@ -490,7 +551,20 @@ export default function PosDashboard() {
         : salesMonthlyPoints.filter((p) => p.x === selectedMonth),
     [salesMonthlyPoints, selectedMonth],
   );
-  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const monthNames = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
   const formatMonth = (ym) => {
     if (!ym || !ym.includes("-")) return ym;
     const [y, m] = ym.split("-");
@@ -534,14 +608,19 @@ export default function PosDashboard() {
     });
   }, [hourlyToday]);
 
-  const pieData = useMemo(
-    () =>
-      categoryShare.map((r) => ({
-        label: String(r.category || "Uncategorized"),
-        value: Number(r.total || 0),
-      })),
-    [categoryShare],
-  );
+  const pieData = useMemo(() => {
+    const totals = new Map();
+    for (const row of categoryShare) {
+      const label = String(row.category || "Uncategorized");
+      const value = Number(row.total || 0);
+      if (value <= 0) continue;
+      totals.set(label, Number(totals.get(label) || 0) + value);
+    }
+    return Array.from(totals.entries()).map(([label, value]) => ({
+      label,
+      value,
+    }));
+  }, [categoryShare]);
   const fmtCurrency = (n) =>
     `GH₵${Number(n || 0).toLocaleString(undefined, {
       minimumFractionDigits: 2,
@@ -584,14 +663,14 @@ export default function PosDashboard() {
       {error ? <div className="text-sm text-red-600">{error}</div> : null}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="card">
-          <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Terminal Collection</div>
-            <div className="text-xs text-slate-500">
+        <div className="card shadow-sm border-slate-200/60">
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
+            <div className="font-bold text-slate-800">Terminal Collection</div>
+            <div className="text-[11px] text-slate-500">
               Terminals grouped by payment ({dateLabel})
             </div>
           </div>
-          <div className="card-body overflow-x-auto">
+          <div className="card-body overflow-x-auto p-4">
             <GroupedBarChart
               categories={terminalGrouped.categories}
               series={terminalGrouped.series}
@@ -602,12 +681,14 @@ export default function PosDashboard() {
           </div>
         </div>
 
-        <div className="card">
-          <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Users Sales</div>
-            <div className="text-xs text-slate-500">By cashier ({dateLabel})</div>
+        <div className="card shadow-sm border-slate-200/60">
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
+            <div className="font-bold text-slate-800">Users Sales</div>
+            <div className="text-[11px] text-slate-500">
+              By cashier ({dateLabel})
+            </div>
           </div>
-          <div className="card-body overflow-x-auto">
+          <div className="card-body overflow-x-auto p-4">
             <UserBarChart
               data={userBars}
               xLabel="User"
@@ -619,13 +700,17 @@ export default function PosDashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="card">
-          <div className="card-header bg-slate-50 rounded-t-lg flex items-center justify-between">
+        <div className="card shadow-sm border-slate-200/60">
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60 flex items-center justify-between">
             <div>
-              <div className="font-semibold">Sales Trend</div>
-              <div className="text-xs text-slate-500">Last {daysRange} days</div>
+              <div className="text-xl font-bold text-slate-800">
+                Sales Trend
+              </div>
+              <div className="text-sm text-slate-500">
+                Last {daysRange} days
+              </div>
             </div>
-            <label className="flex items-center gap-1 text-xs cursor-pointer select-none">
+            <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none font-medium text-slate-600">
               <input
                 type="checkbox"
                 checked={showTrendAmounts}
@@ -635,17 +720,22 @@ export default function PosDashboard() {
               Amounts
             </label>
           </div>
-          <div className="card-body overflow-x-auto">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-[10px]">Days</span>
+          <div className="card-body overflow-x-auto p-4">
+            <div className="flex items-center gap-3 mb-4 bg-slate-50 p-2 rounded-lg">
+              <span className="text-sm font-semibold text-slate-600">
+                Days Range:
+              </span>
               <input
                 type="range"
                 min={7}
                 max={60}
                 value={daysRange}
                 onChange={(e) => setDaysRange(Number(e.target.value))}
+                className="flex-1 accent-brand"
               />
-              <span className="badge">{daysRange}</span>
+              <span className="badge-primary text-xs px-2 py-0.5">
+                {daysRange}d
+              </span>
             </div>
             <LineChart
               points={sales30Points}
@@ -658,17 +748,19 @@ export default function PosDashboard() {
             />
           </div>
         </div>
-        <div className="card">
-          <div className="card-header bg-slate-50 rounded-t-lg flex items-center justify-between">
+        <div className="card shadow-sm border-slate-200/60">
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60 flex items-center justify-between">
             <div>
-              <div className="font-semibold">Month-to-Month Sales</div>
-              <div className="text-xs text-slate-500">{dateLabel}</div>
+              <div className="text-xl font-bold text-slate-800">
+                Month-to-Month Sales
+              </div>
+              <div className="text-sm text-slate-500">{dateLabel}</div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <select
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(e.target.value)}
-                className="input text-xs py-1 px-2 w-28"
+                className="input text-sm py-1 px-2 w-36 border-slate-200"
               >
                 <option value="all">All Months</option>
                 {monthOptions.map((m) => (
@@ -677,7 +769,7 @@ export default function PosDashboard() {
                   </option>
                 ))}
               </select>
-              <label className="flex items-center gap-1 text-xs cursor-pointer select-none">
+              <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none font-medium text-slate-600">
                 <input
                   type="checkbox"
                   checked={showMonthlyAmounts}
@@ -688,7 +780,7 @@ export default function PosDashboard() {
               </label>
             </div>
           </div>
-          <div className="card-body overflow-x-auto">
+          <div className="card-body overflow-x-auto p-4">
             <LineChart
               points={formattedMonthlyPoints}
               xLabel="Month"
@@ -703,12 +795,14 @@ export default function PosDashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="card">
-          <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Weekday Sales</div>
-            <div className="text-xs text-slate-500">Monday to Sunday</div>
+        <div className="card shadow-sm border-slate-200/60">
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
+            <div className="font-bold text-slate-800">Weekday Sales</div>
+            <div className="text-[11px] text-slate-500">
+              Monday to Sunday performance
+            </div>
           </div>
-          <div className="card-body overflow-x-auto">
+          <div className="card-body overflow-x-auto p-4">
             <BarChart
               data={weekdayBars}
               xKey="label"
@@ -720,19 +814,21 @@ export default function PosDashboard() {
             />
           </div>
         </div>
-        <div className="card">
-          <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Hourly Sales</div>
-            <div className="text-xs text-slate-500">07–08 to 22–23 ({dateLabel})</div>
+        <div className="card shadow-sm border-slate-200/60">
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
+            <div className="font-bold text-slate-800">Hourly Sales</div>
+            <div className="text-[11px] text-slate-500">
+              07:00 to 23:00 ({dateLabel})
+            </div>
           </div>
-          <div className="card-body overflow-x-auto">
+          <div className="card-body overflow-x-auto p-4">
             <LineChart
               points={hourlyPoints}
               xLabel="Hour"
               yLabel="Sales (GH₵)"
               formatY={fmtCurrency}
               color="#2563eb"
-              areaColor="rgba(37,99,235,0.2)"
+              areaColor="rgba(37,99,235,0.15)"
               showXLabels
               scrollX
             />
@@ -741,19 +837,21 @@ export default function PosDashboard() {
       </div>
 
       <div className="grid grid-cols-1">
-        <div className="card">
-          <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Busy Sales Hours</div>
-            <div className="text-xs text-slate-500">Area emphasis by hour ({dateLabel})</div>
+        <div className="card shadow-sm border-slate-200/60">
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
+            <div className="font-bold text-slate-800">Busy Sales Hours</div>
+            <div className="text-[11px] text-slate-500">
+              Heatmap emphasis by hour ({dateLabel})
+            </div>
           </div>
-          <div className="card-body overflow-x-auto">
+          <div className="card-body overflow-x-auto p-4">
             <LineChart
               points={hourlyPoints}
               xLabel="Hour"
               yLabel="Sales (GH₵)"
               formatY={fmtCurrency}
               color="#22c55e"
-              areaColor="rgba(34,197,94,0.25)"
+              areaColor="rgba(34,197,94,0.2)"
               showXLabels
               scrollX
             />
@@ -762,44 +860,68 @@ export default function PosDashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="card">
-          <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Sales by Item Category</div>
-            <div className="text-xs text-slate-500">{dateLabel}</div>
+        <div className="card shadow-sm border-slate-200/60">
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
+            <div className="font-bold text-slate-800">
+              Sales by Item Category
+            </div>
+            <div className="text-[11px] text-slate-500">{dateLabel}</div>
           </div>
-          <div className="card-body overflow-x-auto">
+          <div className="card-body overflow-x-auto p-6">
             <PieChart data={pieData} label="Category • Sales (GH₵)" />
           </div>
         </div>
-        <div className="card">
-          <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Top Selling Items</div>
-            <div className="text-xs text-slate-500">
-              Best performers ({dateLabel})
+        <div className="card shadow-sm border-slate-200/60">
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
+            <div className="font-bold text-slate-800">Top Selling Items</div>
+            <div className="text-[11px] text-slate-500">
+              Best performers by quantity ({dateLabel})
             </div>
           </div>
-          <div className="card-body overflow-x-auto">
-            <div className="overflow-auto">
-              <table className="table">
-                <thead>
+          <div className="card-body overflow-x-auto p-0">
+            <div className="overflow-x-auto">
+              <table className="table table-compact w-full">
+                <thead className="bg-slate-50 sticky top-0 z-10">
                   <tr>
-                    <th>Item</th>
-                    <th className="text-right">Qty</th>
-                    <th className="text-right w-24">Amount</th>
+                    <th className="text-left py-3 px-4 text-xs font-bold text-slate-600">
+                      Item
+                    </th>
+                    <th className="text-right py-3 px-4 text-xs font-bold text-slate-600">
+                      Qty
+                    </th>
+                    <th className="text-right py-3 px-4 text-xs font-bold text-slate-600 w-32">
+                      Amount
+                    </th>
                   </tr>
                 </thead>
-                <tbody>
-                  {topItems.map((t, idx) => (
-                    <tr key={idx}>
-                      <td>{String(t.item || "")}</td>
-                      <td className="text-right">
-                        {Number(t.qty || 0).toLocaleString()}
-                      </td>
-                      <td className="text-right font-semibold">
-                        {fmtCurrency(t.amount)}
+                <tbody className="divide-y divide-slate-100">
+                  {topItems.length > 0 ? (
+                    topItems.map((t, idx) => (
+                      <tr
+                        key={idx}
+                        className="hover:bg-slate-50/50 transition-colors"
+                      >
+                        <td className="py-3 px-4 text-sm text-slate-700 font-medium">
+                          {String(t.item || "")}
+                        </td>
+                        <td className="text-right py-3 px-4 text-sm font-bold text-brand">
+                          {Number(t.qty || 0).toLocaleString()}
+                        </td>
+                        <td className="text-right py-3 px-4 text-sm font-semibold text-slate-600">
+                          {fmtCurrency(t.amount)}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td
+                        colSpan={3}
+                        className="py-8 text-center text-slate-400 text-sm"
+                      >
+                        No items found for this period
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
