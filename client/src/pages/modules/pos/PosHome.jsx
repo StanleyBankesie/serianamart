@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, Route, Routes } from "react-router-dom";
 
 import PosReports from "./reports/PosReports.jsx";
@@ -187,7 +187,7 @@ function PosLanding() {
 }
 
 function PosSyncStatus() {
-  const { pending, failed } = useOfflineQueue();
+  const { pending, failed, items } = useOfflineQueue();
   const [online, setOnline] = useState(navigator.onLine);
   useEffect(() => {
     const on = () => setOnline(true);
@@ -196,19 +196,22 @@ function PosSyncStatus() {
     window.addEventListener("offline", off);
     return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
   }, []);
-  if (online && pending === 0 && failed === 0) return null;
+  const posItems = useMemo(() => (items || []).filter((i) => String(i.url || "").includes("/pos/")), [items]);
+  const posPending = useMemo(() => posItems.filter((i) => i.status === "pending").length, [posItems]);
+  const posFailed = useMemo(() => posItems.filter((i) => i.status === "failed").length, [posItems]);
+  if (online && posPending === 0 && posFailed === 0) return null;
   return (
     <div className={`p-3 rounded-lg border text-sm flex items-center justify-between ${online ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200"}`}>
       <div className="flex items-center gap-2">
         <span>{online ? "\u26A0\uFE0F" : "\uD83D\uDD34"}</span>
         <span>
           {online
-            ? `${pending} item${pending !== 1 ? "s" : ""} pending sync`
+            ? `${posPending} item${posPending !== 1 ? "s" : ""} pending sync`
             : "You are offline — sales saved locally, will sync when reconnected"}
         </span>
-        {failed > 0 && <span className="font-semibold text-red-600">({failed} failed)</span>}
+        {posFailed > 0 && <span className="font-semibold text-red-600">({posFailed} failed)</span>}
       </div>
-      {(failed > 0 || pending > 0) && (
+      {(posFailed > 0 || posPending > 0) && (
         <Link to="/pos/reconciliation" className="text-brand hover:text-brand-600 text-xs font-medium underline">View Sync Queue</Link>
       )}
     </div>
