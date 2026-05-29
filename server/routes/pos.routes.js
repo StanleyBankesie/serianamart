@@ -1695,16 +1695,17 @@ router.get(
       const items = await query(
         `
         SELECT 
-          COALESCE(it.item_type, 'Uncategorized') AS category,
+          COALESCE(c.category_name, 'Uncategorized') AS category,
           COALESCE(SUM(l.line_total - (COALESCE(l.returned_qty, 0) * l.unit_price)), 0) AS total
          FROM pos_sale_lines l
         JOIN pos_sales p ON p.id = l.sale_id
-        LEFT JOIN inv_items it ON it.id = l.item_id AND it.company_id = p.company_id
+        LEFT JOIN inv_items i ON i.id = l.item_id AND i.company_id = p.company_id
+        LEFT JOIN inv_item_categories c ON c.id = i.category_id AND c.company_id = p.company_id
          WHERE p.company_id = :companyId
           AND p.branch_id = :branchId
           AND p.status = 'COMPLETED'
           AND ${dateCond}
-        GROUP BY COALESCE(it.item_type, 'Uncategorized')
+        GROUP BY COALESCE(c.category_name, 'Uncategorized')
         ORDER BY total DESC
         `,
         params,

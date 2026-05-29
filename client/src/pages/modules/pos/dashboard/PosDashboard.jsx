@@ -868,7 +868,15 @@ export default function PosDashboard() {
             <div className="text-[11px] text-slate-500">{dateLabel}</div>
           </div>
           <div className="card-body overflow-x-auto p-6">
-            <PieChart data={pieData} label="Category • Sales (GH₵)" />
+            <BarChart
+              data={pieData}
+              xKey="label"
+              yKey="value"
+              xLabel="Category"
+              yLabel="Sales (GH₵)"
+              formatY={fmtCurrency}
+              color="#8b5cf6"
+            />
           </div>
         </div>
         <div className="card shadow-sm border-slate-200/60">
