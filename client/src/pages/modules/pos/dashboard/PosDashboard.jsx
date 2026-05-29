@@ -36,10 +36,11 @@ function BarChart({
   color = "#3b82f6",
 }) {
   const max = Math.max(1, ...data.map((d) => Number(d[yKey] || 0)));
+  const topPad = 18;
   const bars = data.map((d) => ({
     label: String(d[xKey]),
     value: Number(d[yKey] || 0),
-    h: Math.round((Number(d[yKey] || 0) / max) * height),
+    h: Math.round((Number(d[yKey] || 0) / max) * (height - topPad)),
   }));
   return (
     <div className="w-full">
@@ -66,10 +67,6 @@ function BarChart({
             </div>
           </div>
         ))}
-      </div>
-      <div className="flex justify-between items-center mt-2">
-        <div className="text-[10px] text-slate-500">{yLabel || ""}</div>
-        <div className="text-[10px] text-slate-500">{xLabel || ""}</div>
       </div>
     </div>
   );
@@ -105,7 +102,8 @@ function LineChart({
     : `M 0 ${chartH} L ${w} ${chartH}`;
   const svg = (
     <svg
-      width={scrollX ? w : "100%"}
+      width={scrollX ? "100%" : "100%"}
+      style={scrollX ? { minWidth: `${w}px` } : undefined}
       viewBox={`0 0 ${w} ${height}`}
       preserveAspectRatio={scrollX ? "xMinYMin" : "none"}
     >
@@ -146,10 +144,6 @@ function LineChart({
   return (
     <div className="w-full">
       {scrollX ? <div className="overflow-x-auto pb-2">{svg}</div> : svg}
-      <div className="flex justify-between items-center mt-2">
-        <div className="text-xs font-medium text-slate-500">{yLabel || ""}</div>
-        <div className="text-xs font-medium text-slate-500">{xLabel || ""}</div>
-      </div>
     </div>
   );
 }
@@ -229,10 +223,10 @@ function GroupedBarChart({
   return (
     <div className="w-full">
       <div className="overflow-x-auto pb-2">
-        <div className="flex items-end gap-3" style={{ height, minWidth: w }}>
+        <div className="flex items-end gap-6" style={{ height, minWidth: w }}>
           {categories.map((cat, idx) => (
-            <div key={idx} className="flex flex-col items-center flex-1">
-              <div className="flex items-end gap-1">
+            <div key={idx} className="flex flex-col items-center flex-1 px-1">
+              <div className="flex items-end gap-3">
                 {series.map((s, j) => {
                   const val = Number(s.data[cat] || 0);
                   const h = Math.round((val / maxVal) * height);
@@ -241,7 +235,7 @@ function GroupedBarChart({
                       key={j}
                       className="rounded-t"
                       style={{
-                        width: 12,
+                        width: 16,
                         height: `${Math.max(4, h)}px`,
                         backgroundImage: `linear-gradient(${shade(s.color, 0.35)}, ${s.color})`,
                         boxShadow:
@@ -252,34 +246,12 @@ function GroupedBarChart({
                   );
                 })}
               </div>
-              <div className="text-[10px] mt-2 font-medium text-slate-600 text-center w-full truncate">
+              <div className="text-[13px] font-semibold text-slate-600 text-center w-full truncate">
                 {cat}
               </div>
             </div>
           ))}
         </div>
-      </div>
-      <div className="flex justify-between items-center mt-3 pt-2 border-t border-slate-100">
-        <div className="text-[10px] text-slate-500 font-medium">
-          {yLabel || ""}
-        </div>
-        <div className="text-[10px] text-slate-500 font-medium">
-          {xLabel || ""}
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-        {series.map((s, j) => (
-          <div
-            key={j}
-            className="flex items-center gap-1.5 text-[10px] text-slate-600"
-          >
-            <span
-              className="inline-block w-2.5 h-2.5 rounded-sm"
-              style={{ backgroundColor: s.color }}
-            />
-            <span>{s.label}</span>
-          </div>
-        ))}
       </div>
     </div>
   );
@@ -287,7 +259,7 @@ function GroupedBarChart({
 
 function UserBarChart({
   data,
-  height = 180,
+  height = 160,
   xLabel,
   yLabel,
   formatY,
@@ -302,74 +274,58 @@ function UserBarChart({
   const totalRange = posMax + negMax || 1;
   const posHeight = Math.round((posMax / totalRange) * height);
   const baselineY = height - posHeight;
-  const w = Math.max(240, data.length * 56);
+  const chartWidth = Math.max(240, data.length * 36);
+  const chartHeight = height + 24;
   return (
-    <div className="w-full">
-      <div className="overflow-x-auto pb-2">
-        <svg
-          width={w}
-          height={height}
-          viewBox={`0 0 ${w} ${height}`}
-          preserveAspectRatio="none"
-        >
-          <line
-            x1="0"
-            y1={baselineY}
-            x2={w}
-            y2={baselineY}
-            stroke="#94a3b8"
-            strokeWidth="1"
-          />
-          {data.map((d, idx) => {
-            const v = Number(d.total || 0);
-            const barHeight =
-              Math.round((Math.abs(v) / totalRange) * height) || 0;
-            const step = w / data.length;
-            const x = idx * step + step / 4;
-            const y = v >= 0 ? baselineY - barHeight : baselineY;
-            return (
-              <g key={idx}>
-                <rect
-                  x={x}
-                  y={y}
-                  width={step / 2}
-                  height={barHeight}
-                  fill={color}
-                  rx="2"
-                />
-                <text
-                  x={x + step / 4}
-                  y={
-                    v >= 0
-                      ? Math.max(8, y - 4)
-                      : Math.min(height - 4, y + barHeight + 8)
-                  }
-                  fontSize="10"
-                  textAnchor="middle"
-                  fill="#0f172a"
-                  fontWeight="600"
-                >
-                  {formatY ? formatY(v) : v.toLocaleString()}
-                </text>
-                <text
-                  x={x + step / 4}
-                  y={height - 10}
-                  fontSize="10"
-                  textAnchor="middle"
-                  fill="#64748b"
-                  fontWeight="600"
-                >
-                  {String(d.label || "")}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-      <div className="flex justify-between items-center mt-2">
-        <div className="text-[10px] text-slate-500">{yLabel || ""}</div>
-        <div className="text-[10px] text-slate-500">{xLabel || ""}</div>
-      </div>
+    <div className="w-full overflow-x-auto">
+      <svg
+        width="100%"
+        height={chartHeight}
+        viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+        preserveAspectRatio="xMinYMin meet"
+        style={{ minWidth: `${chartWidth}px` }}
+      >
+        <line
+          x1="0"
+          y1={baselineY}
+          x2={chartWidth}
+          y2={baselineY}
+          stroke="#94a3b8"
+          strokeWidth="1"
+        />
+        {data.map((d, idx) => {
+          const v = Number(d.total || 0);
+          const barHeight =
+            Math.round((Math.abs(v) / totalRange) * height) || 0;
+          const x = idx * 36 + 12;
+          const y = v >= 0 ? baselineY - barHeight : baselineY;
+          return (
+            <g key={idx}>
+              <rect x={x} y={y} width="16" height={barHeight} fill={color} />
+              <text
+                x={x + 8}
+                y={v >= 0 ? y - 4 : y + barHeight + 10}
+                fontSize="13"
+                textAnchor="middle"
+                fill="#0f172a"
+                fontWeight="600"
+              >
+                {formatY ? formatY(v) : v.toLocaleString()}
+              </text>
+              <text
+                x={x + 8}
+                y={chartHeight - 4}
+                fontSize="14"
+                textAnchor="middle"
+                fill="#64748b"
+                fontWeight="600"
+              >
+                {String(d.label || "")}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }
@@ -665,8 +621,10 @@ export default function PosDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="card shadow-sm border-slate-200/60">
           <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
-            <div className="font-bold text-slate-800">Terminal Collection</div>
-            <div className="text-[11px] text-slate-500">
+            <div className="text-xl font-bold text-slate-800">
+              Terminal Collection
+            </div>
+            <div className="text-sm text-slate-500">
               Terminals grouped by payment ({dateLabel})
             </div>
           </div>
@@ -683,8 +641,8 @@ export default function PosDashboard() {
 
         <div className="card shadow-sm border-slate-200/60">
           <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
-            <div className="font-bold text-slate-800">Users Sales</div>
-            <div className="text-[11px] text-slate-500">
+            <div className="text-xl font-bold text-slate-800">Users Sales</div>
+            <div className="text-sm text-slate-500">
               By cashier ({dateLabel})
             </div>
           </div>
@@ -867,7 +825,7 @@ export default function PosDashboard() {
             </div>
             <div className="text-[11px] text-slate-500">{dateLabel}</div>
           </div>
-          <div className="card-body overflow-x-auto p-6">
+          <div className="card-body overflow-x-auto p-4">
             <BarChart
               data={pieData}
               xKey="label"

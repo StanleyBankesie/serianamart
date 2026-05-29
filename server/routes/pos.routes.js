@@ -1705,7 +1705,7 @@ router.get(
           AND p.branch_id = :branchId
           AND p.status = 'COMPLETED'
           AND ${dateCond}
-        GROUP BY COALESCE(c.category_name, 'Uncategorized')
+        GROUP BY c.category_name
         ORDER BY total DESC
         `,
         params,
