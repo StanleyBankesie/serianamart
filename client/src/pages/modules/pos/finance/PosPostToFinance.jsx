@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import api from "../../../../api/client.js";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
-const DENOMINATIONS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2];
+const DENOMINATIONS = [200, 100, 50, 20, 10, 5, 2, 1];
 
 function parseDenominationCounts(input) {
   if (!input) return DENOMINATIONS.map(() => 0);

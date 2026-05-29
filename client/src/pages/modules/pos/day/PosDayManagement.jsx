@@ -3,8 +3,9 @@ import { Link, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import api from "../../../../api/client.js";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
-const DENOMINATIONS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2];
+const DENOMINATIONS = [200, 100, 50, 20, 10, 5, 2, 1];
 
 function parseDenominationCounts(input) {
   if (!input) return DENOMINATIONS.map(() => 0);
@@ -31,6 +32,7 @@ function parseDenominationCounts(input) {
 export default function PosDayManagement() {
   const navigate = useNavigate();
   const { user, scope } = useAuth();
+  const { hasExceptional } = usePermission();
   function toLocalInputDateTime(value) {
     try {
       const d = new Date(value);
@@ -107,6 +109,7 @@ export default function PosDayManagement() {
   const [closeDenomCounts, setCloseDenomCounts] = useState(
     DENOMINATIONS.map(() => 0),
   );
+  const [coinsValue, setCoinsValue] = useState(0);
   const [showCashConfirmModal, setShowCashConfirmModal] = useState(false);
   const cashVariance = useMemo(() => {
     const v = Number(closing.actualCash || 0) - Number(expectedCash || 0);
@@ -120,8 +123,8 @@ export default function PosDayManagement() {
     [closeDenomCounts],
   );
   const closeDenomTotal = useMemo(
-    () => Number(closeDenomTotals.reduce((s, n) => s + n, 0).toFixed(2)),
-    [closeDenomTotals],
+    () => Number(closeDenomTotals.reduce((s, n) => s + n, Number(coinsValue || 0)).toFixed(2)),
+    [closeDenomTotals, coinsValue],
   );
 
   const [timeline, setTimeline] = useState([
@@ -556,6 +559,7 @@ export default function PosDayManagement() {
         nextOpeningFloat: Number(closing.nextOpeningFloat || 0),
         notes: closing.notes,
         denominationCounts: closeDenomCounts,
+        coinsValue,
       };
       const res = await api.post("/pos/day/close", payload);
       const item = res?.data?.item;
@@ -567,6 +571,7 @@ export default function PosDayManagement() {
           notes: "",
         });
         setCloseDenomCounts(DENOMINATIONS.map(() => 0));
+        setCoinsValue(0);
         setOpenData((prev) => ({
           ...prev,
           float:
@@ -1054,6 +1059,7 @@ export default function PosDayManagement() {
                   </div>
                 </div>
               ) : null}
+              {hasExceptional("POS.EXPECTED_CASH.VIEW") ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="label">Expected Cash</label>
@@ -1064,6 +1070,24 @@ export default function PosDayManagement() {
                     value={fmtCurrency(expectedCash)}
                   />
                 </div>
+                {hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
+                <div>
+                  <label className="label">Cash Variance</label>
+                  <input
+                    type="text"
+                    className="input"
+                    disabled
+                    value={fmtCurrency(cashVariance)}
+                    style={{
+                      color: cashVariance >= 0 ? "#28a745" : "#dc3545",
+                      fontWeight: 700,
+                    }}
+                  />
+                </div>
+                ) : null}
+              </div>
+              ) : hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="label">Cash Variance</label>
                   <input
@@ -1078,6 +1102,7 @@ export default function PosDayManagement() {
                   />
                 </div>
               </div>
+              ) : null}
               <div>
                 <label className="label">Enter float for next sales</label>
                 <input
@@ -1764,6 +1789,20 @@ export default function PosDayManagement() {
                     </div>
                   </div>
                 ))}
+                <div className="grid grid-cols-[1fr_90px_110px] gap-2 items-center">
+                  <div className="text-sm font-semibold">Coins</div>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="rounded px-2 py-1 border border-slate-300"
+                    value={String(coinsValue)}
+                    onChange={(e) => setCoinsValue(Number(e.target.value || 0))}
+                  />
+                  <div className="rounded px-2 py-1 bg-slate-100 text-right text-sm">
+                    {Number(coinsValue || 0).toFixed(2)}
+                  </div>
+                </div>
               </div>
               <div className="mt-4 rounded bg-slate-100 px-3 py-3 flex items-center justify-between font-semibold">
                 <div>TOTAL:</div>

@@ -367,7 +367,7 @@ export default function PosDashboard() {
       api.get("/pos/analytics/day-user-sales", { params: dateParams }),
       api.get("/pos/analytics/sales-30-days", { params: trendParams }),
       api.get("/pos/analytics/sales-monthly"),
-      api.get("/pos/analytics/weekday-current-week", { params: dateParams }),
+      api.get("/pos/analytics/weekday-current-week"),
       api.get("/pos/analytics/hourly-today", { params: dateParams }),
       api.get("/pos/analytics/category-share", { params: dateParams }),
       api.get("/pos/reports/top-items", {

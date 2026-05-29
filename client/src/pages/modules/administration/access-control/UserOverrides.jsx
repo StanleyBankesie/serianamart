@@ -30,6 +30,14 @@ export default function UserOverrides() {
       code: "PURCHASE.GENERAL_REQUISITION.CANCEL",
       label: "General Requisition Cancellations",
     },
+    {
+      code: "POS.EXPECTED_CASH.VIEW",
+      label: "POS Day Management - View Expected Cash",
+    },
+    {
+      code: "POS.CASH_VARIANCE.VIEW",
+      label: "POS Day Management - View Cash Variance",
+    },
   ];
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);

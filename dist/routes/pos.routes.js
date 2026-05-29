@@ -1290,26 +1290,32 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      const params = { companyId, branchId };
+      let dateCond = "DATE(p.sale_datetime) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        dateCond = "DATE(p.sale_datetime) BETWEEN :startDate AND :endDate";
+      }
       const items = await query(
         `
         SELECT 
-          COALESCE(it.item_type, 'Uncategorized') AS category,
-          COALESCE(SUM(d.net_amount), 0) AS total,
-          i.created_at,
-          u.username AS created_by_name
-         FROM sal_invoices i
-        JOIN sal_invoice_details d 
-          ON d.invoice_id = i.id
-        LEFT JOIN inv_items it 
-          ON it.id = d.item_id AND it.company_id = i.company_id
-        LEFT JOIN adm_users u ON u.id = i.created_by
-         WHERE i.company_id = :companyId
-          AND i.branch_id = :branchId
-          AND DATE(i.invoice_date) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-        GROUP BY COALESCE(it.item_type, 'Uncategorized')
+          c.category_name AS category,
+          COALESCE(SUM(l.line_total - (COALESCE(l.returned_qty, 0) * l.unit_price)), 0) AS total
+         FROM pos_sale_lines l
+        JOIN pos_sales p ON p.id = l.sale_id
+        JOIN inv_items i ON i.id = l.item_id AND i.company_id = p.company_id
+        JOIN inv_item_categories c ON c.id = i.category_id AND c.company_id = p.company_id
+         WHERE p.company_id = :companyId
+          AND p.branch_id = :branchId
+          AND p.status = 'COMPLETED'
+          AND ${dateCond}
+        GROUP BY c.category_name
         ORDER BY total DESC
         `,
-        { companyId, branchId },
+        params,
       );
       res.json({ items });
     } catch (err) {
