@@ -17,8 +17,6 @@ import {
   clearLastActivity,
   clearStoredAuth,
   getAuthChangedEventName,
-  getLastActivity,
-  INACTIVITY_TIMEOUT_MS,
   isTokenExpired,
   readStoredAuth,
   touchLastActivity,
@@ -210,19 +208,10 @@ export function AuthProvider({ children }) {
       if (token) touchLastActivity();
     };
 
-    const interval = window.setInterval(() => {
-      if (!token) return;
-      const lastActivity = getLastActivity();
-      if (lastActivity && Date.now() - lastActivity > INACTIVITY_TIMEOUT_MS) {
-        logout({ redirect: true }).catch(() => {});
-      }
-    }, 60 * 1000);
-
     events.forEach((eventName) =>
       window.addEventListener(eventName, touch, true),
     );
     return () => {
-      window.clearInterval(interval);
       events.forEach((eventName) =>
         window.removeEventListener(eventName, touch, true),
       );
