@@ -5085,11 +5085,22 @@ export const getDashboardMetrics = async (req, res, next) => {
     const fromStr = fromDate.toISOString().slice(0, 10);
     const toStr = toDate.toISOString().slice(0, 10);
 
-    const groups = await query(
-      `SELECT id, code, name, nature FROM fin_account_groups
-       WHERE company_id = :companyId AND is_active = 1`,
-      { companyId },
-    );
+    const [groups, acctRows] = await Promise.all([
+      query(
+        `SELECT id, code, name, nature FROM fin_account_groups
+         WHERE company_id = :companyId AND is_active = 1`,
+        { companyId },
+      ),
+      query(
+        `SELECT a.group_id, g.nature
+         FROM fin_accounts a
+         JOIN fin_account_groups g ON g.id = a.group_id AND g.company_id = :companyId
+         WHERE a.company_id = :companyId
+           AND ((g.nature = 'ASSET' AND (a.name LIKE '%receivable%' OR a.name LIKE '%debtor%'))
+             OR (g.nature = 'LIABILITY' AND (a.name LIKE '%payable%' OR a.name LIKE '%creditor%')))`,
+        { companyId },
+      ),
+    ]);
     const gMap = {};
     for (const g of groups) {
       const c = String(g.code || "").toUpperCase();
@@ -5098,7 +5109,19 @@ export const getDashboardMetrics = async (req, res, next) => {
       if (c === "AST_CASH") gMap.cash = (gMap.cash || []).concat(g.id);
       if (c === "AST_BANK") gMap.bank = (gMap.bank || []).concat(g.id);
       if (g.nature === "INCOME") gMap.income = (gMap.income || []).concat(g.id);
-      if (g.nature === "EXPENSE" && c !== "EXP_COGS") gMap.expense = (gMap.expense || []).concat(g.id);
+      if (g.nature === "EXPENSE" && c !== "EXP_COGS" && c !== "EXP.COGS") gMap.expense = (gMap.expense || []).concat(g.id);
+    }
+    // Supplement debtor/creditor groups by account names to handle accounts
+    // placed in generic groups (e.g. AST.CUR, LIA.CUR) instead of dedicated ones
+    for (const r of acctRows) {
+      const gid = Number(r.group_id);
+      if (r.nature === "ASSET") {
+        if (!gMap.debtors) gMap.debtors = [];
+        if (!gMap.debtors.includes(gid)) gMap.debtors.push(gid);
+      } else if (r.nature === "LIABILITY") {
+        if (!gMap.creditors) gMap.creditors = [];
+        if (!gMap.creditors.includes(gid)) gMap.creditors.push(gid);
+      }
     }
     if (!gMap.debtors || !gMap.debtors.length) {
       gMap.debtors = groups.filter(g => g.nature === "ASSET" && (/receivable/i.test(g.name) || /debtor/i.test(g.name))).map(g => g.id);

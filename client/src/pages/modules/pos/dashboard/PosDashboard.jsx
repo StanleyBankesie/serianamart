@@ -259,73 +259,36 @@ function GroupedBarChart({
 
 function UserBarChart({
   data,
-  height = 160,
-  xLabel,
-  yLabel,
   formatY,
   color = "#3b82f6",
 }) {
-  const values = data.map((d) => Number(d.total || 0));
-  const posMax = Math.max(0, ...values.filter((v) => v >= 0));
-  const negMax = Math.max(
-    0,
-    ...values.filter((v) => v < 0).map((v) => Math.abs(v)),
-  );
-  const totalRange = posMax + negMax || 1;
-  const posHeight = Math.round((posMax / totalRange) * height);
-  const baselineY = height - posHeight;
-  const chartWidth = Math.max(240, data.length * 36);
-  const chartHeight = height + 24;
+  const max = Math.max(1, ...data.map((d) => Number(d.total || 0)));
+  const sorted = [...data].sort((a, b) => Number(b.total || 0) - Number(a.total || 0));
   return (
-    <div className="w-full overflow-x-auto">
-      <svg
-        width="100%"
-        height={chartHeight}
-        viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-        preserveAspectRatio="xMinYMin meet"
-        style={{ minWidth: `${chartWidth}px` }}
-      >
-        <line
-          x1="0"
-          y1={baselineY}
-          x2={chartWidth}
-          y2={baselineY}
-          stroke="#94a3b8"
-          strokeWidth="1"
-        />
-        {data.map((d, idx) => {
-          const v = Number(d.total || 0);
-          const barHeight =
-            Math.round((Math.abs(v) / totalRange) * height) || 0;
-          const x = idx * 36 + 12;
-          const y = v >= 0 ? baselineY - barHeight : baselineY;
-          return (
-            <g key={idx}>
-              <rect x={x} y={y} width="16" height={barHeight} fill={color} />
-              <text
-                x={x + 8}
-                y={v >= 0 ? y - 4 : y + barHeight + 10}
-                fontSize="13"
-                textAnchor="middle"
-                fill="#0f172a"
-                fontWeight="600"
-              >
-                {formatY ? formatY(v) : v.toLocaleString()}
-              </text>
-              <text
-                x={x + 8}
-                y={chartHeight - 4}
-                fontSize="14"
-                textAnchor="middle"
-                fill="#64748b"
-                fontWeight="600"
-              >
-                {String(d.label || "")}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
+    <div className="w-full space-y-2">
+      {sorted.map((d, idx) => {
+        const v = Number(d.total || 0);
+        const pct = Math.round((v / max) * 100);
+        return (
+          <div key={idx} className="flex items-center gap-3">
+            <div className="text-sm font-semibold text-slate-700 w-24 truncate shrink-0">
+              {String(d.label || "")}
+            </div>
+            <div className="flex-1 h-6 rounded bg-slate-100 overflow-hidden">
+              <div
+                className="h-full rounded transition-all"
+                style={{
+                  width: `${Math.max(1, pct)}%`,
+                  backgroundImage: `linear-gradient(90deg, ${color}, ${shade(color, -0.3)})`,
+                }}
+              />
+            </div>
+            <div className="text-sm font-bold text-slate-800 w-24 text-right shrink-0">
+              {formatY ? formatY(v) : v.toLocaleString()}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
