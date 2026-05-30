@@ -791,7 +791,7 @@ export default function PosDashboard() {
               xLabel="Category"
               yLabel="Sales (GH₵)"
               formatY={fmtCurrency}
-              colors={["#ec4899","#f43f5e","#f97316","#eab308","#84cc16","#14b8a6","#0ea5e9","#8b5cf6"]}
+              colors={["#14b8a6","#f43f5e","#8b5cf6","#eab308","#0ea5e9","#ec4899","#84cc16","#f97316"]}
             />
           </div>
         </div>
