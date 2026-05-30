@@ -34,6 +34,7 @@ function BarChart({
   yLabel,
   formatY,
   color = "#3b82f6",
+  colors,
 }) {
   const max = Math.max(1, ...data.map((d) => Number(d[yKey] || 0)));
   const topPad = 18;
@@ -42,31 +43,35 @@ function BarChart({
     value: Number(d[yKey] || 0),
     h: Math.round((Number(d[yKey] || 0) / max) * (height - topPad)),
   }));
+  const palette = Array.isArray(colors) && colors.length ? colors : null;
   return (
     <div className="w-full">
       <div className="flex items-end gap-4 w-full" style={{ height }}>
-        {bars.map((b, idx) => (
-          <div key={idx} className="flex flex-col items-center">
-            <div className="text-[10px] font-semibold">
-              {formatY
-                ? formatY(b.value)
-                : Number(b.value || 0).toLocaleString()}
+        {bars.map((b, idx) => {
+          const barColor = palette ? palette[idx % palette.length] : color;
+          return (
+            <div key={idx} className="flex flex-col items-center">
+              <div className="text-[10px] font-semibold">
+                {formatY
+                  ? formatY(b.value)
+                  : Number(b.value || 0).toLocaleString()}
+              </div>
+              <div
+                className="w-8 rounded-t"
+                style={{
+                  height: `${Math.max(4, b.h)}px`,
+                  backgroundImage: `linear-gradient(${shade(barColor, 0.35)}, ${barColor})`,
+                  boxShadow:
+                    "inset 0 2px 4px rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.15), 3px -3px 0 rgba(0,0,0,0.08)",
+                }}
+                title={`${b.label} • ${formatY ? formatY(b.value) : b.value.toLocaleString()}`}
+              />
+              <div className="text-[10px] mt-1 text-center w-12 truncate">
+                {b.label}
+              </div>
             </div>
-            <div
-              className="w-8 rounded-t"
-              style={{
-                height: `${Math.max(4, b.h)}px`,
-                backgroundImage: `linear-gradient(${shade(color, 0.35)}, ${color})`,
-                boxShadow:
-                  "inset 0 2px 4px rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.15), 3px -3px 0 rgba(0,0,0,0.08)",
-              }}
-              title={`${b.label} • ${formatY ? formatY(b.value) : b.value.toLocaleString()}`}
-            />
-            <div className="text-[10px] mt-1 text-center w-12 truncate">
-              {b.label}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -409,26 +414,18 @@ export default function PosDashboard() {
     ];
   }, [daySummary]);
 
-  const terminalGrouped = useMemo(() => {
-    const cats = terminalMethod.map((r) => String(r.terminal || "UNKNOWN"));
-    const uniqCats = Array.from(new Set(cats));
-    const series = [
-      { label: "Mobile Money", key: "mobile_total", color: "#3b82f6" },
-      { label: "Cash", key: "cash_total", color: "#22c55e" },
-      { label: "Card", key: "card_total", color: "#f59e0b" },
-    ].map((s) => ({
-      label: s.label,
-      color: s.color,
-      data: Object.fromEntries(
-        uniqCats.map((c) => {
-          const row = terminalMethod.find(
-            (r) => String(r.terminal || "UNKNOWN") === c,
-          );
-          return [c, Number(row ? row[s.key] || 0 : 0)];
-        }),
-      ),
-    }));
-    return { categories: uniqCats, series };
+  const terminalPieData = useMemo(() => {
+    let cash = 0, card = 0, mobile = 0;
+    for (const row of terminalMethod) {
+      cash += Number(row.cash_total || 0);
+      card += Number(row.card_total || 0);
+      mobile += Number(row.mobile_total || 0);
+    }
+    return [
+      { label: "Cash", value: cash },
+      { label: "Card", value: card },
+      { label: "Mobile", value: mobile },
+    ].filter((d) => d.value > 0);
   }, [terminalMethod]);
 
   const userBars = useMemo(
@@ -588,17 +585,11 @@ export default function PosDashboard() {
               Terminal Collection
             </div>
             <div className="text-sm text-slate-500">
-              Terminals grouped by payment ({dateLabel})
+              Collection per terminal ({dateLabel})
             </div>
           </div>
-          <div className="card-body overflow-x-auto p-4">
-            <GroupedBarChart
-              categories={terminalGrouped.categories}
-              series={terminalGrouped.series}
-              xLabel="Terminal"
-              yLabel="Sales (GH₵)"
-              formatY={fmtCurrency}
-            />
+          <div className="card-body p-4">
+            <PieChart data={terminalPieData} label="Terminal Collection" />
           </div>
         </div>
 
@@ -666,6 +657,8 @@ export default function PosDashboard() {
               showXLabels
               showAmounts={showTrendAmounts}
               scrollX
+              color="#2563eb"
+              areaColor="rgba(37,99,235,0.15)"
             />
           </div>
         </div>
@@ -710,6 +703,8 @@ export default function PosDashboard() {
               showXLabels
               showAmounts={showMonthlyAmounts}
               scrollX
+              color="#2563eb"
+              areaColor="rgba(37,99,235,0.15)"
             />
           </div>
         </div>
@@ -731,7 +726,7 @@ export default function PosDashboard() {
               xLabel="Weekday"
               yLabel="Sales (GH₵)"
               formatY={fmtCurrency}
-              color="#0ea5e9"
+              colors={["#6366f1","#22c55e","#f59e0b","#06b6d4","#a855f7","#0ea5e9","#84cc16"]}
             />
           </div>
         </div>
@@ -796,7 +791,7 @@ export default function PosDashboard() {
               xLabel="Category"
               yLabel="Sales (GH₵)"
               formatY={fmtCurrency}
-              color="#8b5cf6"
+              colors={["#ec4899","#f43f5e","#f97316","#eab308","#84cc16","#14b8a6","#0ea5e9","#8b5cf6"]}
             />
           </div>
         </div>
