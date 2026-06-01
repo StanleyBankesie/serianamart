@@ -160,9 +160,11 @@ export function verifyAccessToken(token) {
 }
 
 export function signAccessToken(payload) {
+  const tokenPayload = { ...payload };
+  delete tokenPayload.profile_picture_url;
   return jwt.sign(
     {
-      ...payload,
+      ...tokenPayload,
       token_type: "access",
     },
     getJwtSecret(),
