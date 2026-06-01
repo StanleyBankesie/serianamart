@@ -169,6 +169,8 @@ export default function GeneralRequisitionList() {
 
   const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "created_at", "desc");
 
+  const workflowDisabled = hasInactiveWorkflow && !candidateWorkflow;
+
   const openForwardModal = async (doc) => {
     setSelectedDoc(doc);
     setShowForwardModal(true);
@@ -514,7 +516,11 @@ export default function GeneralRequisitionList() {
                   </td>
                 </tr>
               ) : (
-                sortedFiltered.map((r) => (
+                sortedFiltered.map((r) => {
+                  const nrStatus = normalizeStatus(r.status);
+                  const autoApproved = workflowDisabled && nrStatus !== "CANCELLED" && nrStatus !== "REVERSED";
+                  const displayStatus = autoApproved ? "APPROVED" : nrStatus;
+                  return (
                   <tr key={r.id}>
                     <td className="font-mono text-sm text-brand">{r.requisition_no}</td>
                     <td className="text-sm">{String(r.requisition_date || "").slice(0, 10)}</td>
@@ -544,7 +550,7 @@ export default function GeneralRequisitionList() {
                       })}
                     </td>
                     <td>
-                      <span className={`badge ${getStatusBadge(r.status)}`}>{statusLabel(r.status)}</span>
+                      <span className={`badge ${getStatusBadge(displayStatus)}`}>{statusLabel(displayStatus)}</span>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
@@ -561,7 +567,7 @@ export default function GeneralRequisitionList() {
 
                         {/* Slot 2: Edit */}
                         <div className="min-w-[80px]">
-                          {["DRAFT", "REJECTED"].includes(normalizeStatus(r.status)) ? (
+                          {["DRAFT", "REJECTED"].includes(displayStatus) ? (
                             <Link
                               to={`/purchase/general-requisitions/${r.id}/edit`}
                               className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
@@ -600,13 +606,12 @@ export default function GeneralRequisitionList() {
                         {/* Slot 6: Workflow */}
                         <div className="min-w-[160px]">
                           <div className="list-approval-slot">
-                            {normalizeStatus(r.status) === "APPROVED" ? (
+                            {displayStatus === "APPROVED" ? (
                               <div className="flex items-center gap-2">
                                 <span className="list-approval-approved-pill">
                                   Approved
                                 </span>
-                                {/* Slot 7: Reverse Approval */}
-                                {normalizeStatus(r.status) === "APPROVED" && canReverseApproval() && (
+                                {!autoApproved && canReverseApproval() && (
                                   <button
                                     type="button"
                                     className="list-approval-reverse-btn"
@@ -616,16 +621,16 @@ export default function GeneralRequisitionList() {
                                   </button>
                                 )}
                               </div>
-                            ) : r.forwarded_to_username || normalizeStatus(r.status) === "PENDING_APPROVAL" ? (
+                            ) : r.forwarded_to_username || displayStatus === "PENDING_APPROVAL" ? (
                               <span className="list-approval-forwarded-pill">
                                 Forwarded to {r.forwarded_to_username || "Approver"}
                               </span>
-                            ) : ["DRAFT", "REJECTED"].includes(normalizeStatus(r.status)) ? (
+                            ) : ["DRAFT", "REJECTED"].includes(displayStatus) ? (
                               <button
                                 type="button"
                                 className="list-approval-forward-btn"
                                 onClick={() => openForwardModal(r)}
-                                disabled={hasInactiveWorkflow}
+                                disabled={workflowDisabled}
                               >
                                 Forward for Approval
                               </button>
@@ -640,7 +645,7 @@ export default function GeneralRequisitionList() {
                           {(hasExceptional("PURCHASE.GENERAL_REQUISITION.CANCEL") ||
                             exCancelAllowed) &&
                           !["CANCELLED", "FULFILLED", "APPROVED"].includes(
-                            normalizeStatus(r.status),
+                            displayStatus,
                           ) ? (
                             <button
                               type="button"
@@ -658,7 +663,8 @@ export default function GeneralRequisitionList() {
                     <td>{r.created_by_username || r.created_by_name || "-"}</td>
                     <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
-                ))
+                );
+                })
               )}
             </tbody>
           </table>

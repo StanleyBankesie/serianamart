@@ -24,48 +24,61 @@ function ProjectManagementLanding() {
   const [stats, setStats] = React.useState([
     {
       rbac_key: "active-projects",
-      icon: "📁",
-      value: "0",
+      value: "—",
       label: "Total Projects",
+      change: "Loading…",
+      changeType: "neutral",
       path: "/project-management/projects",
     },
     {
       rbac_key: "active-tasks",
-      icon: "✅",
-      value: "0",
+      value: "—",
       label: "Active Tasks",
+      change: "Loading…",
+      changeType: "neutral",
       path: "/project-management/tasks",
     },
     {
       rbac_key: "total-budget",
-      icon: "💰",
-      value: "0",
+      value: "—",
       label: "Total Budget",
+      change: "Loading…",
+      changeType: "neutral",
       path: "/project-management/reports",
     },
     {
       rbac_key: "logged-hours",
-      icon: "⏱️",
-      value: "0",
+      value: "—",
       label: "Logged Hours",
+      change: "Loading…",
+      changeType: "neutral",
       path: "/project-management/reports",
     },
   ]);
 
   React.useEffect(() => {
+    let mounted = true;
+    let timer;
     async function load() {
       try {
         const resp = await api.get("/projects/dashboard/stats");
         const d = resp.data;
-        setStats([
-          { ...stats[0], value: String(d.totalProjects) },
-          { ...stats[1], value: String(d.activeTasks) },
-          { ...stats[2], value: `GHS ${Number(d.totalBudget).toLocaleString()}` },
-          { ...stats[3], value: `${Number(d.totalLoggedHours).toFixed(1)}h` },
-        ]);
+        if (mounted) {
+          setStats((prev) => [
+            { ...prev[0], value: String(d.totalProjects ?? "—"), change: `${d.completedProjects ?? 0} completed`, changeType: "positive" },
+            { ...prev[1], value: String(d.activeTasks ?? "—"), change: `${d.completedTasks ?? 0} done`, changeType: d.activeTasks > 0 ? "warning" : "positive" },
+            { ...prev[2], value: `GHS ${Number(d.totalBudget || 0).toLocaleString()}`, change: `${d.totalExpenses ?? 0} spent`, changeType: "positive" },
+            { ...prev[3], value: `${Number(d.totalLoggedHours || 0).toFixed(1)}h`, change: `${d.totalDays ?? 0} days`, changeType: "positive" },
+          ]);
+        }
       } catch {}
     }
     load();
+    timer = setInterval(load, 15000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
   }, []);
 
   const sections = [

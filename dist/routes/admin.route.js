@@ -101,6 +101,59 @@ async function hasColumn(tableName, columnName) {
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
+function normalizeModuleKey(moduleKey) {
+  const raw = String(moduleKey || "").trim().toLowerCase();
+  if (!raw) return "";
+  const aliases = {
+    admin: "administration",
+    administration: "administration",
+    sales: "sales",
+    sal: "sales",
+    inventory: "inventory",
+    inv: "inventory",
+    purchase: "purchase",
+    pur: "purchase",
+    finance: "finance",
+    fin: "finance",
+    hr: "human-resources",
+    "human-resources": "human-resources",
+    humanresources: "human-resources",
+    maintenance: "maintenance",
+    maint: "maintenance",
+    production: "production",
+    prod: "production",
+    projects: "project-management",
+    project: "project-management",
+    "project-management": "project-management",
+    proj: "project-management",
+    pos: "pos",
+    bi: "business-intelligence",
+    "business-intelligence": "business-intelligence",
+    businessintelligence: "business-intelligence",
+    service: "service-management",
+    svc: "service-management",
+    "service-management": "service-management",
+  };
+  return aliases[raw] || raw;
+}
+
+function normalizeFeatureKey(featureKey, moduleKey = "") {
+  const rawFeatureKey = String(featureKey || "").trim();
+  const normalizedModuleKey = normalizeModuleKey(moduleKey);
+  if (!rawFeatureKey) return "";
+  if (!rawFeatureKey.includes(":")) {
+    return normalizedModuleKey
+      ? `${normalizedModuleKey}:${rawFeatureKey.toLowerCase()}`
+      : rawFeatureKey.toLowerCase();
+  }
+  const [featureModule, ...rest] = rawFeatureKey.split(":");
+  const normalizedFeatureModule = normalizeModuleKey(featureModule);
+  const suffix = rest.join(":").trim().toLowerCase();
+  return suffix
+    ? `${normalizedFeatureModule}:${suffix}`
+    : normalizedFeatureModule;
+}
+
 // ===== System & Activity Tables =====
 async function ensureSystemLogsTable() {
   await query(`
@@ -1536,6 +1589,112 @@ const logoUpload = multer({
   },
 });
 
+const loginBackgroundUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (String(file.mimetype || "").startsWith("image/")) cb(null, true);
+    else cb(new Error("Only image files are allowed"), false);
+  },
+});
+
+async function ensureLoginBrandingTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS adm_login_branding (
+      id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+      background_image LONGBLOB NULL,
+      background_mime VARCHAR(100) NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+router.get("/settings/login-background/meta", async (req, res, next) => {
+  try {
+    await ensureLoginBrandingTable();
+    const rows = await query(
+      `SELECT background_image IS NOT NULL AS has_background, updated_at
+         FROM adm_login_branding
+        WHERE id = 1
+        LIMIT 1`,
+    );
+    const row = rows[0] || {};
+    res.json({
+      hasBackground: Number(row.has_background || 0) === 1,
+      updatedAt: row.updated_at || null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/settings/login-background", async (req, res, next) => {
+  try {
+    await ensureLoginBrandingTable();
+    const rows = await query(
+      `SELECT background_image, background_mime
+         FROM adm_login_branding
+        WHERE id = 1
+        LIMIT 1`,
+    );
+    const row = rows[0] || null;
+    if (!row?.background_image) return res.status(404).end();
+    const body = Buffer.isBuffer(row.background_image)
+      ? row.background_image
+      : Buffer.from(row.background_image);
+    res.setHeader("Content-Type", row.background_mime || "image/jpeg");
+    res.setHeader("Cache-Control", "public, max-age=300");
+    return res.end(body);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post(
+  "/settings/login-background",
+  requireAuth,
+  requirePageAccess("/administration/settings", "edit"),
+  loginBackgroundUpload.single("background"),
+  async (req, res, next) => {
+    try {
+      if (!req.file?.buffer) {
+        throw httpError(400, "VALIDATION_ERROR", "Background image is required");
+      }
+      await ensureLoginBrandingTable();
+      try { await query("SET SESSION max_allowed_packet = 16777216"); } catch {}
+      await query(
+        `INSERT INTO adm_login_branding (id, background_image, background_mime)
+         VALUES (1, :image, :mime)
+         ON DUPLICATE KEY UPDATE
+           background_image = VALUES(background_image),
+           background_mime = VALUES(background_mime)`,
+        {
+          image: req.file.buffer,
+          mime: req.file.mimetype || "image/jpeg",
+        },
+      );
+      res.json({ success: true, updatedAt: new Date().toISOString() });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.delete(
+  "/settings/login-background",
+  requireAuth,
+  requirePageAccess("/administration/settings", "delete"),
+  async (req, res, next) => {
+    try {
+      await ensureLoginBrandingTable();
+      await query(`DELETE FROM adm_login_branding WHERE id = 1`);
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 router.get("/me", requireAuth, requireCompanyScope, requireBranchScope, getMe);
 
 // ===== COMPANIES =====
@@ -1923,7 +2082,7 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
 
 // ===== DASHBOARD STATS =====
 
-// duplicate removed; single dashboard-stats route defined above
+router.get("/dashboard-stats", requireAuth, getDashboardStats);
 
 // legacy exceptional permissions APIs removed
 
@@ -2337,10 +2496,38 @@ router.get("/user-permissions", requireAuth, async (req, res, next) => {
       { roleId },
     );
 
+    const normalizedPermissions = permissions.map((row) => {
+      const moduleKey = normalizeModuleKey(row.module_key);
+      return {
+        ...row,
+        module_key: moduleKey,
+        feature_key: normalizeFeatureKey(row.feature_key, moduleKey),
+      };
+    });
+
+    const normalizedRoleFeatures = roleFeatures
+      .map((row) => normalizeFeatureKey(row.feature_key))
+      .filter(Boolean);
+
+    const inferredModules = new Set(
+      modules
+        .map((row) => normalizeModuleKey(row.module_key))
+        .filter(Boolean),
+    );
+    for (const row of normalizedPermissions) {
+      if (row.module_key) inferredModules.add(row.module_key);
+      const [featureModule] = String(row.feature_key || "").split(":");
+      if (featureModule) inferredModules.add(featureModule);
+    }
+    for (const featureKey of normalizedRoleFeatures) {
+      const [featureModule] = String(featureKey || "").split(":");
+      if (featureModule) inferredModules.add(featureModule);
+    }
+
     res.json({
-      modules: modules.map((m) => m.module_key),
-      permissions: permissions,
-      role_features: roleFeatures.map((rf) => String(rf.feature_key)),
+      modules: Array.from(inferredModules),
+      permissions: normalizedPermissions,
+      role_features: normalizedRoleFeatures,
     });
   } catch (err) {
     next(err);

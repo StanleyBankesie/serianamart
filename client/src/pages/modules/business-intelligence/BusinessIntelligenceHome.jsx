@@ -6,29 +6,63 @@ import DashboardForm from './dashboards/DashboardForm.jsx';
 import ModuleDashboard from '../../../components/ModuleDashboard.jsx';
 import { api } from '../../../api/client.js';
 
+function fmt(n) {
+  if (n == null || Number.isNaN(Number(n))) return "—";
+  return `₵${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function BusinessIntelligenceLanding() {
   const [stats, setStats] = React.useState([
-    { rbac_key: 'active-dashboards', icon: '📊', value: '0', label: 'Active Dashboards', change: 'Manage visualizations', changeType: 'positive', path: '/business-intelligence/dashboards' }
+    { rbac_key: 'active-dashboards', value: '—', label: 'Active Dashboards', change: 'Loading…', changeType: 'neutral', path: '/business-intelligence/dashboards' },
+    { rbac_key: 'sales-30d', value: '—', label: 'Sales (30d)', change: 'Loading…', changeType: 'neutral', path: '/business-intelligence/dashboards' },
+    { rbac_key: 'purchase-30d', value: '—', label: 'Purchases (30d)', change: 'Loading…', changeType: 'neutral', path: '/business-intelligence/dashboards' },
+    { rbac_key: 'overview', value: '—', label: 'Items / Employees', change: 'Loading…', changeType: 'neutral', path: '/business-intelligence/dashboards' },
   ]);
 
   React.useEffect(() => {
     let mounted = true;
+    let timer;
     async function load() {
       try {
-        const resp = await api.get('/bi/dashboards');
-        const dashboards = Number(resp?.data?.summary?.bi?.active_dashboards || 0);
-        if (mounted) {
+        const resp = await api.get('/bi/dashboard-stats');
+        const d = resp?.data?.data;
+        if (d && mounted) {
           setStats((prev) => {
             const next = [...prev];
-            next[0] = { ...next[0], value: String(dashboards) };
+            next[0] = {
+              ...next[0],
+              value: String(d.activeDashboards ?? "—"),
+              change: `${d.reportTypes ?? 0} report types`,
+              changeType: "positive",
+            };
+            next[1] = {
+              ...next[1],
+              value: fmt(d.sales30d),
+              change: "Last 30 days",
+              changeType: d.sales30d > 0 ? "positive" : "neutral",
+            };
+            next[2] = {
+              ...next[2],
+              value: fmt(d.purchase30d),
+              change: "Last 30 days",
+              changeType: d.purchase30d > 0 ? "warning" : "neutral",
+            };
+            next[3] = {
+              ...next[3],
+              value: `${d.inventoryItems ?? 0} / ${d.hrEmployees ?? 0}`,
+              change: "Stock / Headcount",
+              changeType: "positive",
+            };
             return next;
           });
         }
       } catch {}
     }
     load();
+    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
+      clearInterval(timer);
     };
   }, []);
 

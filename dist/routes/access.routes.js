@@ -1,8 +1,12 @@
 import express from "express";
 import { query } from "../db/pool.js";
 import { requireAuth, requireCompanyScope } from "../middleware/auth.js";
-import { toNumber } from "../utils/dbUtils.js";
-import { ensurePagesTable, ensurePagesSeed } from "../utils/dbUtils.js";
+import {
+  ensureCol,
+  ensurePagesSeed,
+  ensurePagesTable,
+  toNumber,
+} from "../utils/dbUtils.js";
 import { getAllFeatures } from "../data/featuresRegistry.js";
 import { getUserPermissions as rbacGetUserPermissions } from "../middleware/rbac.middleware.js";
 
@@ -87,12 +91,18 @@ async function ensureDashboardPermissionsTable() {
       ticker_key VARCHAR(150) NULL,
       can_view TINYINT(1) NOT NULL DEFAULT 0,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       UNIQUE KEY uq_user_scope (user_id, module_key, dashboard_key, card_key, ticker_key),
       INDEX idx_user (user_id),
       INDEX idx_module (module_key)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  await ensureCol(
+    "adm_dashboard_permissions",
+    "updated_at",
+    "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+  );
 }
 
 async function ensureNotificationPrefsTable() {
@@ -121,7 +131,8 @@ router.get(
       const key = String(req.query?.key || "low-stock").trim();
       const userId = toNumber(req.query?.user_id || 0) || null;
       if (userId) {
-        const rows = await query(`SELECT user_id, pref_key, push_enabled, email_enabled, created_at
+        const rows = await query(
+          `SELECT user_id, pref_key, push_enabled, email_enabled, created_at
          FROM adm_notification_prefs
          WHERE user_id = :userId AND pref_key = :key
            LIMIT 1`,
@@ -138,7 +149,8 @@ router.get(
           });
         return res.json({ item: rows[0] });
       } else {
-        const rows = await query(`SELECT user_id, pref_key, push_enabled, email_enabled, created_at
+        const rows = await query(
+          `SELECT user_id, pref_key, push_enabled, email_enabled, created_at
          FROM adm_notification_prefs
          WHERE pref_key = :key`,
           { key },
@@ -163,7 +175,8 @@ router.put(
       const { user_id, push_enabled, email_enabled } = req.body || {};
       const userId = toNumber(user_id);
       if (!userId) return res.status(400).json({ message: "Invalid user_id" });
-      await query(`INSERT INTO adm_notification_prefs (user_id, pref_key, push_enabled, email_enabled)
+      await query(
+        `INSERT INTO adm_notification_prefs (user_id, pref_key, push_enabled, email_enabled)
          VALUES (:userId, :key, :push, :email)
          ON DUPLICATE KEY UPDATE push_enabled = VALUES(push_enabled), email_enabled = VALUES(email_enabled)`,
         {
@@ -193,13 +206,40 @@ router.get(
       if (!Number.isFinite(userId) || userId <= 0) {
         return res.json({ items: [] });
       }
-      const rows = await query(`SELECT user_id, module_key, dashboard_key, card_key, ticker_key, can_view, created_at
+      const rows = await query(
+        `SELECT user_id, module_key, dashboard_key, card_key, ticker_key, can_view, created_at, updated_at
          FROM adm_dashboard_permissions
          WHERE user_id = :userId
          ORDER BY module_key ASC, dashboard_key ASC, card_key ASC, ticker_key ASC`,
         { userId },
       );
       res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Get latest dashboard permission update time for user (current if user_id omitted)
+router.get(
+  "/dashboard-permissions/version",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureDashboardPermissionsTable();
+      const me = Number(req.user?.sub || req.user?.id);
+      const userId = Number(req.query?.user_id || me);
+      if (!Number.isFinite(userId) || userId <= 0) {
+        return res.json({ updated_at: null });
+      }
+      const rows = await query(
+        `SELECT MAX(updated_at) AS updated_at
+         FROM adm_dashboard_permissions
+         WHERE user_id = :userId`,
+        { userId },
+      );
+      res.json({ updated_at: rows?.[0]?.updated_at || null });
     } catch (err) {
       next(err);
     }
@@ -229,9 +269,10 @@ router.put(
           can_view: Number(Boolean(p.can_view)),
         };
         if (!payload.module_key) continue;
-        await query(`INSERT INTO adm_dashboard_permissions (user_id, module_key, dashboard_key, card_key, ticker_key, can_view)
+        await query(
+          `INSERT INTO adm_dashboard_permissions (user_id, module_key, dashboard_key, card_key, ticker_key, can_view)
            VALUES (:user_id, :module_key, :dashboard_key, :card_key, :ticker_key, :can_view)
-           ON DUPLICATE KEY UPDATE can_view = VALUES(can_view)`,
+           ON DUPLICATE KEY UPDATE can_view = VALUES(can_view), updated_at = CURRENT_TIMESTAMP`,
           payload,
         );
       }
@@ -483,6 +524,27 @@ router.post(
   },
 );
 
+router.get(
+  "/roles/:id",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const id = toNumber(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid role ID" });
+      const rows = await query(
+        "SELECT id, company_id, name, code, is_active FROM adm_roles WHERE id = :id LIMIT 1",
+        { id },
+      );
+      const role = rows[0] || null;
+      if (!role) return res.status(404).json({ message: "Role not found" });
+      res.json({ role });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 router.put(
   "/roles/:id",
   requireAuth,
@@ -577,7 +639,9 @@ router.put(
         );
       }
       // Cascade: remove permission and feature rows for modules no longer assigned
-      await query("DELETE FROM adm_role_permissions WHERE role_id = :id", { id });
+      await query("DELETE FROM adm_role_permissions WHERE role_id = :id", {
+        id,
+      });
       await query("DELETE FROM adm_role_features WHERE role_id = :id", { id });
       // Re-insert features for remaining modules (handled by the features endpoint)
       res.json({ success: true });
@@ -891,7 +955,9 @@ router.get(
     try {
       await ensureAccessTables();
       await ensureRoleFeaturesTable();
-      const userId = toNumber(req.query?.user_id || req.user?.sub || req.user?.id);
+      const userId = toNumber(
+        req.query?.user_id || req.user?.sub || req.user?.id,
+      );
       if (!userId) {
         return res.status(400).json({ message: "Invalid user_id" });
       }
@@ -947,7 +1013,9 @@ router.get(
         },
         modules: modules.map((m) => String(m.module_key || "")),
         sample_permissions: permissions.slice(0, 50),
-        sample_role_features: features.slice(0, 50).map((f) => String(f.feature_key)),
+        sample_role_features: features
+          .slice(0, 50)
+          .map((f) => String(f.feature_key)),
       });
     } catch (err) {
       next(err);
@@ -979,7 +1047,9 @@ router.get(
     } catch (err) {
       payload.ok = false;
       payload.status = "degraded";
-      payload.checks.database.detail = String(err?.message || "DB check failed");
+      payload.checks.database.detail = String(
+        err?.message || "DB check failed",
+      );
     }
 
     try {

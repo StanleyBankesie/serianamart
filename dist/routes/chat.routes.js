@@ -521,22 +521,16 @@ router.get("/unread-count", async (req, res, next) => {
   try {
     const me = Number(req.user?.sub || req.user?.id);
     const rows = await query(
-      `
-      SELECT SUM(unread) AS total,
-          c.created_at,
-          u.username AS created_by_name
-         FROM (
+      `SELECT SUM(unread) AS total FROM (
         SELECT COUNT(*) AS unread
         FROM chat_conversations c
         JOIN chat_conversation_participants p
           ON p.conversation_id = c.id AND p.user_id = :me
         JOIN chat_messages m
           ON m.conversation_id = c.id
-        LEFT JOIN adm_users u ON u.id = c.created_by
-         WHERE m.id > COALESCE(p.last_read_message_id, 0)
+        WHERE m.id > COALESCE(p.last_read_message_id, 0)
           AND m.sender_id <> :me
-      ) t
-      `,
+      ) t`,
       { me },
     );
     res.json({ unread: Number(rows?.[0]?.total || 0) });

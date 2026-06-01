@@ -44,6 +44,48 @@ export default function GRNImportList() {
   const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    async function loadWorkflowFlags() {
+      try {
+        const res = await api.get("/workflows");
+        const list = Array.isArray(res.data?.items) ? res.data.items : [];
+        if (cancelled) return;
+        setWorkflowsCache(list);
+        const route = "/inventory/grn-import";
+        const normalize = (s) =>
+          String(s || "").trim().toUpperCase().replace(/\s+/g, "_");
+        const matching = list.filter(
+          (w) =>
+            String(w.document_route) === route ||
+            ["GOODS_RECEIPT", "GRN", "GOODS_RECEIPT_NOTE"].includes(
+              normalize(w.document_type),
+            ),
+        );
+        const hasInactive = matching.some((w) => Number(w.is_active) === 0);
+        const chosen =
+          list.find(
+            (w) =>
+              Number(w.is_active) === 1 && String(w.document_route) === route,
+          ) ||
+          list.find(
+            (w) =>
+              Number(w.is_active) === 1 &&
+              ["GOODS_RECEIPT", "GRN", "GOODS_RECEIPT_NOTE"].includes(
+                normalize(w.document_type),
+              ),
+          ) ||
+          null;
+        setCandidateWorkflow(chosen || null);
+        setHasInactiveWorkflow(!chosen && hasInactive);
+      } catch {}
+    }
+    loadWorkflowFlags();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
     setLoading(true);
     setError("");
@@ -143,6 +185,8 @@ export default function GRNImportList() {
       getKeys: (g) => [g.grn_no, g.supplier_name, g.warehouse_name, g.status],
     });
   }, [grns, searchTerm]);
+
+  const workflowDisabled = hasInactiveWorkflow && !candidateWorkflow;
 
   const canForward = (status) => {
     const s = String(status || "").toUpperCase();
@@ -568,7 +612,11 @@ export default function GRNImportList() {
                         {/* Slot 6: Workflow */}
                         <div className="min-w-[160px]">
                           <div className="list-approval-slot">
-                            {String(g.status || "").toUpperCase() === "APPROVED" ? (
+                            {workflowDisabled && String(g.status || "").toUpperCase() !== "APPROVED" ? (
+                              <span className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-[#10B981] text-white cursor-default h-9">
+                                Approved
+                              </span>
+                            ) : String(g.status || "").toUpperCase() === "APPROVED" ? (
                               <div className="flex items-center gap-2">
                                 <span className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-[#10B981] text-white cursor-default h-9">
                                   Approved

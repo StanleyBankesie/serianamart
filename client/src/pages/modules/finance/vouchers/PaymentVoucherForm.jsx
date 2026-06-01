@@ -290,9 +290,9 @@ export default function PaymentVoucherForm() {
 
   // Function to fetch outstanding bills for a supplier based on account ID
   // Server will: 1) Get account code from fin_accounts, 2) Find supplier by supplier_code, 3) Return outstanding bills
-  async function loadOutstandingBillsForSupplier(accountId) {
-    const idNum = Number(accountId || 0);
-    if (!(idNum > 0)) {
+  async function loadOutstandingBillsForSupplier(accountCode) {
+    const code = String(accountCode || "").trim();
+    if (!code) {
       setOutstandingBills([]);
       setSelectedBillId("");
       setSelectedBillDetails(null);
@@ -301,7 +301,7 @@ export default function PaymentVoucherForm() {
     setLoadingBills(true);
     try {
       const res = await api.get("/purchase/bills/outstanding-by-account", {
-        params: { account_id: idNum },
+        params: { account_code: code },
       });
       const bills = Array.isArray(res.data?.items) ? res.data.items : [];
       setOutstandingBills(bills);
@@ -310,6 +310,7 @@ export default function PaymentVoucherForm() {
         setSelectedBillDetails(null);
       }
     } catch (e) {
+      console.error("[outstanding-bills] Error:", e?.response?.status, e?.response?.data || e?.message || e);
       setOutstandingBills([]);
       setSelectedBillId("");
       setSelectedBillDetails(null);
@@ -969,14 +970,14 @@ export default function PaymentVoucherForm() {
 
   // Load outstanding bills when Paid To account changes in Against Bill mode
   useEffect(() => {
-    if (isPAYV && paymentType === "AGAINST_BILL" && pvForm.payToAccountId) {
-      loadOutstandingBillsForSupplier(pvForm.payToAccountId);
+    if (isPAYV && paymentType === "AGAINST_BILL" && pvForm.payToCode) {
+      loadOutstandingBillsForSupplier(pvForm.payToCode);
     } else {
       setOutstandingBills([]);
       setSelectedBillId("");
       setSelectedBillDetails(null);
     }
-  }, [isPAYV, pvForm.payToAccountId, paymentType]);
+  }, [isPAYV, pvForm.payToCode, paymentType]);
 
   useEffect(() => {
     let mounted = true;
@@ -3513,9 +3514,8 @@ export default function PaymentVoucherForm() {
                     className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${paymentType === "AGAINST_BILL" ? "bg-white dark:bg-slate-700 shadow text-brand-600 dark:text-brand-400" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"}`}
                     onClick={() => {
                       setPaymentType("AGAINST_BILL");
-                      // Load outstanding bills when switching to this mode
-                      if (pvForm.payToAccountId) {
-                        loadOutstandingBillsForSupplier(pvForm.payToAccountId);
+                      if (pvForm.payToCode) {
+                        loadOutstandingBillsForSupplier(pvForm.payToCode);
                       }
                     }}
                     disabled={readOnly}

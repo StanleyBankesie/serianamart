@@ -39,63 +39,62 @@ function MaintenanceLanding() {
   const [stats, setStats] = React.useState([
     {
       rbac_key: "open-requests",
-      icon: "📩",
-      value: "0",
+      value: "—",
       label: "New Requests",
-      change: "Awaiting review",
+      change: "Loading…",
       changeType: "neutral",
       path: "/maintenance/maintenance-requests",
     },
     {
       rbac_key: "active-jobs",
-      icon: "🛠",
-      value: "0",
+      value: "—",
       label: "Jobs In Progress",
-      change: "Active on floor",
-      changeType: "positive",
+      change: "Loading…",
+      changeType: "neutral",
       path: "/maintenance/job-orders",
     },
     {
       rbac_key: "overdue-pms",
-      icon: "🗓",
-      value: "0",
+      value: "—",
       label: "Overdue PMs",
-      change: "Critical delay",
-      changeType: "negative",
+      change: "Loading…",
+      changeType: "neutral",
       path: "/maintenance/pm-schedules",
     },
     {
       rbac_key: "asset-health",
-      icon: "🏷",
-      value: "0%",
+      value: "—",
       label: "Asset Health",
-      change: "Optimal range",
-      changeType: "positive",
+      change: "Loading…",
+      changeType: "neutral",
       path: "/maintenance/assets",
     },
   ]);
 
   React.useEffect(() => {
     let mounted = true;
+    let timer;
     async function load() {
       try {
         const resp = await api.get("/maintenance/dashboard/stats");
-        const { openRequests, activeJobs, overduePm, assetHealth } = resp.data;
+        const d = resp.data;
         if (mounted) {
           setStats((prev) => {
             const next = [...prev];
-            next[0] = { ...next[0], value: String(openRequests) };
-            next[1] = { ...next[1], value: String(activeJobs) };
-            next[2] = { ...next[2], value: String(overduePm) };
-            next[3] = { ...next[3], value: `${assetHealth}%` };
+            next[0] = { ...next[0], value: String(d.openRequests ?? "—") };
+            next[1] = { ...next[1], value: String(d.activeJobs ?? "—") };
+            next[2] = { ...next[2], value: String(d.overduePm ?? "—") };
+            next[3] = { ...next[3], value: `${d.assetHealth ?? 0}%` };
             return next;
           });
         }
       } catch {}
     }
     load();
+    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
+      clearInterval(timer);
     };
   }, []);
 

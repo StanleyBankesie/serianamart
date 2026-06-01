@@ -1,3 +1,4 @@
+import bcrypt from "bcryptjs";
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import {
@@ -71,11 +72,13 @@ export const getUserById = async (req, res, next) => {
     const items = await query(`
       SELECT 
         u.*,
+        r.name AS role_name,
         IF(u.profile_picture IS NULL, NULL, CONCAT('data:image/jpeg;base64,', TO_BASE64(u.profile_picture))) AS profile_picture_url,
           u.created_at,
           uc.username AS created_by_name
          FROM adm_users u
         LEFT JOIN adm_users uc ON uc.id = u.created_by
+        LEFT JOIN adm_roles r ON u.role_id = r.id
          WHERE u.id = :id
       LIMIT 1
       `,
@@ -202,6 +205,8 @@ export const createUser = async (req, res, next) => {
         "company_id, branch_id, username, and email are required",
       );
 
+    const hashedPassword = password_hash ? await bcrypt.hash(password_hash, 10) : null;
+
     const result = await query(`INSERT INTO adm_users (
         company_id, branch_id, username, email, full_name, password_hash, is_active,
         profile_picture, is_employee, user_type, valid_from, valid_to, role_id
@@ -215,7 +220,7 @@ export const createUser = async (req, res, next) => {
         username,
         email,
         full_name: full_name || null,
-        password_hash: password_hash || "$2b$10$EpRnTzVlqHNP0.fKbX99ij...",
+        password_hash: hashedPassword,
         is_active: is_active === undefined ? 1 : Number(Boolean(is_active)),
         profile_picture:
           typeof profile_picture === "string"
@@ -321,7 +326,7 @@ export const updateUser = async (req, res, next) => {
 
     if (password_hash) {
       queryStr += `, password_hash = :password_hash`;
-      params.password_hash = password_hash;
+      params.password_hash = await bcrypt.hash(password_hash, 10);
     }
 
     queryStr += ` WHERE id = :id`;

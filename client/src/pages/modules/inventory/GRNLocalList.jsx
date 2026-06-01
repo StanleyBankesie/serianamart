@@ -18,7 +18,8 @@ import { usePermission } from "@/auth/PermissionContext.jsx";
 
 export default function GRNLocalList() {
   const location = useLocation();
-  const { canReverseApproval, exceptionalPerms, hasExceptional } = usePermission();
+  const { canReverseApproval, exceptionalPerms, hasExceptional } =
+    usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [grns, setGrns] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -42,6 +43,51 @@ export default function GRNLocalList() {
   const [viewDetails, setViewDetails] = useState([]);
   const [viewPoNo, setViewPoNo] = useState("");
   const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadWorkflowFlags() {
+      try {
+        const res = await api.get("/workflows");
+        const list = Array.isArray(res.data?.items) ? res.data.items : [];
+        if (cancelled) return;
+        setWorkflowsCache(list);
+        const route = "/inventory/grn-local";
+        const normalize = (s) =>
+          String(s || "")
+            .trim()
+            .toUpperCase()
+            .replace(/\s+/g, "_");
+        const matching = list.filter(
+          (w) =>
+            String(w.document_route) === route ||
+            ["GOODS_RECEIPT", "GRN", "GOODS_RECEIPT_NOTE"].includes(
+              normalize(w.document_type),
+            ),
+        );
+        const hasInactive = matching.some((w) => Number(w.is_active) === 0);
+        const chosen =
+          list.find(
+            (w) =>
+              Number(w.is_active) === 1 && String(w.document_route) === route,
+          ) ||
+          list.find(
+            (w) =>
+              Number(w.is_active) === 1 &&
+              ["GOODS_RECEIPT", "GRN", "GOODS_RECEIPT_NOTE"].includes(
+                normalize(w.document_type),
+              ),
+          ) ||
+          null;
+        setCandidateWorkflow(chosen || null);
+        setHasInactiveWorkflow(!chosen && hasInactive);
+      } catch {}
+    }
+    loadWorkflowFlags();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -144,7 +190,14 @@ export default function GRNLocalList() {
     });
   }, [grns, searchTerm]);
 
-  const { sorted: sortedGrns, sortKey, sortDir, toggle } = useSort(filtered, "created_at", "desc");
+  const {
+    sorted: sortedGrns,
+    sortKey,
+    sortDir,
+    toggle,
+  } = useSort(filtered, "created_at", "desc");
+
+  const workflowDisabled = hasInactiveWorkflow && !candidateWorkflow;
 
   const canForward = (status) => {
     const s = String(status || "").toUpperCase();
@@ -466,14 +519,56 @@ export default function GRNLocalList() {
             <table className="table">
               <thead>
                 <tr>
-                  <SortableHeader label="GRN No" sortKey="grn_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Date" sortKey="grn_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Supplier" sortKey="supplier_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Warehouse" sortKey="warehouse_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader
+                    label="GRN No"
+                    sortKey="grn_no"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                  />
+                  <SortableHeader
+                    label="Date"
+                    sortKey="grn_date"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                  />
+                  <SortableHeader
+                    label="Supplier"
+                    sortKey="supplier_name"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                  />
+                  <SortableHeader
+                    label="Warehouse"
+                    sortKey="warehouse_name"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                  />
+                  <SortableHeader
+                    label="Status"
+                    sortKey="status"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                  />
                   <th className="text-right">Actions</th>
-                  <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader
+                    label="Created By"
+                    sortKey="created_by_username"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                  />
+                  <SortableHeader
+                    label="Created Date"
+                    sortKey="created_at"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                  />
                 </tr>
               </thead>
               <tbody>
@@ -528,7 +623,8 @@ export default function GRNLocalList() {
 
                         {/* Slot 2: Edit */}
                         <div className="min-w-[80px]">
-                          {String(g.status || "").toUpperCase() !== "APPROVED" ? (
+                          {String(g.status || "").toUpperCase() !==
+                          "APPROVED" ? (
                             <Link
                               to={`/inventory/grn-local/${g.id}?mode=edit`}
                               className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
@@ -543,14 +639,24 @@ export default function GRNLocalList() {
                         {/* Slot 3: Print */}
                         <div className="min-w-[80px]">
                           <ListPrintIconButton
-                            onClick={() => printDocument(api, "grn", g.id, toast)}
+                            onClick={() =>
+                              printDocument(api, "grn", g.id, toast)
+                            }
                           />
                         </div>
 
                         {/* Slot 4: PDF */}
                         <div className="min-w-[80px]">
                           <ListPdfIconButton
-                            onClick={() => downloadDocumentPdf(api, "grn", g.id, `GRN-${g.grn_no || g.id}.pdf`, toast)}
+                            onClick={() =>
+                              downloadDocumentPdf(
+                                api,
+                                "grn",
+                                g.id,
+                                `GRN-${g.grn_no || g.id}.pdf`,
+                                toast,
+                              )
+                            }
                           />
                         </div>
 
@@ -567,29 +673,59 @@ export default function GRNLocalList() {
                         {/* Slot 6: Workflow */}
                         <div className="min-w-[160px]">
                           <div className="list-approval-slot">
-                            {String(g.status || "").toUpperCase() === "APPROVED" ? (
+                            {workflowDisabled &&
+                            String(g.status || "").toUpperCase() !==
+                              "APPROVED" ? (
+                              <span className="list-approval-approved-pill">
+                                Approved
+                              </span>
+                            ) : String(g.status || "").toUpperCase() ===
+                              "APPROVED" ? (
                               <div className="flex items-center gap-2">
                                 <span className="list-approval-approved-pill">
                                   Approved
                                 </span>
                                 {/* Slot 7: Reverse Approval */}
-                                {String(g.status || "").toUpperCase() === "APPROVED" && typeof canReverseApproval !== "undefined" && (canReverseApproval() || hasExceptional("PURCHASE.GRN.REVERSE")) && (
-                                  <button
-                                    type="button"
-                                    className="list-approval-reverse-btn"
-                                    onClick={async () => {
-                                      try {
-                                        await api.post("/workflows/reverse-by-document", { document_type: "GOODS_RECEIPT", document_id: g.id });
-                                        toast.success("Approval reversed");
-                                        setGrns((prev) => prev.map((x) => x.id === g.id ? { ...x, status: "RETURNED", forwarded_to_username: null } : x));
-                                      } catch (e) {
-                                        toast.error(e?.response?.data?.message || "Reverse approval failed");
-                                      }
-                                    }}
-                                  >
-                                    Reverse Approval
-                                  </button>
-                                )}
+                                {String(g.status || "").toUpperCase() ===
+                                  "APPROVED" &&
+                                  typeof canReverseApproval !== "undefined" &&
+                                  (canReverseApproval() ||
+                                    hasExceptional("PURCHASE.GRN.REVERSE")) && (
+                                    <button
+                                      type="button"
+                                      className="list-approval-reverse-btn"
+                                      onClick={async () => {
+                                        try {
+                                          await api.post(
+                                            "/workflows/reverse-by-document",
+                                            {
+                                              document_type: "GOODS_RECEIPT",
+                                              document_id: g.id,
+                                            },
+                                          );
+                                          toast.success("Approval reversed");
+                                          setGrns((prev) =>
+                                            prev.map((x) =>
+                                              x.id === g.id
+                                                ? {
+                                                    ...x,
+                                                    status: "RETURNED",
+                                                    forwarded_to_username: null,
+                                                  }
+                                                : x,
+                                            ),
+                                          );
+                                        } catch (e) {
+                                          toast.error(
+                                            e?.response?.data?.message ||
+                                              "Reverse approval failed",
+                                          );
+                                        }
+                                      }}
+                                    >
+                                      Reverse Approval
+                                    </button>
+                                  )}
                               </div>
                             ) : g.forwarded_to_username ? (
                               <span className="list-approval-forwarded-pill">
@@ -616,7 +752,11 @@ export default function GRNLocalList() {
                       </div>
                     </td>
                     <td>{g.created_by_username || g.created_by_name || "-"}</td>
-                    <td>{g.created_at ? new Date(g.created_at).toLocaleDateString() : "-"}</td>
+                    <td>
+                      {g.created_at
+                        ? new Date(g.created_at).toLocaleDateString()
+                        : "-"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -843,8 +983,8 @@ export default function GRNLocalList() {
                       <th>Amount</th>
                       <th>Batch/Serial</th>
                       <th>Remarks</th>
-                                        <th>Created By</th>
-                    <th>Created Date</th>
+                      <th>Created By</th>
+                      <th>Created Date</th>
                     </tr>
                   </thead>
                   <tbody>

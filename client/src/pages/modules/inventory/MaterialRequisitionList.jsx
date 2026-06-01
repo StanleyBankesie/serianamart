@@ -193,6 +193,8 @@ export default function MaterialRequisitionList() {
 
   const { sorted: sortedRequisitions, sortKey, sortDir, toggle } = useSort(filteredRequisitions, "created_at", "desc");
 
+  const workflowDisabled = hasInactiveWorkflow && !candidateWorkflow;
+
   const openForwardModal = async (req) => {
     setSelectedReq(req);
     setShowForwardModal(true);
@@ -511,7 +513,11 @@ export default function MaterialRequisitionList() {
                 </tr>
               </thead>
               <tbody>
-                {sortedRequisitions.map((req) => (
+                {sortedRequisitions.map((req) => {
+                  const upperStatus = String(req.status || "").toUpperCase();
+                  const autoApproved = workflowDisabled && upperStatus !== "CANCELLED" && upperStatus !== "REVERSED";
+                  const displayStatus = autoApproved ? "APPROVED" : upperStatus;
+                  return (
                   <tr key={req.id}>
                     <td className="font-medium text-brand-700 dark:text-brand-300">
                       {req.requisition_no}
@@ -521,8 +527,8 @@ export default function MaterialRequisitionList() {
                     <td>{req.department_name || "-"}</td>
                     <td>{req.warehouse_name || "-"}</td>
                     <td>
-                      <span className={`badge ${getStatusBadge(req.status)}`}>
-                        {req.status}
+                      <span className={`badge ${getStatusBadge(displayStatus)}`}>
+                        {displayStatus}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -539,7 +545,7 @@ export default function MaterialRequisitionList() {
 
                         {/* Slot 2: Edit */}
                         <div className="min-w-[80px]">
-                          {!['APPROVED', 'ISSUED', 'CANCELLED'].includes(req.status) ? (
+                          {!['APPROVED', 'ISSUED', 'CANCELLED'].includes(displayStatus) ? (
                             <Link
                               to={`/inventory/material-requisitions/${req.id}?mode=edit`}
                               className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
@@ -588,13 +594,12 @@ export default function MaterialRequisitionList() {
                         {/* Slot 6: Workflow */}
                         <div className="min-w-[160px]">
                           <div className="list-approval-slot">
-                            {req.status === "APPROVED" ? (
+                            {displayStatus === "APPROVED" ? (
                               <div className="flex items-center gap-2">
                                 <span className="list-approval-approved-pill">
                                   Approved
                                 </span>
-                                {/* Slot 7: Reverse Approval */}
-                                {req.status === "APPROVED" && canReverseApproval() && (
+                                {!autoApproved && canReverseApproval() && (
                                   <button
                                     type="button"
                                     className="list-approval-reverse-btn"
@@ -621,6 +626,7 @@ export default function MaterialRequisitionList() {
                                 type="button"
                                 className="list-approval-forward-btn"
                                 onClick={() => openForwardModal(req)}
+                                disabled={workflowDisabled}
                               >
                                 Forward for Approval
                               </button>
@@ -632,7 +638,8 @@ export default function MaterialRequisitionList() {
                     <td>{req.created_by_username || req.created_by_name || "-"}</td>
                     <td>{req.created_at ? new Date(req.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

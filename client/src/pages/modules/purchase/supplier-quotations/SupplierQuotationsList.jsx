@@ -153,6 +153,8 @@ export default function SupplierQuotationsList() {
 
   const { sorted: filteredQuotations, sortKey, sortDir, toggle } = useSort(filteredBase, "created_at", "desc");
 
+  const workflowDisabled = hasInactiveWorkflow && !candidateWorkflow;
+
   async function printQuotation(id) {
     try {
       const resp = await api.post(
@@ -619,7 +621,9 @@ export default function SupplierQuotationsList() {
                         {/* Slot: Workflow / Status */}
                         <div className="min-w-[160px]">
                           <div className="list-approval-slot">
-                            {quotation.status === "ACCEPTED" || quotation.status === "APPROVED" ? (
+                            {workflowDisabled && quotation.status !== "ACCEPTED" && quotation.status !== "APPROVED" ? (
+                              <span className="list-approval-approved-pill">Approved</span>
+                            ) : quotation.status === "ACCEPTED" || quotation.status === "APPROVED" ? (
                               <div className="flex items-center gap-2">
                                 <span className="list-approval-approved-pill">
                                   {quotation.status === "APPROVED" ? "Approved" : "Accepted"}

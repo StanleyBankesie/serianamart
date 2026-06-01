@@ -70,59 +70,85 @@ function InventoryHomeIndex() {
   const [stats, setStats] = React.useState([
     {
       rbac_key: "items-tracked",
-      // icon: "📦",
-      value: "45",
+      value: "—",
       label: "Items Tracked",
-      change: "5 critical",
-      changeType: "negative",
-      path: "/inventory/reports",
+      change: "Loading…",
+      changeType: "neutral",
+      path: "/inventory/items",
+    },
+    {
+      rbac_key: "stock-quantity",
+      value: "—",
+      label: "Stock Quantity",
+      change: "Loading…",
+      changeType: "neutral",
+      path: "/inventory/reports/stock-balances",
     },
     {
       rbac_key: "pending-requisitions",
-      // icon: "📝",
-      value: "12",
+      value: "—",
       label: "Pending Requisitions",
-      change: "3 urgent",
+      change: "Loading…",
       changeType: "neutral",
       path: "/inventory/material-requisitions",
     },
     {
-      rbac_key: "incoming-transfers",
-      // icon: "🚚",
-      value: "8",
-      label: "Incoming Transfers",
-      change: "Expected today",
-      changeType: "positive",
-      path: "/inventory/transfer-acceptance",
+      rbac_key: "low-stock-items",
+      value: "—",
+      label: "Low Stock Items",
+      change: "Loading…",
+      changeType: "neutral",
+      path: "/inventory/alerts/low-stock",
     },
   ]);
 
   React.useEffect(() => {
     let mounted = true;
+    let timer;
     async function load() {
       try {
-        const resp = await api.get("/bi/dashboards");
-        const items = Number(resp?.data?.summary?.inventory?.items || 0);
-        const reqs = Number(
-          resp?.data?.summary?.inventory?.pending_requisitions || 0,
-        );
-        const transfers = Number(
-          resp?.data?.summary?.inventory?.incoming_transfers || 0,
-        );
-        if (mounted) {
+        const resp = await api.get("/inventory/dashboard-stats");
+        const d = resp?.data?.data;
+        if (d && mounted) {
           setStats((prev) => {
             const next = [...prev];
-            next[0] = { ...next[0], value: String(items) };
-            next[1] = { ...next[1], value: String(reqs) };
-            next[2] = { ...next[2], value: String(transfers) };
+            next[0] = {
+              ...next[0],
+              value: String(d.itemsCount ?? "—"),
+              change: `${d.stockItemsCount ?? 0} with stock`,
+              changeType: "positive",
+            };
+            next[1] = {
+              ...next[1],
+              value: String(d.stockTotalQty ?? "—"),
+              label: "Total Stock Qty",
+              change: `${d.recentAdjustments ?? 0} adjustments (30d)`,
+              changeType: d.recentAdjustments > 0 ? "warning" : "positive",
+            };
+            next[2] = {
+              ...next[2],
+              value: String(d.pendingRequisitions ?? "—"),
+              change: `${d.pendingTransfers ?? 0} transfers pending`,
+              changeType: d.pendingRequisitions > 0 ? "warning" : "positive",
+            };
+            next[3] = {
+              ...next[3],
+              value: String(d.lowStockItems ?? "—"),
+              change: d.lowStockItems > 0
+                ? "Needs replenishment"
+                : "Stock healthy",
+              changeType: d.lowStockItems > 0 ? "negative" : "positive",
+            };
             return next;
           });
         }
       } catch {}
     }
     load();
+    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
+      clearInterval(timer);
     };
   }, []);
 

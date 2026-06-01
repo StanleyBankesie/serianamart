@@ -19,60 +19,83 @@ import ServiceParametersPage from "./setup/ServiceParametersPage.jsx";
 function ServiceManagementLanding() {
   const [stats, setStats] = React.useState([
     {
-      rbac_key: "open-requests",
-      icon: "🔧",
-      value: "12",
-      label: "Open Requests",
-      change: "↑ 3 new today",
-      changeType: "positive",
+      rbac_key: "service-requests",
+      value: "—",
+      label: "Service Requests",
+      change: "Loading…",
+      changeType: "neutral",
       path: "/service-management/service-requests",
     },
     {
-      rbac_key: "pending-bills",
-      icon: "🧾",
-      value: "7",
-      label: "Pending Bills",
-      change: "↔ stable",
+      rbac_key: "open-orders",
+      value: "—",
+      label: "Open Orders",
+      change: "Loading…",
       changeType: "neutral",
-      path: "/service-management/service-bills",
+      path: "/service-management/service-orders",
+    },
+    {
+      rbac_key: "executions",
+      value: "—",
+      label: "Executions",
+      change: "Loading…",
+      changeType: "neutral",
+      path: "/service-management/service-executions",
     },
     {
       rbac_key: "confirmed-services",
-      icon: "✅",
-      value: "19",
+      value: "—",
       label: "Confirmed Services",
-      change: "↑ 5 this week",
-      changeType: "positive",
+      change: "Loading…",
+      changeType: "neutral",
       path: "/service-management/service-confirmation",
     },
   ]);
 
   React.useEffect(() => {
     let mounted = true;
+    let timer;
     async function load() {
       try {
         const resp = await api.get("/purchase/service/dashboard/metrics");
-        const openReq = Number(
-          resp?.data?.cards?.ytd_requests || 0,
-        );
-        const pendingBills = Number(
-          resp?.data?.cards?.ytd_service_bill_value || 0,
-        );
-        const confirmed = Number(resp?.data?.cards?.ytd_confirmations || 0);
-        if (mounted) {
+        const c = resp?.data?.cards;
+        if (c && mounted) {
           setStats((prev) => {
             const next = [...prev];
-            next[0] = { ...next[0], value: String(openReq) };
-            next[1] = { ...next[1], value: String(pendingBills) };
-            next[2] = { ...next[2], value: String(confirmed) };
+            next[0] = {
+              ...next[0],
+              value: String(c.ytd_requests ?? "—"),
+              change: `${c.mtd_requests ?? 0} this month`,
+              changeType: c.ytd_requests > 0 ? "positive" : "neutral",
+            };
+            next[1] = {
+              ...next[1],
+              value: String(c.ytd_orders ?? "—"),
+              change: `${c.wtd_orders ?? 0} this week`,
+              changeType: c.ytd_orders > 0 ? "positive" : "neutral",
+            };
+            next[2] = {
+              ...next[2],
+              value: String(c.ytd_executions ?? "—"),
+              change: `${c.mtd_executions ?? 0} this month`,
+              changeType: c.ytd_executions > 0 ? "positive" : "neutral",
+            };
+            next[3] = {
+              ...next[3],
+              value: String(c.ytd_confirmations ?? "—"),
+              change: `${c.mtd_confirmations ?? 0} this month`,
+              changeType: c.ytd_confirmations > 0 ? "positive" : "neutral",
+            };
             return next;
           });
         }
       } catch {}
     }
     load();
+    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
+      clearInterval(timer);
     };
   }, []);
 

@@ -191,8 +191,6 @@ export function AuthProvider({ children }) {
     if (typeof window !== "undefined" && window.localStorage) {
       try {
         window.localStorage.removeItem("rbac.permission.snapshot.v1");
-        window.localStorage.removeItem("omnisuite.rememberedCreds");
-        window.localStorage.removeItem("omnisuite.rememberMe");
         window.localStorage.removeItem("push_enabled");
       } catch {}
     }

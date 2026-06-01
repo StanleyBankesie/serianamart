@@ -685,4 +685,12 @@ router.get(
   financeController.getDashboardMetrics,
 );
 
+router.get(
+  "/dashboard-stats",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.getFinanceDashboardStats,
+);
+
 export default router;

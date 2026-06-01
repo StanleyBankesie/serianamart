@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "set NODE_OPTIONS=--max-http-header-size=2097152 && vite",
     "build": "vite build && node scripts/inject-sw-cache.js",
     "preview": "vite preview"
   },

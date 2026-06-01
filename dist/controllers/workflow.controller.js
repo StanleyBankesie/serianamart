@@ -8,6 +8,8 @@ import { applyStockVerificationApprovalTx } from "../services/stock-verification
 import { isMailerConfigured, sendMail } from "../utils/mailer.js";
 import { sendDocumentForwardNotification } from "../utils/documentNotification.js";
 import { sendPushToUser } from "../routes/push.routes.js";
+import { createCreditNoteForReturnApprovalTx } from "../routes/sales.route.js";
+import { createDebitNoteForReturnApprovalTx } from "../routes/purchase.routes.js";
 
 const toNumber = (v, fallback = null) => {
   const n = Number(v);
@@ -15,7 +17,8 @@ const toNumber = (v, fallback = null) => {
 };
 
 const hasColumn = async (tableName, columnName) => {
-  const rows = await query(`
+  const rows = await query(
+    `
     SELECT COUNT(*) AS c
     FROM information_schema.columns
     WHERE table_schema = DATABASE()
@@ -27,8 +30,229 @@ const hasColumn = async (tableName, columnName) => {
   return Number(rows?.[0]?.c || 0) > 0;
 };
 
+async function applyAutoApprovalToLinkedDocument(instance) {
+  const docType = String(instance?.document_type || "")
+    .trim()
+    .toUpperCase();
+  const companyId = instance?.company_id;
+  const documentId = instance?.document_id;
+  if (!companyId || !documentId) return;
+
+  if (docType === "PURCHASE_ORDER") {
+    await query(
+      `UPDATE pur_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+      { id: documentId, companyId },
+    );
+    return;
+  }
+
+  if (docType === "SALES_ORDER" || docType === "SALES ORDER") {
+    await query(
+      `UPDATE sal_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+      { id: documentId, companyId },
+    );
+    return;
+  }
+
+  if (docType === "MATERIAL_REQUISITION") {
+    await query(
+      `UPDATE inv_material_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+      { id: documentId, companyId },
+    );
+    return;
+  }
+
+  if (docType === "GENERAL_REQUISITION") {
+    await query(
+      `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+      { id: documentId, companyId },
+    );
+    return;
+  }
+
+  if (docType === "RETURN_TO_STORES") {
+    await query(
+      `UPDATE inv_return_to_stores SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+      { id: documentId, companyId },
+    );
+    return;
+  }
+
+  if (
+    docType === "STOCK_ADJUSTMENT" ||
+    docType === "STOCK_UPDATION" ||
+    docType === "STOCK_VERIFICATION"
+  ) {
+    const tableName =
+      docType === "STOCK_ADJUSTMENT"
+        ? "inv_stock_adjustments"
+        : docType === "STOCK_UPDATION"
+          ? "inv_stock_updations"
+          : "inv_stock_verifications";
+    await query(
+      `UPDATE ${tableName} SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+      { id: documentId, companyId },
+    );
+    return;
+  }
+
+  if (
+    docType === "GOODS_RECEIPT" ||
+    docType === "GOODS RECEIPT" ||
+    docType === "GRN" ||
+    docType === "GOODS RECEIPT NOTE"
+  ) {
+    await query(
+      `UPDATE inv_goods_receipt_notes SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+      { id: documentId, companyId },
+    );
+    return;
+  }
+
+  if (
+    docType === "PAYMENT_VOUCHER" ||
+    docType === "PAYMENT VOUCHER" ||
+    docType === "PV" ||
+    docType === "RECEIPT_VOUCHER" ||
+    docType === "RECEIPT VOUCHER" ||
+    docType === "RV" ||
+    docType === "JOURNAL_VOUCHER" ||
+    docType === "JOURNAL VOUCHER" ||
+    docType === "JV" ||
+    docType === "CONTRA_VOUCHER" ||
+    docType === "CONTRA VOUCHER" ||
+    docType === "CV" ||
+    docType === "DEBIT_NOTE" ||
+    docType === "DEBIT NOTE" ||
+    docType === "DN" ||
+    docType === "CREDIT_NOTE" ||
+    docType === "CREDIT NOTE" ||
+    docType === "CN"
+  ) {
+    await query(
+      `UPDATE fin_vouchers SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+      { id: documentId, companyId },
+    );
+    return;
+  }
+
+  if (docType === "SALES_RETURN") {
+    const rows = await query(
+      `SELECT id, branch_id, status
+       FROM sal_returns
+       WHERE id = :id AND company_id = :companyId
+       LIMIT 1`,
+      { id: documentId, companyId },
+    );
+    const header = rows[0];
+    if (!header) return;
+    if (String(header.status || "").toUpperCase() !== "APPROVED") {
+      await query(
+        `UPDATE sal_returns SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+        { id: documentId, companyId },
+      );
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        await createCreditNoteForReturnApprovalTx(conn, {
+          id: documentId,
+          companyId,
+          branchId: header.branch_id,
+        });
+        await conn.commit();
+      } catch (err) {
+        await conn.rollback();
+        throw err;
+      } finally {
+        conn.release();
+      }
+    }
+    return;
+  }
+
+  if (docType === "PURCHASE_RETURN" || docType === "PURCHASE RETURN") {
+    const rows = await query(
+      `SELECT id, branch_id, status
+       FROM pur_returns
+       WHERE id = :id AND company_id = :companyId
+       LIMIT 1`,
+      { id: documentId, companyId },
+    );
+    const header = rows[0];
+    if (!header) return;
+    if (String(header.status || "").toUpperCase() !== "APPROVED") {
+      await query(
+        `UPDATE pur_returns SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+        { id: documentId, companyId },
+      );
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        await createDebitNoteForReturnApprovalTx(conn, {
+          id: documentId,
+          companyId,
+          branchId: header.branch_id,
+        });
+        await conn.commit();
+      } catch (err) {
+        await conn.rollback();
+        throw err;
+      } finally {
+        conn.release();
+      }
+    }
+  }
+}
+
+async function autoApprovePendingWorkflowDocuments({
+  workflowId,
+  companyId,
+  actorUserId = null,
+}) {
+  const instances = await query(
+    `SELECT id, company_id, document_id, document_type, current_step_order
+     FROM adm_document_workflows
+     WHERE workflow_id = :workflowId
+       AND company_id = :companyId
+       AND status = 'PENDING'
+     ORDER BY id ASC`,
+    { workflowId, companyId },
+  );
+
+  for (const instance of instances) {
+    await applyAutoApprovalToLinkedDocument(instance);
+    await query(
+      `UPDATE adm_document_workflows
+       SET status = 'APPROVED',
+           assigned_to_user_id = NULL
+       WHERE id = :id`,
+      { id: instance.id },
+    );
+    await query(
+      `UPDATE adm_workflow_tasks
+       SET action = 'APPROVED'
+       WHERE document_workflow_id = :id
+         AND action = 'PENDING'`,
+      { id: instance.id },
+    );
+    await query(
+      `INSERT INTO adm_workflow_logs
+        (document_workflow_id, step_order, action, actor_user_id, comments)
+       VALUES
+        (:dwId, :stepOrder, 'APPROVE', :actorUserId, :comments)`,
+      {
+        dwId: instance.id,
+        stepOrder: Number(instance.current_step_order || 1),
+        actorUserId: actorUserId || null,
+        comments: "Auto-approved because workflow was deactivated",
+      },
+    ).catch(() => {});
+  }
+}
+
 const nextWorkflowCode = async (companyId) => {
-  const rows = await query(`
+  const rows = await query(
+    `
     SELECT workflow_code,
           created_at,
           u.username AS created_by_name
@@ -81,23 +305,28 @@ const ensureWorkflowTables = async () => {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
   if (!(await hasColumn("adm_workflows", "document_route"))) {
-    await query(`ALTER TABLE adm_workflows ADD COLUMN document_route VARCHAR(255) DEFAULT NULL`,
+    await query(
+      `ALTER TABLE adm_workflows ADD COLUMN document_route VARCHAR(255) DEFAULT NULL`,
     );
   }
   if (!(await hasColumn("adm_workflows", "min_amount"))) {
-    await query(`ALTER TABLE adm_workflows ADD COLUMN min_amount DECIMAL(18,2) DEFAULT NULL`,
+    await query(
+      `ALTER TABLE adm_workflows ADD COLUMN min_amount DECIMAL(18,2) DEFAULT NULL`,
     );
   }
   if (!(await hasColumn("adm_workflows", "max_amount"))) {
-    await query(`ALTER TABLE adm_workflows ADD COLUMN max_amount DECIMAL(18,2) DEFAULT NULL`,
+    await query(
+      `ALTER TABLE adm_workflows ADD COLUMN max_amount DECIMAL(18,2) DEFAULT NULL`,
     );
   }
   if (!(await hasColumn("adm_workflows", "default_behavior"))) {
-    await query(`ALTER TABLE adm_workflows ADD COLUMN default_behavior VARCHAR(20) DEFAULT NULL`,
+    await query(
+      `ALTER TABLE adm_workflows ADD COLUMN default_behavior VARCHAR(20) DEFAULT NULL`,
     );
   }
   if (!(await hasColumn("adm_workflows", "email_notify"))) {
-    await query(`ALTER TABLE adm_workflows ADD COLUMN email_notify TINYINT(1) NOT NULL DEFAULT 1`,
+    await query(
+      `ALTER TABLE adm_workflows ADD COLUMN email_notify TINYINT(1) NOT NULL DEFAULT 1`,
     );
   }
   await query(`
@@ -183,7 +412,8 @@ export const listWorkflows = async (req, res, next) => {
   try {
     await ensureWorkflowTables();
     const { companyId } = req.scope;
-    const items = await query(`SELECT w.*, c.name as company_name,
+    const items = await query(
+      `SELECT w.*, c.name as company_name,
           w.created_at,
           u.username AS created_by_name
          FROM adm_workflows w
@@ -204,7 +434,8 @@ export const reverseApproval = async (req, res, next) => {
     const { instanceId } = req.params;
     const userId = req.user.sub;
     // Check exceptional permission
-    const rows = await query(`SELECT permission_code, effect, is_active,
+    const rows = await query(
+      `SELECT permission_code, effect, is_active,
           created_at,
           u.username AS created_by_name
          FROM adm_exceptional_permissions
@@ -220,7 +451,8 @@ export const reverseApproval = async (req, res, next) => {
       throw httpError(403, "FORBIDDEN", "Reverse approval not permitted");
     }
     // Fetch instance
-    const instances = await query(`SELECT dw.*, w.id as workflow_id,
+    const instances = await query(
+      `SELECT dw.*, w.id as workflow_id,
           dw.created_at,
           u.username AS created_by_name
          FROM adm_document_workflows dw
@@ -233,7 +465,8 @@ export const reverseApproval = async (req, res, next) => {
       throw httpError(404, "NOT_FOUND", "Workflow instance not found");
     const instance = instances[0];
     // Log reversal
-    await query(`INSERT INTO adm_workflow_logs (document_workflow_id, step_order, action, actor_user_id, comments)
+    await query(
+      `INSERT INTO adm_workflow_logs (document_workflow_id, step_order, action, actor_user_id, comments)
        VALUES (:id, :step, 'REVERSED', :userId, :comments)`,
       {
         id: instance.id,
@@ -243,7 +476,8 @@ export const reverseApproval = async (req, res, next) => {
       },
     );
     // Set workflow state to returned and unassign
-    await query(`UPDATE adm_document_workflows SET status = 'RETURNED', assigned_to_user_id = NULL WHERE id = :id`,
+    await query(
+      `UPDATE adm_document_workflows SET status = 'RETURNED', assigned_to_user_id = NULL WHERE id = :id`,
       { id: instance.id },
     );
     // Mirror document status updates same as RETURN action
@@ -251,14 +485,16 @@ export const reverseApproval = async (req, res, next) => {
       instance.document_type === "STOCK_ADJUSTMENT" ||
       instance.document_type === "Stock Adjustment"
     ) {
-      await query(`UPDATE inv_stock_adjustments SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+      await query(
+        `UPDATE inv_stock_adjustments SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
         { id: instance.document_id, companyId: instance.company_id },
       );
     } else if (
       instance.document_type === "PURCHASE_ORDER" ||
       instance.document_type === "Purchase Order"
     ) {
-      await query(`UPDATE pur_orders SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+      await query(
+        `UPDATE pur_orders SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
         { id: instance.document_id, companyId: instance.company_id },
       );
     } else if (
@@ -267,7 +503,8 @@ export const reverseApproval = async (req, res, next) => {
       instance.document_type === "GRN" ||
       instance.document_type === "Goods Receipt Note"
     ) {
-      await query(`UPDATE inv_goods_receipt_notes SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+      await query(
+        `UPDATE inv_goods_receipt_notes SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
         { id: instance.document_id, companyId: instance.company_id },
       );
     } else if (
@@ -275,7 +512,8 @@ export const reverseApproval = async (req, res, next) => {
       instance.document_type === "Payment Voucher" ||
       instance.document_type === "PV"
     ) {
-      await query(`UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+      await query(
+        `UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
         { id: instance.document_id, companyId: instance.company_id },
       );
     } else if (
@@ -283,7 +521,8 @@ export const reverseApproval = async (req, res, next) => {
       instance.document_type === "Receipt Voucher" ||
       instance.document_type === "RV"
     ) {
-      await query(`UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+      await query(
+        `UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
         { id: instance.document_id, companyId: instance.company_id },
       );
     } else if (
@@ -291,7 +530,8 @@ export const reverseApproval = async (req, res, next) => {
       instance.document_type === "Contra Voucher" ||
       instance.document_type === "CV"
     ) {
-      await query(`UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+      await query(
+        `UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
         { id: instance.document_id, companyId: instance.company_id },
       );
     } else if (
@@ -299,7 +539,8 @@ export const reverseApproval = async (req, res, next) => {
       instance.document_type === "Journal Voucher" ||
       instance.document_type === "JV"
     ) {
-      await query(`UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+      await query(
+        `UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
         { id: instance.document_id, companyId: instance.company_id },
       );
     } else if (
@@ -307,7 +548,8 @@ export const reverseApproval = async (req, res, next) => {
       instance.document_type === "Sales Voucher" ||
       instance.document_type === "SV"
     ) {
-      await query(`UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+      await query(
+        `UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
         { id: instance.document_id, companyId: instance.company_id },
       );
     } else if (
@@ -315,7 +557,8 @@ export const reverseApproval = async (req, res, next) => {
       instance.document_type === "Purchase Voucher" ||
       instance.document_type === "PUV"
     ) {
-      await query(`UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+      await query(
+        `UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
         { id: instance.document_id, companyId: instance.company_id },
       );
     } else if (
@@ -323,7 +566,8 @@ export const reverseApproval = async (req, res, next) => {
       instance.document_type === "Debit Note" ||
       instance.document_type === "DN"
     ) {
-      await query(`UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+      await query(
+        `UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
         { id: instance.document_id, companyId: instance.company_id },
       );
     } else if (
@@ -331,7 +575,8 @@ export const reverseApproval = async (req, res, next) => {
       instance.document_type === "Credit Note" ||
       instance.document_type === "CN"
     ) {
-      await query(`UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+      await query(
+        `UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
         { id: instance.document_id, companyId: instance.company_id },
       );
     } else if (
@@ -339,7 +584,8 @@ export const reverseApproval = async (req, res, next) => {
       instance.document_type === "Material Requisition"
     ) {
       try {
-        await query(`UPDATE inv_material_requisitions SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+        await query(
+          `UPDATE inv_material_requisitions SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } catch {}
@@ -348,7 +594,8 @@ export const reverseApproval = async (req, res, next) => {
       instance.document_type === "Return to Stores"
     ) {
       try {
-        await query(`UPDATE inv_return_to_stores SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+        await query(
+          `UPDATE inv_return_to_stores SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } catch {}
@@ -357,13 +604,25 @@ export const reverseApproval = async (req, res, next) => {
       instance.document_type === "Sales Order"
     ) {
       try {
-        await query(`UPDATE sal_orders SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+        await query(
+          `UPDATE sal_orders SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } catch {}
     } else if (instance.document_type === "SALES_RETURN") {
       try {
-        await query(`UPDATE sal_returns SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+        await query(
+          `UPDATE sal_returns SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+          { id: instance.document_id, companyId: instance.company_id },
+        );
+      } catch {}
+    } else if (
+      instance.document_type === "PURCHASE_RETURN" ||
+      instance.document_type === "Purchase Return"
+    ) {
+      try {
+        await query(
+          `UPDATE pur_returns SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } catch {}
@@ -372,7 +631,8 @@ export const reverseApproval = async (req, res, next) => {
       instance.document_type === "Service Request"
     ) {
       try {
-        await query(`UPDATE pur_service_requests SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+        await query(
+          `UPDATE pur_service_requests SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } catch {}
@@ -387,7 +647,8 @@ export const reverseApproval = async (req, res, next) => {
       ? initiatorRes[0].actor_user_id
       : null;
     if (initiatorId) {
-      await query(`INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read) 
+      await query(
+        `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read) 
          VALUES (:companyId, :userId, :title, :message, :link, 0)`,
         {
           companyId: req.scope.companyId,
@@ -430,7 +691,8 @@ export const reverseByDocument = async (req, res, next) => {
       docTypeRaw.toUpperCase(),
       docTypeRaw.toLowerCase(),
     ];
-    const rows = await query(`SELECT permission_code, effect, is_active,
+    const rows = await query(
+      `SELECT permission_code, effect, is_active,
           created_at,
           u.username AS created_by_name
          FROM adm_exceptional_permissions
@@ -445,7 +707,8 @@ export const reverseByDocument = async (req, res, next) => {
     if (!rows || !rows.length) {
       throw httpError(403, "FORBIDDEN", "Reverse approval not permitted");
     }
-    const instances = await query(`SELECT dw.*, w.id as workflow_id,
+    const instances = await query(
+      `SELECT dw.*, w.id as workflow_id,
           dw.created_at,
           u.username AS created_by_name
          FROM adm_document_workflows dw
@@ -486,7 +749,8 @@ export const getWorkflow = async (req, res, next) => {
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
 
-    const workflows = await query(`SELECT *,
+    const workflows = await query(
+      `SELECT *,
           created_at,
           u.username AS created_by_name
          FROM adm_workflows
@@ -498,7 +762,8 @@ export const getWorkflow = async (req, res, next) => {
       throw httpError(404, "NOT_FOUND", "Workflow not found");
     const workflow = workflows[0];
 
-    const stepsBase = await query(`SELECT ws.*,
+    const stepsBase = await query(
+      `SELECT ws.*,
           ws.created_at,
           u.username AS created_by_name
          FROM adm_workflow_steps ws
@@ -507,7 +772,8 @@ export const getWorkflow = async (req, res, next) => {
        ORDER BY ws.step_order ASC`,
       { id },
     );
-    const allApprovers = await query(`SELECT a.workflow_id, a.step_order, a.approver_user_id, a.approval_limit, u.username,
+    const allApprovers = await query(
+      `SELECT a.workflow_id, a.step_order, a.approver_user_id, a.approval_limit, u.username,
           a.created_at,
           u.username AS created_by_name
          FROM adm_workflow_step_approvers a
@@ -553,7 +819,8 @@ export const debugWorkflowEmailStatus = async (req, res, next) => {
     const instanceId = toNumber(req.params.instanceId);
     const { companyId } = req.scope;
     if (!instanceId) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    const instRows = await query(`SELECT dw.*, w.email_notify, w.workflow_name,
+    const instRows = await query(
+      `SELECT dw.*, w.email_notify, w.workflow_name,
           dw.created_at,
           u.username AS created_by_name
          FROM adm_document_workflows dw
@@ -571,7 +838,8 @@ export const debugWorkflowEmailStatus = async (req, res, next) => {
       (wfEmailFlag === null || wfEmailFlag === undefined
         ? 1
         : Number(wfEmailFlag)) === 1;
-    const userRows = await query(`SELECT id, username, email, is_active, company_id,
+    const userRows = await query(
+      `SELECT id, username, email, is_active, company_id,
           created_at,
           u.username AS created_by_name
          FROM adm_users
@@ -580,7 +848,8 @@ export const debugWorkflowEmailStatus = async (req, res, next) => {
       { id: userId },
     );
     const user = userRows[0] || null;
-    const prefRows = await query(`
+    const prefRows = await query(
+      `
       SELECT pref_key, email_enabled,
           created_at,
           u.username AS created_by_name
@@ -648,7 +917,8 @@ export const createWorkflow = async (req, res, next) => {
       throw httpError(400, "VALIDATION_ERROR", "Missing required fields");
     }
 
-    const result = await query(`INSERT INTO adm_workflows 
+    const result = await query(
+      `INSERT INTO adm_workflows 
        (company_id, workflow_code, workflow_name, module_key, document_type, document_route, default_behavior, email_notify, is_active)
        VALUES (:companyId, :workflow_code, :workflow_name, :module_key, :document_type, :document_route, :default_behavior, :email_notify, :is_active)`,
       {
@@ -690,7 +960,8 @@ export const createWorkflow = async (req, res, next) => {
               ? [step.approver_user_id]
               : [];
         const firstId = ids[0] || null;
-        await query(`INSERT INTO adm_workflow_steps 
+        await query(
+          `INSERT INTO adm_workflow_steps 
            (workflow_id, step_order, step_name, approver_user_id, approval_limit, is_mandatory)
            VALUES (:workflowId, :step_order, :step_name, :approver_user_id, :approval_limit, :is_mandatory)`,
           {
@@ -705,7 +976,8 @@ export const createWorkflow = async (req, res, next) => {
           },
         );
         for (const uid of ids) {
-          await query(`INSERT INTO adm_workflow_step_approvers
+          await query(
+            `INSERT INTO adm_workflow_step_approvers
              (workflow_id, step_order, approver_user_id, approval_limit)
              VALUES (:workflowId, :step_order, :uid, :limit)
              ON DUPLICATE KEY UPDATE approval_limit = VALUES(approval_limit)`,
@@ -743,13 +1015,17 @@ export const updateWorkflow = async (req, res, next) => {
     } = req.body;
 
     const existing = await query(
-      "SELECT id FROM adm_workflows WHERE id = :id AND company_id = :companyId",
+      "SELECT id, is_active FROM adm_workflows WHERE id = :id AND company_id = :companyId",
       { id, companyId },
     );
     if (!existing.length)
       throw httpError(404, "NOT_FOUND", "Workflow not found");
 
-    await query(`UPDATE adm_workflows 
+    const nextIsActive =
+      is_active === undefined ? 1 : Number(Boolean(is_active));
+
+    await query(
+      `UPDATE adm_workflows 
        SET workflow_code = :workflow_code,
            workflow_name = :workflow_name,
            module_key = :module_key,
@@ -780,7 +1056,7 @@ export const updateWorkflow = async (req, res, next) => {
           req.body?.email_notify == null
             ? 1
             : Number(Boolean(req.body.email_notify)),
-        is_active: is_active === undefined ? 1 : Number(Boolean(is_active)),
+        is_active: nextIsActive,
       },
     );
 
@@ -801,7 +1077,8 @@ export const updateWorkflow = async (req, res, next) => {
               ? [step.approver_user_id]
               : [];
         const firstId = ids[0] || null;
-        await query(`INSERT INTO adm_workflow_steps 
+        await query(
+          `INSERT INTO adm_workflow_steps 
            (workflow_id, step_order, step_name, approver_user_id, approval_limit, is_mandatory)
            VALUES (:workflowId, :step_order, :step_name, :approver_user_id, :approval_limit, :is_mandatory)`,
           {
@@ -816,7 +1093,8 @@ export const updateWorkflow = async (req, res, next) => {
           },
         );
         for (const uid of ids) {
-          await query(`INSERT INTO adm_workflow_step_approvers
+          await query(
+            `INSERT INTO adm_workflow_step_approvers
              (workflow_id, step_order, approver_user_id, approval_limit)
              VALUES (:workflowId, :step_order, :uid, :limit)
              ON DUPLICATE KEY UPDATE approval_limit = VALUES(approval_limit)`,
@@ -829,6 +1107,14 @@ export const updateWorkflow = async (req, res, next) => {
           );
         }
       }
+    }
+
+    if (Number(existing[0]?.is_active) === 1 && Number(nextIsActive) === 0) {
+      await autoApprovePendingWorkflowDocuments({
+        workflowId: id,
+        companyId,
+        actorUserId: req.user?.sub || null,
+      });
     }
 
     res.json({ message: "Workflow updated" });
@@ -862,7 +1148,8 @@ export const startWorkflow = async (req, res, next) => {
     const { workflow_id, document_id, document_type, target_user_id } =
       req.body;
 
-    const workflows = await query(`SELECT *,
+    const workflows = await query(
+      `SELECT *,
           created_at,
           u.username AS created_by_name
          FROM adm_workflows
@@ -874,7 +1161,8 @@ export const startWorkflow = async (req, res, next) => {
       throw httpError(404, "NOT_FOUND", "Workflow not found");
     const workflow = workflows[0];
 
-    const steps = await query(`SELECT *,
+    const steps = await query(
+      `SELECT *,
           created_at,
           u.username AS created_by_name
          FROM adm_workflow_steps
@@ -885,7 +1173,8 @@ export const startWorkflow = async (req, res, next) => {
     if (!steps.length)
       throw httpError(400, "BAD_REQUEST", "Workflow has no steps");
     const firstStep = steps[0];
-    const firstApproverRows = await query(`SELECT approver_user_id,
+    const firstApproverRows = await query(
+      `SELECT approver_user_id,
           created_at,
           u.username AS created_by_name
          FROM adm_workflow_step_approvers
@@ -894,7 +1183,8 @@ export const startWorkflow = async (req, res, next) => {
        ORDER BY approver_user_id ASC LIMIT 1`,
       { workflow_id, step_order: firstStep.step_order },
     );
-    const allowedUsers = await query(`SELECT approver_user_id,
+    const allowedUsers = await query(
+      `SELECT approver_user_id,
           created_at,
           u.username AS created_by_name
          FROM adm_workflow_step_approvers
@@ -913,7 +1203,8 @@ export const startWorkflow = async (req, res, next) => {
       firstAssigned = Number(target_user_id);
     }
 
-    const result = await query(`INSERT INTO adm_document_workflows 
+    const result = await query(
+      `INSERT INTO adm_document_workflows 
        (company_id, workflow_id, document_id, document_type, amount, current_step_order, status, assigned_to_user_id)
        VALUES (:companyId, :workflow_id, :document_id, :document_type, :amount, :step_order, 'PENDING', :user_id)`,
       {
@@ -927,7 +1218,8 @@ export const startWorkflow = async (req, res, next) => {
       },
     );
 
-    await query(`INSERT INTO adm_workflow_tasks
+    await query(
+      `INSERT INTO adm_workflow_tasks
        (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
        VALUES (:companyId, :workflow_id, :dw_id, :document_id, :document_type, :step_order, :assigned_to, 'PENDING')`,
       {
@@ -941,7 +1233,8 @@ export const startWorkflow = async (req, res, next) => {
       },
     );
 
-    await query(`INSERT INTO adm_workflow_logs (document_workflow_id, step_order, action, actor_user_id, comments)
+    await query(
+      `INSERT INTO adm_workflow_logs (document_workflow_id, step_order, action, actor_user_id, comments)
        VALUES (:id, :step, 'SUBMIT', :userId, 'Workflow started')`,
       {
         id: result.insertId,
@@ -984,7 +1277,8 @@ export const getPendingApprovals = async (req, res, next) => {
     await ensureWorkflowTables();
     const { companyId } = req.scope;
     const userId = req.user.sub;
-    const items = await query(`SELECT 
+    const items = await query(
+      `SELECT 
           dw.id as workflow_instance_id,
           dw.document_id,
           dw.document_type,
@@ -1072,7 +1366,8 @@ export const getApprovalInstanceDetail = async (req, res, next) => {
     await ensureWorkflowTables();
     const { instanceId } = req.params;
     const { companyId } = req.scope;
-    const instances = await query(`SELECT dw.*, 
+    const instances = await query(
+      `SELECT dw.*, 
                w.workflow_name, w.workflow_code,
                ws.step_name, ws.approver_user_id, ws.approval_limit,
                (SELECT COUNT(*),
@@ -1091,7 +1386,8 @@ export const getApprovalInstanceDetail = async (req, res, next) => {
       throw httpError(404, "NOT_FOUND", "Instance not found");
     const instance = instances[0];
     let next_step_order = null;
-    const nextStepRow = await query(`SELECT step_order,
+    const nextStepRow = await query(
+      `SELECT step_order,
           created_at,
           u.username AS created_by_name
          FROM adm_workflow_steps
@@ -1105,7 +1401,8 @@ export const getApprovalInstanceDetail = async (req, res, next) => {
     }
     let next_step_approvers = [];
     if (next_step_order != null) {
-      next_step_approvers = await query(`SELECT a.approver_user_id as id, u.username, a.approval_limit,
+      next_step_approvers = await query(
+        `SELECT a.approver_user_id as id, u.username, a.approval_limit,
           a.created_at,
           u.username AS created_by_name
          FROM adm_workflow_step_approvers a
@@ -1116,7 +1413,8 @@ export const getApprovalInstanceDetail = async (req, res, next) => {
         { wid: instance.workflow_id, ord: next_step_order },
       );
     }
-    const logs = await query(`SELECT l.*, u.username as actor_name,
+    const logs = await query(
+      `SELECT l.*, u.username as actor_name,
           l.created_at,
           u.username AS created_by_name
          FROM adm_workflow_logs l
@@ -1137,7 +1435,8 @@ export const getApprovalInstanceDetail = async (req, res, next) => {
 export const getNotifications = async (req, res, next) => {
   try {
     const userId = req.user.sub;
-    const items = await query(`SELECT *,
+    const items = await query(
+      `SELECT *,
           created_at,
           u.username AS created_by_name
          FROM adm_notifications
@@ -1172,7 +1471,7 @@ export const markNotificationsReadBulk = async (req, res, next) => {
       return res.json({ message: "No notifications to mark as read" });
     }
     const userId = req.user.sub;
-    
+
     // Create placeholders for the IN clause
     const placeholders = ids.map((_, i) => `:id${i}`).join(", ");
     const params = { userId };
@@ -1198,7 +1497,8 @@ export const performAction = async (req, res, next) => {
     if (!["APPROVE", "REJECT", "RETURN"].includes(action)) {
       throw httpError(400, "VALIDATION_ERROR", "Invalid action");
     }
-    const instances = await query(`SELECT dw.*, w.id as workflow_id,
+    const instances = await query(
+      `SELECT dw.*, w.id as workflow_id,
           dw.created_at,
           u.username AS created_by_name
          FROM adm_document_workflows dw
@@ -1217,7 +1517,8 @@ export const performAction = async (req, res, next) => {
         "You are not authorized to approve this step (Assigned to someone else)",
       );
     }
-    const currentStepRes = await query(`SELECT *,
+    const currentStepRes = await query(
+      `SELECT *,
           created_at,
           u.username AS created_by_name
          FROM adm_workflow_steps
@@ -1234,7 +1535,8 @@ export const performAction = async (req, res, next) => {
       currentStep.approval_limit !== null &&
       instance.amount > currentStep.approval_limit
     ) {
-      const isLastStep = await query(`SELECT COUNT(*) as count,
+      const isLastStep = await query(
+        `SELECT COUNT(*) as count,
           created_at,
           u.username AS created_by_name
          FROM adm_workflow_steps
@@ -1250,7 +1552,8 @@ export const performAction = async (req, res, next) => {
         );
       }
     }
-    await query(`INSERT INTO adm_workflow_logs (document_workflow_id, step_order, action, actor_user_id, comments)
+    await query(
+      `INSERT INTO adm_workflow_logs (document_workflow_id, step_order, action, actor_user_id, comments)
          VALUES (:id, :step, :action, :userId, :comments)`,
       {
         id: instance.id,
@@ -1269,7 +1572,8 @@ export const performAction = async (req, res, next) => {
     };
     const notifyUser = async (targetUserId, title, message) => {
       if (!targetUserId) return;
-      await query(`INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read) 
+      await query(
+        `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read) 
            VALUES (:companyId, :userId, :title, :message, :link, 0)`,
         {
           companyId: req.scope.companyId,
@@ -1315,7 +1619,8 @@ export const performAction = async (req, res, next) => {
 
       let userEmailEnabled = 1;
       try {
-        const prefRows = await query(`
+        const prefRows = await query(
+          `
           SELECT email_enabled,
           created_at,
           u.username AS created_by_name
@@ -1339,7 +1644,8 @@ export const performAction = async (req, res, next) => {
 
       if (!userEmailEnabled && !forceEmail) {
         try {
-          await query(`INSERT INTO adm_system_logs (company_id, user_id, module_name, action, message, url_path)
+          await query(
+            `INSERT INTO adm_system_logs (company_id, user_id, module_name, action, message, url_path)
              VALUES (:companyId, :userId, 'Workflow', 'EMAIL_SKIPPED', 'Email disabled by user preference', :url)`,
             {
               companyId: req.scope.companyId,
@@ -1429,7 +1735,8 @@ export const performAction = async (req, res, next) => {
         console.error("Error sending workflow email:", err);
       }
 
-      await query(`INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
+      await query(
+        `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
          VALUES (:companyId, :userId, :title, :message, :link, 0)`,
         {
           companyId: req.scope.companyId,
@@ -1441,7 +1748,8 @@ export const performAction = async (req, res, next) => {
       );
     };
     if (action === "APPROVE") {
-      const nextSteps = await query(`SELECT *,
+      const nextSteps = await query(
+        `SELECT *,
           created_at,
           u.username AS created_by_name
          FROM adm_workflow_steps
@@ -1462,7 +1770,8 @@ export const performAction = async (req, res, next) => {
             "Next workflow step has no approver_user_id configured",
           );
         }
-        const allowedUsers = await query(`SELECT approver_user_id,
+        const allowedUsers = await query(
+          `SELECT approver_user_id,
           created_at,
           u.username AS created_by_name
          FROM adm_workflow_step_approvers
@@ -1485,7 +1794,8 @@ export const performAction = async (req, res, next) => {
         } else {
           nextAssigned = Number(nextStep.approver_user_id);
         }
-        await query(`UPDATE adm_document_workflows 
+        await query(
+          `UPDATE adm_document_workflows 
               SET current_step_order = :nextOrder, assigned_to_user_id = :nextUser 
               WHERE id = :id`,
           {
@@ -1494,12 +1804,14 @@ export const performAction = async (req, res, next) => {
             nextUser: nextAssigned,
           },
         );
-        await query(`UPDATE adm_workflow_tasks
+        await query(
+          `UPDATE adm_workflow_tasks
              SET action = 'APPROVED'
              WHERE document_workflow_id = :dw AND step_order = :cur`,
           { dw: instance.id, cur: instance.current_step_order },
         );
-        await query(`INSERT INTO adm_workflow_tasks
+        await query(
+          `INSERT INTO adm_workflow_tasks
              (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
              VALUES (:companyId, :workflow_id, :dw_id, :document_id, :document_type, :step_order, :assigned_to, 'PENDING')`,
           {
@@ -1541,10 +1853,12 @@ export const performAction = async (req, res, next) => {
           console.error("Error sending forward notifications:", err);
         }
       } else {
-        await query(`UPDATE adm_document_workflows SET status = 'APPROVED', assigned_to_user_id = NULL WHERE id = :id`,
+        await query(
+          `UPDATE adm_document_workflows SET status = 'APPROVED', assigned_to_user_id = NULL WHERE id = :id`,
           { id: instance.id },
         );
-        await query(`UPDATE adm_workflow_tasks
+        await query(
+          `UPDATE adm_workflow_tasks
              SET action = 'APPROVED'
              WHERE document_workflow_id = :dw AND step_order = :cur`,
           { dw: instance.id, cur: instance.current_step_order },
@@ -1557,10 +1871,12 @@ export const performAction = async (req, res, next) => {
         );
       }
     } else if (action === "REJECT") {
-      await query(`UPDATE adm_document_workflows SET status = 'REJECTED', assigned_to_user_id = NULL WHERE id = :id`,
+      await query(
+        `UPDATE adm_document_workflows SET status = 'REJECTED', assigned_to_user_id = NULL WHERE id = :id`,
         { id: instance.id },
       );
-      await query(`UPDATE adm_workflow_tasks
+      await query(
+        `UPDATE adm_workflow_tasks
            SET action = 'REJECTED'
            WHERE document_workflow_id = :dw AND step_order = :cur`,
         { dw: instance.id, cur: instance.current_step_order },
@@ -1569,14 +1885,16 @@ export const performAction = async (req, res, next) => {
         instance.document_type === "STOCK_ADJUSTMENT" ||
         instance.document_type === "Stock Adjustment"
       ) {
-        await query(`UPDATE inv_stock_adjustments SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
+        await query(
+          `UPDATE inv_stock_adjustments SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } else if (
         instance.document_type === "PURCHASE_ORDER" ||
         instance.document_type === "Purchase Order"
       ) {
-        await query(`UPDATE pur_orders SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
+        await query(
+          `UPDATE pur_orders SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } else if (
@@ -1585,7 +1903,8 @@ export const performAction = async (req, res, next) => {
         instance.document_type === "GRN" ||
         instance.document_type === "Goods Receipt Note"
       ) {
-        await query(`UPDATE inv_goods_receipt_notes SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
+        await query(
+          `UPDATE inv_goods_receipt_notes SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } else if (
@@ -1608,14 +1927,16 @@ export const performAction = async (req, res, next) => {
         instance.document_type === "Credit Note" ||
         instance.document_type === "CN"
       ) {
-        await query(`UPDATE fin_vouchers SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
+        await query(
+          `UPDATE fin_vouchers SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } else if (
         instance.document_type === "SALES_ORDER" ||
         instance.document_type === "Sales Order"
       ) {
-        await query(`UPDATE sal_orders SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
+        await query(
+          `UPDATE sal_orders SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } else if (
@@ -1623,7 +1944,8 @@ export const performAction = async (req, res, next) => {
         instance.document_type === "General Requisition"
       ) {
         try {
-          await query(`UPDATE pur_general_requisitions SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
+          await query(
+            `UPDATE pur_general_requisitions SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
             { id: instance.document_id, companyId: instance.company_id },
           );
         } catch (e) {}
@@ -1632,7 +1954,8 @@ export const performAction = async (req, res, next) => {
         instance.document_type === "Stock Updation"
       ) {
         try {
-          await query(`UPDATE inv_stock_updations SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
+          await query(
+            `UPDATE inv_stock_updations SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
             { id: instance.document_id, companyId: instance.company_id },
           );
         } catch (e) {}
@@ -1641,7 +1964,8 @@ export const performAction = async (req, res, next) => {
         instance.document_type === "Stock Verification"
       ) {
         try {
-          await query(`UPDATE inv_stock_verifications SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
+          await query(
+            `UPDATE inv_stock_verifications SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
             { id: instance.document_id, companyId: instance.company_id },
           );
         } catch (e) {}
@@ -1653,10 +1977,12 @@ export const performAction = async (req, res, next) => {
         `Your document #${instance.document_id} was rejected.`,
       );
     } else if (action === "RETURN") {
-      await query(`UPDATE adm_document_workflows SET status = 'RETURNED', assigned_to_user_id = NULL WHERE id = :id`,
+      await query(
+        `UPDATE adm_document_workflows SET status = 'RETURNED', assigned_to_user_id = NULL WHERE id = :id`,
         { id: instance.id },
       );
-      await query(`UPDATE adm_workflow_tasks
+      await query(
+        `UPDATE adm_workflow_tasks
            SET action = 'RETURNED'
            WHERE document_workflow_id = :dw AND step_order = :cur`,
         { dw: instance.id, cur: instance.current_step_order },
@@ -1665,14 +1991,16 @@ export const performAction = async (req, res, next) => {
         instance.document_type === "STOCK_ADJUSTMENT" ||
         instance.document_type === "Stock Adjustment"
       ) {
-        await query(`UPDATE inv_stock_adjustments SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+        await query(
+          `UPDATE inv_stock_adjustments SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } else if (
         instance.document_type === "PURCHASE_ORDER" ||
         instance.document_type === "Purchase Order"
       ) {
-        await query(`UPDATE pur_orders SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+        await query(
+          `UPDATE pur_orders SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } else if (
@@ -1681,7 +2009,8 @@ export const performAction = async (req, res, next) => {
         instance.document_type === "GRN" ||
         instance.document_type === "Goods Receipt Note"
       ) {
-        await query(`UPDATE inv_goods_receipt_notes SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+        await query(
+          `UPDATE inv_goods_receipt_notes SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } else if (
@@ -1704,7 +2033,8 @@ export const performAction = async (req, res, next) => {
         instance.document_type === "Credit Note" ||
         instance.document_type === "CN"
       ) {
-        await query(`UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+        await query(
+          `UPDATE fin_vouchers SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } else if (
@@ -1712,7 +2042,8 @@ export const performAction = async (req, res, next) => {
         instance.document_type === "Material Requisition"
       ) {
         try {
-          await query(`UPDATE inv_material_requisitions SET status = 'RETURNED' WHERE id = :id AND company_id = :companyId`,
+          await query(
+            `UPDATE inv_material_requisitions SET status = 'RETURNED' WHERE id = :id AND company_id = :companyId`,
             { id: instance.document_id, companyId: instance.company_id },
           );
         } catch (e) {}
@@ -1721,13 +2052,25 @@ export const performAction = async (req, res, next) => {
         instance.document_type === "Return to Stores"
       ) {
         try {
-          await query(`UPDATE inv_return_to_stores SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+          await query(
+            `UPDATE inv_return_to_stores SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
             { id: instance.document_id, companyId: instance.company_id },
           );
         } catch (e) {}
       } else if (instance.document_type === "SALES_RETURN") {
         try {
-          await query(`UPDATE sal_returns SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+          await query(
+            `UPDATE sal_returns SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+            { id: instance.document_id, companyId: instance.company_id },
+          );
+        } catch (e) {}
+      } else if (
+        instance.document_type === "PURCHASE_RETURN" ||
+        instance.document_type === "Purchase Return"
+      ) {
+        try {
+          await query(
+            `UPDATE pur_returns SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
             { id: instance.document_id, companyId: instance.company_id },
           );
         } catch (e) {}
@@ -1736,7 +2079,8 @@ export const performAction = async (req, res, next) => {
         instance.document_type === "Sales Order"
       ) {
         try {
-          await query(`UPDATE sal_orders SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+          await query(
+            `UPDATE sal_orders SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
             { id: instance.document_id, companyId: instance.company_id },
           );
         } catch (e) {}
@@ -1745,7 +2089,8 @@ export const performAction = async (req, res, next) => {
         instance.document_type === "General Requisition"
       ) {
         try {
-          await query(`UPDATE pur_general_requisitions SET status = 'DRAFT' WHERE id = :id AND company_id = :companyId`,
+          await query(
+            `UPDATE pur_general_requisitions SET status = 'DRAFT' WHERE id = :id AND company_id = :companyId`,
             { id: instance.document_id, companyId: instance.company_id },
           );
         } catch (e) {}
@@ -1754,7 +2099,8 @@ export const performAction = async (req, res, next) => {
         instance.document_type === "Stock Updation"
       ) {
         try {
-          await query(`UPDATE inv_stock_updations SET status = 'DRAFT' WHERE id = :id AND company_id = :companyId`,
+          await query(
+            `UPDATE inv_stock_updations SET status = 'DRAFT' WHERE id = :id AND company_id = :companyId`,
             { id: instance.document_id, companyId: instance.company_id },
           );
         } catch (e) {}
@@ -1763,7 +2109,8 @@ export const performAction = async (req, res, next) => {
         instance.document_type === "Stock Verification"
       ) {
         try {
-          await query(`UPDATE inv_stock_verifications SET status = 'DRAFT' WHERE id = :id AND company_id = :companyId`,
+          await query(
+            `UPDATE inv_stock_verifications SET status = 'DRAFT' WHERE id = :id AND company_id = :companyId`,
             { id: instance.document_id, companyId: instance.company_id },
           );
         } catch (e) {}
@@ -1780,7 +2127,8 @@ export const performAction = async (req, res, next) => {
         wf.document_type === "Stock Updation")
     ) {
       try {
-        const upRows = await query(`SELECT id, status, warehouse_id, branch_id,
+        const upRows = await query(
+          `SELECT id, status, warehouse_id, branch_id,
           created_at,
           u.username AS created_by_name
          FROM inv_stock_updations
@@ -1838,7 +2186,8 @@ export const performAction = async (req, res, next) => {
         wf.document_type === "Stock Verification")
     ) {
       try {
-        const verRows = await query(`SELECT id, status, warehouse_id, branch_id,
+        const verRows = await query(
+          `SELECT id, status, warehouse_id, branch_id,
           created_at,
           u.username AS created_by_name
          FROM inv_stock_verifications
@@ -1891,7 +2240,8 @@ export const performAction = async (req, res, next) => {
       }
     }
     if (action === "APPROVE") {
-      const finalCheck = await query(`SELECT status, document_type, document_id, company_id,
+      const finalCheck = await query(
+        `SELECT status, document_type, document_id, company_id,
           created_at,
           u.username AS created_by_name
          FROM adm_document_workflows
@@ -1903,7 +2253,8 @@ export const performAction = async (req, res, next) => {
       if (wf.status === "APPROVED" && wf.document_type === "SALES_RETURN") {
         let headerRows;
         try {
-          headerRows = await query(`SELECT id, branch_id, status,
+          headerRows = await query(
+            `SELECT id, branch_id, warehouse_id, status,
           created_at,
           u.username AS created_by_name
          FROM sal_returns
@@ -1949,7 +2300,8 @@ export const performAction = async (req, res, next) => {
                   CONSTRAINT fk_sal_return_details_header FOREIGN KEY (return_id) REFERENCES sal_returns(id) ON DELETE CASCADE
                 )
               `);
-            headerRows = await query(`SELECT id, branch_id, status,
+            headerRows = await query(
+              `SELECT id, branch_id, warehouse_id, status,
           created_at,
           u.username AS created_by_name
          FROM sal_returns
@@ -1964,36 +2316,61 @@ export const performAction = async (req, res, next) => {
         if (headerRows.length) {
           const header = headerRows[0];
           if (header.status !== "APPROVED") {
-            await query(`UPDATE sal_returns SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+            await query(
+              `UPDATE sal_returns SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
               { id: header.id, companyId: wf.company_id },
-            );
-            const details = await query(`SELECT item_id, qty_returned,
-          created_at,
-          u.username AS created_by_name
-         FROM sal_return_details
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE return_id = :id`,
-              { id: header.id },
             );
             const conn = await pool.getConnection();
             try {
               await conn.beginTransaction();
-              for (const d of details) {
-                const itemId = toNumber(d.item_id);
-                const qtyReturned = Number(d.qty_returned || 0);
-                if (itemId && Number.isFinite(qtyReturned) && qtyReturned > 0) {
-                  await recordMovementTx(conn, {
-                    companyId: wf.company_id,
-                    branchId: header.branch_id,
-                    warehouseId: null, // Default
-                    itemId,
-                    transactionType: "SALES_RETURN",
-                    qtyChange: qtyReturned,
-                    sourceRef: header.id,
-                    createdBy: null,
-                  });
-                }
-              }
+              await createCreditNoteForReturnApprovalTx(conn, {
+                id: header.id,
+                companyId: wf.company_id,
+                branchId: header.branch_id,
+              });
+              await conn.commit();
+            } catch (err) {
+              await conn.rollback();
+              throw err;
+            } finally {
+              conn.release();
+            }
+          }
+        }
+      } else if (
+        wf.status === "APPROVED" &&
+        (wf.document_type === "PURCHASE_RETURN" ||
+          wf.document_type === "Purchase Return")
+      ) {
+        let headerRows;
+        try {
+          headerRows = await query(
+            `SELECT id, branch_id, status,
+          created_at,
+          u.username AS created_by_name
+         FROM pur_returns
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :docId AND company_id = :companyId`,
+            { docId: wf.document_id, companyId: wf.company_id },
+          );
+        } catch (e) {
+          throw e;
+        }
+        if (headerRows.length) {
+          const header = headerRows[0];
+          if (header.status !== "APPROVED") {
+            await query(
+              `UPDATE pur_returns SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+              { id: header.id, companyId: wf.company_id },
+            );
+            const conn = await pool.getConnection();
+            try {
+              await conn.beginTransaction();
+              await createDebitNoteForReturnApprovalTx(conn, {
+                id: header.id,
+                companyId: wf.company_id,
+                branchId: header.branch_id,
+              });
               await conn.commit();
             } catch (err) {
               await conn.rollback();
@@ -2009,7 +2386,8 @@ export const performAction = async (req, res, next) => {
           wf.document_type === "MATERIAL_REQUISITION")
       ) {
         try {
-          const mrRows = await query(`SELECT id, status,
+          const mrRows = await query(
+            `SELECT id, status,
           created_at,
           u.username AS created_by_name
          FROM inv_material_requisitions
@@ -2018,7 +2396,8 @@ export const performAction = async (req, res, next) => {
             { docId: wf.document_id, companyId: wf.company_id },
           );
           if (mrRows.length && mrRows[0].status !== "APPROVED") {
-            await query(`UPDATE inv_material_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+            await query(
+              `UPDATE inv_material_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
               { id: wf.document_id, companyId: wf.company_id },
             );
           }
@@ -2029,7 +2408,8 @@ export const performAction = async (req, res, next) => {
           wf.document_type === "Return to Stores")
       ) {
         try {
-          const rtsRows = await query(`SELECT id, status,
+          const rtsRows = await query(
+            `SELECT id, status,
           created_at,
           u.username AS created_by_name
          FROM inv_return_to_stores
@@ -2085,7 +2465,8 @@ export const performAction = async (req, res, next) => {
           wf.document_type === "Goods Receipt Note")
       ) {
         try {
-          const grnRows = await query(`SELECT id, status, branch_id, warehouse_id,
+          const grnRows = await query(
+            `SELECT id, status, branch_id, warehouse_id,
           created_at,
           u.username AS created_by_name
          FROM inv_goods_receipt_notes
@@ -2139,7 +2520,8 @@ export const performAction = async (req, res, next) => {
           wf.document_type === "Stock Adjustment")
       ) {
         try {
-          const adjRows = await query(`SELECT id, status, warehouse_id, branch_id,
+          const adjRows = await query(
+            `SELECT id, status, warehouse_id, branch_id,
           created_at,
           u.username AS created_by_name
          FROM inv_stock_adjustments
@@ -2148,10 +2530,12 @@ export const performAction = async (req, res, next) => {
             { docId: wf.document_id, companyId: wf.company_id },
           );
           if (adjRows.length && adjRows[0].status !== "APPROVED") {
-            await query(`UPDATE inv_stock_adjustments SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+            await query(
+              `UPDATE inv_stock_adjustments SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
               { id: wf.document_id, companyId: wf.company_id },
             );
-            const details = await query(`SELECT item_id, qty,
+            const details = await query(
+              `SELECT item_id, qty,
           created_at,
           u.username AS created_by_name
          FROM inv_stock_adjustment_details
@@ -2197,7 +2581,8 @@ export const performAction = async (req, res, next) => {
           wf.document_type === "Stock Updation")
       ) {
         try {
-          const upRows = await query(`SELECT id, status, warehouse_id, branch_id,
+          const upRows = await query(
+            `SELECT id, status, warehouse_id, branch_id,
           created_at,
           u.username AS created_by_name
          FROM inv_stock_updations
@@ -2255,7 +2640,8 @@ export const performAction = async (req, res, next) => {
           wf.document_type === "Stock Verification")
       ) {
         try {
-          const verRows = await query(`SELECT id, status, warehouse_id, branch_id,
+          const verRows = await query(
+            `SELECT id, status, warehouse_id, branch_id,
           created_at,
           u.username AS created_by_name
          FROM inv_stock_verifications
@@ -2296,7 +2682,8 @@ export const performAction = async (req, res, next) => {
           wf.document_type === "Purchase Order")
       ) {
         try {
-          const poRows = await query(`SELECT id, status,
+          const poRows = await query(
+            `SELECT id, status,
           created_at,
           u.username AS created_by_name
          FROM pur_orders
@@ -2305,7 +2692,8 @@ export const performAction = async (req, res, next) => {
             { docId: wf.document_id, companyId: wf.company_id },
           );
           if (poRows.length && poRows[0].status !== "APPROVED") {
-            await query(`UPDATE pur_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+            await query(
+              `UPDATE pur_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
               { id: wf.document_id, companyId: wf.company_id },
             );
           }
@@ -2316,7 +2704,8 @@ export const performAction = async (req, res, next) => {
           wf.document_type === "General Requisition")
       ) {
         try {
-          const grRows = await query(`SELECT id, status,
+          const grRows = await query(
+            `SELECT id, status,
           created_at,
           u.username AS created_by_name
          FROM pur_general_requisitions
@@ -2325,7 +2714,8 @@ export const performAction = async (req, res, next) => {
             { docId: wf.document_id, companyId: wf.company_id },
           );
           if (grRows.length && grRows[0].status !== "APPROVED") {
-            await query(`UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+            await query(
+              `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
               { id: wf.document_id, companyId: wf.company_id },
             );
           }
@@ -2338,7 +2728,8 @@ export const performAction = async (req, res, next) => {
           wf.document_type === "Goods Receipt Note")
       ) {
         try {
-          const rows = await query(`SELECT id, status,
+          const rows = await query(
+            `SELECT id, status,
           created_at,
           u.username AS created_by_name
          FROM inv_goods_receipt_notes
@@ -2347,7 +2738,8 @@ export const performAction = async (req, res, next) => {
             { docId: wf.document_id, companyId: wf.company_id },
           );
           if (rows.length && rows[0].status !== "APPROVED") {
-            await query(`UPDATE inv_goods_receipt_notes SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+            await query(
+              `UPDATE inv_goods_receipt_notes SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
               { id: wf.document_id, companyId: wf.company_id },
             );
           }
@@ -2374,7 +2766,8 @@ export const performAction = async (req, res, next) => {
           wf.document_type === "CN")
       ) {
         try {
-          const rows = await query(`SELECT id, status,
+          const rows = await query(
+            `SELECT id, status,
           created_at,
           u.username AS created_by_name
          FROM fin_vouchers
@@ -2383,7 +2776,8 @@ export const performAction = async (req, res, next) => {
             { docId: wf.document_id, companyId: wf.company_id },
           );
           if (rows.length && rows[0].status !== "APPROVED") {
-            await query(`UPDATE fin_vouchers SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+            await query(
+              `UPDATE fin_vouchers SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
               { id: wf.document_id, companyId: wf.company_id },
             );
             if (
@@ -2391,13 +2785,16 @@ export const performAction = async (req, res, next) => {
               wf.document_type === "Payment Voucher" ||
               wf.document_type === "PV"
             ) {
-              await query(`UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
+              await query(
+                `UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
                 { id: wf.document_id, companyId: wf.company_id },
               );
-              await query(`UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
+              await query(
+                `UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
                 { id: wf.document_id, companyId: wf.company_id },
               );
-              await query(`UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
+              await query(
+                `UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
                 { id: wf.document_id, companyId: wf.company_id },
               );
             }
@@ -2409,7 +2806,8 @@ export const performAction = async (req, res, next) => {
           wf.document_type === "Sales Order")
       ) {
         try {
-          const rows = await query(`SELECT id, status,
+          const rows = await query(
+            `SELECT id, status,
           created_at,
           u.username AS created_by_name
          FROM sal_orders
@@ -2418,7 +2816,8 @@ export const performAction = async (req, res, next) => {
             { docId: wf.document_id, companyId: wf.company_id },
           );
           if (rows.length && rows[0].status !== "CONFIRMED") {
-            await query(`UPDATE sal_orders SET status = 'CONFIRMED' WHERE id = :id AND company_id = :companyId`,
+            await query(
+              `UPDATE sal_orders SET status = 'CONFIRMED' WHERE id = :id AND company_id = :companyId`,
               { id: wf.document_id, companyId: wf.company_id },
             );
           }
@@ -2429,7 +2828,8 @@ export const performAction = async (req, res, next) => {
           wf.document_type === "Stock Updation")
       ) {
         try {
-          const updRows = await query(`SELECT id, status, branch_id, warehouse_id,
+          const updRows = await query(
+            `SELECT id, status, branch_id, warehouse_id,
           created_at,
           u.username AS created_by_name
          FROM inv_stock_updations
@@ -2439,10 +2839,12 @@ export const performAction = async (req, res, next) => {
           );
           if (updRows.length && updRows[0].status !== "APPROVED") {
             const upd = updRows[0];
-            await query(`UPDATE inv_stock_updations SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+            await query(
+              `UPDATE inv_stock_updations SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
               { id: upd.id, companyId: wf.company_id },
             );
-            const details = await query(`SELECT item_id, qty, batch_no, uom,
+            const details = await query(
+              `SELECT item_id, qty, batch_no, uom,
           created_at,
           u.username AS created_by_name
          FROM inv_stock_updation_details
@@ -2490,7 +2892,8 @@ export const performAction = async (req, res, next) => {
           wf.document_type === "Stock Verification")
       ) {
         try {
-          const verRows = await query(`SELECT id, status, branch_id, warehouse_id,
+          const verRows = await query(
+            `SELECT id, status, branch_id, warehouse_id,
           created_at,
           u.username AS created_by_name
          FROM inv_stock_verifications
@@ -2500,7 +2903,8 @@ export const performAction = async (req, res, next) => {
           );
           if (verRows.length && verRows[0].status !== "APPROVED") {
             const ver = verRows[0];
-            await query(`UPDATE inv_stock_verifications SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+            await query(
+              `UPDATE inv_stock_verifications SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
               { id: ver.id, companyId: wf.company_id },
             );
             const branchId = ver.branch_id || 1;

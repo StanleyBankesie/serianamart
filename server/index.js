@@ -80,6 +80,45 @@ try {
 
 const app = express();
 
+app.use((req, res, next) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:*;"
+  );
+  next();
+});
+
+/* ---------------- HTTP/2 COMPAT ---------------- */
+// Monkey-patch ServerResponse to strip HTTP/2-forbidden headers
+// that nginx may forward from HTTP/1.1 upstream to HTTP/2 clients.
+const ORIG_WRITE_HEAD = http.ServerResponse.prototype.writeHead;
+http.ServerResponse.prototype.writeHead = function () {
+  // Strip from both this._headers and the internal outHeaders symbol
+  const strip = (obj) => {
+    if (!obj) return;
+    const keys = Object.getOwnPropertyNames(obj);
+    for (const k of keys) {
+      if (k.toLowerCase() === "connection" || k.toLowerCase() === "transfer-encoding") {
+        delete obj[k];
+      }
+    }
+  };
+  strip(this._headers);
+  const sym = Object.getOwnPropertySymbols(this).find(
+    (s) => s.toString().includes("Headers") || s.toString().includes("headers"),
+  );
+  if (sym) strip(this[sym]);
+  return ORIG_WRITE_HEAD.apply(this, arguments);
+};
+
+app.use((req, res, next) => {
+  res.removeHeader("Connection");
+  res.removeHeader("connection");
+  res.removeHeader("Transfer-Encoding");
+  res.removeHeader("transfer-encoding");
+  next();
+});
+
 /* ---------------- UTILS ---------------- */
 const boolEnv = (v) => {
   if (v == null) return false;
@@ -508,8 +547,8 @@ app.use("/api/administration", adminRoutes);
 app.use("/api/workflows", workflowRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/sales", salesRoutes);
-app.use("/api/purchase", purchaseRoutes);
 app.use("/api/purchase/bills", purchaseBillsRoutes);
+app.use("/api/purchase", purchaseRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/finance", financeRoutes);
 app.use("/api/hr", hrRoutes);
@@ -603,8 +642,13 @@ const PORT = Number(process.env.PORT || 4002);
 const server = http.createServer(app);
 
 // Timeouts to avoid long-hanging connections in managed hosting
+// keepAliveTimeout=0 disables keep-alive, forcing "Connection: close"
+// instead of "Connection: keep-alive" (avoids ERR_HTTP2_PROTOCOL_ERROR
+// when nginx proxies HTTP/1.1 to HTTP/2 clients).
 try {
-  const keepAliveMs = Number(process.env.KEEP_ALIVE_TIMEOUT_MS || 60000);
+  const keepAliveMs = process.env.KEEP_ALIVE_TIMEOUT_MS
+    ? Number(process.env.KEEP_ALIVE_TIMEOUT_MS)
+    : 0;
   const headersMs = Number(process.env.HEADERS_TIMEOUT_MS || 65000);
   const requestMs = process.env.REQUEST_TIMEOUT_MS
     ? Number(process.env.REQUEST_TIMEOUT_MS)

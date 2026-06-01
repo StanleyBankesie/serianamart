@@ -42,6 +42,44 @@ export default function PurchaseOrdersImportList() {
   const [activeDocId, setActiveDocId] = useState(null);
   const { canPerformAction, hasExceptional, canReverseApproval } = usePermission();
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadWorkflowFlags() {
+      try {
+        const res = await api.get("/workflows");
+        const list = Array.isArray(res.data?.items) ? res.data.items : [];
+        if (cancelled) return;
+        setWorkflowsCache(list);
+        const route = "/purchase/purchase-orders-import";
+        const normalize = (s) =>
+          String(s || "").trim().toUpperCase().replace(/\s+/g, "_");
+        const matching = list.filter(
+          (w) =>
+            String(w.document_route) === route ||
+            normalize(w.document_type) === "PURCHASE_ORDER",
+        );
+        const hasInactive = matching.some((w) => Number(w.is_active) === 0);
+        const chosen =
+          list.find(
+            (w) =>
+              Number(w.is_active) === 1 && String(w.document_route) === route,
+          ) ||
+          list.find(
+            (w) =>
+              Number(w.is_active) === 1 &&
+              normalize(w.document_type) === "PURCHASE_ORDER",
+          ) ||
+          null;
+        setCandidateWorkflow(chosen || null);
+        setHasInactiveWorkflow(!chosen && hasInactive);
+      } catch {}
+    }
+    loadWorkflowFlags();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function reversePo(id) {
     try {
       await api.post(`/purchase/orders/import/${id}/reverse`, {
@@ -368,6 +406,8 @@ export default function PurchaseOrdersImportList() {
   }, [purchaseOrders, searchTerm, statusFilter]);
 
   const { sorted: sortedOrders, sortKey, sortDir, toggle } = useSort(filteredOrders, "created_at", "desc");
+
+  const workflowDisabled = hasInactiveWorkflow && !candidateWorkflow;
 
   const openForwardModal = async (doc) => {
     setSelectedDoc(doc);
@@ -823,7 +863,11 @@ export default function PurchaseOrdersImportList() {
                         {/* Slot 6: Workflow */}
                         <div className="min-w-[160px]">
                           <div className="list-approval-slot">
-                            {po.status === "APPROVED" ? (
+                            {workflowDisabled && po.status !== "APPROVED" ? (
+                              <span className="list-approval-approved-pill">
+                                Approved
+                              </span>
+                            ) : po.status === "APPROVED" ? (
                               <div className="flex items-center gap-2">
                                 <span className="list-approval-approved-pill">
                                   Approved

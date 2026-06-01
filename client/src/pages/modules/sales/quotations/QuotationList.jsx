@@ -460,6 +460,8 @@ export default function QuotationList() {
 
   const { sorted: sortedQuotations, sortKey, sortDir, toggle } = useSort(filteredQuotations, "created_at", "desc");
 
+  const workflowDisabled = hasInactiveWorkflow && !candidateWorkflow;
+
   function safeDate(v) {
     const s = String(v || "").trim();
     if (!s) return "-";
@@ -882,7 +884,9 @@ export default function QuotationList() {
                         {/* Slot 6: Workflow / Status */}
                         <div className="min-w-[160px]">
                           <div className="list-approval-slot">
-                            {quot.status === "ACCEPTED" || quot.status === "APPROVED" ? (
+                            {workflowDisabled && quot.status !== "ACCEPTED" && quot.status !== "APPROVED" ? (
+                              <span className="list-approval-approved-pill">Approved</span>
+                            ) : quot.status === "ACCEPTED" || quot.status === "APPROVED" ? (
                               <div className="flex items-center gap-2">
                                 <span className="list-approval-approved-pill">
                                   {quot.status === "APPROVED" ? "Approved" : "Accepted"}

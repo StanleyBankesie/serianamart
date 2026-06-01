@@ -69,57 +69,78 @@ function HRDashboard() {
   const [stats, setStats] = React.useState([
     {
       rbac_key: "active-employees",
-      icon: "👥",
-      value: "142",
+      value: "—",
       label: "Active Employees",
-      change: "5 new this month",
-      changeType: "positive",
+      change: "Loading…",
+      changeType: "neutral",
       path: "/human-resources/employees",
     },
     {
-      rbac_key: "on-leave",
-      icon: "📅",
-      value: "8",
-      label: "On Leave",
-      change: "Today",
+      rbac_key: "today-attendance",
+      value: "—",
+      label: "Present Today",
+      change: "Loading…",
       changeType: "neutral",
-      path: "/human-resources/leave-setup",
+      path: "/human-resources/attendance",
+    },
+    {
+      rbac_key: "on-leave",
+      value: "—",
+      label: "On Leave Today",
+      change: "Loading…",
+      changeType: "neutral",
+      path: "/human-resources/leave/request",
     },
     {
       rbac_key: "payroll-status",
-      icon: "💰",
-      value: "Pending",
+      value: "—",
       label: "Payroll Status",
-      change: "Due in 3 days",
-      changeType: "negative",
+      change: "Loading…",
+      changeType: "neutral",
       path: "/human-resources/payslips",
     },
   ]);
 
   React.useEffect(() => {
     let mounted = true;
+    let timer;
     async function load() {
       try {
-        const resp = await api.get("/bi/dashboards");
-        const employees = Number(resp?.data?.summary?.hr?.employees || 0);
-        const onLeave = Number(resp?.data?.summary?.hr?.on_leave || 0);
-        const payrollStatus = String(
-          resp?.data?.summary?.hr?.payroll_status || "",
-        ).trim();
-        if (mounted) {
+        const resp = await api.get("/human-resources/dashboard-stats");
+        const d = resp?.data?.data;
+        if (d && mounted) {
           setStats((prev) => {
             const next = [...prev];
             next[0] = {
               ...next[0],
-              value: String(employees),
+              value: String(d.activeEmployees ?? "—"),
+              change: `${d.departmentsCount ?? 0} departments`,
+              changeType: "positive",
             };
             next[1] = {
               ...next[1],
-              value: String(onLeave),
+              value: String(d.presentToday ?? "—"),
+              change: `${d.onLeaveToday ?? 0} on leave`,
+              changeType: d.presentToday > 0 ? "positive" : "neutral",
             };
             next[2] = {
               ...next[2],
-              value: payrollStatus || next[2].value,
+              value: String(d.onLeaveToday ?? "—"),
+              change: `${d.pendingLeaveRequests ?? 0} leave requests`,
+              changeType: d.pendingLeaveRequests > 0 ? "warning" : "positive",
+            };
+            next[3] = {
+              ...next[3],
+              value: String(d.payrollStatus ?? "—"),
+              change: d.payrollStatus === "None"
+                ? "No active period"
+                : `Period: ${d.payrollStatus}`,
+              changeType:
+                d.payrollStatus === "CLOSED"
+                  ? "positive"
+                  : d.payrollStatus === "None"
+                    ? "neutral"
+                    : "warning",
             };
             return next;
           });
@@ -127,8 +148,10 @@ function HRDashboard() {
       } catch {}
     }
     load();
+    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
+      clearInterval(timer);
     };
   }, []);
 

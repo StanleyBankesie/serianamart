@@ -248,6 +248,20 @@ export const getDashboardStats = async (req, res, next) => {
     const [totalExceptions] = await query(
       "SELECT COUNT(*) as count FROM adm_exceptional_permissions",
     );
+    let activeSessions = 0;
+    let pendingWorkflows = 0;
+    try {
+      const [sessions] = await query(
+        "SELECT COUNT(DISTINCT user_id) as count FROM adm_login_logs WHERE login_time >= DATE_SUB(NOW(), INTERVAL 24 HOUR)",
+      );
+      activeSessions = sessions.count;
+    } catch {}
+    try {
+      const [pending] = await query(
+        "SELECT COUNT(*) as count FROM adm_workflow_tasks WHERE action = 'PENDING'",
+      );
+      pendingWorkflows = pending.count;
+    } catch {}
     res.json({
       success: true,
       message: "Dashboard stats",
@@ -258,6 +272,8 @@ export const getDashboardStats = async (req, res, next) => {
         assignmentsCount: assignments.count,
         activeExceptionsCount: activeExceptions.count,
         totalExceptionsCount: totalExceptions.count,
+        activeSessions,
+        pendingWorkflows,
       },
     });
   } catch (err) {

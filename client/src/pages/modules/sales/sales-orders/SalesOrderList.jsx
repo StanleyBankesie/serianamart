@@ -18,7 +18,13 @@ import {
 export default function SalesOrderList() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { canPerformAction, canCreateOnPage, canDeleteOnPage, hasExceptional, canReverseApproval } = usePermission();
+  const {
+    canPerformAction,
+    canCreateOnPage,
+    canDeleteOnPage,
+    hasExceptional,
+    canReverseApproval,
+  } = usePermission();
   const [orders, setOrders] = useState([]);
   const [exceptionalAllowed, setExceptionalAllowed] = useState(false);
   const [cancelDenied, setCancelDenied] = useState(false);
@@ -33,6 +39,7 @@ export default function SalesOrderList() {
   const [workflowSteps, setWorkflowSteps] = useState([]);
   const [firstApprover, setFirstApprover] = useState(null);
   const [workflowsCache, setWorkflowsCache] = useState(null);
+  const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
   const [targetApproverId, setTargetApproverId] = useState(null);
   const [submittingForward, setSubmittingForward] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -54,6 +61,47 @@ export default function SalesOrderList() {
     logoUrl: "",
   });
   const [preparedBy, setPreparedBy] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadWorkflowFlags() {
+      try {
+        const res = await api.get("/workflows");
+        const list = Array.isArray(res.data?.items) ? res.data.items : [];
+        if (cancelled) return;
+        setWorkflowsCache(list);
+        const route = "/sales/sales-orders";
+        const normalize = (s) =>
+          String(s || "")
+            .trim()
+            .toUpperCase()
+            .replace(/\s+/g, "_");
+        const matching = list.filter(
+          (w) =>
+            String(w.document_route) === route ||
+            normalize(w.document_type) === "SALES_ORDER",
+        );
+        const hasInactive = matching.some((w) => Number(w.is_active) === 0);
+        const chosen =
+          list.find(
+            (w) =>
+              Number(w.is_active) === 1 && String(w.document_route) === route,
+          ) ||
+          list.find(
+            (w) =>
+              Number(w.is_active) === 1 &&
+              normalize(w.document_type) === "SALES_ORDER",
+          ) ||
+          null;
+        setCandidateWorkflow(chosen || null);
+        setHasInactiveWorkflow(!chosen && hasInactive);
+      } catch {}
+    }
+    loadWorkflowFlags();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function reverseSalesOrder(id) {
     try {
@@ -684,7 +732,14 @@ export default function SalesOrderList() {
     });
   }, [orders, statusFilter, searchTerm]);
 
-  const { sorted: filteredOrders, sortKey, sortDir, toggle } = useSort(filteredBase, "created_at", "desc");
+  const {
+    sorted: filteredOrders,
+    sortKey,
+    sortDir,
+    toggle,
+  } = useSort(filteredBase, "created_at", "desc");
+
+  const workflowDisabled = hasInactiveWorkflow && !candidateWorkflow;
 
   const openForwardModal = async (order) => {
     setSelectedOrder(order);
@@ -712,6 +767,7 @@ export default function SalesOrderList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+      setHasInactiveWorkflow(false);
       return;
     }
     const route = "/sales/sales-orders";
@@ -720,6 +776,12 @@ export default function SalesOrderList() {
         .trim()
         .toUpperCase()
         .replace(/\s+/g, "_");
+    const matching = items.filter(
+      (w) =>
+        String(w.document_route) === route ||
+        normalize(w.document_type) === "SALES_ORDER",
+    );
+    const hasInactive = matching.some((w) => Number(w.is_active) === 0);
     const chosen =
       items.find(
         (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
@@ -731,6 +793,7 @@ export default function SalesOrderList() {
       ) ||
       null;
     setCandidateWorkflow(chosen || null);
+    setHasInactiveWorkflow(!chosen && hasInactive);
     setFirstApprover(null);
     if (!chosen) return;
     try {
@@ -774,6 +837,7 @@ export default function SalesOrderList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+      setHasInactiveWorkflow(false);
       return;
     }
     const route = "/sales/sales-orders";
@@ -782,6 +846,12 @@ export default function SalesOrderList() {
         .trim()
         .toUpperCase()
         .replace(/\s+/g, "_");
+    const matching = workflowsCache.filter(
+      (w) =>
+        String(w.document_route) === route ||
+        normalize(w.document_type) === "SALES_ORDER",
+    );
+    const hasInactive = matching.some((w) => Number(w.is_active) === 0);
     const chosen =
       workflowsCache.find(
         (w) => Number(w.is_active) === 1 && String(w.document_route) === route,
@@ -793,6 +863,7 @@ export default function SalesOrderList() {
       ) ||
       null;
     setCandidateWorkflow(chosen || null);
+    setHasInactiveWorkflow(!chosen && hasInactive);
     setFirstApprover(null);
     if (!chosen) return;
     try {
@@ -1039,19 +1110,76 @@ export default function SalesOrderList() {
               <table className="table">
                 <thead>
                   <tr>
-                    <SortableHeader label="Order No" sortKey="order_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Order Date" sortKey="order_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Priority" sortKey="priority" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Amount" sortKey="total_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader
+                      label="Order No"
+                      sortKey="order_no"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                    />
+                    <SortableHeader
+                      label="Order Date"
+                      sortKey="order_date"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                    />
+                    <SortableHeader
+                      label="Customer"
+                      sortKey="customer_name"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                    />
+                    <SortableHeader
+                      label="Priority"
+                      sortKey="priority"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                    />
+                    <SortableHeader
+                      label="Status"
+                      sortKey="status"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                    />
+                    <SortableHeader
+                      label="Amount"
+                      sortKey="total_amount"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                    />
                     <th className="text-right">Actions</th>
-                    <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader
+                      label="Created By"
+                      sortKey="created_by_name"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                    />
+                    <SortableHeader
+                      label="Created Date"
+                      sortKey="created_at"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                    />
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredOrders.map((order) => (
+                  {filteredOrders.map((order) => {
+                    const upperStatus = String(order.status || "").toUpperCase();
+                    const autoApproved =
+                      workflowDisabled &&
+                      upperStatus !== "CANCELLED" &&
+                      upperStatus !== "REVERSED";
+                    const displayStatus = autoApproved
+                      ? "APPROVED"
+                      : upperStatus || "DRAFT";
+                    return (
                     <tr key={order.id}>
                       <td className="font-medium">{order.order_no}</td>
                       <td>{new Date(order.order_date).toLocaleDateString()}</td>
@@ -1059,7 +1187,7 @@ export default function SalesOrderList() {
                       <td>{order.priority || "-"}</td>
                       <td>
                         {getStatusBadge(
-                          String(order.status || "").toUpperCase(),
+                          displayStatus,
                         )}
                       </td>
                       <td className="font-semibold">
@@ -1067,133 +1195,156 @@ export default function SalesOrderList() {
                           minimumFractionDigits: 2,
                         })}
                       </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {/* Slot 1: View */}
-                        <div className="min-w-[80px]">
-                          <button
-                            type="button"
-                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
-                            onClick={() => navigate(`/sales/sales-orders/${order.id}?mode=view`)}
-                          >
-                            View
-                          </button>
-                        </div>
-
-                        {/* Slot 2: Edit */}
-                        <div className="min-w-[80px]">
-                          {!["APPROVED", "POSTED", "CONFIRMED"].includes(String(order.status || "").toUpperCase()) && canPerformAction("sales:sales-orders", "edit") ? (
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {/* Slot 1: View */}
+                          <div className="min-w-[80px]">
                             <button
                               type="button"
                               className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
-                              onClick={() => navigate(`/sales/sales-orders/${order.id}?mode=edit`)}
+                              onClick={() =>
+                                navigate(
+                                  `/sales/sales-orders/${order.id}?mode=view`,
+                                )
+                              }
                             >
-                              Edit
+                              View
                             </button>
-                          ) : (
-                            <div className="w-full h-9" />
-                          )}
-                        </div>
+                          </div>
 
-                        {/* Slot 3: Print */}
-                        <div className="min-w-[80px]">
-                          <ListPrintIconButton
-                            onClick={() => printSalesOrder(order.id)}
-                          />
-                        </div>
-
-                        {/* Slot 4: PDF */}
-                        <div className="min-w-[80px]">
-                          <ListPdfIconButton
-                            onClick={() => downloadSalesOrderPdf(order.id)}
-                          />
-                        </div>
-
-                        {/* Slot 5: Attachments */}
-                        <div className="min-w-[80px]">
-                          <ListAttachmentIconButton
-                            onClick={() => {
-                              setActiveDocId(order.id);
-                              setShowAttach(true);
-                            }}
-                          />
-                        </div>
-
-                        {/* Slot 6: Workflow */}
-                        <div className="min-w-[160px]">
-                          <div className="list-approval-slot">
-                            {String(order.status || "").toUpperCase() === "APPROVED" ? (
-                              <div className="flex items-center gap-2">
-                                <span className="list-approval-approved-pill">
-                                  Approved
-                                </span>
-                                {/* Slot 7: Reverse Approval */}
-                                {canReverseApproval() && (
-                                  <button
-                                    type="button"
-                                    className="list-approval-reverse-btn"
-                                    onClick={() => reverseSalesOrder(order.id)}
-                                  >
-                                    Reverse Approval
-                                  </button>
-                                )}
-                              </div>
-                            ) : String(order.status || "").toUpperCase() === "PENDING_APPROVAL" ? (
-                              <span className="list-approval-forwarded-pill">
-                                Forwarded to {order.forwarded_to_username || forwardedTo[order.id] || "Approver"}
-                              </span>
-                            ) : (
+                          {/* Slot 2: Edit */}
+                          <div className="min-w-[80px]">
+                            {!["APPROVED", "POSTED", "CONFIRMED"].includes(displayStatus) &&
+                            canPerformAction("sales:sales-orders", "edit") ? (
                               <button
                                 type="button"
-                                className="list-approval-forward-btn"
-                                onClick={() => openForwardModal(order)}
-                                disabled={submittingForward}
+                                className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                                onClick={() =>
+                                  navigate(
+                                    `/sales/sales-orders/${order.id}?mode=edit`,
+                                  )
+                                }
                               >
-                                Forward for Approval
+                                Edit
                               </button>
+                            ) : (
+                              <div className="w-full h-9" />
+                            )}
+                          </div>
+
+                          {/* Slot 3: Print */}
+                          <div className="min-w-[80px]">
+                            <ListPrintIconButton
+                              onClick={() => printSalesOrder(order.id)}
+                            />
+                          </div>
+
+                          {/* Slot 4: PDF */}
+                          <div className="min-w-[80px]">
+                            <ListPdfIconButton
+                              onClick={() => downloadSalesOrderPdf(order.id)}
+                            />
+                          </div>
+
+                          {/* Slot 5: Attachments */}
+                          <div className="min-w-[80px]">
+                            <ListAttachmentIconButton
+                              onClick={() => {
+                                setActiveDocId(order.id);
+                                setShowAttach(true);
+                              }}
+                            />
+                          </div>
+
+                          {/* Slot 6: Workflow */}
+                          <div className="min-w-[160px]">
+                            <div className="list-approval-slot">
+                              {displayStatus === "APPROVED" ? (
+                                <div className="flex items-center gap-2">
+                                  <span className="list-approval-approved-pill">
+                                    Approved
+                                  </span>
+                                  {!autoApproved && canReverseApproval() && (
+                                    <button
+                                      type="button"
+                                      className="list-approval-reverse-btn"
+                                      onClick={() =>
+                                        reverseSalesOrder(order.id)
+                                      }
+                                    >
+                                      Reverse Approval
+                                    </button>
+                                  )}
+                                </div>
+                              ) : displayStatus === "PENDING_APPROVAL" ? (
+                                <span className="list-approval-forwarded-pill">
+                                  Forwarded to{" "}
+                                  {order.forwarded_to_username ||
+                                    forwardedTo[order.id] ||
+                                    "Approver"}
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="list-approval-forward-btn"
+                                  onClick={() => openForwardModal(order)}
+                                  disabled={submittingForward || workflowDisabled}
+                                >
+                                  Forward for Approval
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Slot 8: exceptional cancel — fixed cell */}
+                          <div className="min-w-[80px]">
+                            {!order.has_invoice &&
+                            hasExceptional("SALES.ORDER.CANCEL") &&
+                            displayStatus !== "APPROVED" ? (
+                              <button
+                                type="button"
+                                className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-white bg-[#990000] rounded-lg hover:bg-[#770000] transition-colors h-9"
+                                onClick={async () => {
+                                  if (
+                                    !window.confirm(
+                                      `Cancel this Sales Order (${order.order_no})?`,
+                                    )
+                                  )
+                                    return;
+                                  try {
+                                    await api.delete(
+                                      `/sales/orders/${order.id}`,
+                                    );
+                                    toast.success("Sales order cancelled");
+                                    setOrders((prev) =>
+                                      prev.filter((x) => x.id !== order.id),
+                                    );
+                                  } catch (e) {
+                                    toast.error("Unable to cancel");
+                                  }
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            ) : (
+                              <div className="w-full h-9" aria-hidden />
                             )}
                           </div>
                         </div>
-
-                        {/* Slot 8: exceptional cancel — fixed cell */}
-                        <div className="min-w-[80px]">
-                          {!order.has_invoice &&
-                          hasExceptional("SALES.ORDER.CANCEL") &&
-                          String(order.status || "").toUpperCase() !==
-                            "APPROVED" ? (
-                            <button
-                              type="button"
-                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-white bg-[#990000] rounded-lg hover:bg-[#770000] transition-colors h-9"
-                              onClick={async () => {
-                                if (
-                                  !window.confirm(
-                                    `Cancel this Sales Order (${order.order_no})?`,
-                                  )
-                                )
-                                  return;
-                                try {
-                                  await api.delete(`/sales/orders/${order.id}`);
-                                  toast.success("Sales order cancelled");
-                                  setOrders((prev) =>
-                                    prev.filter((x) => x.id !== order.id),
-                                  );
-                                } catch (e) {
-                                  toast.error("Unable to cancel");
-                                }
-                              }}
-                            >
-                              Cancel
-                            </button>
-                          ) : (
-                            <div className="w-full h-9" aria-hidden />
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                      <td>{order.created_by_username || order.created_by_name || "-"}</td>
-                      <td>{order.created_at ? new Date(order.created_at).toLocaleDateString() : "-"}</td>
+                      </td>
+                      <td>
+                        {order.created_by_username ||
+                          order.created_by_name ||
+                          "-"}
+                      </td>
+                      <td>
+                        {order.created_at
+                          ? new Date(order.created_at).toLocaleDateString()
+                          : "-"}
+                      </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

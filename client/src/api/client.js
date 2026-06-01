@@ -3,6 +3,7 @@ import { queueMutation, getQueueSnapshot } from "../offline/syncEngine.js";
 import { putCache, getCache } from "../offline/cache.js";
 import {
   clearStoredAuth,
+  isTokenExpired,
   readStoredAuth,
   touchLastActivity,
   writeStoredAuth,
@@ -26,33 +27,13 @@ export const api = axios.create({
   ],
 });
 
-const isLocal =
+const API_BASE = import.meta.env.VITE_API_BASE_URL || (
   typeof window !== "undefined" &&
-  ["localhost", "127.0.0.1"].includes(window.location.hostname);
-const rawBase =
-  typeof import.meta !== "undefined" &&
-  import.meta.env &&
-  import.meta.env.VITE_API_BASE_URL
-    ? String(import.meta.env.VITE_API_BASE_URL).trim()
-    : "";
-let normalizedBase = rawBase;
-if (normalizedBase) {
-  if (!/^https?:\/\//i.test(normalizedBase)) {
-    normalizedBase = normalizedBase.startsWith("/")
-      ? normalizedBase
-      : `/${normalizedBase}`;
-  }
-}
-const host =
-  typeof window !== "undefined" && window.location
-    ? String(window.location.hostname || "")
-    : "";
-if (!normalizedBase) {
-  if (/^serianamart\.omnisuite-erp\.com$/i.test(host)) {
-    normalizedBase = "https://serianaserver.omnisuite-erp.com/api";
-  }
-}
-api.defaults.baseURL = normalizedBase || "/api";
+  /^serianamart\.omnisuite-erp\.com$/i.test(window.location.hostname)
+    ? "https://serianaserver.omnisuite-erp.com/api"
+    : "/api"
+);
+api.defaults.baseURL = API_BASE;
 
 let _syncStarted = false;
 function ensureSyncEngine() {
@@ -64,6 +45,53 @@ function ensureSyncEngine() {
 }
 
 let refreshPromise = null;
+
+function waitForFreshStoredToken(previousToken, timeoutMs = 1200) {
+  if (typeof window === "undefined") return Promise.resolve(null);
+
+  const readFreshToken = () => {
+    const nextToken = readStoredAuth()?.token || null;
+    if (
+      nextToken &&
+      nextToken !== previousToken &&
+      !isTokenExpired(nextToken)
+    ) {
+      return nextToken;
+    }
+    return null;
+  };
+
+  const immediate = readFreshToken();
+  if (immediate) return Promise.resolve(immediate);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (token = null) => {
+      if (settled) return;
+      settled = true;
+      try {
+        window.removeEventListener("omnisuite:auth-changed", onAuthChanged);
+      } catch {}
+      window.clearTimeout(timer);
+      resolve(token);
+    };
+
+    const onAuthChanged = () => {
+      const fresh = readFreshToken();
+      if (fresh) finish(fresh);
+    };
+
+    const timer = window.setTimeout(() => {
+      finish(readFreshToken());
+    }, timeoutMs);
+
+    try {
+      window.addEventListener("omnisuite:auth-changed", onAuthChanged);
+    } catch {
+      finish(null);
+    }
+  });
+}
 
 function normalizeUrl(url) {
   return String(url || "").trim();
@@ -88,6 +116,7 @@ function redirectToLogin() {
 
 async function requestTokenRefresh() {
   if (!refreshPromise) {
+    const tokenBeforeRefresh = readStoredAuth()?.token || null;
     refreshPromise = axios({
       baseURL: api.defaults.baseURL,
       url: "/auth/refresh",
@@ -115,7 +144,13 @@ async function requestTokenRefresh() {
         touchLastActivity();
         return nextToken;
       })
-      .catch((error) => {
+      .catch(async (error) => {
+        const freshToken = await waitForFreshStoredToken(tokenBeforeRefresh);
+        if (freshToken) {
+          setAuthToken(freshToken);
+          touchLastActivity();
+          return freshToken;
+        }
         clearStoredAuth();
         setAuthToken(null);
         throw error;
@@ -130,11 +165,14 @@ async function requestTokenRefresh() {
 
 api.interceptors.request.use(
   async (config) => {
+    if (!config.baseURL) {
+      config.baseURL = api.defaults.baseURL;
+    }
     // Attach a cache key for GET requests
     const method = String(config.method || "get").toLowerCase();
     if (method === "get") {
       try {
-        const base = api.defaults.baseURL || "";
+        const base = api.defaults.baseURL;
         const url = new URL(
           config.url.startsWith("http") ? config.url : `${base}${config.url}`,
           window.location.origin,
@@ -186,6 +224,9 @@ api.interceptors.request.use(
 
 api.interceptors.request.use(
   (config) => {
+    if (!config.baseURL) {
+      config.baseURL = api.defaults.baseURL;
+    }
     const token = readStoredAuth()?.token || null;
     if (token) ensureSyncEngine();
     if (token && !isUnauthenticatedEndpoint(config.url)) {
@@ -252,6 +293,7 @@ api.interceptors.response.use(
     }
     const originalRequest = error?.config || {};
     const requestUrl = normalizeUrl(originalRequest.url);
+
     const shouldTryRefresh =
       error?.response?.status === 401 &&
       !!originalRequest?.headers?.Authorization &&
@@ -324,12 +366,78 @@ export function setUserHeader(user) {
 
 /** Coalesce duplicate in-flight GET requests to reduce concurrent server load */
 const inflightGets = new Map();
+const MAX_CONCURRENT_GETS = Math.max(
+  1,
+  Number(import.meta.env.VITE_MAX_CONCURRENT_GETS || 4),
+);
+const GET_RETRY_LIMIT = Math.max(
+  0,
+  Number(import.meta.env.VITE_GET_RETRY_LIMIT || 2),
+);
+const queuedGets = [];
+let activeGetCount = 0;
 
 const _origRequest = api.request.bind(api);
 
-api.get = function(url, config) {
+function dequeueNextGet() {
+  if (activeGetCount >= MAX_CONCURRENT_GETS) return;
+  const next = queuedGets.shift();
+  if (typeof next === "function") next();
+}
+
+function enqueueGet(work) {
+  return new Promise((resolve, reject) => {
+    const run = () => {
+      activeGetCount += 1;
+      Promise.resolve()
+        .then(work)
+        .then(resolve, reject)
+        .finally(() => {
+          activeGetCount = Math.max(0, activeGetCount - 1);
+          dequeueNextGet();
+        });
+    };
+
+    if (activeGetCount < MAX_CONCURRENT_GETS) {
+      run();
+      return;
+    }
+
+    queuedGets.push(run);
+  });
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldRetryGet(error, attempt) {
+  if (attempt >= GET_RETRY_LIMIT) return false;
+  if (error?.response) return false;
+  if (error?.config?.__skipNetworkRetry === true) return false;
+  return true;
+}
+
+async function runGetRequest(url, config) {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await enqueueGet(() =>
+        _origRequest({ method: "get", url, ...config }),
+      );
+    } catch (error) {
+      if (!shouldRetryGet(error, attempt)) {
+        throw error;
+      }
+      attempt += 1;
+      await delay(250 * attempt);
+    }
+  }
+}
+
+api.get = function (url, config) {
   try {
-    const base = api.defaults.baseURL || "";
+    const base = api.defaults.baseURL;
     const fullUrl = new URL(
       url.startsWith("http") ? url : `${base}${url}`,
       window.location.origin,
@@ -345,7 +453,7 @@ api.get = function(url, config) {
       return existing;
     }
 
-    const promise = _origRequest({ method: "get", url, ...config });
+    const promise = runGetRequest(url, config);
     inflightGets.set(cacheKey, promise);
     promise.finally(() => {
       setTimeout(() => inflightGets.delete(cacheKey), 200);
@@ -356,7 +464,7 @@ api.get = function(url, config) {
   }
 };
 
-api.request = function(config) {
+api.request = function (config) {
   const method = String(config?.method || "get").toLowerCase();
   if (method === "get") {
     return api.get(config.url, { ...config, method: undefined });

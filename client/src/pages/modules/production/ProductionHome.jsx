@@ -76,23 +76,30 @@ function ProductionHomeIndex() {
   ]);
 
   useEffect(() => {
-    const fetchStats = async () => {
+    let mounted = true;
+    let timer;
+    async function load() {
       try {
         const res = await api.get("/production/dashboard/stats");
-        const data = res.data;
-        setStats(prev => {
-          const next = [...prev];
-          next[0].value = String(data.activeOrders || 0);
-          next[1].value = String(data.jobCards || 0);
-          next[2].value = String(data.pendingRequisitions || 0);
-          next[3].value = String(data.boms || 0);
-          return next;
-        });
-      } catch (error) {
-        console.error("Error fetching production stats", error);
-      }
+        const d = res.data;
+        if (mounted) {
+          setStats(prev => {
+            const next = [...prev];
+            next[0] = { ...next[0], value: String(d.activeOrders ?? "—") };
+            next[1] = { ...next[1], value: String(d.jobCards ?? "—") };
+            next[2] = { ...next[2], value: String(d.pendingRequisitions ?? "—") };
+            next[3] = { ...next[3], value: String(d.boms ?? "—") };
+            return next;
+          });
+        }
+      } catch {}
+    }
+    load();
+    timer = setInterval(load, 15000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
     };
-    fetchStats();
   }, []);
 
   const sections = [

@@ -95,6 +95,8 @@ export default function SupplierQuotationsList() {
 
   const { sorted: filtered, sortKey, sortDir, toggle } = useSort(filteredBase, "created_at", "desc");
 
+  const workflowDisabled = hasInactiveWorkflow && !candidateWorkflow;
+
   const canForward = (status) => {
     const s = String(status || "").toUpperCase();
     return s === "DRAFT" || s === "REJECTED";
@@ -268,7 +270,9 @@ export default function SupplierQuotationsList() {
                         </div>
                         <div className="min-w-[160px]">
                           <div className="list-approval-slot">
-                            {r.status === "ACCEPTED" || r.status === "APPROVED" ? (
+                            {workflowDisabled && r.status !== "ACCEPTED" && r.status !== "APPROVED" ? (
+                              <span className="list-approval-approved-pill">Approved</span>
+                            ) : r.status === "ACCEPTED" || r.status === "APPROVED" ? (
                               <div className="flex items-center gap-2">
                                 <span className="list-approval-approved-pill">
                                   {r.status === "APPROVED" ? "Approved" : "Accepted"}

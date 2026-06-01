@@ -1,5 +1,9 @@
 import { pool, query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
+import {
+  getInactiveWorkflowBehavior,
+  resolveWorkflowSelection,
+} from "../utils/workflowResolution.js";
 import * as XLSX from "xlsx";
 
 // Page ID mapping for tax code applicable pages
@@ -213,7 +217,7 @@ async function nextVoucherNo({ companyId, voucherTypeId }) {
     const vt = rows?.[0];
     if (!vt) throw httpError(404, "NOT_FOUND", "Voucher type not found");
     const up = String(vt.code).toUpperCase();
-    const seq = ["PV", "PUV", "CV", "RV", "JV", "SV", "PAYV"].includes(up)
+    const seq = ["PV", "PUV", "CV", "RV", "JV", "SV", "PAYV", "CN"].includes(up)
       ? String(vt.next_number).padStart(6, "0")
       : String(vt.next_number);
 
@@ -223,7 +227,7 @@ async function nextVoucherNo({ companyId, voucherTypeId }) {
     else if (up === "PV" || up === "PUV") effectivePrefix = "PB";
 
     const voucherNo =
-      up === "PV" || up === "PUV" || up === "PAYV" || up === "SV" || up === "RV"
+      up === "PV" || up === "PUV" || up === "PAYV" || up === "SV" || up === "RV" || up === "CN"
         ? `${effectivePrefix}${seq}`
         : `${effectivePrefix}-${seq}`;
     await conn.execute(
@@ -989,81 +993,14 @@ export const submitVoucher = async (req, res, next) => {
               : isDN
                 ? ["DEBIT_NOTE", "Debit Note", "DN"]
                 : ["VOUCHER", "Voucher", typeCode];
-    const wfByRoute =
-      docRouteBase != null
-        ? await query(
-            `SELECT * FROM adm_workflows WHERE company_id = :companyId AND document_route = :docRouteBase ORDER BY id ASC`,
-            { companyId, docRouteBase },
-          )
-        : [];
-    const wfDefs = await query(
-      `SELECT * FROM adm_workflows 
-         WHERE company_id = :companyId 
-           AND (document_type = :t1 OR document_type = :t2 OR document_type = :t3 OR document_type = :t4 OR document_type = :t5)
-         ORDER BY id ASC`,
-      {
+    const { activeWorkflow: activeWf, inactiveWorkflow } =
+      await resolveWorkflowSelection({
         companyId,
-        t1: typeSynonyms[0],
-        t2: typeSynonyms[1],
-        t3: typeSynonyms[2],
-        t4: typeSynonyms[3] || typeSynonyms[0],
-        t5: typeSynonyms[4] || typeSynonyms[0],
-      },
-    );
-    let activeWf = null;
-    if (workflowIdOverride) {
-      const wfRows = await query(
-        `SELECT * FROM adm_workflows 
-         WHERE id = :wfId AND company_id = :companyId 
-           AND (document_type = :t1 OR document_type = :t2 OR document_type = :t3 OR document_type = :t4 OR document_type = :t5)
-         LIMIT 1`,
-        {
-          wfId: workflowIdOverride,
-          companyId,
-          t1: typeSynonyms[0],
-          t2: typeSynonyms[1],
-          t3: typeSynonyms[2],
-          t4: typeSynonyms[3] || typeSynonyms[0],
-          t5: typeSynonyms[4] || typeSynonyms[0],
-        },
-      );
-      if (wfRows.length && Number(wfRows[0].is_active) === 1) {
-        activeWf = wfRows[0];
-      }
-    }
-    if (!activeWf && wfByRoute.length) {
-      for (const wf of wfByRoute) {
-        if (Number(wf.is_active) !== 1) continue;
-        if (amount === null) {
-          activeWf = wf;
-          break;
-        }
-        const minOk =
-          wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
-        const maxOk =
-          wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
-        if (minOk && maxOk) {
-          activeWf = wf;
-          break;
-        }
-      }
-    }
-    for (const wf of wfDefs) {
-      if (activeWf) break;
-      if (Number(wf.is_active) !== 1) continue;
-      if (amount === null) {
-        activeWf = wf;
-        break;
-      }
-      const minOk =
-        wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
-      const maxOk =
-        wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
-      if (minOk && maxOk) {
-        activeWf = wf;
-        break;
-      }
-    }
+        workflowIdOverride,
+        docRouteBase,
+        typeSynonyms,
+        amount,
+      });
     if (activeWf) {
       const steps = await query(
         `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
@@ -1156,16 +1093,7 @@ export const submitVoucher = async (req, res, next) => {
       res.status(201).json({ instanceId, status: "SUBMITTED" });
       return;
     }
-    let behavior = null;
-    if (wfDefs.length) {
-      const firstWf = wfDefs[0];
-      if (Number(firstWf.is_active) === 0) {
-        behavior = firstWf.default_behavior || null;
-        if (!behavior) {
-          behavior = "AUTO_APPROVE";
-        }
-      }
-    }
+    const behavior = getInactiveWorkflowBehavior(inactiveWorkflow);
     if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
       await query(
         `UPDATE fin_vouchers SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
@@ -5060,6 +4988,307 @@ export const createVoucherType = async (req, res, next) => {
       },
     );
     res.status(201).json({ id: result.insertId });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getFinanceDashboardStats = async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req.scope;
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    let cashBalance = 0;
+    let bankBalance = 0;
+    let monthlyExpenses = 0;
+    let monthlyIncome = 0;
+    try {
+      const [cashRow] = await query(
+        `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) as balance
+         FROM fin_voucher_lines vl
+         JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId AND v.status = 'POSTED'
+         JOIN fin_accounts a ON a.id = vl.account_id
+         JOIN fin_account_groups g ON g.id = a.group_id
+         WHERE g.code IN ('AST_CASH')`,
+        { companyId },
+      );
+      cashBalance = Number(cashRow?.balance || 0);
+    } catch {}
+    try {
+      const [bankRow] = await query(
+        `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) as balance
+         FROM fin_voucher_lines vl
+         JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId AND v.status = 'POSTED'
+         JOIN fin_accounts a ON a.id = vl.account_id
+         JOIN fin_account_groups g ON g.id = a.group_id
+         WHERE g.code IN ('AST_BANK')`,
+        { companyId },
+      );
+      bankBalance = Number(bankRow?.balance || 0);
+    } catch {}
+    try {
+      const [expRow] = await query(
+        `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) as total
+         FROM fin_voucher_lines vl
+         JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId AND v.status = 'POSTED'
+         JOIN fin_accounts a ON a.id = vl.account_id
+         JOIN fin_account_groups g ON g.id = a.group_id
+         WHERE g.nature = 'EXPENSE' AND v.voucher_date >= :monthStart`,
+        { companyId, monthStart },
+      );
+      monthlyExpenses = Number(expRow?.total || 0);
+    } catch {}
+    try {
+      const [incRow] = await query(
+        `SELECT COALESCE(SUM(vl.credit - vl.debit), 0) as total
+         FROM fin_voucher_lines vl
+         JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId AND v.status = 'POSTED'
+         JOIN fin_accounts a ON a.id = vl.account_id
+         JOIN fin_account_groups g ON g.id = a.group_id
+         WHERE g.nature = 'INCOME' AND v.voucher_date >= :monthStart`,
+        { companyId, monthStart },
+      );
+      monthlyIncome = Number(incRow?.total || 0);
+    } catch {}
+    let pendingVouchers = 0;
+    try {
+      const [pv] = await query(
+        "SELECT COUNT(*) as count FROM fin_vouchers WHERE company_id = :companyId AND status != 'POSTED'",
+        { companyId },
+      );
+      pendingVouchers = Number(pv?.count || 0);
+    } catch {}
+    res.json({
+      success: true,
+      data: {
+        cashBalance: Math.round(cashBalance * 100) / 100,
+        bankBalance: Math.round(bankBalance * 100) / 100,
+        totalLiquidity: Math.round((cashBalance + bankBalance) * 100) / 100,
+        monthlyExpenses: Math.round(monthlyExpenses * 100) / 100,
+        monthlyIncome: Math.round(monthlyIncome * 100) / 100,
+        netIncome: Math.round((monthlyIncome - monthlyExpenses) * 100) / 100,
+        pendingVouchers,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getDashboardMetrics = async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req.scope;
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+
+    const [fyRow] = await query(
+      `SELECT start_date FROM fin_fiscal_years
+       WHERE company_id = :companyId ORDER BY start_date DESC LIMIT 1`,
+      { companyId },
+    ).catch(() => []);
+    const now = new Date();
+    const toDate = to ? new Date(String(to)) : now;
+    const fyStart = fyRow?.start_date
+      ? new Date(fyRow.start_date)
+      : new Date(now.getFullYear(), 0, 1);
+    const fromDate = from ? new Date(String(from)) : fyStart;
+    const fromStr = fromDate.toISOString().slice(0, 10);
+    const toStr = toDate.toISOString().slice(0, 10);
+
+    const [groups, acctRows] = await Promise.all([
+      query(
+        `SELECT id, code, name, nature FROM fin_account_groups
+         WHERE company_id = :companyId AND is_active = 1`,
+        { companyId },
+      ),
+      query(
+        `SELECT a.group_id, g.nature
+         FROM fin_accounts a
+         JOIN fin_account_groups g ON g.id = a.group_id AND g.company_id = :companyId
+         WHERE a.company_id = :companyId
+           AND ((g.nature = 'ASSET' AND (a.name LIKE '%receivable%' OR a.name LIKE '%debtor%'))
+             OR (g.nature = 'LIABILITY' AND (a.name LIKE '%payable%' OR a.name LIKE '%creditor%')))`,
+        { companyId },
+      ),
+    ]);
+    const gMap = {};
+    for (const g of groups) {
+      const c = String(g.code || "").toUpperCase();
+      if (/DEBTOR/.test(c) || /AR$/.test(c) || c === "AST_AR") gMap.debtors = (gMap.debtors || []).concat(g.id);
+      if (/CREDITOR/.test(c) || /AP$/.test(c) || c === "LIAB_AP") gMap.creditors = (gMap.creditors || []).concat(g.id);
+      if (c === "AST_CASH") gMap.cash = (gMap.cash || []).concat(g.id);
+      if (c === "AST_BANK") gMap.bank = (gMap.bank || []).concat(g.id);
+      if (g.nature === "INCOME") gMap.income = (gMap.income || []).concat(g.id);
+      if (g.nature === "EXPENSE" && c !== "EXP_COGS" && c !== "EXP.COGS") gMap.expense = (gMap.expense || []).concat(g.id);
+    }
+    // Supplement debtor/creditor groups by account names to handle accounts
+    // placed in generic groups (e.g. AST.CUR, LIA.CUR) instead of dedicated ones
+    for (const r of acctRows) {
+      const gid = Number(r.group_id);
+      if (r.nature === "ASSET") {
+        if (!gMap.debtors) gMap.debtors = [];
+        if (!gMap.debtors.includes(gid)) gMap.debtors.push(gid);
+      } else if (r.nature === "LIABILITY") {
+        if (!gMap.creditors) gMap.creditors = [];
+        if (!gMap.creditors.includes(gid)) gMap.creditors.push(gid);
+      }
+    }
+    if (!gMap.debtors || !gMap.debtors.length) {
+      gMap.debtors = groups.filter(g => g.nature === "ASSET" && (/receivable/i.test(g.name) || /debtor/i.test(g.name))).map(g => g.id);
+    }
+    if (!gMap.creditors || !gMap.creditors.length) {
+      gMap.creditors = groups.filter(g => g.nature === "LIABILITY" && (/payable/i.test(g.name) || /creditor/i.test(g.name))).map(g => g.id);
+    }
+
+    const balanceForGroups = async (groupIds, periodFrom, periodTo) => {
+      if (!groupIds || !groupIds.length) return { debit: 0, credit: 0 };
+      const rows = await query(
+        `SELECT COALESCE(SUM(vl.debit),0) AS dr, COALESCE(SUM(vl.credit),0) AS cr
+         FROM fin_voucher_lines vl
+         JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId
+           AND (:branchId IS NULL OR v.branch_id = :branchId)
+           AND v.status = 'POSTED'
+           AND v.voucher_date BETWEEN :from AND :to
+         JOIN fin_accounts a ON a.id = vl.account_id AND a.company_id = :companyId
+         WHERE a.group_id IN (:groupIds)`,
+        { companyId, branchId: branchId || null, from: periodFrom, to: periodTo, groupIds },
+      );
+      return { debit: Number(rows[0]?.dr || 0), credit: Number(rows[0]?.cr || 0) };
+    };
+
+    const [debtorsBal, creditorsBal, cashBal, bankBal, incomeBal, expenseBal] = await Promise.all([
+      balanceForGroups(gMap.debtors, fromStr, toStr),
+      balanceForGroups(gMap.creditors, fromStr, toStr),
+      balanceForGroups(gMap.cash, fromStr, toStr),
+      balanceForGroups(gMap.bank, fromStr, toStr),
+      balanceForGroups(gMap.income, fromStr, toStr),
+      balanceForGroups(gMap.expense, fromStr, toStr),
+    ]);
+
+    const debtorsNet = debtorsBal.debit - debtorsBal.credit;
+    const creditorsNet = creditorsBal.credit - creditorsBal.debit;
+    const cashNet = cashBal.debit - cashBal.credit;
+    const bankNet = bankBal.debit - bankBal.credit;
+    const salesNet = incomeBal.credit - incomeBal.debit;
+    const expenseNet = expenseBal.debit - expenseBal.credit;
+
+    const monthlyMovements = await query(
+      `SELECT DATE_FORMAT(v.voucher_date, '%Y-%m') AS ym,
+              vl.account_id, a.group_id, SUM(vl.debit) AS dr, SUM(vl.credit) AS cr
+       FROM fin_voucher_lines vl
+       JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId
+         AND (:branchId IS NULL OR v.branch_id = :branchId)
+         AND v.status = 'POSTED'
+         AND v.voucher_date BETWEEN :from AND :to
+       JOIN fin_accounts a ON a.id = vl.account_id AND a.company_id = :companyId
+       GROUP BY ym, vl.account_id, a.group_id
+       ORDER BY ym ASC`,
+      { companyId, branchId: branchId || null, from: fromStr, to: toStr },
+    );
+
+    const gidSet = (key) => new Set(gMap[key] || []);
+    const isInGroup = (gid, set) => set.has(Number(gid));
+
+    const accumulate = (rows, groupKey, balFn) => {
+      const map = {};
+      const set = gidSet(groupKey);
+      for (const r of rows) {
+        if (isInGroup(r.group_id, set)) {
+          const b = balFn(r);
+          map[r.ym] = (map[r.ym] || 0) + b;
+        }
+      }
+      return Object.entries(map).map(([ym, value]) => ({ ym, value: Math.round(value * 100) / 100 }));
+    };
+
+    const ar_trend = accumulate(monthlyMovements, "debtors", r => Number(r.dr || 0) - Number(r.cr || 0));
+    const ap_trend = accumulate(monthlyMovements, "creditors", r => Number(r.cr || 0) - Number(r.dr || 0));
+    const cash_trend = accumulate(monthlyMovements, "cash", r => Number(r.dr || 0) - Number(r.cr || 0));
+    const bank_trend = accumulate(monthlyMovements, "bank", r => Number(r.dr || 0) - Number(r.cr || 0));
+
+    const cashGidSet = gidSet("cash");
+    const bankGidSet = gidSet("bank");
+    const cashflowMap = {};
+    for (const r of monthlyMovements) {
+      if (isInGroup(r.group_id, cashGidSet) || isInGroup(r.group_id, bankGidSet)) {
+        cashflowMap[r.ym] = cashflowMap[r.ym] || { inflow: 0, outflow: 0 };
+        cashflowMap[r.ym].inflow += Math.round(Number(r.dr || 0) * 100) / 100;
+        cashflowMap[r.ym].outflow += Math.round(Number(r.cr || 0) * 100) / 100;
+      }
+    }
+    const cashflow_trend = Object.entries(cashflowMap).map(([ym, v]) => ({ ym, ...v }));
+
+    const incGidSet = gidSet("income");
+    const expGidSet = gidSet("expense");
+    const ieMap = {};
+    for (const r of monthlyMovements) {
+      const gid = Number(r.group_id);
+      ieMap[r.ym] = ieMap[r.ym] || { income: 0, expense: 0 };
+      if (incGidSet.has(gid)) ieMap[r.ym].income += Math.round((Number(r.cr || 0) - Number(r.dr || 0)) * 100) / 100;
+      if (expGidSet.has(gid)) ieMap[r.ym].expense += Math.round((Number(r.dr || 0) - Number(r.cr || 0)) * 100) / 100;
+    }
+    const income_expense_trend = Object.entries(ieMap).map(([ym, v]) => ({ ym, ...v }));
+
+    let ar_breakdown = [];
+    if (gMap.debtors && gMap.debtors.length) {
+      const arRows = await query(
+        `SELECT a.name, SUM(vl.debit - vl.credit) AS value
+         FROM fin_voucher_lines vl
+         JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId
+           AND (:branchId IS NULL OR v.branch_id = :branchId)
+           AND v.status = 'POSTED'
+           AND v.voucher_date BETWEEN :from AND :to
+         JOIN fin_accounts a ON a.id = vl.account_id AND a.company_id = :companyId
+         WHERE a.group_id IN (:groupIds)
+         GROUP BY a.id, a.name
+         HAVING value != 0
+         ORDER BY ABS(value) DESC
+         LIMIT 15`,
+        { companyId, branchId: branchId || null, from: fromStr, to: toStr, groupIds: gMap.debtors },
+      );
+      ar_breakdown = arRows.map(r => ({ name: r.name, value: Math.round(Math.abs(Number(r.value)) * 100) / 100 }));
+    }
+
+    let ap_breakdown = [];
+    if (gMap.creditors && gMap.creditors.length) {
+      const apRows = await query(
+        `SELECT a.name, SUM(vl.credit - vl.debit) AS value
+         FROM fin_voucher_lines vl
+         JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId
+           AND (:branchId IS NULL OR v.branch_id = :branchId)
+           AND v.status = 'POSTED'
+           AND v.voucher_date BETWEEN :from AND :to
+         JOIN fin_accounts a ON a.id = vl.account_id AND a.company_id = :companyId
+         WHERE a.group_id IN (:groupIds)
+         GROUP BY a.id, a.name
+         HAVING value != 0
+         ORDER BY ABS(value) DESC
+         LIMIT 15`,
+        { companyId, branchId: branchId || null, from: fromStr, to: toStr, groupIds: gMap.creditors },
+      );
+      ap_breakdown = apRows.map(r => ({ name: r.name, value: Math.round(Math.abs(Number(r.value)) * 100) / 100 }));
+    }
+
+    res.json({
+      ytd: {
+        debtors: Math.round(debtorsNet * 100) / 100,
+        debtors_side: debtorsNet >= 0 ? "DEBIT" : "CREDIT",
+        creditors: Math.round(creditorsNet * 100) / 100,
+        creditors_side: creditorsNet >= 0 ? "CREDIT" : "DEBIT",
+        cash_in_hand: Math.round(cashNet * 100) / 100,
+        bank_total: Math.round(bankNet * 100) / 100,
+        indirect_expenses: Math.round(expenseNet * 100) / 100,
+        sales: Math.round(salesNet * 100) / 100,
+      },
+      ar_trend,
+      ap_trend,
+      ar_breakdown,
+      ap_breakdown,
+      bank_trend,
+      cash_trend,
+      cashflow_trend,
+      income_expense_trend,
+    });
   } catch (e) {
     next(e);
   }

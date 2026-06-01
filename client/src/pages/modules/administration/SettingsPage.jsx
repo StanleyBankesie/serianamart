@@ -50,6 +50,9 @@ export default function SettingsPage() {
   const [cloudSaving, setCloudSaving] = useState(false);
   const [emailTestTo, setEmailTestTo] = useState("");
   const [emailTesting, setEmailTesting] = useState(false);
+  const [loginBackgroundUrl, setLoginBackgroundUrl] = useState("");
+  const [loginBackgroundVersion, setLoginBackgroundVersion] = useState("");
+  const [loginBackgroundSaving, setLoginBackgroundSaving] = useState(false);
 
   function setLogoObjectUrl(nextUrl) {
     try {
@@ -136,6 +139,94 @@ export default function SettingsPage() {
       toast.error("Failed to send test email");
     } finally {
       setEmailTesting(false);
+    }
+  }
+
+  async function loadLoginBackgroundMeta() {
+    try {
+      const res = await api.get("/admin/settings/login-background/meta");
+      const hasBackground = !!res?.data?.hasBackground;
+      const version = res?.data?.updatedAt || Date.now();
+      setLoginBackgroundVersion(String(version || ""));
+      setLoginBackgroundUrl(
+        hasBackground
+          ? `/api/admin/settings/login-background?v=${encodeURIComponent(
+              String(version),
+            )}`
+          : "",
+      );
+    } catch {
+      setLoginBackgroundUrl("");
+      setLoginBackgroundVersion("");
+    }
+  }
+
+  useEffect(() => {
+    loadLoginBackgroundMeta();
+  }, []);
+
+  async function uploadLoginBackground(file) {
+    if (!file) return;
+    try {
+      setLoginBackgroundSaving(true);
+      let uploadFile = file;
+      if (file.size > 300 * 1024) {
+        const compressed = await new Promise((resolve) => {
+          const img = new Image();
+          const url = URL.createObjectURL(file);
+          img.onload = () => {
+            URL.revokeObjectURL(url);
+            let w = img.naturalWidth;
+            let h = img.naturalHeight;
+            const maxDim = 1920;
+            if (w > maxDim || h > maxDim) {
+              if (w > h) { h = (h / w) * maxDim; w = maxDim; }
+              else { w = (w / h) * maxDim; h = maxDim; }
+            }
+            const c = document.createElement("canvas");
+            c.width = w;
+            c.height = h;
+            const ctx = c.getContext("2d");
+            ctx.drawImage(img, 0, 0, w, h);
+            c.toBlob((blob) => resolve(blob), "image/jpeg", 0.8);
+          };
+          img.src = url;
+        });
+        uploadFile = new File([compressed], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });
+      }
+      const fd = new FormData();
+      fd.append("background", uploadFile);
+      await api.post("/admin/settings/login-background", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      toast.success("Login background updated");
+      await loadLoginBackgroundMeta();
+    } catch (e) {
+      toast.error(
+        e?.response?.data?.message ||
+          e?.message ||
+          "Failed to update login background",
+      );
+    } finally {
+      setLoginBackgroundSaving(false);
+    }
+  }
+
+  async function clearLoginBackground() {
+    try {
+      setLoginBackgroundSaving(true);
+      await api.delete("/admin/settings/login-background");
+      setLoginBackgroundUrl("");
+      setLoginBackgroundVersion("");
+      toast.success("Login background reset");
+    } catch (e) {
+      toast.error(
+        e?.response?.data?.message ||
+          e?.message ||
+          "Failed to reset login background",
+      );
+    } finally {
+      setLoginBackgroundSaving(false);
     }
   }
   async function requestPushPermission() {
@@ -339,6 +430,52 @@ export default function SettingsPage() {
                 Return to Menu
               </Link>
             </div>
+          </div>
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-body space-y-3">
+          <div className="flex justify-between items-start gap-4">
+            <div>
+              <div className="text-lg font-semibold">Login Background</div>
+              <div className="text-sm text-slate-500 dark:text-slate-400">
+                Change the image shown behind the login form.
+              </div>
+            </div>
+            {loginBackgroundUrl ? (
+              <div
+                className="w-40 h-24 rounded border border-slate-200 bg-cover bg-center"
+                style={{ backgroundImage: `url(${loginBackgroundUrl})` }}
+              />
+            ) : (
+              <div className="w-40 h-24 rounded border border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-500">
+                Default image
+              </div>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <label className="btn-primary cursor-pointer">
+              {loginBackgroundSaving ? "Saving..." : "Upload Background"}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={loginBackgroundSaving}
+                onChange={(e) => {
+                  const file = e.target.files?.[0] || null;
+                  e.target.value = "";
+                  uploadLoginBackground(file);
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn-outline"
+              disabled={loginBackgroundSaving || !loginBackgroundUrl}
+              onClick={clearLoginBackground}
+            >
+              Reset to Default
+            </button>
           </div>
         </div>
       </div>

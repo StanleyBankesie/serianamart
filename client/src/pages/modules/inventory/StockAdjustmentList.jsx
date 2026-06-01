@@ -149,6 +149,8 @@ export default function StockAdjustmentList() {
 
   const { sorted: sortedAdjustments, sortKey, sortDir, toggle } = useSort(filteredAdjustments, "created_at", "desc");
 
+  const workflowDisabled = hasInactiveWorkflow && !candidateWorkflow;
+
   const formatDateOnly = (v) => {
     if (!v) return "";
     let d = new Date(v);
@@ -485,7 +487,11 @@ export default function StockAdjustmentList() {
                     </td>
                   </tr>
                 ) : null}
-                {sortedAdjustments.map((adj) => (
+                {sortedAdjustments.map((adj) => {
+                  const upperStatus = String(adj.status || "").toUpperCase();
+                  const autoApproved = workflowDisabled && upperStatus !== "CANCELLED" && upperStatus !== "REVERSED";
+                  const displayStatus = autoApproved ? "APPROVED" : upperStatus;
+                  return (
                   <tr key={adj.id}>
                     <td className="font-medium text-brand-700 dark:text-brand-300">
                       {adj.adjustment_no}
@@ -504,8 +510,8 @@ export default function StockAdjustmentList() {
                     </td>
                     <td>{adj.warehouse_name || "-"}</td>
                     <td>
-                      <span className={`badge ${getStatusBadge(adj.status)} `}>
-                        {adj.status}
+                      <span className={`badge ${getStatusBadge(displayStatus)} `}>
+                        {displayStatus}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -523,7 +529,7 @@ export default function StockAdjustmentList() {
                         {/* Slot 2: Edit */}
                         <div className="min-w-[80px]">
                           {!["APPROVED", "POSTED", "PENDING_APPROVAL"].includes(
-                            String(adj.status || "").toUpperCase(),
+                            displayStatus,
                           ) ? (
                             <Link
                               to={`/inventory/stock-adjustments/${adj.id}?mode=edit`}
@@ -573,33 +579,33 @@ export default function StockAdjustmentList() {
                         {/* Slot 6: Workflow */}
                         <div className="min-w-[160px]">
                           <div className="list-approval-slot">
-                            {["APPROVED", "POSTED"].includes(
-                              String(adj.status || "").toUpperCase(),
-                            ) ? (
+                            {["APPROVED", "POSTED"].includes(displayStatus) ? (
                               <div className="flex items-center gap-2">
                                 <span className="list-approval-approved-pill">
                                   Approved
                                 </span>
-                                <ReverseApprovalButton
-                                  docType="STOCK_ADJUSTMENT"
-                                  docId={adj.id}
-                                  className="list-approval-reverse-btn"
-                                  onDone={() =>
-                                    setAdjustments((prev) =>
-                                      prev.map((x) =>
-                                        x.id === adj.id
-                                          ? {
-                                              ...x,
-                                              status: "REVERSED",
-                                              forwarded_to_username: null,
-                                            }
-                                          : x,
-                                      ),
-                                    )
-                                  }
-                                >
-                                  Reverse Approval
-                                </ReverseApprovalButton>
+                                {!autoApproved && (
+                                  <ReverseApprovalButton
+                                    docType="STOCK_ADJUSTMENT"
+                                    docId={adj.id}
+                                    className="list-approval-reverse-btn"
+                                    onDone={() =>
+                                      setAdjustments((prev) =>
+                                        prev.map((x) =>
+                                          x.id === adj.id
+                                            ? {
+                                                ...x,
+                                                status: "REVERSED",
+                                                forwarded_to_username: null,
+                                              }
+                                            : x,
+                                        ),
+                                      )
+                                    }
+                                  >
+                                    Reverse Approval
+                                  </ReverseApprovalButton>
+                                )}
                               </div>
                             ) : adj.forwarded_to_username ? (
                               <span className="list-approval-forwarded-pill">
@@ -610,7 +616,7 @@ export default function StockAdjustmentList() {
                                 type="button"
                                 className="list-approval-forward-btn"
                                 onClick={() => openForwardModal(adj)}
-                                disabled={hasInactiveWorkflow}
+                                disabled={workflowDisabled}
                               >
                                 Forward for Approval
                               </button>
@@ -622,7 +628,8 @@ export default function StockAdjustmentList() {
                     <td>{adj.created_by_name || "-"}</td>
                     <td>{adj.created_at ? new Date(adj.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

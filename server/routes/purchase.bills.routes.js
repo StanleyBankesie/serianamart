@@ -16,8 +16,8 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const companyId = Number(req.user?.companyId || req.companyId || 0);
-      const branchId = Number(req.user?.branchId || req.branchId || 0);
+      const companyId = Number(req.scope?.companyId || req.user?.companyId || 0);
+      const branchId = Number(req.scope?.branchId || req.user?.branchId || 0);
       const supplierId = Number(req.query.supplier_id || 0);
       const statusFilter = req.query.status || "";
 
@@ -77,6 +77,7 @@ router.get(
             bd.unit_price,
             bd.line_total,
             bd.tax_amount,
+            bd.tax_code_id,
             i.item_code,
             i.item_name
           FROM pur_bill_details bd
@@ -94,6 +95,7 @@ router.get(
             unit_price: Number(d.unit_price || 0),
             line_total: Number(d.line_total || 0),
             tax_amount: Number(d.tax_amount || 0),
+            tax_code_id: d.tax_code_id ? String(d.tax_code_id) : "",
           });
           return acc;
         }, {});
@@ -122,8 +124,10 @@ router.get(
   },
 );
 
-// Get outstanding bills for a supplier based on account ID
-// This endpoint: 1) Gets account code from fin_accounts, 2) Finds supplier with multiple matching strategies, 3) Returns their outstanding bills
+// Get outstanding bills for a supplier based on account code
+// 1) Uses account_code directly (or resolves from account_id for backwards compat),
+// 2) Finds supplier where supplier_code = account_code,
+// 3) Returns their outstanding UNPAID / PARTIAL PAYMENT bills
 router.get(
   "/outstanding-by-account",
   requireAuth,
@@ -133,31 +137,28 @@ router.get(
     try {
       const companyId = Number(req.scope.companyId);
       const branchId = Number(req.scope.branchId);
-      const { account_id } = req.query;
+      const { account_code, account_id } = req.query;
 
-      if (!account_id) {
-        return res.status(400).json({ error: "account_id is required" });
+      let accountCode = String(account_code || "").trim();
+
+      if (!accountCode && account_id) {
+        // Backwards compat: resolve account_id → code from fin_accounts
+        const accountRows = await query(
+          `SELECT code FROM fin_accounts 
+           WHERE id = ? AND company_id = ?`,
+          [account_id, companyId],
+        );
+        accountCode = accountRows?.[0]?.code
+          ? String(accountRows[0].code).trim()
+          : "";
       }
 
-      // Step 1: Get account code from fin_accounts table using account ID
-      const accountRows = await query(
-        `SELECT code FROM fin_accounts 
-         WHERE id = ? AND company_id = ?`,
-        [account_id, companyId],
-      );
-
-      if (!accountRows || accountRows.length === 0) {
-        return res.json({ items: [] });
-      }
-
-      const accountCode = String(accountRows[0].code || "").trim();
       if (!accountCode) {
-        return res.json({ items: [] });
+        return res.status(400).json({ error: "account_code is required" });
       }
 
-      // Step 2: Find supplier using multiple matching strategies
-      // Primary match: supplier_code = account code
-      let supplierRows = await query(
+      // Step 2: Find supplier where supplier_code = account_code
+      const supplierRows = await query(
         `SELECT id, supplier_code, supplier_name 
          FROM pur_suppliers 
          WHERE company_id = ? AND supplier_code = ?
@@ -165,26 +166,13 @@ router.get(
         [companyId, accountCode],
       );
 
-      // Fallback: try supplier_id if no match found
-      if (!supplierRows || supplierRows.length === 0) {
-        supplierRows = await query(
-          `SELECT id, supplier_code, supplier_name 
-           FROM pur_suppliers 
-           WHERE company_id = ? AND CAST(supplier_id AS CHAR) = ?
-           LIMIT 1`,
-          [companyId, accountCode],
-        );
-      }
-
       if (!supplierRows || supplierRows.length === 0) {
         return res.json({ items: [] });
       }
 
-      // Use the matching supplier
       const supplierId = supplierRows[0].id;
 
-      // Step 3: Get outstanding bills for this supplier
-      // Query pur_bills with payment_status UNPAID or PARTIAL PAYMENT
+      // Step 3: Get outstanding UNPAID / PARTIAL PAYMENT bills for this supplier
       const sql = `SELECT b.id, b.bill_no, b.bill_date, b.net_amount, b.amount_paid, 
                 (b.net_amount - COALESCE(b.amount_paid, 0)) as balance_amount,
                 b.payment_status, b.due_date, s.supplier_name,
@@ -253,8 +241,8 @@ router.post(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const companyId = Number(req.user?.companyId || req.companyId || 0);
-      const branchId = Number(req.user?.branchId || req.branchId || 0);
+      const companyId = Number(req.scope?.companyId || req.user?.companyId || 0);
+      const branchId = Number(req.scope?.branchId || req.user?.branchId || 0);
       const { billId, paymentAmount } = req.body;
 
       if (!billId || !(paymentAmount > 0)) {

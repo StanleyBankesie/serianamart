@@ -1,39 +1,40 @@
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const SKIP_DIRECTORIES = new Set([
-  ".git",
-  "coverage",
-  "dist",
-  "node_modules",
-  "scratch",
+const excludedDirs = new Set([".git", "node_modules", "scratch"]);
+const excludedFiles = new Set([
+  ".env",
+  ".env.local",
+  "server.env",
+  "server.env.local",
 ]);
-
-const SKIP_FILES = [
-  /^\.env(?:\..+)?$/i,
+const excludedFilePatterns = [
   /\.log$/i,
-  /\.txt$/i,
-  /\.ps1$/i,
+  /^debug_.*\.(txt|log)$/i,
+  /^db_check.*\.txt$/i,
+  /^\.trae_.*\.txt$/i,
 ];
-
-function shouldSkip(entry) {
-  if (entry.isDirectory()) {
-    return SKIP_DIRECTORIES.has(entry.name);
-  }
-  return SKIP_FILES.some((pattern) => pattern.test(entry.name));
-}
 
 async function copyDir(src, dest) {
   await fs.mkdir(dest, { recursive: true });
   const entries = await fs.readdir(src, { withFileTypes: true });
   for (const entry of entries) {
-    if (shouldSkip(entry)) continue;
     const s = path.join(src, entry.name);
     const d = path.join(dest, entry.name);
+    if (entry.isDirectory() && excludedDirs.has(entry.name)) {
+      continue;
+    }
+    if (entry.isFile() && excludedFiles.has(entry.name)) {
+      continue;
+    }
+    if (
+      entry.isFile() &&
+      excludedFilePatterns.some((pattern) => pattern.test(entry.name))
+    ) {
+      continue;
+    }
     if (entry.isDirectory()) {
       await copyDir(s, d);
     } else if (entry.isFile()) {

@@ -84,7 +84,7 @@ export default function PosInvoiceList() {
     website: "",
     taxId: "",
     registrationNo: "",
-    logoUrl: defaultLogo,
+    logoUrl: "",
   });
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [receiptHtml, setReceiptHtml] = useState("");
@@ -209,7 +209,7 @@ export default function PosInvoiceList() {
           if (!mounted) return;
           setCompanyInfo((prev) => ({
             ...prev,
-            logoUrl: prev.logoUrl || defaultLogo,
+            logoUrl: prev.logoUrl || "",
           }));
           return;
         }
@@ -231,13 +231,13 @@ export default function PosInvoiceList() {
           logoUrl:
             item.has_logo === 1 || item.has_logo === true
               ? `/api/admin/companies/${companyId}/logo`
-              : prev.logoUrl || defaultLogo,
+              : "",
         }));
       } catch {
         if (!mounted) return;
         setCompanyInfo((prev) => ({
           ...prev,
-          logoUrl: prev.logoUrl || defaultLogo,
+          logoUrl: prev.logoUrl || "",
         }));
       }
     }
@@ -340,9 +340,8 @@ export default function PosInvoiceList() {
         settings.addressLine2 ||
         "City, State, ZIP",
     );
-    const logoUrl = toAbsoluteUrl(
-      String(settings.logoUrl || companyInfo.logoUrl || "").trim(),
-    );
+    const showLogo = !!settings.showLogo;
+    const logoUrl = showLogo ? toAbsoluteUrl(String(settings.logoUrl || "").trim()) : "";
     const logoHtml = logoUrl
       ? `<img src="${logoUrl}" alt="${escapeHtml(companyInfo.name || settings.companyName || "Company")}" style="max-height:80px;object-fit:contain;" />`
       : "";
@@ -434,7 +433,8 @@ export default function PosInvoiceList() {
     if (companyInfo.taxId) extras.push(`TIN: ${companyInfo.taxId}`);
     if (companyInfo.website) extras.push(companyInfo.website);
     const extraLine = extras.join(" • ");
-    let logoUrl = String(settings.logoUrl || companyInfo.logoUrl || "").trim();
+    const showLogo = !!settings.showLogo;
+    let logoUrl = showLogo ? String(settings.logoUrl || "").trim() : "";
     if (logoUrl) {
       const isAbsolute =
         logoUrl.startsWith("http://") ||

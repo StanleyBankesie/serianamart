@@ -109,23 +109,23 @@ export default function PosSalesEntry() {
     return (Array.isArray(products) ? products : []).map((p) => ({
       value: String(p.id),
       label: String(p.name || ""),
+      sellingPrice: Number(p.price || 0),
     }));
   }, [products]);
   const itemSearchResults = useMemo(() => {
-    const q = String(entryBarcode || "").trim();
+    const q = String(entryBarcode || "").trim().toLowerCase();
     if (!q) return [];
     const exactMatch = products.find((p) => {
       const code = String(p.code || "").toLowerCase();
       const name = String(p.name || "").toLowerCase();
       const barcode = String(p.barcode || "").toLowerCase();
-      const query = q.toLowerCase();
-      return code === query || name === query || barcode === query;
+      return code === q || name === q || barcode === q;
     });
     if (exactMatch) return [];
-    return filterByPrefix(itemSelectOptions, {
-      query: q,
-      getKeys: (o) => [o.label],
-    });
+    return itemSelectOptions.filter((o) =>
+      String(o.label || "").toLowerCase().includes(q) ||
+      (products.find((p) => String(p.id) === o.value)?.code || "").toLowerCase().includes(q),
+    ).slice(0, 20);
   }, [entryBarcode, itemSelectOptions, products]);
 
   useEffect(() => {
@@ -591,6 +591,7 @@ export default function PosSalesEntry() {
     const diff = tendered - total;
     return Number.isFinite(diff) ? diff : 0;
   }, [tendered, total]);
+
   useEffect(() => {
     setAmountPaid(String(total.toFixed(2)));
   }, [total]);
@@ -1385,7 +1386,6 @@ export default function PosSalesEntry() {
             <td>${it.name || ""}</td>
             <td class="right">${qty}</td>
             <td class="right">GH₵ ${price.toFixed(2)}</td>
-            <td class="right">GH₵ ${disc.toFixed(2)}</td>
             <td class="right">GH₵ ${lineTotal.toFixed(2)}</td>
           </tr>
         `;
@@ -1438,7 +1438,6 @@ export default function PosSalesEntry() {
               <th>Item</th>
               <th class="right">Qty</th>
               <th class="right">Price</th>
-              <th class="right">Disc</th>
               <th class="right">Total</th>
             </tr>
           </thead>
@@ -1449,7 +1448,8 @@ export default function PosSalesEntry() {
         <div class="totals">
           <div class="row"><span>Subtotal</span><span>GH₵ ${subtotal.toFixed(
             2,
-          )}</span></div>${
+          )}</span></div>
+          <div class="row"><span>Discount</span><span>GH₵ ${discountTotal.toFixed(2)}</span></div>${
             taxActive
               ? `<div class="row"><span>Tax</span><span>GH₵ ${tax.toFixed(2)}</span></div>`
               : ""
@@ -1637,7 +1637,12 @@ export default function PosSalesEntry() {
                             className="block w-full text-left px-3 py-2 hover:bg-slate-50"
                             onClick={() => handleSelectItemById(o.value)}
                           >
-                            {o.label}
+                            <div className="flex justify-between items-center">
+                              <span>{o.label}</span>
+                              <span className="font-semibold text-brand-700 whitespace-nowrap ml-2">
+                                GH₵ {Number(o.sellingPrice || 0).toFixed(2)}
+                              </span>
+                            </div>
                           </button>
                         ))}
                       </div>
@@ -1706,15 +1711,15 @@ export default function PosSalesEntry() {
                 </div>
                 {selectedItems.length ? (
                   <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                    <table className="min-w-full text-sm">
+                    <table className="min-w-full text-sm font-bold">
                       <thead>
                         <tr className="bg-slate-50 text-slate-700">
                           <th className="px-3 py-2 text-left">Item Code</th>
                           <th className="px-3 py-2 text-left">Item Name</th>
-                          <th className="px-3 py-2 text-right">Price</th>
                           <th className="px-3 py-2 text-right">
                             Available Qty
                           </th>
+                          <th className="px-3 py-2 text-right">Price</th>
                           <th className="px-3 py-2 text-right">QTY</th>
                           <th className="px-3 py-2 text-right">Discount</th>
                           <th className="px-3 py-2 text-right">Total</th>
@@ -1737,10 +1742,10 @@ export default function PosSalesEntry() {
                               <td className="px-3 py-2">{it.code}</td>
                               <td className="px-3 py-2">{it.name}</td>
                               <td className="px-3 py-2 text-right">
-                                {`GH₵ ${unitPrice.toFixed(2)}`}
+                                {Number(it.availQty || 0)}
                               </td>
                               <td className="px-3 py-2 text-right">
-                                {Number(it.availQty || 0)}
+                                {`GH₵ ${unitPrice.toFixed(2)}`}
                               </td>
                               <td className="px-3 py-2 text-right">
                                 <div className="flex items-center gap-2 justify-end">
@@ -1806,6 +1811,26 @@ export default function PosSalesEntry() {
                     Scan barcode or search item to add to cart
                   </div>
                 )}
+                {selectedItems.length > 0 && (
+                  <div className="mt-4 flex justify-center">
+                    <button
+                      type="button"
+                      className="px-4 py-2 bg-[#0E3646] text-white font-semibold rounded-lg shadow hover:bg-[#092530] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-[#0E3646]"
+                      onClick={() => {
+                        setAmountPaid("");
+                        const input = document.getElementById("amountPaid");
+                        if (input) {
+                          // Allow React state to update first, then focus
+                          setTimeout(() => {
+                            input.focus();
+                          }, 0);
+                        }
+                      }}
+                    >
+                      Enter Amount Tendered →
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1866,12 +1891,10 @@ export default function PosSalesEntry() {
                     disabled={false}
                   />
                 </div>
-                <div className="flex justify-between text-lg">
+                <div className="flex justify-between text-lg mt-2">
                   <div>{changeDue >= 0 ? "Change" : "Amount Due"}</div>
                   <div
-                    className={
-                      changeDue >= 0 ? "text-emerald-600" : "text-red-600"
-                    }
+                    className={`font-semibold whitespace-nowrap ${changeDue >= 0 ? "text-brand-700" : "text-red-600"}`}
                   >
                     {`GH₵ ${Math.abs(changeDue).toFixed(2)}`}
                   </div>

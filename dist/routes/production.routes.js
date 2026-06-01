@@ -398,4 +398,9 @@ router.get("/reports/efficiency", requireAuth, requireCompanyScope, requireBranc
 
 router.get("/dashboard/stats", requireAuth, requireCompanyScope, requireBranchScope, productionController.getProductionStats);
 
+// Warm up production schema checks without crashing startup when DB is offline.
+ensureProductionTables().catch((err) => {
+  console.warn("Failed to ensure production tables during startup:", err);
+});
+
 export default router;

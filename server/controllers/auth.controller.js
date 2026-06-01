@@ -103,6 +103,7 @@ async function findUserByUsername(username) {
       u.username,
       u.email,
       u.full_name,
+      u.profile_picture,
       u.password_hash,
       u.is_active,
       u.failed_attempts,

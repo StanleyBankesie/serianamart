@@ -9,15 +9,6 @@ import * as financeController from "../controllers/finance.controller.js";
 
 const router = express.Router();
 
-router.use(async (req, res, next) => {
-  try {
-    await financeController.ensureFinanceStartupObjects();
-    next();
-  } catch (err) {
-    next(err);
-  }
-});
-
 // Accounts & COA (Moved to top to avoid shadowing)
 router.get(
   "/chart-of-accounts",
@@ -684,6 +675,22 @@ router.delete(
   requireCompanyScope,
   requireBranchScope,
   financeController.deleteBankReconciliationLine,
+);
+
+router.get(
+  "/dashboard/metrics",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.getDashboardMetrics,
+);
+
+router.get(
+  "/dashboard-stats",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.getFinanceDashboardStats,
 );
 
 export default router;

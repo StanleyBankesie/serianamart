@@ -12,6 +12,10 @@ import {
 import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { ensureSalesOrderColumns } from "../utils/dbUtils.js";
+import {
+  getInactiveWorkflowBehavior,
+  resolveWorkflowSelection,
+} from "../utils/workflowResolution.js";
 import { ensureStockBalancesWarehouseInfrastructure } from "../services/stock.service.js";
 import {
   requireIdParam,
@@ -46,42 +50,33 @@ async function hasColumn(tableName, columnName) {
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
-let deliverySchemaReadyPromise = null;
-
-async function ensureDeliverySchemaColumns() {
-  if (!(await hasColumn("sal_deliveries", "delivery_instructions"))) {
-    await query(
-      "ALTER TABLE sal_deliveries ADD COLUMN delivery_instructions TEXT NULL",
-    );
-  }
-  if (!(await hasColumn("sal_deliveries", "terms_and_conditions"))) {
-    await query(
-      "ALTER TABLE sal_deliveries ADD COLUMN terms_and_conditions TEXT NULL",
-    );
-  }
-  if (!(await hasColumn("sal_deliveries", "total_tax"))) {
-    await query(
-      "ALTER TABLE sal_deliveries ADD COLUMN total_tax DECIMAL(18,2) DEFAULT 0",
-    );
-  }
-  if (!(await hasColumn("sal_deliveries", "invoice_amount"))) {
-    await query(
-      "ALTER TABLE sal_deliveries ADD COLUMN invoice_amount DECIMAL(18,2) DEFAULT 0",
-    );
-  }
-}
-
-// Keep startup resilient when the database is temporarily unavailable.
-router.use(async (req, res, next) => {
+// Ensure sal_deliveries columns
+(async () => {
   try {
-    deliverySchemaReadyPromise ||= ensureDeliverySchemaColumns();
-    await deliverySchemaReadyPromise;
-    next();
+    if (!(await hasColumn("sal_deliveries", "delivery_instructions"))) {
+      await query(
+        "ALTER TABLE sal_deliveries ADD COLUMN delivery_instructions TEXT NULL",
+      );
+    }
+    if (!(await hasColumn("sal_deliveries", "terms_and_conditions"))) {
+      await query(
+        "ALTER TABLE sal_deliveries ADD COLUMN terms_and_conditions TEXT NULL",
+      );
+    }
+    if (!(await hasColumn("sal_deliveries", "total_tax"))) {
+      await query(
+        "ALTER TABLE sal_deliveries ADD COLUMN total_tax DECIMAL(18,2) DEFAULT 0",
+      );
+    }
+    if (!(await hasColumn("sal_deliveries", "invoice_amount"))) {
+      await query(
+        "ALTER TABLE sal_deliveries ADD COLUMN invoice_amount DECIMAL(18,2) DEFAULT 0",
+      );
+    }
   } catch (err) {
-    deliverySchemaReadyPromise = null;
-    next(err);
+    console.error("Failed to update sal_deliveries schema:", err);
   }
-});
+})();
 
 // Ensure prospective customers table exists
 async function ensureProspectiveCustomersTable() {
@@ -419,6 +414,19 @@ async function ensureSalesReturnTables() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       UNIQUE KEY uq_reason_code (company_id, reason_code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `).catch(() => null);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS sal_zones (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      zone_name VARCHAR(100) NOT NULL,
+      description VARCHAR(255) DEFAULT NULL,
+      is_active TINYINT DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_zone_name (company_id, zone_name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `).catch(() => null);
 
@@ -1381,6 +1389,231 @@ async function createPostedSalesVoucherForInvoiceTx(
   return voucherId;
 }
 
+async function createSalesReturnCreditNoteTx(conn, opts) {
+  const {
+    companyId,
+    branchId,
+    return_no,
+    return_date,
+    customer_id,
+    normalized,
+    total_amount,
+    tax_total,
+    created_by,
+    invoice_id,
+  } = opts;
+  const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
+  const voucherTypeId = await ensureCreditNoteVoucherTypeIdTx(conn, {
+    companyId,
+  });
+  const voucherNo = await nextVoucherNoTx(conn, { companyId, voucherTypeId });
+  const voucherDate = return_date || toYmd(new Date());
+
+  const customerAccountId = await ensureCustomerFinAccountIdTx(conn, {
+    companyId,
+    customerId: customer_id,
+  });
+
+  const itemSalesAccountMap = await fetchItemSalesAccountMap(conn, {
+    companyId,
+    itemIds: normalized.map((ln) => ln.item_id),
+  });
+  const defaultSalesAccountId = await ensureDefaultSalesAccountIdTx(conn, {
+    companyId,
+  });
+
+  let voucherId = null;
+  if (customerAccountId && fiscalYearId && voucherTypeId) {
+    const [vIns] = await conn.execute(
+      `INSERT INTO fin_vouchers
+        (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
+       VALUES
+        (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
+      {
+        companyId,
+        branchId,
+        fiscalYearId,
+        voucherTypeId,
+        voucherNo,
+        voucherDate,
+        narration: `Sales Return for Invoice ${return_no}`,
+        totalDebit: total_amount,
+        totalCredit: total_amount,
+        createdBy: created_by,
+        approvedBy: created_by,
+        postedBy: created_by,
+      },
+    );
+    voucherId = Number(vIns?.insertId || 0) || 0;
+    let lineNo = 1;
+
+    const salesDebitByAccount = new Map();
+    for (const ln of normalized) {
+      let accId = Number(itemSalesAccountMap.get(ln.item_id) || 0);
+      if (!accId) accId = defaultSalesAccountId;
+      const prev = salesDebitByAccount.get(accId) || 0;
+      salesDebitByAccount.set(accId, prev + ln.total_amount);
+    }
+    for (const [accId, debitAmt] of salesDebitByAccount) {
+      if (!(debitAmt > 0) || !accId) continue;
+      await conn.execute(
+        `INSERT INTO fin_voucher_lines
+          (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no)
+         VALUES
+          (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, :ref)`,
+        {
+          companyId,
+          voucherId,
+          lineNo: lineNo++,
+          accountId: accId,
+          description: `Sales Return reversal - ${return_no}`,
+          debit: Math.round(debitAmt * 100) / 100,
+          ref: return_no,
+        },
+      );
+    }
+
+    if (tax_total > 0) {
+      const componentTotals = new Map();
+      for (const ln of normalized) {
+        if (!ln.tax_type || !(ln.tax_amount > 0)) continue;
+        const comps = await loadTaxComponentsByCodeTx(conn, {
+          companyId,
+          taxCodeId: Number(ln.tax_type),
+        });
+        const allocations = allocateTaxComponents(
+          ln.total_amount,
+          ln.tax_amount,
+          comps,
+        );
+        for (const alloc of allocations) {
+          const accountId = await ensureTaxComponentAccountTx(conn, {
+            companyId,
+            taxDetailId: alloc.tax_detail_id,
+            componentName: alloc.component_name,
+          });
+          if (!accountId) continue;
+          const key = String(accountId);
+          const prev = componentTotals.get(key) || {
+            amount: 0,
+            name: alloc.component_name,
+          };
+          componentTotals.set(key, {
+            amount: prev.amount + Number(alloc.amount || 0),
+            name: alloc.component_name,
+          });
+        }
+      }
+      for (const [accountId, ct] of componentTotals) {
+        const amt = Math.round(ct.amount * 100) / 100;
+        if (!(amt > 0)) continue;
+        await conn.execute(
+          `INSERT INTO fin_voucher_lines
+            (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no)
+           VALUES
+            (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, :ref)`,
+          {
+            companyId,
+            voucherId,
+            lineNo: lineNo++,
+            accountId: Number(accountId),
+            description: `${ct.name} Reversal on Sales Return - ${return_no}`,
+            debit: amt,
+            ref: return_no,
+          },
+        );
+      }
+    }
+
+    let creditAccountId = customerAccountId;
+    if (invoice_id) {
+      const [inv] = await conn.execute(
+        `SELECT payment_type FROM sal_invoices WHERE id = :invoice_id`,
+        { invoice_id },
+      );
+      if (
+        inv &&
+        (inv.payment_type === "CASH" || inv.payment_type === "CHEQUE")
+      ) {
+        const [cashAccRows] = await conn.execute(
+          `SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = '1000' LIMIT 1`,
+          { companyId },
+        );
+        const cashAccId = Number(cashAccRows?.[0]?.id || 0);
+        if (cashAccId) creditAccountId = cashAccId;
+      }
+    }
+    await conn.execute(
+      `INSERT INTO fin_voucher_lines
+        (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no)
+       VALUES
+        (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, :ref)`,
+      {
+        companyId,
+        voucherId,
+        lineNo: lineNo++,
+        accountId: creditAccountId,
+        description: `Sales Return reversal - ${return_no}`,
+        credit: total_amount,
+        ref: return_no,
+      },
+    );
+  }
+  return voucherId;
+}
+
+async function createCreditNoteForReturnApprovalTx(
+  conn,
+  { id, companyId, branchId },
+) {
+  const [hdrRows] = await conn.execute(
+    `SELECT * FROM sal_returns WHERE id = :id AND company_id = :companyId`,
+    { id, companyId },
+  );
+  if (!hdrRows?.length) return null;
+  const hdr = hdrRows[0];
+  const {
+    return_no,
+    return_date,
+    customer_id,
+    total_amount,
+    tax_amount,
+    sub_total,
+    invoice_id,
+    created_by,
+  } = hdr;
+
+  const [detRows] = await conn.execute(
+    `SELECT sd.*, it.vat_on_sales_id AS tax_type
+     FROM sal_return_details sd
+     JOIN inv_items it ON it.id = sd.item_id
+     WHERE sd.return_id = :id`,
+    { id },
+  );
+  const normalized = (detRows || []).map((d) => ({
+    item_id: d.item_id,
+    qty: d.qty_returned,
+    unit_price: d.unit_price,
+    total_amount: d.total_amount,
+    tax_amount: d.tax_amount,
+    tax_type: d.tax_type,
+  }));
+  if (!normalized.length) return null;
+
+  return createSalesReturnCreditNoteTx(conn, {
+    companyId,
+    branchId,
+    return_no,
+    return_date,
+    customer_id,
+    normalized,
+    total_amount,
+    tax_total: tax_amount,
+    created_by,
+    invoice_id,
+  });
+}
+
 router.get(
   "/prospects",
   requireAuth,
@@ -1890,8 +2123,8 @@ router.post(
             });
           }
         }
-          const userId = Number(req.user?.sub || req.user?.id);
-          const [ins] = await conn.execute(
+        const userId = Number(req.user?.sub || req.user?.id);
+        const [ins] = await conn.execute(
           `
           INSERT INTO sal_deliveries
             (company_id, branch_id, delivery_no, delivery_date, customer_id, sales_order_id, invoice_id, remarks, status,
@@ -2828,6 +3061,7 @@ router.get(
           o.priority,
           CASE 
             WHEN a.has_approved = 1 THEN 'APPROVED'
+            WHEN iw.has_inactive_pending = 1 THEN 'APPROVED'
             WHEN x.assigned_to_user_id IS NOT NULL THEN 'PENDING_APPROVAL'
             ELSE o.status
           END AS status, 
@@ -2848,6 +3082,7 @@ router.get(
         LEFT JOIN (
           SELECT t.document_id, t.assigned_to_user_id
           FROM adm_document_workflows t
+          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 1
           JOIN (
             SELECT document_id, MAX(id) AS max_id
             FROM adm_document_workflows
@@ -2862,8 +3097,22 @@ router.get(
           ) m ON m.max_id = t.id
         ) x ON x.document_id = o.id
         LEFT JOIN (
+          SELECT t.document_id, 1 AS has_inactive_pending
+          FROM adm_document_workflows t
+          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 0
+          WHERE t.company_id = :companyId
+            AND t.status = 'PENDING'
+            AND (
+              t.document_type = 'SALES_ORDER' OR 
+              t.document_type = 'Sales Order' OR
+              t.document_type LIKE 'SALES_ORDER:%'
+            )
+          GROUP BY t.document_id
+        ) iw ON iw.document_id = o.id
+        LEFT JOIN (
           SELECT t.document_id, 1 AS has_approved
           FROM adm_document_workflows t
+          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 1
           JOIN (
             SELECT document_id, MAX(id) AS max_id
             FROM adm_document_workflows
@@ -3319,48 +3568,20 @@ router.post(
           ? null
           : Number(req.body.target_user_id);
 
-      // Resolve active workflow
-      let activeWf = null;
-      if (explicitWorkflowId) {
-        const rows = await query(
-          `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND is_active = 1 LIMIT 1`,
-          { id: explicitWorkflowId, companyId },
-        ).catch(() => []);
-        if (rows.length) activeWf = rows[0];
-      }
-      if (!activeWf) {
-        const wfs = await query(
-          `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId 
-             AND is_active = 1 
-             AND (document_route = '/sales/sales-orders' OR UPPER(document_type) IN ('SALES_ORDER','SALES ORDER','SALES_ORDER:LOCAL','SALES_ORDER:IMPORT')) 
-           ORDER BY id ASC`,
-          { companyId },
-        ).catch(() => []);
-        for (const wf of wfs) {
-          if (amount === null) {
-            activeWf = wf;
-            break;
-          }
-          const minOk =
-            wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
-          const maxOk =
-            wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
-          if (minOk && maxOk) {
-            activeWf = wf;
-            break;
-          }
-        }
-      }
+      let { activeWorkflow: activeWf, inactiveWorkflow } =
+        await resolveWorkflowSelection({
+          companyId,
+          workflowIdOverride: explicitWorkflowId,
+          docRouteBase: "/sales/sales-orders",
+          typeSynonyms: [
+            "SALES_ORDER",
+            "Sales Order",
+            "SALES_ORDER:LOCAL",
+            "SALES_ORDER:IMPORT",
+            "SALES ORDER",
+          ],
+          amount,
+        });
 
       // Fallback: create a simple default workflow if not defined yet and a target approver is provided
       if (!activeWf && Number.isFinite(targetUserId) && targetUserId > 0) {
@@ -3409,6 +3630,10 @@ router.post(
 
       // If a workflow is defined, create/advance document workflow and assign
       if (!activeWf) {
+        const behavior = getInactiveWorkflowBehavior(inactiveWorkflow);
+        if (behavior && behavior.toUpperCase() !== "AUTO_APPROVE") {
+          return res.json({ id, status: "SUBMITTED" });
+        }
         await query(
           `UPDATE sal_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
           { id, companyId, branchId },
@@ -3612,7 +3837,7 @@ router.get(
       const accountRows = await query(
         `SELECT code FROM fin_accounts
          WHERE id = ? AND company_id = ?`,
-        [account_id, companyId]
+        [account_id, companyId],
       );
 
       if (!accountRows || accountRows.length === 0) {
@@ -3630,7 +3855,7 @@ router.get(
          FROM sal_customers
          WHERE company_id = ? AND customer_code = ?
          LIMIT 1`,
-        [companyId, accountCode]
+        [companyId, accountCode],
       );
 
       // Fallback: try customer_id if no match found
@@ -3640,7 +3865,7 @@ router.get(
            FROM sal_customers
            WHERE company_id = ? AND CAST(customer_id AS CHAR) = ?
            LIMIT 1`,
-          [companyId, accountCode]
+          [companyId, accountCode],
         );
       }
 
@@ -3672,7 +3897,7 @@ router.get(
       const invoiceParams = [customerId, companyId, branchId];
       const invoiceRows = await query(sql, invoiceParams);
 
-      const invoices = (invoiceRows || []).map(row => ({
+      const invoices = (invoiceRows || []).map((row) => ({
         id: row.id,
         invoice_no: row.invoice_no,
         invoice_date: row.invoice_date,
@@ -3681,20 +3906,20 @@ router.get(
         payment_status: row.payment_status,
         due_date: row.due_date,
         customer_name: row.customer_name,
-        tax_code_id: row.tax_code_id || null
+        tax_code_id: row.tax_code_id || null,
       }));
 
       res.json({
         items: invoices,
         customer: customerRows[0],
-        account_code: accountCode
+        account_code: accountCode,
       });
     } catch (err) {
       console.error("[outstanding-by-account] Error:", err?.message || err);
       console.error("[outstanding-by-account] Stack:", err?.stack);
       next(err);
     }
-  }
+  },
 );
 
 router.get(
@@ -6478,13 +6703,13 @@ router.get(
       const companyId = req.scope.companyId;
       const items = await query(
         `SELECT id, reason_code, reason_name, is_active FROM sal_return_reasons WHERE company_id = :companyId ORDER BY id ASC`,
-        { companyId }
+        { companyId },
       );
       res.json({ items: items || [] });
     } catch (e) {
       next(e);
     }
-  }
+  },
 );
 
 router.post(
@@ -6506,14 +6731,24 @@ router.post(
             `UPDATE sal_return_reasons 
                 SET reason_code = :reason_code, reason_name = :reason_name, is_active = :is_active 
               WHERE id = :id AND company_id = :companyId`,
-            { id: Number(r.id), company_id: companyId, reason_code: r.reason_code, reason_name: r.reason_name, is_active: r.is_active ? 1 : 0 }
+            {
+              id: Number(r.id),
+              company_id: companyId,
+              reason_code: r.reason_code,
+              reason_name: r.reason_name,
+              is_active: r.is_active ? 1 : 0,
+            },
           );
         } else {
           await query(
             `INSERT INTO sal_return_reasons (company_id, reason_code, reason_name, is_active) 
              VALUES (:companyId, :reason_code, :reason_name, 1)
              ON DUPLICATE KEY UPDATE reason_name = :reason_name, is_active = 1`,
-            { companyId, reason_code: r.reason_code, reason_name: r.reason_name }
+            {
+              companyId,
+              reason_code: r.reason_code,
+              reason_name: r.reason_name,
+            },
           );
         }
       }
@@ -6521,7 +6756,7 @@ router.post(
     } catch (e) {
       next(e);
     }
-  }
+  },
 );
 
 router.delete(
@@ -6533,12 +6768,101 @@ router.delete(
       await ensureSalesReturnTables();
       const companyId = req.scope.companyId;
       const id = Number(req.params.id);
-      await query(`DELETE FROM sal_return_reasons WHERE id = :id AND company_id = :companyId`, { id, companyId });
+      await query(
+        `DELETE FROM sal_return_reasons WHERE id = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
       res.json({ message: "Reason deleted successfully" });
     } catch (e) {
       next(e);
     }
-  }
+  },
+);
+
+router.get(
+  "/zones",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureSalesReturnTables();
+      const companyId = req.scope.companyId;
+      const items = await query(
+        `SELECT id, zone_name, description, is_active FROM sal_zones WHERE company_id = :companyId ORDER BY zone_name ASC`,
+        { companyId },
+      );
+      res.json({ items: items || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.post(
+  "/zones",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureSalesReturnTables();
+      const companyId = req.scope.companyId;
+      const { zones } = req.body;
+      if (!Array.isArray(zones)) {
+        return res.status(400).json({ message: "zones must be an array" });
+      }
+      for (const z of zones) {
+        if (!z.zone_name) continue;
+        if (z.id && /^\d+$/.test(String(z.id))) {
+          await query(
+            `UPDATE sal_zones
+                SET zone_name = :zone_name, description = :description, is_active = :is_active
+              WHERE id = :id AND company_id = :companyId`,
+            {
+              id: Number(z.id),
+              company_id: companyId,
+              zone_name: z.zone_name,
+              description: z.description || null,
+              is_active: z.is_active ? 1 : 0,
+            },
+          );
+        } else {
+          await query(
+            `INSERT INTO sal_zones (company_id, zone_name, description, is_active)
+             VALUES (:companyId, :zone_name, :description, 1)
+             ON DUPLICATE KEY UPDATE description = :description, is_active = 1`,
+            {
+              companyId,
+              zone_name: z.zone_name,
+              description: z.description || null,
+            },
+          );
+        }
+      }
+      res.json({ message: "Zones saved successfully" });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.delete(
+  "/zones/:id",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureSalesReturnTables();
+      const companyId = req.scope.companyId;
+      const id = Number(req.params.id);
+      await query(
+        `DELETE FROM sal_zones WHERE id = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
+      res.json({ message: "Zone deleted successfully" });
+    } catch (e) {
+      next(e);
+    }
+  },
 );
 
 router.get(
@@ -6553,7 +6877,8 @@ router.get(
       const { companyId, branchId } = req.scope;
       const items = await query(
         `
-        SELECT r.id, r.return_no, r.return_date, r.total_amount, r.status,
+        SELECT r.id, r.return_no, r.return_date, r.total_amount,
+               CASE WHEN iw.has_inactive_pending = 1 THEN 'APPROVED' ELSE r.status END AS status,
                COALESCE(c.customer_name, '') AS customer_name,
                r.invoice_id,
                fu.username AS forwarded_to_username,
@@ -6565,6 +6890,7 @@ router.get(
         LEFT JOIN (
           SELECT t.document_id, t.assigned_to_user_id
           FROM adm_document_workflows t
+          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 1
           JOIN (
             SELECT document_id, MAX(id) AS max_id
             FROM adm_document_workflows
@@ -6573,6 +6899,15 @@ router.get(
             GROUP BY document_id
           ) m ON m.max_id = t.id
         ) x ON x.document_id = r.id
+        LEFT JOIN (
+          SELECT t.document_id, 1 AS has_inactive_pending
+          FROM adm_document_workflows t
+          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 0
+          WHERE t.company_id = :companyId
+            AND t.status = 'PENDING'
+            AND (t.document_type = 'SALES_RETURN' OR t.document_type = 'Sales Return')
+          GROUP BY t.document_id
+        ) iw ON iw.document_id = r.id
         LEFT JOIN adm_users fu ON fu.id = x.assigned_to_user_id
         LEFT JOIN adm_users cu ON cu.id = r.created_by
         WHERE r.company_id = :companyId AND r.branch_id = :branchId
@@ -6818,147 +7153,39 @@ router.post(
           },
         );
       }
-      const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
-      const voucherTypeId = await ensureCreditNoteVoucherTypeIdTx(conn, {
-        companyId,
-      });
-      const voucherNo = await nextVoucherNoTx(conn, {
-        companyId,
-        voucherTypeId,
-      });
-      const voucherDate = return_date || toYmd(new Date());
 
-      // Resolve Customer Account (Credit side for Returns)
-      const customerAccountId = await ensureCustomerFinAccountIdTx(conn, {
-        companyId,
-        customerId: customer_id,
-      });
-
-      // Resolve Item Sales Accounts (Debit side for Returns)
-      const itemSalesAccountMap = await fetchItemSalesAccountMap(conn, {
-        companyId,
-        itemIds: normalized.map((ln) => ln.item_id),
-      });
-      const defaultSalesAccountId = await ensureDefaultSalesAccountIdTx(conn, {
-        companyId,
-      });
-
-      if (customerAccountId && fiscalYearId && voucherTypeId) {
-        const [vIns] = await conn.execute(
-          `INSERT INTO fin_vouchers
-            (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
-           VALUES
-            (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
-          {
-            companyId,
-            branchId,
-            fiscalYearId,
-            voucherTypeId,
-            voucherNo,
-            voucherDate,
-            narration: `Sales Return for Invoice ${return_no}`,
-            totalDebit: total_amount,
-            totalCredit: total_amount,
-            createdBy: created_by,
-            approvedBy: created_by,
-            postedBy: created_by,
-          },
-        );
-        const voucherId = Number(vIns?.insertId || 0) || 0;
-        let lineNo = 1;
-
-        // 1. DEBIT: Sales Accounts (Reversing Revenue)
-        const salesDebitByAccount = new Map();
-        for (const ln of normalized) {
-          let accId = Number(itemSalesAccountMap.get(ln.item_id) || 0);
-          if (!accId) accId = defaultSalesAccountId;
-          const prev = salesDebitByAccount.get(accId) || 0;
-          salesDebitByAccount.set(accId, prev + ln.total_amount);
-        }
-
-        for (const [accId, debitAmt] of salesDebitByAccount) {
-          if (!(debitAmt > 0) || !accId) continue;
-          await conn.execute(
-            `INSERT INTO fin_voucher_lines
-              (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no)
-             VALUES
-              (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, :ref)`,
-            {
-              companyId,
-              voucherId,
-              lineNo: lineNo++,
-              accountId: accId,
-              description: `Sales Return reversal - ${return_no}`,
-              debit: Math.round(debitAmt * 100) / 100,
-              ref: return_no,
-            },
+      let voucherId = null;
+      let voucherNo = null;
+      const [wfRows] = await conn.execute(
+        `SELECT id FROM adm_workflows
+         WHERE company_id = :companyId
+           AND (document_type = 'SALES_RETURN' OR document_type = 'Sales Return')
+           AND is_active = 1
+         LIMIT 1`,
+        { companyId },
+      );
+      const hasActiveWf = wfRows?.length > 0;
+      const shouldCreateCreditNote = !hasActiveWf || status === "APPROVED";
+      if (shouldCreateCreditNote) {
+        voucherId = await createSalesReturnCreditNoteTx(conn, {
+          companyId,
+          branchId,
+          return_no,
+          return_date,
+          customer_id,
+          normalized,
+          total_amount,
+          tax_total,
+          created_by,
+          invoice_id,
+        });
+        if (voucherId) {
+          const [vRow] = await conn.execute(
+            `SELECT voucher_no FROM fin_vouchers WHERE id = :id`,
+            { id: voucherId },
           );
+          voucherNo = vRow?.[0]?.voucher_no || null;
         }
-
-        // 2. DEBIT: Tax Reversal (if applicable)
-        if (tax_total > 0) {
-          // Simplification: Using default tax account if per-component is too complex for now
-          // In a full implementation, we would replicate allocateTaxComponents logic here
-          const taxAccountId = await query(
-            "SELECT tax_account_id FROM pos_tax_settings WHERE company_id = :companyId LIMIT 1",
-            { companyId },
-          ).then((rows) => rows[0]?.tax_account_id);
-
-          if (taxAccountId) {
-            await conn.execute(
-              `INSERT INTO fin_voucher_lines
-                (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no)
-               VALUES
-                (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, :ref)`,
-              {
-                companyId,
-                voucherId,
-                lineNo: lineNo++,
-                accountId: taxAccountId,
-                description: `Tax Reversal on Sales Return - ${return_no}`,
-                debit: Math.round(tax_total * 100) / 100,
-                ref: return_no,
-              },
-            );
-          }
-        }
-
-        // 3. CREDIT: Reverse the original debit (Cash/Bank or Customer Receivable)
-        let creditAccountId = customerAccountId;
-        if (invoice_id) {
-          const [inv] = await conn.execute(
-            `SELECT payment_type FROM sal_invoices WHERE id = :invoice_id`,
-            { invoice_id },
-          );
-          if (
-            inv &&
-            (inv.payment_type === "CASH" || inv.payment_type === "CHEQUE")
-          ) {
-            // Look up cash/bank account by code '1000'
-            const [cashAccRows] = await conn.execute(
-              `SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = '1000' LIMIT 1`,
-              { companyId },
-            );
-            const cashAccId = Number(cashAccRows?.[0]?.id || 0);
-            if (cashAccId) creditAccountId = cashAccId;
-          }
-        }
-
-        await conn.execute(
-          `INSERT INTO fin_voucher_lines
-            (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no)
-           VALUES
-            (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, :ref)`,
-          {
-            companyId,
-            voucherId,
-            lineNo: lineNo++,
-            accountId: creditAccountId,
-            description: `Sales Return reversal - ${return_no}`,
-            credit: total_amount,
-            ref: return_no,
-          },
-        );
       }
       await conn.commit();
       res.status(201).json({
@@ -6966,7 +7193,7 @@ router.post(
         return_no,
         total_amount,
         voucher_id: voucherId,
-        voucher_no: finalVoucherNo,
+        voucher_no: voucherNo,
       });
     } catch (e) {
       try {
@@ -6987,7 +7214,7 @@ router.post(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId, branchId } = req.scope;
       const id = Number(req.params.id);
       if (!Number.isFinite(id))
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -6995,87 +7222,33 @@ router.post(
       const workflowIdOverride = Number(req.body?.workflow_id || 0) || null;
       const docRouteBase = "/inventory/sales-returns";
 
-      const wfByRoute = await query(
-        `
-        SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
-          AND document_route = :docRouteBase
-        ORDER BY id ASC
-        `,
-        { companyId, docRouteBase },
-      );
-      const wfDefs = await query(
-        `
-        SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
-          AND (document_type = 'SALES_RETURN' OR document_type = 'Sales Return')
-        ORDER BY id ASC
-        `,
-        { companyId },
-      );
-      let activeWf = null;
-      if (workflowIdOverride) {
-        const wfRows = await query(
-          `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :wfId AND company_id = :companyId 
-             AND (document_type = 'SALES_RETURN' OR document_type = 'Sales Return')
-           LIMIT 1`,
-          { wfId: workflowIdOverride, companyId },
-        );
-        if (wfRows.length && Number(wfRows[0].is_active) === 1) {
-          activeWf = wfRows[0];
-        }
-      }
-      if (!activeWf && wfByRoute.length) {
-        for (const wf of wfByRoute) {
-          if (Number(wf.is_active) !== 1) continue;
-          if (amount === null) {
-            activeWf = wf;
-            break;
-          }
-          const minOk =
-            wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
-          const maxOk =
-            wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
-          if (minOk && maxOk) {
-            activeWf = wf;
-            break;
-          }
-        }
-      }
-      for (const wf of wfDefs) {
-        if (activeWf) break;
-        if (Number(wf.is_active) !== 1) continue;
-        if (amount === null) {
-          activeWf = wf;
-          break;
-        }
-        const minOk =
-          wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
-        const maxOk =
-          wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
-        if (minOk && maxOk) {
-          activeWf = wf;
-          break;
-        }
-      }
+      const { activeWorkflow: activeWf } = await resolveWorkflowSelection({
+        companyId,
+        workflowIdOverride,
+        docRouteBase,
+        typeSynonyms: ["SALES_RETURN", "Sales Return"],
+        amount,
+      });
       if (!activeWf) {
-        await query(
-          `UPDATE sal_returns SET status = 'APPROVED' WHERE id = :id`,
-          { id },
-        );
+        const conn = await pool.getConnection();
+        try {
+          await conn.beginTransaction();
+          await conn.execute(
+            `UPDATE sal_returns SET status = 'APPROVED' WHERE id = :id`,
+            { id },
+          );
+          await createCreditNoteForReturnApprovalTx(conn, {
+            id,
+            companyId,
+            branchId,
+          });
+          await conn.commit();
+        } catch (e) {
+          await conn.rollback().catch(() => {});
+          throw e;
+        } finally {
+          conn.release();
+        }
         return res.json({ status: "APPROVED" });
       }
 
@@ -7089,10 +7262,25 @@ router.post(
         { wf: activeWf.id },
       );
       if (!steps.length) {
-        await query(
-          `UPDATE sal_returns SET status = 'APPROVED' WHERE id = :id`,
-          { id },
-        );
+        const conn = await pool.getConnection();
+        try {
+          await conn.beginTransaction();
+          await conn.execute(
+            `UPDATE sal_returns SET status = 'APPROVED' WHERE id = :id`,
+            { id },
+          );
+          await createCreditNoteForReturnApprovalTx(conn, {
+            id,
+            companyId,
+            branchId,
+          });
+          await conn.commit();
+        } catch (e) {
+          await conn.rollback().catch(() => {});
+          throw e;
+        } finally {
+          conn.release();
+        }
         return res.json({ status: "APPROVED" });
       }
       const first = steps[0];
@@ -7195,30 +7383,6 @@ router.post(
         }
       }
       res.status(201).json({ instanceId, status: "PENDING" });
-      return;
-      let behavior = null;
-      if (wfDefs.length) {
-        const firstWf = wfDefs[0];
-        if (Number(firstWf.is_active) === 0) {
-          behavior = firstWf.default_behavior || null;
-          if (!behavior) {
-            behavior = "AUTO_APPROVE";
-          }
-        }
-      }
-      if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
-        await query(
-          `UPDATE sal_returns SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
-          { id, companyId },
-        );
-        res.json({ status: "APPROVED" });
-        return;
-      }
-      await query(
-        `UPDATE sal_returns SET status = 'SUBMITTED' WHERE id = :id AND company_id = :companyId`,
-        { id, companyId },
-      );
-      res.json({ status: "SUBMITTED" });
     } catch (e) {
       next(e);
     }
@@ -7588,3 +7752,5 @@ router.get(
 );
 
 export default router;
+
+export { createSalesReturnCreditNoteTx, createCreditNoteForReturnApprovalTx };

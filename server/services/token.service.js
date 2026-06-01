@@ -49,6 +49,42 @@ function getJwtSecret() {
   return secret;
 }
 
+function profilePictureToDataUrl(blob) {
+  if (!blob) return null;
+  try {
+    const b = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
+    let mime = "image/jpeg";
+    if (
+      b.length >= 8 &&
+      b[0] === 0x89 &&
+      b[1] === 0x50 &&
+      b[2] === 0x4e &&
+      b[3] === 0x47 &&
+      b[4] === 0x0d &&
+      b[5] === 0x0a &&
+      b[6] === 0x1a &&
+      b[7] === 0x0a
+    ) {
+      mime = "image/png";
+    } else if (
+      b.length >= 12 &&
+      b[0] === 0x52 &&
+      b[1] === 0x49 &&
+      b[2] === 0x46 &&
+      b[3] === 0x46 &&
+      b[8] === 0x57 &&
+      b[9] === 0x45 &&
+      b[10] === 0x42 &&
+      b[11] === 0x50
+    ) {
+      mime = "image/webp";
+    }
+    return `data:${mime};base64,${b.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
 function isProduction() {
   return String(process.env.NODE_ENV || "").toLowerCase() === "production";
 }
@@ -229,6 +265,7 @@ export async function getUserForAuth(userId) {
       u.username,
       u.email,
       u.full_name,
+      u.profile_picture,
       u.is_active,
       u.failed_attempts,
       u.last_failed_attempt,
@@ -257,6 +294,7 @@ export function buildAuthUserPayload(user, permissions = []) {
     branchIds: user.branch_id ? [Number(user.branch_id)] : [],
     companyName: user.company_name || "",
     branchName: user.branch_name || "",
+    profile_picture_url: profilePictureToDataUrl(user.profile_picture),
   };
 
   if (Number(user.id) === 1) {

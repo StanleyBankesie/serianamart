@@ -126,42 +126,129 @@ function decode(str) {
   }
 }
 
-/**
- * Save credentials so the login page can suggest them next time.
- * Stores as base64-encoded JSON (basic obfuscation, not encryption).
- */
-export function saveRememberedCredentials(username, password) {
-  if (!canUseStorage()) return;
-  try {
-    const payload = encode(JSON.stringify({ u: username, p: password }));
-    localStorage.setItem(REMEMBERED_CREDS_KEY, payload);
-  } catch {}
-}
-
-/**
- * Read previously remembered credentials.
- * @returns {{ username: string, password: string } | null}
- */
-export function readRememberedCredentials() {
+function readRememberedCredentialPayload() {
   if (!canUseStorage()) return null;
   try {
     const raw = localStorage.getItem(REMEMBERED_CREDS_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(decode(raw));
-    if (parsed && parsed.u) {
-      return { username: parsed.u, password: parsed.p || "" };
-    }
-    return null;
+    return JSON.parse(decode(raw));
   } catch {
     return null;
   }
 }
 
-/** Remove remembered credentials. */
-export function clearRememberedCredentials() {
+function normalizeRememberedCredentialPayload(payload) {
+  const rows = Array.isArray(payload?.profiles)
+    ? payload.profiles
+    : payload?.u
+      ? [payload]
+      : [];
+  const seen = new Set();
+  return rows
+    .map((row) => ({
+      username: String(row?.username || row?.u || "").trim(),
+      password: String(row?.password || row?.p || ""),
+      profilePictureUrl: String(row?.profilePictureUrl || ""),
+      avatarColor: String(row?.avatarColor || ""),
+      updatedAt: Number(row?.updatedAt || 0),
+    }))
+    .filter((row) => {
+      if (!row.username || seen.has(row.username.toLowerCase())) return false;
+      seen.add(row.username.toLowerCase());
+      return true;
+    })
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+}
+
+export function getRememberedAvatarColor(username) {
+  const palette = [
+    "#0E3646",
+    "#2563eb",
+    "#047857",
+    "#b45309",
+    "#be123c",
+    "#7c3aed",
+    "#0f766e",
+    "#4338ca",
+    "#c2410c",
+    "#0369a1",
+  ];
+  const text = String(username || "");
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  }
+  return palette[hash % palette.length];
+}
+
+function writeRememberedCredentialProfiles(profiles) {
   if (!canUseStorage()) return;
   try {
-    localStorage.removeItem(REMEMBERED_CREDS_KEY);
+    const payload = encode(JSON.stringify({ profiles }));
+    localStorage.setItem(REMEMBERED_CREDS_KEY, payload);
+  } catch {}
+}
+
+/**
+ * Save credentials so the login page can suggest them next time.
+ * Stores as base64-encoded JSON (basic obfuscation, not encryption).
+ */
+export function saveRememberedCredentials(username, password, profile = {}) {
+  if (!canUseStorage()) return;
+  const cleanUsername = String(username || "").trim();
+  if (!cleanUsername) return;
+  try {
+    const existing = readRememberedCredentialProfiles();
+    const nextProfile = {
+      username: cleanUsername,
+      password: String(password || ""),
+      profilePictureUrl: String(profile?.profilePictureUrl || ""),
+      avatarColor: getRememberedAvatarColor(cleanUsername),
+      updatedAt: Date.now(),
+    };
+    const next = [
+      nextProfile,
+      ...existing.filter(
+        (row) => row.username.toLowerCase() !== cleanUsername.toLowerCase(),
+      ),
+    ].slice(0, 10);
+    writeRememberedCredentialProfiles(next);
+  } catch {}
+}
+
+/**
+ * Read all remembered credentials for the shared login picker.
+ * @returns {{ username: string, password: string, updatedAt: number }[]}
+ */
+export function readRememberedCredentialProfiles() {
+  return normalizeRememberedCredentialPayload(readRememberedCredentialPayload());
+}
+
+/**
+ * Read the most recently remembered credential.
+ * @returns {{ username: string, password: string } | null}
+ */
+export function readRememberedCredentials() {
+  const first = readRememberedCredentialProfiles()[0] || null;
+  return first
+    ? { username: first.username, password: first.password || "" }
+    : null;
+}
+
+/** Remove remembered credentials. Pass a username to remove only one profile. */
+export function clearRememberedCredentials(username = null) {
+  if (!canUseStorage()) return;
+  try {
+    const cleanUsername = String(username || "").trim();
+    if (!cleanUsername) {
+      localStorage.removeItem(REMEMBERED_CREDS_KEY);
+      return;
+    }
+    const next = readRememberedCredentialProfiles().filter(
+      (row) => row.username.toLowerCase() !== cleanUsername.toLowerCase(),
+    );
+    if (next.length) writeRememberedCredentialProfiles(next);
+    else localStorage.removeItem(REMEMBERED_CREDS_KEY);
   } catch {}
 }
 

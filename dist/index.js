@@ -5,6 +5,7 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import http from "http";
+import rateLimit from "express-rate-limit";
 
 import { errorHandler } from "./middleware/errorHandler.js";
 import { notFound } from "./middleware/notFound.js";
@@ -25,7 +26,7 @@ import uploadRoutes from "./routes/upload.routes.js";
 import workflowRoutes from "./routes/workflow.routes.js";
 import healthRoutes from "./routes/health.route.js";
 import authRoutes from "./routes/auth.routes.js";
-import { query } from "./db/pool.js";
+import { logDbError, query, testDbConnection } from "./db/pool.js";
 import { isMailerConfigured, verifyMailer, sendMail } from "./utils/mailer.js";
 import pushRoutes, {
   sendPushToUser,
@@ -79,6 +80,45 @@ try {
 
 const app = express();
 
+app.use((req, res, next) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:*;"
+  );
+  next();
+});
+
+/* ---------------- HTTP/2 COMPAT ---------------- */
+// Monkey-patch ServerResponse to strip HTTP/2-forbidden headers
+// that nginx may forward from HTTP/1.1 upstream to HTTP/2 clients.
+const ORIG_WRITE_HEAD = http.ServerResponse.prototype.writeHead;
+http.ServerResponse.prototype.writeHead = function () {
+  // Strip from both this._headers and the internal outHeaders symbol
+  const strip = (obj) => {
+    if (!obj) return;
+    const keys = Object.getOwnPropertyNames(obj);
+    for (const k of keys) {
+      if (k.toLowerCase() === "connection" || k.toLowerCase() === "transfer-encoding") {
+        delete obj[k];
+      }
+    }
+  };
+  strip(this._headers);
+  const sym = Object.getOwnPropertySymbols(this).find(
+    (s) => s.toString().includes("Headers") || s.toString().includes("headers"),
+  );
+  if (sym) strip(this[sym]);
+  return ORIG_WRITE_HEAD.apply(this, arguments);
+};
+
+app.use((req, res, next) => {
+  res.removeHeader("Connection");
+  res.removeHeader("connection");
+  res.removeHeader("Transfer-Encoding");
+  res.removeHeader("transfer-encoding");
+  next();
+});
+
 /* ---------------- UTILS ---------------- */
 const boolEnv = (v) => {
   if (v == null) return false;
@@ -101,38 +141,51 @@ const allowedOrigins = (() => {
     "http://localhost:5174",
     "http://127.0.0.1:5174",
     "https://serianamart.omnisuite-erp.com",
-    // "https://serianaserver.omnisuite-erp.com",
   ];
 })();
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true);
-      if (allowedOrigins.includes(origin)) return cb(null, true);
-      return cb(null, true);
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "x-company-id",
-      "x-branch-id",
-      "x-user-id",
-      "x-skip-offline-queue",
-    ],
-  }),
-);
+const corsOptions = {
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(null, false);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "x-company-id",
+    "x-branch-id",
+    "x-user-id",
+    "x-skip-offline-queue",
+  ],
+  optionsSuccessStatus: 204,
+};
 
-app.options("*", cors());
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+/* ---------------- RATE LIMITING ---------------- */
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "TOO_MANY_REQUESTS", message: "Too many requests, please try again later" },
+  skip: (req) => req.path === "/api/health",
+});
+app.use("/api", apiLimiter);
 
 /* ---------------- DB ---------------- */
 (async () => {
   try {
-    await query("SELECT 1");
+    const dbCheck = await testDbConnection({ silent: true });
+    if (!dbCheck.ok) {
+      throw dbCheck.error;
+    }
 
     // Check if the column already exists
     const columns = await query(
@@ -462,9 +515,7 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
       console.warn("Error checking for constraints: ", e.message);
     }
   } catch (err) {
-    console.error("Error during database initialization:", err);
-    // Don't exit process in dev if it's just a migration issue, but here it might be critical
-    // process.exit(1);
+    logDbError("Error during database initialization", err);
   }
 })();
 
@@ -490,13 +541,14 @@ app.use(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "uploads"),
   ),
 );
+app.use("/api/", healthRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/administration", adminRoutes);
 app.use("/api/workflows", workflowRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/sales", salesRoutes);
-app.use("/api/purchase", purchaseRoutes);
 app.use("/api/purchase/bills", purchaseBillsRoutes);
+app.use("/api/purchase", purchaseRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/finance", financeRoutes);
 app.use("/api/hr", hrRoutes);
@@ -506,7 +558,6 @@ app.use("/api/production", productionRoutes);
 app.use("/api/pos", posRoutes);
 app.use("/api/bi", biRoutes);
 app.use("/api/service-management", serviceMgmtRoutes);
-app.use("/api/", healthRoutes);
 app.use("/api", authRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/templates", templatesRoutes);
@@ -591,8 +642,13 @@ const PORT = Number(process.env.PORT || 4002);
 const server = http.createServer(app);
 
 // Timeouts to avoid long-hanging connections in managed hosting
+// keepAliveTimeout=0 disables keep-alive, forcing "Connection: close"
+// instead of "Connection: keep-alive" (avoids ERR_HTTP2_PROTOCOL_ERROR
+// when nginx proxies HTTP/1.1 to HTTP/2 clients).
 try {
-  const keepAliveMs = Number(process.env.KEEP_ALIVE_TIMEOUT_MS || 60000);
+  const keepAliveMs = process.env.KEEP_ALIVE_TIMEOUT_MS
+    ? Number(process.env.KEEP_ALIVE_TIMEOUT_MS)
+    : 0;
   const headersMs = Number(process.env.HEADERS_TIMEOUT_MS || 65000);
   const requestMs = process.env.REQUEST_TIMEOUT_MS
     ? Number(process.env.REQUEST_TIMEOUT_MS)
@@ -628,12 +684,19 @@ if (process.env.NODE_ENV !== "test") {
   server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Mailer configured: ${isMailerConfigured() ? "yes" : "no"}`);
-    verifyMailer().then((ok) => {
-      console.log(`Mailer verified: ${ok ? "yes" : "no"}`);
-    });
+    verifyMailer()
+      .then((ok) => {
+        console.log(`Mailer verified: ${ok ? "yes" : "no"}`);
+      })
+      .catch((error) => {
+        console.error(`[Mailer] verification failed: ${error?.message || error}`);
+      });
     (async () => {
       try {
-        await query("SELECT 1");
+        const dbCheck = await testDbConnection({ silent: true });
+        if (!dbCheck.ok) {
+          throw dbCheck.error;
+        }
         try {
           await ensureExceptionalPermissionsTable();
         } catch {}
@@ -644,7 +707,7 @@ if (process.env.NODE_ENV !== "test") {
           await seedDefaultTemplates();
         } catch {}
       } catch (e) {
-        console.log(`[StartupCheck] ${e?.message || e}`);
+        logDbError("Startup check failed", e);
       }
       try {
         const secret = process.env.JWT_SECRET || "";

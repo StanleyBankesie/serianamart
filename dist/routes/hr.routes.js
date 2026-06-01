@@ -5,6 +5,7 @@ import {
   requireBranchScope,
 } from "../middleware/auth.js";
 import { requirePermission } from "../middleware/requirePermission.js";
+import { query } from "../db/pool.js";
 import * as hrController from "../controllers/hr.controller.js";
 import * as perfController from "../controllers/performance.controller.js";
 import * as trainController from "../controllers/training.controller.js";
@@ -698,5 +699,55 @@ router.get(
   requireCompanyScope,
   hrController.reportEmployeeAllowances,
 );
+
+// ===== DASHBOARD STATS =====
+router.get("/dashboard-stats", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req.scope;
+    const [employees] = await query(
+      "SELECT COUNT(*) as count FROM hr_employees WHERE company_id = :companyId AND branch_id = :branchId AND status IN ('ACTIVE','PROBATION') AND deleted_at IS NULL",
+      { companyId, branchId },
+    ).catch(() => [{ count: 0 }]);
+    const [onLeave] = await query(
+      "SELECT COUNT(*) as count FROM hr_attendance WHERE company_id = :companyId AND attendance_date = CURDATE() AND status = 'ON_LEAVE'",
+      { companyId },
+    ).catch(() => [{ count: 0 }]);
+    const [attendance] = await query(
+      "SELECT COUNT(*) as count FROM hr_attendance WHERE company_id = :companyId AND attendance_date = CURDATE() AND status IN ('PRESENT','LATE')",
+      { companyId },
+    ).catch(() => [{ count: 0 }]);
+    const [pendingLeave] = await query(
+      "SELECT COUNT(*) as count FROM hr_leave_requests WHERE company_id = :companyId AND status IN ('PENDING','SUBMITTED')",
+      { companyId },
+    ).catch(() => [{ count: 0 }]);
+    const [depts] = await query(
+      "SELECT COUNT(*) as count FROM hr_departments WHERE company_id = :companyId AND is_active = 1",
+      { companyId },
+    ).catch(() => [{ count: 0 }]);
+    let payrollStatus = "None";
+    try {
+      const [pr] = await query(
+        `SELECT pp.status FROM hr_payroll_periods pp
+         WHERE pp.company_id = :companyId
+         ORDER BY pp.start_date DESC LIMIT 1`,
+        { companyId },
+      );
+      if (pr) payrollStatus = pr.status;
+    } catch {}
+    res.json({
+      success: true,
+      data: {
+        activeEmployees: employees.count,
+        onLeaveToday: onLeave.count,
+        presentToday: attendance.count,
+        pendingLeaveRequests: pendingLeave.count,
+        departmentsCount: depts.count,
+        payrollStatus,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;

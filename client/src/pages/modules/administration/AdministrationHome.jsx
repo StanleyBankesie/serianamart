@@ -28,30 +28,35 @@ function AdministrationLanding() {
   const [stats, setStats] = React.useState([
     {
       rbac_key: "total-users",
-      // icon: "👥",
-      value: "120",
+      value: "—",
       label: "Total Users",
-      change: "↑ 5 this month",
-      changeType: "positive",
+      change: "Loading…",
+      changeType: "neutral",
       path: "/administration/users",
     },
     {
-      rbac_key: "active-sessions",
-      // icon: "💻",
-      value: "15",
-      label: "Active Sessions",
-      change: "Current",
+      rbac_key: "roles-pages",
+      value: "—",
+      label: "Roles & Pages",
+      change: "Loading…",
       changeType: "neutral",
-      path: "/administration/reports",
+      path: "/administration/access/roles",
+    },
+    {
+      rbac_key: "active-sessions",
+      value: "—",
+      label: "Active Sessions (24h)",
+      change: "Loading…",
+      changeType: "neutral",
+      path: "/administration/reports/user-login-activity",
     },
     {
       rbac_key: "pending-workflows",
-      // icon: "🔄",
-      value: "5",
+      value: "—",
       label: "Pending Workflows",
-      change: "Requires approval",
+      change: "Loading…",
       changeType: "neutral",
-      path: "/administration/workflows",
+      path: "/administration/workflows/approvals",
     },
   ]);
 
@@ -70,30 +75,51 @@ function AdministrationLanding() {
 
   React.useEffect(() => {
     let mounted = true;
+    let timer;
     async function load() {
       try {
-        const resp = await api.get("/bi/dashboards");
-        const users = Number(resp?.data?.summary?.administration?.users || 0);
-        const sessions = Number(
-          resp?.data?.summary?.administration?.active_sessions || 0,
-        );
-        const pending = Number(
-          resp?.data?.summary?.administration?.pending_workflows || 0,
-        );
-        if (mounted) {
+        const resp = await api.get("/admin/dashboard-stats");
+        const d = resp?.data?.data;
+        if (d && mounted) {
           setStats((prev) => {
             const next = [...prev];
-            next[0] = { ...next[0], value: String(users) };
-            next[1] = { ...next[1], value: String(sessions) };
-            next[2] = { ...next[2], value: String(pending) };
+            next[0] = {
+              ...next[0],
+              value: String(d.usersCount ?? "—"),
+              change: `${d.assignmentsCount ?? 0} with roles`,
+              changeType: "positive",
+            };
+            next[1] = {
+              ...next[1],
+              value: `${d.rolesCount ?? 0}/${d.pagesCount ?? 0}`,
+              label: "Roles / Pages",
+              change: `${d.activeExceptionsCount ?? 0} active exceptions`,
+              changeType: d.activeExceptionsCount > 0 ? "warning" : "positive",
+            };
+            next[2] = {
+              ...next[2],
+              value: String(d.activeSessions ?? "—"),
+              change: "Active in last 24h",
+              changeType: d.activeSessions > 0 ? "positive" : "neutral",
+            };
+            next[3] = {
+              ...next[3],
+              value: String(d.pendingWorkflows ?? "—"),
+              change: d.pendingWorkflows > 0
+                ? "Requires approval"
+                : "All clear",
+              changeType: d.pendingWorkflows > 0 ? "warning" : "positive",
+            };
             return next;
           });
         }
       } catch {}
     }
     load();
+    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
+      clearInterval(timer);
     };
   }, []);
 

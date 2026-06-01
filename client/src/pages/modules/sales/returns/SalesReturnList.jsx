@@ -29,6 +29,51 @@ export default function SalesReturnList() {
   const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    async function loadWorkflowFlags() {
+      try {
+        const res = await api.get("/workflows");
+        const list = Array.isArray(res.data?.items) ? res.data.items : [];
+        if (cancelled) return;
+        setWorkflowsCache(list);
+        const route = "/sales/returns";
+        const altRoute = "/inventory/sales-returns";
+        const normalize = (s) =>
+          String(s || "")
+            .trim()
+            .toUpperCase()
+            .replace(/\s+/g, "_");
+        const matching = list.filter(
+          (w) =>
+            String(w.document_route) === route ||
+            String(w.document_route) === altRoute ||
+            normalize(w.document_type) === "SALES_RETURN",
+        );
+        const hasInactive = matching.some((w) => Number(w.is_active) === 0);
+        const chosen =
+          list.find(
+            (w) =>
+              Number(w.is_active) === 1 &&
+              (String(w.document_route) === route ||
+                String(w.document_route) === altRoute),
+          ) ||
+          list.find(
+            (w) =>
+              Number(w.is_active) === 1 &&
+              normalize(w.document_type) === "SALES_RETURN",
+          ) ||
+          null;
+        setCandidateWorkflow(chosen || null);
+        setHasInactiveWorkflow(!chosen && hasInactive);
+      } catch {}
+    }
+    loadWorkflowFlags();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
     setLoading(true);
     setError("");
@@ -126,7 +171,14 @@ export default function SalesReturnList() {
     });
   }, [items, searchTerm]);
 
-  const { sorted: sortedFiltered, sortKey, sortDir, toggle } = useSort(filtered, "created_at", "desc");
+  const {
+    sorted: sortedFiltered,
+    sortKey,
+    sortDir,
+    toggle,
+  } = useSort(filtered, "created_at", "desc");
+
+  const workflowDisabled = hasInactiveWorkflow && !candidateWorkflow;
 
   const stats = useMemo(() => {
     const total = items.length;
@@ -483,121 +535,184 @@ export default function SalesReturnList() {
               <table className="table">
                 <thead>
                   <tr>
-                    <SortableHeader label="Return No" sortKey="return_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Return Date" sortKey="return_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Amount" sortKey="total_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
-                    <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader
+                      label="Return No"
+                      sortKey="return_no"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                    />
+                    <SortableHeader
+                      label="Return Date"
+                      sortKey="return_date"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                    />
+                    <SortableHeader
+                      label="Customer"
+                      sortKey="customer_name"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                    />
+                    <SortableHeader
+                      label="Amount"
+                      sortKey="total_amount"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                      className="text-right"
+                    />
+                    <SortableHeader
+                      label="Status"
+                      sortKey="status"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                    />
                     <th className="text-right">Actions</th>
-                    <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader
+                      label="Created By"
+                      sortKey="created_by_name"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                    />
+                    <SortableHeader
+                      label="Created Date"
+                      sortKey="created_at"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                    />
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedFiltered.map((r) => (
-                    <tr key={r.id}>
-                      <td className="font-medium">{r.return_no}</td>
-                      <td>
-                        {r.return_date
-                          ? new Date(r.return_date).toLocaleDateString()
-                          : "-"}
-                      </td>
-                      <td>{r.customer_name || "-"}</td>
-                      <td className="text-right">
-                        {Number(r.total_amount || 0).toFixed(2)}
-                      </td>
-                      <td>
-                        <span
-                          className={`badge ${
-                            r.status === "APPROVED" || r.status === "POSTED"
-                              ? "badge-success"
-                              : r.status === "PENDING" ||
-                                  r.status === "PENDING_APPROVAL" ||
-                                  r.status === "SUBMITTED"
-                                ? "badge-warning"
-                                : r.status === "CANCELLED"
-                                  ? "badge-error"
-                                  : "badge-info"
-                          }`}
-                        >
-                          {r.status || "DRAFT"}
-                        </span>
-                      </td>
-                      <td className="text-right">
-                        <div className="flex items-center justify-end gap-2 whitespace-nowrap">
-                          <div className="min-w-[80px]">
-                            <button
-                              type="button"
-                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
-                              onClick={() => navigate(`/sales/returns/${r.id}`)}
-                            >
-                              View
-                            </button>
-                          </div>
-                          <div className="min-w-[160px]">
-                          <div className="list-approval-slot">
-                            {r.status === "APPROVED" || r.status === "POSTED" ? (
-                              <div className="flex items-center gap-2">
-                                <span className="list-approval-approved-pill">
-                                  Approved
-                                </span>
-                                {(r.status === "APPROVED" || r.status === "POSTED") && (
-                                  <ReverseApprovalButton
-                                    docType="SALES_RETURN"
-                                    docId={r.id}
-                                    className="list-approval-reverse-btn"
-                                    onDone={() =>
-                                      setItems((prev) =>
-                                        prev.map((x) =>
-                                          x.id === r.id
-                                            ? {
-                                                ...x,
-                                                status: "REVERSED",
-                                                forwarded_to_username: null,
-                                              }
-                                            : x,
-                                        ),
-                                      )
-                                    }
-                                  >
-                                    Reverse Approval
-                                  </ReverseApprovalButton>
-                                )}
-                              </div>
-                            ) : r.forwarded_to_username ? (
-                              <span
-                                className="list-approval-forwarded-pill"
-                                title="Assigned approver"
-                              >
-                                Forwarded to {r.forwarded_to_username}
-                              </span>
-                            ) : (
+                  {sortedFiltered.map((r) => {
+                    const autoApproved =
+                      workflowDisabled &&
+                      r.status !== "CANCELLED" &&
+                      r.status !== "REVERSED";
+                    const displayStatus = autoApproved
+                      ? "APPROVED"
+                      : r.status || "DRAFT";
+                    return (
+                      <tr key={r.id}>
+                        <td className="font-medium">{r.return_no}</td>
+                        <td>
+                          {r.return_date
+                            ? new Date(r.return_date).toLocaleDateString()
+                            : "-"}
+                        </td>
+                        <td>{r.customer_name || "-"}</td>
+                        <td className="text-right">
+                          {Number(r.total_amount || 0).toFixed(2)}
+                        </td>
+                        <td>
+                          <span
+                            className={`badge ${
+                              displayStatus === "APPROVED" ||
+                              displayStatus === "POSTED"
+                                ? "badge-success"
+                                : displayStatus === "PENDING" ||
+                                    displayStatus === "PENDING_APPROVAL" ||
+                                    displayStatus === "SUBMITTED"
+                                  ? "badge-warning"
+                                  : displayStatus === "CANCELLED"
+                                    ? "badge-error"
+                                    : "badge-info"
+                            }`}
+                          >
+                            {displayStatus}
+                          </span>
+                        </td>
+                        <td className="text-right">
+                          <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+                            <div className="min-w-[80px]">
                               <button
                                 type="button"
-                                onClick={() => openForwardModal(r)}
-                                className="list-approval-forward-btn"
-                                disabled={
-                                  submittingForward ||
-                                  r.status === "PENDING" ||
-                                  r.status === "PENDING_APPROVAL" ||
-                                  r.status === "SUBMITTED" ||
-                                  r.status === "CANCELLED" ||
-                                  hasInactiveWorkflow
+                                className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                                onClick={() =>
+                                  navigate(`/sales/returns/${r.id}`)
                                 }
                               >
-                                {submittingForward
-                                  ? "Forwarding..."
-                                  : "Forward for Approval"}
+                                View
                               </button>
-                            )}
+                            </div>
+                            <div className="min-w-[160px]">
+                              <div className="list-approval-slot">
+                                {displayStatus === "APPROVED" ||
+                                displayStatus === "POSTED" ? (
+                                  <div className="flex items-center gap-2">
+                                    <span className="list-approval-approved-pill">
+                                      Approved
+                                    </span>
+                                    {!autoApproved &&
+                                      (displayStatus === "APPROVED" ||
+                                        displayStatus === "POSTED") && (
+                                        <ReverseApprovalButton
+                                          docType="SALES_RETURN"
+                                          docId={r.id}
+                                          className="list-approval-reverse-btn"
+                                          onDone={() =>
+                                            setItems((prev) =>
+                                              prev.map((x) =>
+                                                x.id === r.id
+                                                  ? {
+                                                      ...x,
+                                                      status: "REVERSED",
+                                                      forwarded_to_username:
+                                                        null,
+                                                    }
+                                                  : x,
+                                              ),
+                                            )
+                                          }
+                                        >
+                                          Reverse Approval
+                                        </ReverseApprovalButton>
+                                      )}
+                                  </div>
+                                ) : r.forwarded_to_username ? (
+                                  <span
+                                    className="list-approval-forwarded-pill"
+                                    title="Assigned approver"
+                                  >
+                                    Forwarded to {r.forwarded_to_username}
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => openForwardModal(r)}
+                                    className="list-approval-forward-btn"
+                                    disabled={
+                                      submittingForward ||
+                                      displayStatus === "PENDING" ||
+                                      displayStatus === "PENDING_APPROVAL" ||
+                                      displayStatus === "SUBMITTED" ||
+                                      displayStatus === "CANCELLED" ||
+                                      workflowDisabled
+                                    }
+                                  >
+                                    {submittingForward
+                                      ? "Forwarding..."
+                                      : "Forward for Approval"}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          </div>
-                        </div>
-                      </td>
-                      <td>{r.created_by_name || "-"}</td>
-                      <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td>{r.created_by_name || "-"}</td>
+                        <td>
+                          {r.created_at
+                            ? new Date(r.created_at).toLocaleDateString()
+                            : "-"}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

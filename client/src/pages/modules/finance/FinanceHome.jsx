@@ -6,60 +6,83 @@ import { api } from "../../../api/client.js";
  * Finance Module Home Page
  * Provides navigation to all finance features including vouchers, accounting setup, and reports
  */
+function fmt(n) {
+  if (n == null || Number.isNaN(Number(n))) return "—";
+  return `₵${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export default function FinanceHome() {
   const [stats, setStats] = React.useState([
     {
       rbac_key: "cash-balance",
-      icon: "💰",
-      value: "₵245,000",
-      label: "Cash Balance",
-      change: "↑ 5% this month",
-      changeType: "positive",
+      value: "—",
+      label: "Cash on Hand",
+      change: "Loading…",
+      changeType: "neutral",
+      path: "/finance/reports",
+    },
+    {
+      rbac_key: "bank-balance",
+      value: "—",
+      label: "Bank Balance",
+      change: "Loading…",
+      changeType: "neutral",
       path: "/finance/reports",
     },
     {
       rbac_key: "pending-vouchers",
-      icon: "🧾",
-      value: "12",
+      value: "—",
       label: "Pending Vouchers",
-      change: "3 urgent",
+      change: "Loading…",
       changeType: "neutral",
       path: "/finance/journal-voucher",
     },
     {
-      rbac_key: "monthly-expenses",
-      icon: "📉",
-      value: "₵32,000",
-      label: "Monthly Expenses",
-      change: "↓ 2% vs last month",
-      changeType: "positive",
-      path: "/finance/reports",
+      rbac_key: "net-income",
+      value: "—",
+      label: "Net Income (MTD)",
+      change: "Loading…",
+      changeType: "neutral",
+      path: "/finance/reports/profit-and-loss",
     },
   ]);
 
   React.useEffect(() => {
     let mounted = true;
+    let timer;
     async function load() {
       try {
-        const resp = await api.get("/bi/dashboards");
-        const cash = Number(resp?.data?.summary?.finance?.cash_balance || 0);
-        const pending = Number(
-          resp?.data?.summary?.finance?.pending_vouchers || 0,
-        );
-        const expenses = Number(
-          resp?.data?.summary?.finance?.monthly_expenses || 0,
-        );
-        if (mounted) {
+        const resp = await api.get("/finance/dashboard-stats");
+        const d = resp?.data?.data;
+        if (d && mounted) {
           setStats((prev) => {
             const next = [...prev];
             next[0] = {
               ...next[0],
-              value: `₵${cash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+              value: fmt(d.cashBalance),
+              change: `Bank: ${fmt(d.bankBalance)}`,
+              changeType: "positive",
             };
-            next[1] = { ...next[1], value: String(pending) };
+            next[1] = {
+              ...next[1],
+              value: fmt(d.bankBalance),
+              label: "Liquidity Total",
+              change: fmt(d.totalLiquidity),
+              changeType: "positive",
+            };
             next[2] = {
               ...next[2],
-              value: `₵${expenses.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+              value: String(d.pendingVouchers ?? "—"),
+              change: d.pendingVouchers > 0
+                ? "Awaiting posting"
+                : "All posted",
+              changeType: d.pendingVouchers > 0 ? "warning" : "positive",
+            };
+            next[3] = {
+              ...next[3],
+              value: fmt(d.netIncome),
+              change: `Expenses: ${fmt(d.monthlyExpenses)}`,
+              changeType: d.netIncome >= 0 ? "positive" : "negative",
             };
             return next;
           });
@@ -67,8 +90,10 @@ export default function FinanceHome() {
       } catch {}
     }
     load();
+    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
+      clearInterval(timer);
     };
   }, []);
 

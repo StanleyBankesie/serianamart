@@ -19,23 +19,49 @@ export default function LoginPage() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [loginBackgroundUrl, setLoginBackgroundUrl] = useState(backgroundImage);
   const [rememberMe, setRememberMe] = useState(() =>
     authStorage.readRememberMePreference(),
   );
   const handledStartupRedirect = useRef(false);
 
   // ── Remembered credential suggestion state ──────────────────
-  const [savedCreds, setSavedCreds] = useState(null); // { username, password }
+  const [savedProfiles, setSavedProfiles] = useState([]);
+  const [usernameQuery, setUsernameQuery] = useState("");
   const [showSuggestion, setShowSuggestion] = useState(false);
   const suggestionRef = useRef(null);
 
   // Load remembered credentials on mount
   useEffect(() => {
-    const creds = authStorage.readRememberedCredentials?.() || null;
-    if (creds?.username) {
-      setSavedCreds(creds);
+    const profiles = authStorage.readRememberedCredentialProfiles?.() || [];
+    if (profiles.length) {
+      setSavedProfiles(profiles);
       setRememberMe(true);
     }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadLoginBackground() {
+      try {
+        const resp = await fetch("/api/admin/settings/login-background/meta", {
+          credentials: "include",
+        });
+        if (!resp.ok) return;
+        const meta = await resp.json();
+        if (!mounted || !meta?.hasBackground) return;
+        const version = meta.updatedAt || Date.now();
+        setLoginBackgroundUrl(
+          `/api/admin/settings/login-background?v=${encodeURIComponent(
+            String(version),
+          )}`,
+        );
+      } catch {}
+    }
+    loadLoginBackground();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // Close suggestion dropdown when clicking outside
@@ -55,33 +81,39 @@ export default function LoginPage() {
 
   // When user focuses or clicks the username field, show saved credential suggestion
   const handleUsernameFocus = useCallback(() => {
-    if (savedCreds?.username) {
+    if (savedProfiles.length) {
       setShowSuggestion(true);
     }
-  }, [savedCreds]);
+  }, [savedProfiles]);
+
+  const setInputValue = useCallback((input, value) => {
+    if (!input) return;
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    ).set;
+    nativeInputValueSetter.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }, []);
 
   // When user selects the suggested username, fill both fields
-  const handleSelectSuggestion = useCallback(() => {
-    if (!savedCreds) return;
-    if (usernameRef.current) {
-      // Set value via native setter so React reads from .value correctly
-      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      ).set;
-      nativeInputValueSetter.call(usernameRef.current, savedCreds.username);
-      usernameRef.current.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-    if (passwordRef.current) {
-      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      ).set;
-      nativeInputValueSetter.call(passwordRef.current, savedCreds.password);
-      passwordRef.current.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-    setShowSuggestion(false);
-  }, [savedCreds]);
+  const handleSelectSuggestion = useCallback(
+    (profile) => {
+      if (!profile) return;
+      setInputValue(usernameRef.current, profile.username);
+      setInputValue(passwordRef.current, profile.password);
+      setUsernameQuery(profile.username);
+      setRememberMe(true);
+      setShowSuggestion(false);
+    },
+    [setInputValue],
+  );
+
+  const filteredProfiles = savedProfiles.filter((profile) => {
+    const query = usernameQuery.trim().toLowerCase();
+    if (!query) return true;
+    return profile.username.toLowerCase().includes(query);
+  });
 
   useEffect(() => {
     if (handledStartupRedirect.current) return;
@@ -120,10 +152,11 @@ export default function LoginPage() {
         authStorage.saveRememberedCredentials(
           submittedUsername,
           submittedPassword,
+          { profilePictureUrl: data?.user?.profile_picture_url || "" },
         );
         authStorage.saveRememberMePreference(true);
       } else {
-        authStorage.clearRememberedCredentials();
+        authStorage.clearRememberedCredentials(submittedUsername);
         authStorage.saveRememberMePreference(false);
       }
 
@@ -174,7 +207,7 @@ export default function LoginPage() {
     <div
       className="min-h-screen grid place-items-center bg-gradient-to-br from-brand-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-6"
       style={{
-        backgroundImage: `url(${backgroundImage})`,
+        backgroundImage: `url(${loginBackgroundUrl})`,
         backgroundSize: "cover",
         backgroundPosition: "center",
       }}
@@ -223,10 +256,14 @@ export default function LoginPage() {
                 defaultValue=""
                 onFocus={handleUsernameFocus}
                 onClick={handleUsernameFocus}
+                onChange={(e) => {
+                  setUsernameQuery(e.target.value);
+                  if (savedProfiles.length) setShowSuggestion(true);
+                }}
               />
 
               {/* Credential suggestion dropdown */}
-              {showSuggestion && savedCreds?.username && (
+              {showSuggestion && filteredProfiles.length > 0 && (
                 <div
                   ref={suggestionRef}
                   style={{
@@ -243,9 +280,11 @@ export default function LoginPage() {
                     overflow: "hidden",
                   }}
                 >
+                  {filteredProfiles.map((profile) => (
                   <button
+                    key={profile.username}
                     type="button"
-                    onClick={handleSelectSuggestion}
+                    onClick={() => handleSelectSuggestion(profile)}
                     style={{
                       width: "100%",
                       display: "flex",
@@ -265,24 +304,41 @@ export default function LoginPage() {
                       (e.currentTarget.style.backgroundColor = "transparent")
                     }
                   >
-                    {/* User avatar icon */}
-                    <div
-                      style={{
-                        width: "32px",
-                        height: "32px",
-                        borderRadius: "50%",
-                        background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        color: "#fff",
-                        fontWeight: 700,
-                        fontSize: "14px",
-                        flexShrink: 0,
-                      }}
-                    >
-                      {savedCreds.username.charAt(0).toUpperCase()}
-                    </div>
+                    {profile.profilePictureUrl ? (
+                      <img
+                        src={profile.profilePictureUrl}
+                        alt=""
+                        style={{
+                          width: "32px",
+                          height: "32px",
+                          borderRadius: "50%",
+                          objectFit: "cover",
+                          flexShrink: 0,
+                        }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: "32px",
+                          height: "32px",
+                          borderRadius: "50%",
+                          background:
+                            profile.avatarColor ||
+                            authStorage.getRememberedAvatarColor(
+                              profile.username,
+                            ),
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#fff",
+                          fontWeight: 700,
+                          fontSize: "14px",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {profile.username.charAt(0).toUpperCase()}
+                      </div>
+                    )}
                     <div style={{ minWidth: 0 }}>
                       <div
                         style={{
@@ -292,7 +348,7 @@ export default function LoginPage() {
                           lineHeight: 1.3,
                         }}
                       >
-                        {savedCreds.username}
+                        {profile.username}
                       </div>
                       <div
                         style={{
@@ -305,6 +361,7 @@ export default function LoginPage() {
                       </div>
                     </div>
                   </button>
+                  ))}
                 </div>
               )}
             </div>

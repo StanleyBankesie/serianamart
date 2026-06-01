@@ -9,6 +9,10 @@ import { requirePermission } from "../middleware/requirePermission.js";
 import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import {
+  getInactiveWorkflowBehavior,
+  resolveWorkflowSelection,
+} from "../utils/workflowResolution.js";
+import {
   recordMovementTx,
   consumeStockFIFOTx,
   reserveStockTx,
@@ -1635,7 +1639,7 @@ router.get(
                r.requisition_type,
                r.priority,
                r.requested_by,
-               r.status,
+               CASE WHEN iw.has_inactive_pending = 1 THEN 'APPROVED' ELSE r.status END AS status,
                r.warehouse_id,
                r.department_id,
                w.warehouse_name,
@@ -1651,6 +1655,7 @@ router.get(
         LEFT JOIN (
           SELECT t.document_id, t.assigned_to_user_id
           FROM adm_document_workflows t
+          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 1
           JOIN (
             SELECT document_id, MAX(id) AS max_id
             FROM adm_document_workflows
@@ -1659,6 +1664,15 @@ router.get(
             GROUP BY document_id
           ) m ON m.max_id = t.id
         ) x ON x.document_id = r.id
+        LEFT JOIN (
+          SELECT t.document_id, 1 AS has_inactive_pending
+          FROM adm_document_workflows t
+          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 0
+          WHERE t.company_id = :companyId
+            AND t.status = 'PENDING'
+            AND (t.document_type = 'MATERIAL_REQUISITION' OR t.document_type = 'Material Requisition')
+          GROUP BY t.document_id
+        ) iw ON iw.document_id = r.id
         LEFT JOIN adm_users fu ON fu.id = x.assigned_to_user_id
         LEFT JOIN adm_users cu ON cu.id = r.created_by
         ${where}
@@ -2457,82 +2471,13 @@ router.post(
       const amount = req.body?.amount ?? null;
       const workflowIdOverride = toNumber(req.body?.workflow_id);
       const docRouteBase = "/inventory/material-requisitions";
-      const wfByRoute = await query(
-        `
-        SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
-          AND document_route = :docRouteBase
-        ORDER BY id ASC
-        `,
-        { companyId: companyId || null, docRouteBase: docRouteBase || null },
-      );
-      const wfDefs = await query(
-        `
-        SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
-          AND (document_type = 'MATERIAL_REQUISITION' OR document_type = 'Material Requisition')
-        ORDER BY id ASC
-        `,
-        { companyId: companyId || null },
-      );
-      let activeWf = null;
-      if (workflowIdOverride) {
-        const wfRows = await query(
-          `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :wfId AND company_id = :companyId 
-             AND (document_type = 'MATERIAL_REQUISITION' OR document_type = 'Material Requisition')
-           LIMIT 1`,
-          { wfId: workflowIdOverride || null, companyId: companyId || null },
-        );
-        if (wfRows.length && Number(wfRows[0].is_active) === 1) {
-          activeWf = wfRows[0];
-        }
-      }
-      if (!activeWf && wfByRoute.length) {
-        for (const wf of wfByRoute) {
-          if (Number(wf.is_active) !== 1) continue;
-          if (amount === null) {
-            activeWf = wf;
-            break;
-          }
-          const minOk =
-            wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
-          const maxOk =
-            wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
-          if (minOk && maxOk) {
-            activeWf = wf;
-            break;
-          }
-        }
-      }
-      for (const wf of wfDefs) {
-        if (activeWf) break;
-        if (Number(wf.is_active) !== 1) continue;
-        if (amount === null) {
-          activeWf = wf;
-          break;
-        }
-        const minOk =
-          wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
-        const maxOk =
-          wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
-        if (minOk && maxOk) {
-          activeWf = wf;
-          break;
-        }
-      }
+      const { activeWorkflow: activeWf } = await resolveWorkflowSelection({
+        companyId,
+        workflowIdOverride,
+        docRouteBase,
+        typeSynonyms: ["MATERIAL_REQUISITION", "Material Requisition"],
+        amount,
+      });
       if (!activeWf) {
         await query(
           `UPDATE inv_material_requisitions SET status = 'APPROVED' WHERE id = :id`,
@@ -2705,7 +2650,7 @@ router.get(
                r.rts_date,
                r.warehouse_id,
                r.department_id,
-               r.status,
+               CASE WHEN iw.has_inactive_pending = 1 THEN 'APPROVED' ELSE r.status END AS status,
                r.return_type,
                w.warehouse_name,
                d.dept_name AS department_name,
@@ -2719,6 +2664,21 @@ router.get(
           ON dw.document_id = r.id 
           AND dw.document_type = 'RETURN_TO_STORES'
           AND dw.status = 'PENDING'
+          AND EXISTS (
+            SELECT 1
+            FROM adm_workflows w
+            WHERE w.id = dw.workflow_id
+              AND w.is_active = 1
+          )
+        LEFT JOIN (
+          SELECT t.document_id, 1 AS has_inactive_pending
+          FROM adm_document_workflows t
+          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 0
+          WHERE t.company_id = :companyId
+            AND t.status = 'PENDING'
+            AND t.document_type = 'RETURN_TO_STORES'
+          GROUP BY t.document_id
+        ) iw ON iw.document_id = r.id
         LEFT JOIN adm_users fu ON fu.id = dw.assigned_to_user_id
         LEFT JOIN adm_users cu ON cu.id = r.created_by
         WHERE r.company_id = :companyId AND r.branch_id = :branchId
@@ -3230,66 +3190,20 @@ router.post(
       const workflowIdOverride = toNumber(req.body?.workflow_id);
       const docRouteBase = "/inventory/stock-adjustments";
 
-      const wfByRoute = await query(
-        `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
-           AND document_route = :docRouteBase
-           AND is_active = 1
-         ORDER BY id ASC`,
-        { companyId, docRouteBase },
-      ).catch(() => []);
-
-      const wfByTypeName = await query(
-        `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
-           AND is_active = 1
-           AND (document_type = 'STOCK_ADJUSTMENT' OR document_type = 'Stock Adjustment')
-         ORDER BY id ASC`,
-        { companyId },
-      ).catch(() => []);
-
-      let activeWf = null;
-      if (workflowIdOverride) {
-        const wfOverrideRows = await query(
-          `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :wfId AND company_id = :companyId AND is_active = 1
-           LIMIT 1`,
-          { wfId: workflowIdOverride, companyId },
-        ).catch(() => []);
-        if (wfOverrideRows.length) activeWf = wfOverrideRows[0];
-      }
-
-      const candidates = [...wfByRoute, ...wfByTypeName];
-      for (const wf of candidates) {
-        if (activeWf) break;
-        if (Number(wf.is_active) !== 1) continue;
-        if (amount === null || typeof amount === "undefined") {
-          activeWf = wf;
-          break;
-        }
-        const minOk =
-          wf.min_amount == null || Number(amount) >= Number(wf.min_amount);
-        const maxOk =
-          wf.max_amount == null || Number(amount) <= Number(wf.max_amount);
-        if (minOk && maxOk) {
-          activeWf = wf;
-          break;
-        }
-      }
+      const { activeWorkflow: activeWf, inactiveWorkflow } =
+        await resolveWorkflowSelection({
+          companyId,
+          workflowIdOverride,
+          docRouteBase,
+          typeSynonyms: ["STOCK_ADJUSTMENT", "Stock Adjustment"],
+          amount,
+        });
 
       if (!activeWf) {
+        const behavior = getInactiveWorkflowBehavior(inactiveWorkflow);
+        if (behavior && behavior.toUpperCase() !== "AUTO_APPROVE") {
+          return res.json({ status: "SUBMITTED" });
+        }
         await query(
           `UPDATE inv_stock_adjustments SET status = 'APPROVED' WHERE id = :id`,
           { id },
@@ -6425,55 +6339,24 @@ router.post(
       const workflowIdOverride = toNumber(req.body?.workflow_id);
       const docRouteBase = "/inventory/return-to-stores";
 
-      // Initialize workflow
-      const wfByRoute = await query(
-        `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND document_route = :docRouteBase AND is_active = 1 LIMIT 1`,
-        { companyId, docRouteBase },
-      );
-
-      const wfByTypeName = await query(
-        `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND (document_type = 'RETURN_TO_STORES' OR document_type = 'Return to Stores') AND is_active = 1 LIMIT 1`,
-        { companyId },
-      );
-
-      let activeWf = null;
-      if (workflowIdOverride) {
-        const wfOverrideRows = await query(
-          `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :wfId AND is_active = 1 LIMIT 1`,
-          { wfId: workflowIdOverride },
-        );
-        if (wfOverrideRows.length) activeWf = wfOverrideRows[0];
-      }
+      const { activeWorkflow: activeWf, inactiveWorkflow } =
+        await resolveWorkflowSelection({
+          companyId,
+          workflowIdOverride,
+          docRouteBase,
+          typeSynonyms: ["RETURN_TO_STORES", "Return to Stores"],
+          amount: 0,
+        });
 
       if (!activeWf) {
-        activeWf = wfByRoute.length
-          ? wfByRoute[0]
-          : wfByTypeName.length
-            ? wfByTypeName[0]
-            : null;
-      }
-
-      if (!activeWf) {
-        // Fallback: If no workflow, just approve it? No, usually we want a workflow.
-        // But for consistency with other modules, let's see.
-        // If no workflow is found, we might just set it to APPROVED immediately if that's the intended behavior for "no workflow".
-        // However, standard app behavior seems to be requiring a workflow or failing.
-        // Let's just set status to SUBMITTED if no workflow is configed.
+        const behavior = getInactiveWorkflowBehavior(inactiveWorkflow);
+        if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
+          await query(
+            `UPDATE inv_return_to_stores SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+            { id, companyId, branchId },
+          );
+          return res.json({ status: "APPROVED" });
+        }
         await query(
           `UPDATE inv_return_to_stores SET status = 'SUBMITTED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
           { id, companyId, branchId },
@@ -9318,6 +9201,59 @@ router.get(
       res.json({ items: rows || [] });
     } catch (e) {
       next(e);
+    }
+  },
+);
+
+// ===== DASHBOARD STATS =====
+router.get(
+  "/dashboard-stats",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const [items] = await query(
+        "SELECT COUNT(*) as count FROM inv_items WHERE company_id = :companyId AND is_active = 1",
+        { companyId },
+      ).catch(() => [{ count: 0 }]);
+      const [stock] = await query(
+        "SELECT COUNT(DISTINCT item_id) as items_count, COALESCE(SUM(qty), 0) as total_qty FROM inv_stock_balances WHERE company_id = :companyId AND branch_id = :branchId",
+        { companyId, branchId },
+      ).catch(() => [{ items_count: 0, total_qty: 0 }]);
+      const [reqs] = await query(
+        "SELECT COUNT(*) as count FROM inv_material_requisitions WHERE company_id = :companyId AND branch_id = :branchId AND status IN ('PENDING','SUBMITTED','PENDING_APPROVAL')",
+        { companyId, branchId },
+      ).catch(() => [{ count: 0 }]);
+      const [transfers] = await query(
+        "SELECT COUNT(*) as count FROM inv_stock_transfers WHERE company_id = :companyId AND branch_id = :branchId AND status NOT IN ('RECEIVED','COMPLETED','CANCELLED')",
+        { companyId, branchId },
+      ).catch(() => [{ count: 0 }]);
+      const [lowStock] = await query(
+        `SELECT COUNT(*) as count FROM inv_items i
+       WHERE i.company_id = :companyId AND i.is_active = 1 AND i.reorder_level > 0
+       AND i.reorder_level > (SELECT COALESCE(SUM(sb.qty), 0) FROM inv_stock_balances sb WHERE sb.item_id = i.id AND sb.branch_id = :branchId)`,
+        { companyId, branchId },
+      ).catch(() => [{ count: 0 }]);
+      const [adjustments] = await query(
+        "SELECT COUNT(*) as count FROM inv_stock_adjustments WHERE company_id = :companyId AND branch_id = :branchId AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)",
+        { companyId, branchId },
+      ).catch(() => [{ count: 0 }]);
+      res.json({
+        success: true,
+        data: {
+          itemsCount: items.count,
+          stockItemsCount: stock.items_count,
+          stockTotalQty: stock.total_qty,
+          pendingRequisitions: reqs.count,
+          pendingTransfers: transfers.count,
+          lowStockItems: lowStock.count,
+          recentAdjustments: adjustments.count,
+        },
+      });
+    } catch (err) {
+      next(err);
     }
   },
 );

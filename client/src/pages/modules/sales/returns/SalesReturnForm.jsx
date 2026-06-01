@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
+import { toast } from "react-toastify";
 import { Plus, Trash2 } from "lucide-react";
 
 export default function SalesReturnForm() {
@@ -233,9 +234,6 @@ export default function SalesReturnForm() {
       .then((res) => {
         const list = Array.isArray(res.data?.items) ? res.data.items : [];
         setInvoices(list);
-        if (list.length > 0) {
-          setFormData((p) => ({ ...p, invoiceId: String(list[0].id) }));
-        }
       })
       .catch(() => {
         setInvoices([]);
@@ -445,6 +443,7 @@ export default function SalesReturnForm() {
         item_id: Number(l.item_id),
         qty_returned: Number(l.qtyReturned) || 0,
         unit_price: Number(l.unitPrice) || 0,
+        tax_type: l.tax_type || null,
         reason_code: l.reasonCode || null,
         remarks: l.remarks || null,
         tax_amount: Number(l.taxAmount) || 0,
@@ -517,12 +516,8 @@ export default function SalesReturnForm() {
         items: normalizedItems,
       };
       const resp = await api.post("/sales/returns", payload);
-      const voucherId = resp.data?.voucher_id;
-      if (voucherId) {
-        navigate(`/finance/credit-note/${voucherId}?mode=view`);
-      } else {
-        navigate("/sales/returns", { state: { refresh: true } });
-      }
+      toast.success("Sales return created successfully");
+      navigate("/sales/returns", { state: { refresh: true } });
     } catch (e2) {
       setError(e2?.response?.data?.message || "Failed to save sales return");
     } finally {

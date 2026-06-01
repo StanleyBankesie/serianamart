@@ -41,6 +41,7 @@ export default function PurchaseBillsForm() {
   );
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
   const [projects, setProjects] = useState([]);
+  const [poTaxCodeMap, setPoTaxCodeMap] = useState({});
 
   const [formData, setFormData] = useState({
     bill_no: "",
@@ -525,8 +526,8 @@ export default function PurchaseBillsForm() {
           poItem.currency || poItem.currency_code || poItem.currencyCode || "",
         ).toUpperCase();
         const cur =
-          CURRENCIES.find((c) => String(c.code).toUpperCase() === code) ||
-          CURRENCIES[0];
+          finCurrencies.find((c) => String(c.code).toUpperCase() === code) ||
+          null;
         setFormData((prev) => ({
           ...prev,
           supplier_id: poItem.supplier_id
@@ -559,6 +560,7 @@ export default function PurchaseBillsForm() {
           const taxAmt = taxable * (taxPercent / 100);
           const lineTotal = taxable + taxAmt;
           const matchedTax =
+            taxCodes.find((t) => String(t.id) === String(d.tax_code_id)) ||
             taxCodes.find(
               (t) => Number(t.rate_percent) === Number(taxPercent),
             ) || null;
@@ -581,7 +583,7 @@ export default function PurchaseBillsForm() {
     }
   };
 
-  const populateGrnDetails = async (grnId) => {
+  const populateGrnDetails = async (grnId, poTaxOverride = {}) => {
     try {
       const res = await api.get(`/purchase/grns/${grnId}`);
       const grnItem = res.data?.item || null;
@@ -612,8 +614,8 @@ export default function PurchaseBillsForm() {
                   "",
               ).toUpperCase();
               const cur =
-                CURRENCIES.find((c) => String(c.code).toUpperCase() === code) ||
-                CURRENCIES[0];
+                finCurrencies.find((c) => String(c.code).toUpperCase() === code) ||
+                null;
               setFormData((prev) => ({
                 ...prev,
                 currency_id:
@@ -683,6 +685,7 @@ export default function PurchaseBillsForm() {
             0;
 
           const defaultTaxCodeId =
+            poTaxOverride[itemId] ||
             itemTaxByItemId[itemId]?.tax_code_id ||
             (newItem.tax_code_id ? String(newItem.tax_code_id) : "");
 
@@ -740,7 +743,7 @@ export default function PurchaseBillsForm() {
               null;
             if (accCode) {
               const cur =
-                CURRENCIES.find(
+                finCurrencies.find(
                   (c) => String(c.code).toUpperCase() === accCode.toUpperCase(),
                 ) || null;
               if (cur) {
@@ -760,13 +763,38 @@ export default function PurchaseBillsForm() {
     }
 
     if (name === "grn_id" && value) {
-      await populateGrnDetails(value);
+      await populateGrnDetails(value, poTaxCodeMap);
     } else if (name === "grn_id" && !value) {
       setItemOptions(availableItems);
     }
 
     if (name === "po_id" && value) {
-      // 1. Populate supplier
+      // 1. Fetch PO details to get currency and line-item tax codes
+      let poCurrencyId = null;
+      let poExchangeRate = null;
+      let poTaxOverride = {};
+      try {
+        const poRes = await api.get(`/purchase/orders/${value}`);
+        const poItem = poRes.data?.item;
+        if (poItem) {
+          const code = String(poItem.currency || poItem.currency_code || "").toUpperCase();
+          const cur = finCurrencies.find((c) => String(c.code).toUpperCase() === code) || null;
+          poCurrencyId = Number(poItem.currency_id) || (cur ? Number(cur.id) : null);
+          poExchangeRate = poItem.exchange_rate != null ? Number(poItem.exchange_rate || 1) : null;
+          // Build tax code map from PO line items
+          const details = Array.isArray(poItem.details) ? poItem.details : [];
+          details.forEach((d) => {
+            if (d.item_id && d.tax_code_id) {
+              poTaxOverride[String(d.item_id)] = String(d.tax_code_id);
+            }
+          });
+          setPoTaxCodeMap(poTaxOverride);
+        }
+      } catch (e) {
+        // ignore PO fetch failure
+      }
+
+      // 2. Populate supplier
       const selectedPo = purchaseOrders.find((po) => String(po.id) === value);
       let newSupplierId = formData.supplier_id;
 
@@ -774,11 +802,19 @@ export default function PurchaseBillsForm() {
         newSupplierId = String(selectedPo.supplier_id);
         setFormData((prev) => ({
           ...prev,
+          currency_id: poCurrencyId || prev.currency_id,
+          exchange_rate: poExchangeRate != null ? poExchangeRate : prev.exchange_rate,
           supplier_id: newSupplierId,
+        }));
+      } else if (poCurrencyId) {
+        setFormData((prev) => ({
+          ...prev,
+          currency_id: poCurrencyId,
+          exchange_rate: poExchangeRate != null ? poExchangeRate : prev.exchange_rate,
         }));
       }
 
-      // 2. Try to find corresponding GRN
+      // 4. Try to find corresponding GRN
       // Filter GRNs that match this PO AND the current bill type
       const matchingGrns = grns.filter(
         (g) =>
@@ -789,7 +825,7 @@ export default function PurchaseBillsForm() {
 
       if (matchingGrns.length === 1) {
         // If exactly one GRN, select it and populate items
-        await populateGrnDetails(matchingGrns[0].id);
+        await populateGrnDetails(matchingGrns[0].id, poTaxOverride);
       } else {
         // If multiple or none, just ensure the GRN field is reset so user can choose
         // But if they had one selected that DOES match, keep it?
@@ -1322,6 +1358,7 @@ export default function PurchaseBillsForm() {
                 <th className="w-36 text-right">UOM</th>
                 <th className="w-32 text-right">Unit Price</th>
                 <th className="w-28 text-right">Disc %</th>
+                <th className="w-36">Tax Code</th>
                 <th className="w-40 text-right">Tax Amt</th>
                 <th className="w-32 text-right">Net Amount</th>
                 <th className="w-16">Action</th>
@@ -1329,15 +1366,15 @@ export default function PurchaseBillsForm() {
             </thead>
             <tbody>
               {lines.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan="8"
-                    className="text-center py-10 text-slate-400 bg-slate-50 italic"
-                  >
-                    No items added yet. Use the section above to add items or
-                    pick a PO/GRN.
-                  </td>
-                </tr>
+                  <tr>
+                    <td
+                      colSpan="9"
+                      className="text-center py-10 text-slate-400 bg-slate-50 italic"
+                    >
+                      No items added yet. Use the section above to add items or
+                      pick a PO/GRN.
+                    </td>
+                  </tr>
               ) : (
                 lines.map((l, idx) => {
                   const gross =
@@ -1398,6 +1435,28 @@ export default function PurchaseBillsForm() {
                         )}
                       </td>
                       <td className="text-right">{l.discount_percent}%</td>
+                      <td>
+                        {isNew ? (
+                          <select
+                            className="input text-xs w-full min-w-[7rem]"
+                            value={l.tax_code_id || ""}
+                            onChange={(e) =>
+                              handleLineChange(l.id, "tax_code_id", e.target.value)
+                            }
+                          >
+                            <option value="">No Tax</option>
+                            {taxCodes.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.name} ({Number(t.rate_percent || 0)}%)
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-xs text-slate-600">
+                            {taxCodes.find((t) => String(t.id) === String(l.tax_code_id))?.name || ""}
+                          </span>
+                        )}
+                      </td>
                       <td className="text-right text-slate-500">
                         {taxAmt.toFixed(2)}
                       </td>

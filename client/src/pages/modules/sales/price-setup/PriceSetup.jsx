@@ -589,7 +589,7 @@ export default function PriceSetup() {
                       const results = query
                         ? filterByPrefix(products, {
                             query,
-                            searchFields: ["item_code", "item_name"],
+                            searchFields: ["item_code", "item_name", "barcode"],
                           })
                         : [];
                       if (!query || !results.length) return;
@@ -604,7 +604,7 @@ export default function PriceSetup() {
                    const results = query
                      ? filterByPrefix(products, {
                          query,
-                         searchFields: ["item_code", "item_name"],
+                         searchFields: ["item_code", "item_name", "barcode"],
                        })
                      : [];
                    return results.length ? (
@@ -798,7 +798,7 @@ export default function PriceSetup() {
                     const results = query
                       ? filterByPrefix(products, {
                           query,
-                          searchFields: ["item_code", "item_name"],
+                          searchFields: ["item_code", "item_name", "barcode"],
                         })
                       : [];
                     if (!query || !results.length) return;
@@ -813,7 +813,7 @@ export default function PriceSetup() {
                  const results = query
                    ? filterByPrefix(products, {
                        query,
-                       searchFields: ["item_code", "item_name"],
+                       searchFields: ["item_code", "item_name", "barcode"],
                      })
                    : [];
                  return results.length ? (

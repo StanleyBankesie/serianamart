@@ -20,6 +20,7 @@ export default function DirectPurchase() {
     location?.pathname?.endsWith(`/direct-purchase/${params?.id || ""}`) &&
     String(new URLSearchParams(location.search).get("mode") || "") === "view";
   const [suppliers, setSuppliers] = useState([]);
+  const [supplierSearch, setSupplierSearch] = useState("");
   const [warehouses, setWarehouses] = useState([]);
   const [items, setItems] = useState([]);
   const [approvedItemRequisitions, setApprovedItemRequisitions] = useState([]);
@@ -721,21 +722,64 @@ export default function DirectPurchase() {
             <div className="alert alert-success">{success}</div>
           ) : null}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="flex flex-col gap-1">
+            <div className="relative flex flex-col gap-1">
               <label className="label">Supplier</label>
-              <select
+              <input
+                type="text"
                 className="input"
-                value={form.supplier_id}
-                onChange={(e) => onSupplierChange(e.target.value)}
+                placeholder="Search supplier..."
+                value={
+                  suppliers.find(
+                    (s) => String(s.id) === String(form.supplier_id),
+                  )?.supplier_name || supplierSearch
+                }
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSupplierSearch(val);
+                  setForm((prev) => ({ ...prev, supplier_id: "" }));
+                }}
                 disabled={isViewMode}
-              >
-                <option value="">Select supplier</option>
-                {suppliers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.supplier_name}
-                  </option>
-                ))}
-              </select>
+              />
+              {!isViewMode && supplierSearch &&
+                (() => {
+                  const q = supplierSearch.toLowerCase();
+                  const matched = suppliers
+                    .filter(
+                      (s) =>
+                        String(s.supplier_name || "")
+                          .toLowerCase()
+                          .includes(q) ||
+                        String(s.supplier_code || "")
+                          .toLowerCase()
+                          .includes(q),
+                    )
+                    .slice(0, 10);
+                  return matched.length > 0 ? (
+                    <div className="absolute z-30 w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto" style={{ top: "100%" }}>
+                      {matched.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          className="w-full text-left px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700 last:border-b-0"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            onSupplierChange(String(s.id));
+                            setSupplierSearch("");
+                          }}
+                        >
+                          <div className="font-medium text-slate-800 dark:text-slate-200 text-sm">
+                            {s.supplier_name}
+                          </div>
+                          {s.supplier_code && (
+                            <div className="text-xs text-slate-500">
+                              {s.supplier_code}
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
             </div>
             <div className="flex flex-col gap-1">
               <label className="label">Requisition</label>

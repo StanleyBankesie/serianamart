@@ -23,7 +23,7 @@ import { MODULES_REGISTRY } from "../data/modulesRegistry.js";
 const PermissionContext = createContext();
 const RBAC_CACHE_KEY = "rbac.permission.snapshot.v1";
 const PAGE_PERM_RETRY_MS = 30_000;
-const DASHBOARD_PERM_POLL_MS = 1_500;
+const DASHBOARD_PERM_POLL_MS = 60_000;
 
 function isTransientBackendError(err) {
   const status = Number(err?.response?.status || 0);

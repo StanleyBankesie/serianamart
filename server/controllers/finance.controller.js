@@ -1,5 +1,9 @@
 import { pool, query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
+import {
+  getInactiveWorkflowBehavior,
+  resolveWorkflowSelection,
+} from "../utils/workflowResolution.js";
 import * as XLSX from "xlsx";
 
 // Page ID mapping for tax code applicable pages
@@ -989,81 +993,14 @@ export const submitVoucher = async (req, res, next) => {
               : isDN
                 ? ["DEBIT_NOTE", "Debit Note", "DN"]
                 : ["VOUCHER", "Voucher", typeCode];
-    const wfByRoute =
-      docRouteBase != null
-        ? await query(
-            `SELECT * FROM adm_workflows WHERE company_id = :companyId AND document_route = :docRouteBase ORDER BY id ASC`,
-            { companyId, docRouteBase },
-          )
-        : [];
-    const wfDefs = await query(
-      `SELECT * FROM adm_workflows 
-         WHERE company_id = :companyId 
-           AND (document_type = :t1 OR document_type = :t2 OR document_type = :t3 OR document_type = :t4 OR document_type = :t5)
-         ORDER BY id ASC`,
-      {
+    const { activeWorkflow: activeWf, inactiveWorkflow } =
+      await resolveWorkflowSelection({
         companyId,
-        t1: typeSynonyms[0],
-        t2: typeSynonyms[1],
-        t3: typeSynonyms[2],
-        t4: typeSynonyms[3] || typeSynonyms[0],
-        t5: typeSynonyms[4] || typeSynonyms[0],
-      },
-    );
-    let activeWf = null;
-    if (workflowIdOverride) {
-      const wfRows = await query(
-        `SELECT * FROM adm_workflows 
-         WHERE id = :wfId AND company_id = :companyId 
-           AND (document_type = :t1 OR document_type = :t2 OR document_type = :t3 OR document_type = :t4 OR document_type = :t5)
-         LIMIT 1`,
-        {
-          wfId: workflowIdOverride,
-          companyId,
-          t1: typeSynonyms[0],
-          t2: typeSynonyms[1],
-          t3: typeSynonyms[2],
-          t4: typeSynonyms[3] || typeSynonyms[0],
-          t5: typeSynonyms[4] || typeSynonyms[0],
-        },
-      );
-      if (wfRows.length && Number(wfRows[0].is_active) === 1) {
-        activeWf = wfRows[0];
-      }
-    }
-    if (!activeWf && wfByRoute.length) {
-      for (const wf of wfByRoute) {
-        if (Number(wf.is_active) !== 1) continue;
-        if (amount === null) {
-          activeWf = wf;
-          break;
-        }
-        const minOk =
-          wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
-        const maxOk =
-          wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
-        if (minOk && maxOk) {
-          activeWf = wf;
-          break;
-        }
-      }
-    }
-    for (const wf of wfDefs) {
-      if (activeWf) break;
-      if (Number(wf.is_active) !== 1) continue;
-      if (amount === null) {
-        activeWf = wf;
-        break;
-      }
-      const minOk =
-        wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
-      const maxOk =
-        wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
-      if (minOk && maxOk) {
-        activeWf = wf;
-        break;
-      }
-    }
+        workflowIdOverride,
+        docRouteBase,
+        typeSynonyms,
+        amount,
+      });
     if (activeWf) {
       const steps = await query(
         `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
@@ -1156,16 +1093,7 @@ export const submitVoucher = async (req, res, next) => {
       res.status(201).json({ instanceId, status: "SUBMITTED" });
       return;
     }
-    let behavior = null;
-    if (wfDefs.length) {
-      const firstWf = wfDefs[0];
-      if (Number(firstWf.is_active) === 0) {
-        behavior = firstWf.default_behavior || null;
-        if (!behavior) {
-          behavior = "AUTO_APPROVE";
-        }
-      }
-    }
+    const behavior = getInactiveWorkflowBehavior(inactiveWorkflow);
     if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
       await query(
         `UPDATE fin_vouchers SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
@@ -5060,6 +4988,88 @@ export const createVoucherType = async (req, res, next) => {
       },
     );
     res.status(201).json({ id: result.insertId });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getFinanceDashboardStats = async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req.scope;
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    let cashBalance = 0;
+    let bankBalance = 0;
+    let monthlyExpenses = 0;
+    let monthlyIncome = 0;
+    try {
+      const [cashRow] = await query(
+        `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) as balance
+         FROM fin_voucher_lines vl
+         JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId AND v.status = 'POSTED'
+         JOIN fin_accounts a ON a.id = vl.account_id
+         JOIN fin_account_groups g ON g.id = a.group_id
+         WHERE g.code IN ('AST_CASH')`,
+        { companyId },
+      );
+      cashBalance = Number(cashRow?.balance || 0);
+    } catch {}
+    try {
+      const [bankRow] = await query(
+        `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) as balance
+         FROM fin_voucher_lines vl
+         JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId AND v.status = 'POSTED'
+         JOIN fin_accounts a ON a.id = vl.account_id
+         JOIN fin_account_groups g ON g.id = a.group_id
+         WHERE g.code IN ('AST_BANK')`,
+        { companyId },
+      );
+      bankBalance = Number(bankRow?.balance || 0);
+    } catch {}
+    try {
+      const [expRow] = await query(
+        `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) as total
+         FROM fin_voucher_lines vl
+         JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId AND v.status = 'POSTED'
+         JOIN fin_accounts a ON a.id = vl.account_id
+         JOIN fin_account_groups g ON g.id = a.group_id
+         WHERE g.nature = 'EXPENSE' AND v.voucher_date >= :monthStart`,
+        { companyId, monthStart },
+      );
+      monthlyExpenses = Number(expRow?.total || 0);
+    } catch {}
+    try {
+      const [incRow] = await query(
+        `SELECT COALESCE(SUM(vl.credit - vl.debit), 0) as total
+         FROM fin_voucher_lines vl
+         JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId AND v.status = 'POSTED'
+         JOIN fin_accounts a ON a.id = vl.account_id
+         JOIN fin_account_groups g ON g.id = a.group_id
+         WHERE g.nature = 'INCOME' AND v.voucher_date >= :monthStart`,
+        { companyId, monthStart },
+      );
+      monthlyIncome = Number(incRow?.total || 0);
+    } catch {}
+    let pendingVouchers = 0;
+    try {
+      const [pv] = await query(
+        "SELECT COUNT(*) as count FROM fin_vouchers WHERE company_id = :companyId AND status != 'POSTED'",
+        { companyId },
+      );
+      pendingVouchers = Number(pv?.count || 0);
+    } catch {}
+    res.json({
+      success: true,
+      data: {
+        cashBalance: Math.round(cashBalance * 100) / 100,
+        bankBalance: Math.round(bankBalance * 100) / 100,
+        totalLiquidity: Math.round((cashBalance + bankBalance) * 100) / 100,
+        monthlyExpenses: Math.round(monthlyExpenses * 100) / 100,
+        monthlyIncome: Math.round(monthlyIncome * 100) / 100,
+        netIncome: Math.round((monthlyIncome - monthlyExpenses) * 100) / 100,
+        pendingVouchers,
+      },
+    });
   } catch (e) {
     next(e);
   }

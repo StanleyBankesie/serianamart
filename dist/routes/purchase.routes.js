@@ -49,6 +49,12 @@ import {
   ensureSupplierFinAccountIdTx,
 } from "../controllers/finance.controller.js";
 
+import { isMailerConfigured, sendMail } from "../utils/mailer.js";
+import {
+  getInactiveWorkflowBehavior,
+  resolveWorkflowSelection,
+} from "../utils/workflowResolution.js";
+
 const router = express.Router();
 
 function toNumber(v, fallback = null) {
@@ -1534,6 +1540,213 @@ function allocateTaxComponents(baseAmount, taxAmount, components) {
   return rounded.filter((r) => Number(r.amount || 0) > 0);
 }
 
+async function createDebitNoteForReturnTx(
+  conn,
+  {
+    companyId,
+    branchId,
+    return_id,
+    return_no,
+    return_date,
+    supplier_id,
+    total_amount,
+    sub_total,
+    tax_total,
+    normalized,
+    created_by,
+  },
+) {
+  const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
+  const voucherTypeId = await ensureDebitNoteVoucherTypeIdTx(conn, {
+    companyId,
+  });
+  const voucherNo = await nextVoucherNoTx(conn, { voucherTypeId, companyId });
+  const voucherDate = return_date || toYmd(new Date());
+  const supplierAccId = await ensureSupplierFinAccountIdTx(conn, {
+    companyId,
+    supplierId: supplier_id,
+  });
+  const [supInfoRows] = await conn.execute(
+    `SELECT supplier_name, expense_account_id FROM pur_suppliers WHERE company_id = :companyId AND id = :id LIMIT 1`,
+    { companyId, id: supplier_id },
+  );
+  const supInfo = supInfoRows?.[0] || null;
+  const supplierName = supInfo?.supplier_name || "Supplier";
+  const expenseAccountId = Number(supInfo?.expense_account_id || 0) || 0;
+  if (!supplierAccId) {
+    throw httpError(400, "VALIDATION_ERROR", "Supplier fin account not found");
+  }
+  if (!expenseAccountId) {
+    throw httpError(
+      400,
+      "VALIDATION_ERROR",
+      "Supplier expense account not found",
+    );
+  }
+  const [vIns] = await conn.execute(
+    `INSERT INTO fin_vouchers
+      (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
+     VALUES
+      (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
+    {
+      companyId,
+      branchId,
+      fiscalYearId,
+      voucherTypeId,
+      voucherNo,
+      voucherDate,
+      narration: `Purchase return made to supplier ${supplierName} - ${return_no}`,
+      totalDebit: total_amount,
+      totalCredit: total_amount,
+      createdBy: created_by,
+      approvedBy: created_by,
+      postedBy: created_by,
+    },
+  );
+  const voucherId = Number(vIns?.insertId || 0) || 0;
+  let lineNo = 1;
+
+  // 1. DEBIT: Supplier account (reducing payable)
+  await conn.execute(
+    `INSERT INTO fin_voucher_lines
+      (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+     VALUES
+      (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
+    {
+      companyId,
+      voucherId,
+      lineNo: lineNo++,
+      accountId: supplierAccId,
+      description: `Purchase return made to supplier ${supplierName} - ${return_no}`,
+      debit: Math.round(total_amount * 100) / 100,
+      referenceNo: return_no,
+    },
+  );
+
+  // 2. CREDIT: Tax component lines (reversing input tax)
+  if (tax_total > 0) {
+    const componentTotals = new Map();
+    for (const ln of normalized) {
+      if (!ln.tax_type || !(ln.tax_amount > 0)) continue;
+      const comps = await loadTaxComponentsByCodeTx(conn, {
+        companyId,
+        taxCodeId: Number(ln.tax_type),
+      });
+      const allocations = allocateTaxComponents(
+        ln.total_amount,
+        ln.tax_amount,
+        comps,
+      );
+      for (const alloc of allocations) {
+        const accountId = await ensurePurchaseTaxComponentAccountTx(conn, {
+          companyId,
+          taxDetailId: alloc.tax_detail_id,
+          componentName: alloc.component_name,
+        });
+        if (!accountId) continue;
+        const key = String(accountId);
+        const prev = componentTotals.get(key) || {
+          amount: 0,
+          name: alloc.component_name,
+        };
+        componentTotals.set(key, {
+          amount: prev.amount + Number(alloc.amount || 0),
+          name: alloc.component_name,
+        });
+      }
+    }
+    for (const [accountId, ct] of componentTotals) {
+      const amt = Math.round(ct.amount * 100) / 100;
+      if (!(amt > 0)) continue;
+      await conn.execute(
+        `INSERT INTO fin_voucher_lines
+          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+         VALUES
+          (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :referenceNo)`,
+        {
+          companyId,
+          voucherId,
+          lineNo: lineNo++,
+          accountId: Number(accountId),
+          description: `${ct.name} on purchase return made to supplier ${supplierName} - ${return_no}`,
+          credit: amt,
+          referenceNo: return_no,
+        },
+      );
+    }
+  }
+
+  // 3. CREDIT: Expense/Purchase account (reversing cost)
+  await conn.execute(
+    `INSERT INTO fin_voucher_lines
+      (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
+     VALUES
+      (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :referenceNo)`,
+    {
+      companyId,
+      voucherId,
+      lineNo: lineNo++,
+      accountId: expenseAccountId,
+      description: `Purchase return made to supplier ${supplierName} - ${return_no}`,
+      credit: Math.round(sub_total * 100) / 100,
+      referenceNo: return_no,
+    },
+  );
+
+  return voucherId;
+}
+
+async function createDebitNoteForReturnApprovalTx(
+  conn,
+  { id, companyId, branchId },
+) {
+  const [hdrRows] = await conn.execute(
+    `SELECT * FROM pur_returns WHERE id = :id AND company_id = :companyId`,
+    { id, companyId },
+  );
+  if (!hdrRows?.length) return null;
+  const hdr = hdrRows[0];
+  const {
+    return_no,
+    return_date,
+    supplier_id,
+    total_amount,
+    tax_amount,
+    sub_total,
+    created_by,
+  } = hdr;
+
+  const [detRows] = await conn.execute(
+    `SELECT rd.*
+     FROM pur_return_details rd
+     WHERE rd.return_id = :id`,
+    { id },
+  );
+  const normalized = (detRows || []).map((d) => ({
+    item_id: d.item_id,
+    qty: d.qty_returned,
+    unit_price: d.unit_price,
+    total_amount: d.total_amount,
+    tax_amount: d.tax_amount,
+    tax_type: d.tax_type,
+  }));
+  if (!normalized.length) return null;
+
+  return createDebitNoteForReturnTx(conn, {
+    companyId,
+    branchId,
+    return_id: id,
+    return_no,
+    return_date,
+    supplier_id,
+    total_amount,
+    sub_total,
+    tax_total: tax_amount,
+    normalized,
+    created_by,
+  });
+}
+
 async function postPurchaseBillVoucherTx(
   conn,
   { companyId, branchId, billId, userId, isDirectPurchase = false },
@@ -1945,6 +2158,92 @@ router.get(
     "INV.SERVICE_CONFIRMATION.VIEW",
   ]),
   (req, res, next) => listServiceConfirmations(req, res, next),
+);
+
+router.get(
+  "/return-rejection-reasons",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensurePurchaseReturnTables();
+      const { companyId } = req.scope;
+      const items = await query(
+        `SELECT id, reason_code, reason_name, is_active FROM pur_return_rejection_reasons WHERE company_id = :companyId ORDER BY id ASC`,
+        { companyId },
+      );
+      res.json({ items: items || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.post(
+  "/return-rejection-reasons",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensurePurchaseReturnTables();
+      const { companyId } = req.scope;
+      const { reasons } = req.body;
+      if (!Array.isArray(reasons)) {
+        return res.status(400).json({ message: "reasons must be an array" });
+      }
+      for (const r of reasons) {
+        if (!r.reason_code || !r.reason_name) continue;
+        if (r.id && /^\d+$/.test(String(r.id))) {
+          await query(
+            `UPDATE pur_return_rejection_reasons
+                SET reason_code = :reason_code, reason_name = :reason_name, is_active = :is_active
+              WHERE id = :id AND company_id = :companyId`,
+            {
+              id: Number(r.id),
+              companyId,
+              reason_code: r.reason_code,
+              reason_name: r.reason_name,
+              is_active: r.is_active ? 1 : 0,
+            },
+          );
+        } else {
+          await query(
+            `INSERT INTO pur_return_rejection_reasons (company_id, reason_code, reason_name, is_active)
+             VALUES (:companyId, :reason_code, :reason_name, 1)
+             ON DUPLICATE KEY UPDATE reason_name = :reason_name, is_active = 1`,
+            {
+              companyId,
+              reason_code: r.reason_code,
+              reason_name: r.reason_name,
+            },
+          );
+        }
+      }
+      res.json({ message: "Rejection reasons saved successfully" });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.delete(
+  "/return-rejection-reasons/:id",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensurePurchaseReturnTables();
+      const { companyId } = req.scope;
+      const id = Number(req.params.id);
+      await query(
+        `DELETE FROM pur_return_rejection_reasons WHERE id = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
+      res.json({ message: "Reason deleted successfully" });
+    } catch (e) {
+      next(e);
+    }
+  },
 );
 
 router.get(
@@ -2390,9 +2689,9 @@ router.put(
       for (const d of cleanDetails) {
         await conn.execute(
           `INSERT INTO pur_bill_details
-            (bill_id, item_id, uom_id, qty, unit_price, discount_percent, tax_amount, line_total)
+            (bill_id, item_id, uom_id, qty, unit_price, discount_percent, tax_amount, line_total, tax_code_id)
            VALUES
-            (:billId, :itemId, NULL, :qty, :unitPrice, :discountPercent, :taxAmount, :lineTotal)`,
+            (:billId, :itemId, NULL, :qty, :unitPrice, :discountPercent, :taxAmount, :lineTotal, :taxCodeId)`,
           {
             billId,
             itemId: d.itemId,
@@ -2409,6 +2708,7 @@ router.put(
                   100,
               ) / 100,
             lineTotal: d.lineTotal,
+            taxCodeId: d.taxCodeId || null,
           },
         );
       }
@@ -3319,6 +3619,7 @@ async function ensurePurchaseReturnTables() {
       unit_price DECIMAL(18,4) NOT NULL DEFAULT 0,
       total_amount DECIMAL(18,4) NOT NULL DEFAULT 0,
       tax_amount DECIMAL(18,4) NOT NULL DEFAULT 0,
+      tax_type VARCHAR(50),
       reason_code VARCHAR(50),
       remarks TEXT,
       PRIMARY KEY (id),
@@ -3327,6 +3628,19 @@ async function ensurePurchaseReturnTables() {
     )
   `).catch(() => null);
 }
+await query(`
+    CREATE TABLE IF NOT EXISTS pur_return_rejection_reasons (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      reason_code VARCHAR(50) NOT NULL,
+      reason_name VARCHAR(255) NOT NULL,
+      is_active TINYINT DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_pur_reason_code (company_id, reason_code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `).catch(() => null);
+
 async function nextPurchaseReturnNo(companyId, branchId) {
   const rows = await query(
     `SELECT return_no,
@@ -4326,13 +4640,24 @@ router.get(
       const { companyId, branchId } = req.scope;
       const items = await query(
         `
-        SELECT r.id, r.return_no, r.return_date, r.status, r.total_amount,
+        SELECT r.id, r.return_no, r.return_date,
+               CASE WHEN iw.has_inactive_pending = 1 THEN 'APPROVED' ELSE r.status END AS status,
+               r.total_amount,
                s.supplier_name, r.supplier_id,
           r.created_at,
           u.username AS created_by_name
          FROM pur_returns r
         LEFT JOIN pur_suppliers s
           ON s.id = r.supplier_id
+        LEFT JOIN (
+          SELECT t.document_id, 1 AS has_inactive_pending
+          FROM adm_document_workflows t
+          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 0
+          WHERE t.company_id = :companyId
+            AND t.status = 'PENDING'
+            AND (t.document_type = 'PURCHASE_RETURN' OR t.document_type = 'Purchase Return')
+          GROUP BY t.document_id
+        ) iw ON iw.document_id = r.id
         LEFT JOIN adm_users u ON u.id = r.created_by
          WHERE r.company_id = :companyId AND r.branch_id = :branchId
         ORDER BY r.return_date DESC, r.id DESC
@@ -4357,6 +4682,48 @@ router.get(
       const { companyId, branchId } = req.scope;
       const nextNo = await nextPurchaseReturnNo(companyId, branchId);
       res.json({ nextNo });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.get(
+  "/returns/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE", "PURCHASE.RFQ.VIEW"]),
+  async (req, res, next) => {
+    try {
+      await ensurePurchaseReturnTables();
+      const { companyId, branchId } = req.scope;
+      const id = Number(req.params.id || 0);
+      if (!id) return res.status(404).json({ message: "Not found" });
+      const hdr = await query(
+        `SELECT r.id, r.return_no, r.return_date, r.supplier_id, r.warehouse_id, r.remarks, r.sub_total, r.tax_amount, r.total_amount, r.status, r.created_at, r.created_by,
+                s.supplier_name, s.supplier_code,
+                u.username AS created_by_name
+           FROM pur_returns r
+           LEFT JOIN pur_suppliers s ON s.id = r.supplier_id
+           LEFT JOIN adm_users u ON u.id = r.created_by
+          WHERE r.id = :id AND r.company_id = :companyId AND r.branch_id = :branchId`,
+        { id, companyId, branchId },
+      );
+      const row = hdr?.[0] || null;
+      if (!row) return res.status(404).json({ message: "Not found" });
+      const detailRows = await query(
+        `SELECT d.id, d.item_id, d.qty_returned, d.unit_price, d.total_amount, d.tax_amount, d.tax_type, d.reason_code, d.remarks,
+                i.item_code, i.item_name
+           FROM pur_return_details d
+           LEFT JOIN inv_items i ON i.id = d.item_id
+          WHERE d.return_id = :return_id
+          ORDER BY d.id ASC`,
+        { return_id: id },
+      );
+      res.json({
+        ...row,
+        details: detailRows || [],
+      });
     } catch (err) {
       next(err);
     }
@@ -4387,57 +4754,32 @@ router.post(
           ? null
           : Number(body.warehouse_id || 0) || null;
       const remarks = body.remarks || null;
+      const status = String(body.status || "DRAFT")
+        .trim()
+        .toUpperCase();
       const items = Array.isArray(body.items) ? body.items : [];
       if (!Number.isFinite(supplier_id) || supplier_id <= 0 || !items.length) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid payload");
       }
       let sub_total = 0;
       let tax_total = 0;
-      const ids = Array.from(
-        new Set(
-          (items || [])
-            .map((x) => Number(x?.item_id || x?.itemId || 0))
-            .filter((n) => Number.isFinite(n) && n > 0),
-        ),
-      );
-      let rateMap = new Map();
-      if (ids.length) {
-        const placeholders = ids.map((_, i) => `:i${i}`).join(", ");
-        const params = { companyId };
-        ids.forEach((v, i) => (params[`i${i}`] = v));
-        const rows = await query(
-          `
-          SELECT it.id AS item_id,
-                 it.vat_on_purchase_id AS tax_id,
-                 COALESCE(tc.rate_percent, 0) AS rate_percent,
-          it.created_at,
-          u.username AS created_by_name
-         FROM inv_items it
-          LEFT JOIN fin_tax_codes tc
-            ON tc.company_id = it.company_id
-           AND tc.id = it.vat_on_purchase_id
-        LEFT JOIN adm_users u ON u.id = it.created_by
-         WHERE it.company_id = :companyId
-            AND it.id IN (${placeholders})
-          `,
-          params,
-        ).catch(() => []);
-        for (const r of rows || []) {
-          rateMap.set(Number(r.item_id), Number(r.rate_percent || 0));
-        }
-      }
       const normalized = [];
       for (const it of items) {
         const item_id = Number(it?.item_id);
         const qty = Number(it?.qty_returned || it?.quantity || 0);
         const unit_price = Number(it?.unit_price || 0);
+        const tax_type =
+          it?.tax_type != null && String(it.tax_type).trim() !== ""
+            ? String(it.tax_type).trim()
+            : null;
         const reason_code = String(it?.reason_code || "").trim() || null;
         const lineRemarks = it?.remarks || null;
         if (!Number.isFinite(item_id) || qty <= 0) continue;
         const line_total = Math.round(qty * unit_price * 100) / 100;
-        const rate = Number(rateMap.get(item_id) || 0);
-        const line_tax =
-          Math.round(((qty * unit_price * rate) / 100) * 100) / 100;
+        const submittedTax = Number(it?.tax_amount || 0);
+        const line_tax = Number.isFinite(submittedTax)
+          ? Math.round(submittedTax * 100) / 100
+          : 0;
         sub_total += line_total;
         tax_total += line_tax;
         normalized.push({
@@ -4446,6 +4788,7 @@ router.post(
           unit_price,
           total_amount: line_total,
           tax_amount: line_tax,
+          tax_type,
           reason_code,
           remarks: lineRemarks,
         });
@@ -4456,9 +4799,9 @@ router.post(
       const [hdr] = await conn.execute(
         `
         INSERT INTO pur_returns
-          (company_id, branch_id, return_no, return_date, supplier_id, warehouse_id, remarks, sub_total, tax_amount, total_amount, created_by)
+          (company_id, branch_id, return_no, return_date, supplier_id, warehouse_id, status, remarks, sub_total, tax_amount, total_amount, created_by)
         VALUES
-          (:companyId, :branchId, :return_no, :return_date, :supplier_id, :warehouse_id, :remarks, :sub_total, :tax_amount, :total_amount, :created_by)
+          (:companyId, :branchId, :return_no, :return_date, :supplier_id, :warehouse_id, :status, :remarks, :sub_total, :tax_amount, :total_amount, :created_by)
         `,
         {
           companyId,
@@ -4467,6 +4810,7 @@ router.post(
           return_date,
           supplier_id,
           warehouse_id,
+          status,
           remarks,
           sub_total,
           tax_amount: tax_total,
@@ -4479,9 +4823,9 @@ router.post(
         await conn.execute(
           `
           INSERT INTO pur_return_details
-            (return_id, item_id, qty_returned, unit_price, total_amount, tax_amount, reason_code, remarks)
+            (return_id, item_id, qty_returned, unit_price, total_amount, tax_amount, tax_type, reason_code, remarks)
           VALUES
-            (:return_id, :item_id, :qty_returned, :unit_price, :total_amount, :tax_amount, :reason_code, :remarks)
+            (:return_id, :item_id, :qty_returned, :unit_price, :total_amount, :tax_amount, :tax_type, :reason_code, :remarks)
           `,
           {
             return_id,
@@ -4490,6 +4834,7 @@ router.post(
             unit_price: ln.unit_price,
             total_amount: ln.total_amount,
             tax_amount: ln.tax_amount,
+            tax_type: ln.tax_type,
             reason_code: ln.reason_code,
             remarks: ln.remarks,
           },
@@ -4497,8 +4842,9 @@ router.post(
         await conn.execute(
           `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
            VALUES (:companyId, :branchId, :warehouse_id, :item_id, :qty)
-           ON DUPLICATE KEY UPDATE qty = GREATEST(0, qty - :qty)`,
+           ON DUPLICATE KEY UPDATE qty = qty - :qty`,
           {
+            companyId,
             branchId,
             warehouse_id,
             item_id: ln.item_id,
@@ -4506,99 +4852,46 @@ router.post(
           },
         );
       }
-      const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
-      const voucherTypeId = await ensureDebitNoteVoucherTypeIdTx(conn, {
-        companyId,
-      });
-      const voucherNo = await nextVoucherNoTx(conn, {
-        voucherTypeId,
-        companyId,
-      });
-      const voucherDate = return_date || toYmd(new Date());
-      const supplierAccId = await ensureSupplierFinAccountIdTx(conn, {
-        companyId,
-        supplierId: supplier_id,
-      });
-      const inventoryAccId =
-        (await resolveFinAccountId(conn, {
+      let voucherId = null;
+      let voucherNo = null;
+      let debitNoteCreated = false;
+
+      // Check for active workflow before creating debit note
+      const [wfRows] = await conn.execute(
+        `SELECT id FROM adm_workflows
+         WHERE company_id = :companyId
+           AND (document_type = 'PURCHASE_RETURN' OR document_type = 'Purchase Return')
+           AND is_active = 1
+         LIMIT 1`,
+        { companyId },
+      );
+      const hasActiveWf = wfRows?.length > 0;
+      const shouldCreateDebitNote = !hasActiveWf || status === "APPROVED";
+
+      if (shouldCreateDebitNote) {
+        voucherId = await createDebitNoteForReturnTx(conn, {
           companyId,
-          accountRef: "130000",
-        })) || (await resolveDefaultInventoryAccountId(conn, { companyId }));
-      const vatInputAccId = await resolveVatInputAccountIdAuto(conn, {
-        companyId,
-      });
-      if (!supplierAccId || !inventoryAccId) {
-        throw httpError(
-          400,
-          "VALIDATION_ERROR",
-          "Required Finance accounts not found for posting",
-        );
-      }
-      const [vIns] = await conn.execute(
-        `INSERT INTO fin_vouchers
-          (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
-         VALUES
-          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
-        {
           branchId,
-          fiscalYearId,
-          voucherTypeId,
-          voucherNo,
-          voucherDate,
-          narration: `Purchase Return for Order ${return_no}`,
-          totalDebit: total_amount,
-          totalCredit: total_amount,
-          createdBy: created_by,
-          approvedBy: created_by,
-          postedBy: created_by,
-        },
-      );
-      const voucherId = Number(vIns?.insertId || 0) || 0;
-      let lineNo = 1;
-      await conn.execute(
-        `INSERT INTO fin_voucher_lines
-          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-         VALUES
-          (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, 0, NULL, NULL, :referenceNo)`,
-        {
-          voucherId,
-          lineNo: lineNo++,
-          accountId: supplierAccId,
-          description: `Debit note supplier`,
-          debit: Math.round(total_amount * 100) / 100,
-          referenceNo: return_no,
-        },
-      );
-      await conn.execute(
-        `INSERT INTO fin_voucher_lines
-          (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-         VALUES
-          (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :referenceNo)`,
-        {
-          voucherId,
-          lineNo: lineNo++,
-          accountId: inventoryAccId,
-          description: `Inventory reduction on ${return_no}`,
-          credit: Math.round(sub_total * 100) / 100,
-          referenceNo: return_no,
-        },
-      );
-      if (tax_total > 0 && vatInputAccId) {
-        await conn.execute(
-          `INSERT INTO fin_voucher_lines
-            (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, cost_center, reference_no)
-           VALUES
-            (:companyId, :voucherId, :lineNo, :accountId, :description, 0, :credit, NULL, NULL, :referenceNo)`,
-          {
-            voucherId,
-            lineNo: lineNo++,
-            accountId: vatInputAccId,
-            description: `VAT input reversal on ${return_no}`,
-            credit: Math.round(tax_total * 100) / 100,
-            referenceNo: return_no,
-          },
-        );
+          return_id,
+          return_no,
+          return_date,
+          supplier_id,
+          total_amount,
+          sub_total,
+          tax_total,
+          normalized,
+          created_by,
+        });
+        if (voucherId) {
+          debitNoteCreated = true;
+          const [vRow] = await conn.execute(
+            `SELECT voucher_no FROM fin_vouchers WHERE id = :id`,
+            { id: voucherId },
+          );
+          voucherNo = vRow?.[0]?.voucher_no || null;
+        }
       }
+
       await conn.commit();
       res.status(201).json({
         id: return_id,
@@ -4606,6 +4899,7 @@ router.post(
         total_amount,
         voucher_id: voucherId,
         voucher_no: voucherNo,
+        debit_note_created: debitNoteCreated,
       });
     } catch (err) {
       try {
@@ -4614,6 +4908,192 @@ router.post(
       next(err);
     } finally {
       conn.release();
+    }
+  },
+);
+
+router.post(
+  "/returns/:id/submit",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id))
+        throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const amount = req.body?.amount ?? null;
+      const workflowIdOverride = Number(req.body?.workflow_id || 0) || null;
+      const docRouteBase = "/inventory/purchase-returns";
+
+      const { activeWorkflow: activeWf, inactiveWorkflow } =
+        await resolveWorkflowSelection({
+          companyId,
+          workflowIdOverride,
+          docRouteBase,
+          typeSynonyms: ["PURCHASE_RETURN", "Purchase Return"],
+          amount,
+        });
+
+      if (!activeWf) {
+        const conn = await pool.getConnection();
+        try {
+          await conn.beginTransaction();
+          await conn.execute(
+            `UPDATE pur_returns SET status = 'APPROVED' WHERE id = :id`,
+            { id },
+          );
+          await createDebitNoteForReturnApprovalTx(conn, {
+            id,
+            companyId,
+            branchId,
+          });
+          await conn.commit();
+        } catch (e) {
+          await conn.rollback().catch(() => {});
+          throw e;
+        } finally {
+          conn.release();
+        }
+        return res.json({ status: "APPROVED" });
+      }
+
+      const steps = await query(
+        `SELECT *,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_steps
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+        { wf: activeWf.id },
+      );
+
+      if (!steps.length) {
+        const conn = await pool.getConnection();
+        try {
+          await conn.beginTransaction();
+          await conn.execute(
+            `UPDATE pur_returns SET status = 'APPROVED' WHERE id = :id`,
+            { id },
+          );
+          await createDebitNoteForReturnApprovalTx(conn, {
+            id,
+            companyId,
+            branchId,
+          });
+          await conn.commit();
+        } catch (e) {
+          await conn.rollback().catch(() => {});
+          throw e;
+        } finally {
+          conn.release();
+        }
+        return res.json({ status: "APPROVED" });
+      }
+
+      const first = steps[0];
+      if (!first.approver_user_id) {
+        throw httpError(
+          400,
+          "BAD_REQUEST",
+          "Workflow step 1 has no approver_user_id configured",
+        );
+      }
+      const allowedUsers = await query(
+        `SELECT approver_user_id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_step_approvers
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf AND step_order = :ord`,
+        { wf: activeWf.id, ord: first.step_order },
+      );
+      const allowedSet = new Set(
+        allowedUsers.map((r) => Number(r.approver_user_id)),
+      );
+      const targetUserIdRaw = req.body?.target_user_id;
+      let assignedToUserId = Number(first.approver_user_id);
+      if (targetUserIdRaw != null && allowedSet.has(Number(targetUserIdRaw))) {
+        assignedToUserId = Number(targetUserIdRaw);
+      } else if (allowedUsers.length > 0) {
+        assignedToUserId = Number(allowedUsers[0].approver_user_id);
+      }
+
+      const dwRes = await query(
+        `INSERT INTO adm_document_workflows
+           (company_id, workflow_id, document_id, document_type, amount, current_step_order, status, assigned_to_user_id)
+          VALUES
+           (:companyId, :workflowId, :documentId, 'PURCHASE_RETURN', :amount, :stepOrder, 'PENDING', :assignedTo)`,
+        {
+          companyId,
+          workflowId: activeWf.id,
+          documentId: id,
+          amount: amount === null ? null : Number(amount),
+          stepOrder: first.step_order,
+          assignedTo: assignedToUserId,
+        },
+      );
+      const instanceId = dwRes.insertId;
+
+      await query(
+        `INSERT INTO adm_workflow_tasks
+           (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
+          VALUES
+           (:companyId, :workflowId, :dwId, :documentId, 'PURCHASE_RETURN', :stepOrder, :assignedTo, 'PENDING')`,
+        {
+          companyId,
+          workflowId: activeWf.id,
+          dwId: instanceId,
+          documentId: id,
+          stepOrder: first.step_order,
+          assignedTo: assignedToUserId,
+        },
+      );
+
+      await query(
+        `INSERT INTO adm_workflow_logs
+           (document_workflow_id, step_order, action, actor_user_id, comments)
+          VALUES
+           (:dwId, :stepOrder, 'SUBMIT', :actor, :comments)`,
+        {
+          dwId: instanceId,
+          stepOrder: first.step_order,
+          actor: req.user.sub,
+          comments: "",
+        },
+      );
+
+      await query(
+        `UPDATE pur_returns SET status = 'PENDING' WHERE id = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
+
+      const emailRes = await query(
+        "SELECT email FROM adm_users WHERE id = :id",
+        { id: assignedToUserId },
+      );
+      if (emailRes.length && emailRes[0].email) {
+        const to = emailRes[0].email;
+        const subject = "Approval Required";
+        const text = `Purchase Return #${id} requires your approval. View: ${req.protocol}://${req.headers.host}/administration/workflows/approvals/${instanceId}`;
+        const html = `<p>Purchase Return #${id} requires your approval.</p><p><a href="/administration/workflows/approvals/${instanceId}">Open Approval</a></p>`;
+        if (isMailerConfigured()) {
+          try {
+            await sendMail({ to, subject, text, html });
+          } catch (e) {
+            console.log(`[EMAIL ERROR] ${e?.message || e}`);
+          }
+        } else {
+          console.log(
+            `[MOCK EMAIL] To: ${to} | Subject: ${subject} | Body: ${text}`,
+          );
+        }
+      }
+      res.status(201).json({ instanceId, status: "PENDING" });
+    } catch (e) {
+      next(e);
     }
   },
 );
@@ -5088,8 +5568,9 @@ router.post(
         `INSERT INTO pur_suppliers (company_id, supplier_code, supplier_name, contact_person, email, phone, address, city, state, country, payment_terms, supplier_type, currency_id, service_contractor, is_active, expense_account_id)
          VALUES (:companyId, :supplierCode, :supplierName, :contactPerson, :email, :phone, :address, :city, :state, :country, :paymentTerms, :supplierType, :currencyId, :serviceContractor, :isActive, :expenseAccountId)`,
         {
+          companyId,
           supplierCode,
-          supplierName: body.supplier_name,
+          supplierName: body.supplier_name || null,
           contactPerson: body.contact_person || null,
           email: body.email || null,
           phone: body.phone || null,
@@ -5116,46 +5597,59 @@ router.post(
               : Number(body.expense_account_id || 0) || null,
         },
       );
-      const [grpByCode] = await conn.execute(
-        "SELECT id FROM fin_account_groups WHERE company_id = :companyId AND code = 'CREDITORS' LIMIT 1",
-        { companyId },
+      const supId = resHeader.insertId;
+      const [supRow] = await conn.execute(
+        "SELECT id, supplier_code, supplier_name, currency_id FROM pur_suppliers WHERE company_id = :companyId AND id = :id LIMIT 1",
+        { companyId, id: supId },
       );
-      let groupId = Number(grpByCode?.[0]?.id || 0);
-      if (!groupId) {
-        try {
-          const [insGrp] = await conn.execute(
-            "INSERT INTO fin_account_groups (company_id, code, name, nature, parent_id, is_active) VALUES (:companyId, 'CREDITORS', 'Creditors', 'LIABILITY', NULL, 1)",
-            { companyId },
-          );
-          groupId = Number(insGrp.insertId || 0);
-        } catch {
-          const [retry] = await conn.execute(
-            "SELECT id FROM fin_account_groups WHERE company_id = :companyId AND (code = 'CREDITORS' OR name = 'Creditors') LIMIT 1",
-            { companyId },
-          );
-          groupId = Number(retry?.[0]?.id || 0);
-        }
-      }
-      if (groupId) {
-        const finCode = supplierCode;
-        const [exists] = await conn.execute(
+      const sup = supRow?.[0] || null;
+      if (sup) {
+        let accCode =
+          sup.supplier_code && String(sup.supplier_code).trim()
+            ? String(sup.supplier_code).trim()
+            : `S${String(Number(sup.id || 0)).padStart(5, "0")}`;
+        let [existingAcc] = await conn.execute(
           "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
-          { companyId, code: finCode },
+          { companyId, code: accCode },
         );
-        if (!Array.isArray(exists) || !exists.length) {
-          await conn.execute(
-            `INSERT INTO fin_accounts (company_id, group_id, code, name, currency_id, is_control_account, is_postable, is_active)
-             VALUES (:companyId, :groupId, :code, :name, :currencyId, 0, 1, 1)`,
-            {
-              groupId,
-              code: finCode,
-              name: body.supplier_name,
-              currencyId:
-                body.currency_id === undefined || body.currency_id === null
-                  ? null
-                  : Number(body.currency_id || 0) || null,
-            },
+        let attempt = 0;
+        while (existingAcc?.length && attempt < 100) {
+          const suff = String(Number(sup.id || 0) + attempt).padStart(5, "0");
+          accCode = `S${suff}`;
+          [existingAcc] = await conn.execute(
+            "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
+            { companyId, code: accCode },
           );
+          attempt++;
+        }
+        if (!existingAcc?.length) {
+          const credGroupId = await ensureGroupIdTx(conn, {
+            companyId,
+            code: "CREDITORS",
+            name: "Creditors",
+            nature: "LIABILITY",
+          });
+          let accCurrencyId = sup.currency_id || null;
+          if (!accCurrencyId) {
+            const [curRows] = await conn.execute(
+              "SELECT id FROM fin_currencies WHERE company_id = :companyId AND is_base = 1 LIMIT 1",
+              { companyId },
+            );
+            accCurrencyId = Number(curRows?.[0]?.id || 0) || null;
+          }
+          if (credGroupId) {
+            await conn.execute(
+              `INSERT INTO fin_accounts (company_id, group_id, code, name, currency_id, is_control_account, is_postable, is_active)
+               VALUES (:companyId, :groupId, :code, :name, :currencyId, 0, 1, 1)`,
+              {
+                companyId,
+                groupId: credGroupId,
+                code: accCode,
+                name: sup.supplier_name || null,
+                currencyId: accCurrencyId,
+              },
+            );
+          }
         }
       }
       await conn.commit();
@@ -5209,7 +5703,8 @@ router.put(
          WHERE id = :id AND company_id = :companyId`,
         {
           id,
-          supplierName: body.supplier_name,
+          companyId,
+          supplierName: body.supplier_name || null,
           contactPerson: body.contact_person || null,
           email: body.email || null,
           phone: body.phone || null,
@@ -6585,6 +7080,7 @@ router.get(
         LEFT JOIN (
           SELECT t.document_id, t.assigned_to_user_id
           FROM adm_document_workflows t
+          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 1
           JOIN (
             SELECT document_id, MAX(id) AS max_id
             FROM adm_document_workflows
@@ -7484,75 +7980,19 @@ router.post(
       const amount = req.body?.amount ?? null;
       const workflowIdOverride = toNumber(req.body?.workflow_id);
       const docRouteBase = "/purchase/purchase-orders-import";
-      const wfByRoute = await query(
-        `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND document_route = :docRouteBase ORDER BY id ASC`,
-        { companyId, docRouteBase },
-      );
-      const wfDefs = await query(
-        `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND (document_type = 'PURCHASE_ORDER' OR document_type = 'Purchase Order') ORDER BY id ASC`,
-        { companyId },
-      );
-      let activeWf = null;
-      if (workflowIdOverride) {
-        const wfRows = await query(
-          `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :wfId AND company_id = :companyId 
-             AND (document_type = 'PURCHASE_ORDER' OR document_type = 'Purchase Order')
-           LIMIT 1`,
-          { wfId: workflowIdOverride, companyId },
-        );
-        if (wfRows.length && Number(wfRows[0].is_active) === 1) {
-          activeWf = wfRows[0];
-        }
-      }
-      if (!activeWf && wfByRoute.length) {
-        for (const wf of wfByRoute) {
-          if (Number(wf.is_active) !== 1) continue;
-          if (amount === null) {
-            activeWf = wf;
-            break;
-          }
-          const minOk =
-            wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
-          const maxOk =
-            wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
-          if (minOk && maxOk) {
-            activeWf = wf;
-            break;
-          }
-        }
-      }
-      for (const wf of wfDefs) {
-        if (activeWf) break;
-        if (Number(wf.is_active) !== 1) continue;
-        if (amount === null) {
-          activeWf = wf;
-          break;
-        }
-        const minOk =
-          wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
-        const maxOk =
-          wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
-        if (minOk && maxOk) {
-          activeWf = wf;
-          break;
-        }
-      }
+      const { activeWorkflow: activeWf, inactiveWorkflow } =
+        await resolveWorkflowSelection({
+          companyId,
+          workflowIdOverride,
+          docRouteBase,
+          typeSynonyms: ["PURCHASE_ORDER", "Purchase Order"],
+          amount,
+        });
       if (!activeWf) {
+        const behavior = getInactiveWorkflowBehavior(inactiveWorkflow);
+        if (behavior && behavior.toUpperCase() !== "AUTO_APPROVE") {
+          return res.json({ status: "SUBMITTED" });
+        }
         await query(
           `UPDATE pur_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
           { id, companyId, branchId },
@@ -7602,6 +8042,7 @@ router.get(
           p.supplier_id, 
           CASE 
             WHEN a.has_approved = 1 THEN 'APPROVED'
+            WHEN iw.has_inactive_pending = 1 THEN 'APPROVED'
             WHEN x.assigned_to_user_id IS NOT NULL THEN 'PENDING_APPROVAL'
             ELSE p.status
           END AS status, 
@@ -7616,6 +8057,7 @@ router.get(
         LEFT JOIN (
           SELECT t.document_id, t.assigned_to_user_id
           FROM adm_document_workflows t
+          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 1
           JOIN (
             SELECT document_id, MAX(id) AS max_id
             FROM adm_document_workflows
@@ -7630,8 +8072,22 @@ router.get(
           ) m ON m.max_id = t.id
         ) x ON x.document_id = p.id
         LEFT JOIN (
+          SELECT t.document_id, 1 AS has_inactive_pending
+          FROM adm_document_workflows t
+          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 0
+          WHERE t.company_id = :companyId
+            AND t.status = 'PENDING'
+            AND (
+              t.document_type = 'PURCHASE_ORDER' OR 
+              t.document_type = 'Purchase Order' OR
+              t.document_type LIKE 'PURCHASE_ORDER:%'
+            )
+          GROUP BY t.document_id
+        ) iw ON iw.document_id = p.id
+        LEFT JOIN (
           SELECT t.document_id, 1 AS has_approved
           FROM adm_document_workflows t
+          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 1
           JOIN (
             SELECT document_id, MAX(id) AS max_id
             FROM adm_document_workflows
@@ -8541,74 +8997,14 @@ router.post(
       const amount = req.body?.amount ?? null;
       const workflowIdOverride = toNumber(req.body?.workflow_id);
       const docRouteBase = "/purchase/general-requisitions";
-      const wfByRoute = await query(
-        `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND document_route = :docRouteBase ORDER BY id ASC`,
-        { companyId, docRouteBase },
-      );
-      const wfDefs = await query(
-        `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND (document_type = 'GENERAL_REQUISITION' OR document_type = 'General Requisition') ORDER BY id ASC`,
-        { companyId },
-      );
-      let activeWf = null;
-      if (workflowIdOverride) {
-        const wfRows = await query(
-          `SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflows
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :wfId AND company_id = :companyId 
-             AND (document_type = 'GENERAL_REQUISITION' OR document_type = 'General Requisition')
-           LIMIT 1`,
-          { wfId: workflowIdOverride, companyId },
-        );
-        if (wfRows.length && Number(wfRows[0].is_active) === 1) {
-          activeWf = wfRows[0];
-        }
-      }
-      if (!activeWf && wfByRoute.length) {
-        for (const wf of wfByRoute) {
-          if (Number(wf.is_active) !== 1) continue;
-          if (amount === null) {
-            activeWf = wf;
-            break;
-          }
-          const minOk =
-            wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
-          const maxOk =
-            wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
-          if (minOk && maxOk) {
-            activeWf = wf;
-            break;
-          }
-        }
-      }
-      for (const wf of wfDefs) {
-        if (activeWf) break;
-        if (Number(wf.is_active) !== 1) continue;
-        if (amount === null) {
-          activeWf = wf;
-          break;
-        }
-        const minOk =
-          wf.min_amount === null || Number(amount) >= Number(wf.min_amount);
-        const maxOk =
-          wf.max_amount === null || Number(amount) <= Number(wf.max_amount);
-        if (minOk && maxOk) {
-          activeWf = wf;
-          break;
-        }
-      }
+      const { activeWorkflow: activeWf, inactiveWorkflow } =
+        await resolveWorkflowSelection({
+          companyId,
+          workflowIdOverride,
+          docRouteBase,
+          typeSynonyms: ["GENERAL_REQUISITION", "General Requisition"],
+          amount,
+        });
       if (!activeWf) {
         await query(
           `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
@@ -8727,14 +9123,7 @@ router.post(
       );
       res.status(201).json({ instanceId, status: "PENDING_APPROVAL" });
       return;
-      let behavior = null;
-      if (wfDefs.length) {
-        const firstWf = wfDefs[0];
-        if (Number(firstWf.is_active) === 0) {
-          behavior = firstWf.default_behavior || null;
-          if (!behavior) behavior = "AUTO_APPROVE";
-        }
-      }
+      const behavior = getInactiveWorkflowBehavior(inactiveWorkflow);
       if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
         await query(
           `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
@@ -8793,8 +9182,9 @@ router.get(
                d.line_total,
                d.uom_id,
                d.discount_percent,
-          d.created_at,
-          u.username AS created_by_name
+               d.tax_code_id,
+           d.created_at,
+           u.username AS created_by_name
          FROM pur_bill_details d
         JOIN inv_items i ON i.id = d.item_id
         LEFT JOIN adm_users u ON u.id = d.created_by
@@ -8943,6 +9333,7 @@ router.post(
            :status, :createdBy)
         `,
         {
+          companyId,
           branchId,
           billNo,
           billDate,
@@ -9139,6 +9530,7 @@ router.put(
         `,
         {
           id,
+          companyId,
           branchId,
           billDate,
           supplierId,
@@ -9702,6 +10094,8 @@ router.get(
 );
 
 export default router;
+
+export { createDebitNoteForReturnTx, createDebitNoteForReturnApprovalTx };
 // Direct Purchase
 async function ensureDirectPurchaseTables() {
   await pool.query(`

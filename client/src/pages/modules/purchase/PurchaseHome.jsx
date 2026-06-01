@@ -63,23 +63,24 @@ function PurchaseHomeIndex() {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    api
-      .get("/purchase/analytics/overview")
-      .then((res) => {
-        if (cancelled) return;
-        setOverview(res.data || null);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setOverview(null);
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoading(false);
-      });
+    let timer;
+    async function load() {
+      if (cancelled) return;
+      setLoading(true);
+      try {
+        const res = await api.get("/purchase/analytics/overview");
+        if (!cancelled) setOverview(res.data || null);
+      } catch {
+        if (!cancelled) setOverview(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    timer = setInterval(load, 15000);
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
   }, [token]);
 
@@ -486,6 +487,7 @@ export default function PurchaseHome() {
       />
       <Route path="purchase-returns" element={<PurchaseReturnList />} />
       <Route path="purchase-returns/new" element={<PurchaseReturnForm />} />
+      <Route path="purchase-returns/:id" element={<PurchaseReturnForm />} />
       <Route
         path="procurement-overview"
         element={

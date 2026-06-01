@@ -6,7 +6,12 @@ export function toNumber(v, fallback = null) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+const columnCache = new Map();
+
 export async function hasColumn(tableName, columnName) {
+  const key = `${tableName}.${columnName}`;
+  const cached = columnCache.get(key);
+  if (cached !== undefined) return cached;
   const rows = await query(
     `
     SELECT COUNT(*) AS c
@@ -17,7 +22,9 @@ export async function hasColumn(tableName, columnName) {
     `,
     { tableName, columnName },
   );
-  return Number(rows?.[0]?.c || 0) > 0;
+  const result = Number(rows?.[0]?.c || 0) > 0;
+  columnCache.set(key, result);
+  return result;
 }
 
 export async function ensureCol(tableName, columnName, ddlRef) {
@@ -100,8 +107,11 @@ export async function ensureSystemLogsTable() {
   } catch {}
 }
 
+const verifiedTables = new Set();
+
 export async function ensureBranchColumns() {
   const table = "adm_branches";
+  if (verifiedTables.has(table)) return;
   if (!(await hasColumn(table, "address"))) {
     await query(`ALTER TABLE ${table} ADD COLUMN address VARCHAR(255) NULL`);
   }
@@ -129,10 +139,12 @@ export async function ensureBranchColumns() {
   if (!(await hasColumn(table, "remarks"))) {
     await query(`ALTER TABLE ${table} ADD COLUMN remarks TEXT NULL`);
   }
+  verifiedTables.add(table);
 }
 
 export async function ensureUserColumns() {
   const table = "adm_users";
+  if (verifiedTables.has(table)) return;
   if (!(await hasColumn(table, "profile_picture"))) {
     await query(
       `ALTER TABLE ${table} ADD COLUMN profile_picture LONGBLOB NULL`,
@@ -175,9 +187,11 @@ export async function ensureUserColumns() {
       `ALTER TABLE ${table} ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`,
     );
   }
+  verifiedTables.add(table);
 }
 
 export async function ensurePagesTable() {
+  if (verifiedTables.has("adm_pages")) return;
   await query(`
     CREATE TABLE IF NOT EXISTS adm_pages (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -247,6 +261,7 @@ export async function ensurePagesTable() {
       },
     );
   }
+  verifiedTables.add("adm_pages");
 }
 
 export async function ensurePagesSeed() {
@@ -2801,6 +2816,7 @@ export async function ensurePushTables() {
 export async function ensureSalesOrderColumns() {
   // Ensure columns used by Sales Orders exist to prevent runtime SQL errors
   const orders = "sal_orders";
+  if (verifiedTables.has(orders)) return;
   if (!(await hasColumn(orders, "status"))) {
     await query(
       `ALTER TABLE ${orders} ADD COLUMN status VARCHAR(32) NOT NULL DEFAULT 'DRAFT'`,
@@ -2899,6 +2915,7 @@ export async function ensureSalesOrderColumns() {
       `ALTER TABLE ${orderDetails} ADD COLUMN tax_code_id BIGINT UNSIGNED NULL`,
     );
   }
+  verifiedTables.add(orders).add(orderDetails);
 }
 
 export async function ensureRoleModulesTable() {
