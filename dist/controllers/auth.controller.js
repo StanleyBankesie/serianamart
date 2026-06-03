@@ -56,7 +56,10 @@ function getClientMeta(req) {
   return { ip, userAgent };
 }
 
+let _loginLogsTableEnsured = false;
 async function ensureLoginLogsTable() {
+  if (_loginLogsTableEnsured) return;
+  _loginLogsTableEnsured = true;
   await query(`
     CREATE TABLE IF NOT EXISTS adm_login_logs (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -108,13 +111,11 @@ async function findUserByUsername(username) {
       u.is_active,
       u.failed_attempts,
       u.last_failed_attempt,
-          u.created_at,
-          uc.username AS created_by_name,
-          c.name AS company_name,
-          b.name AS branch_name
-         FROM adm_users u
-        LEFT JOIN adm_users uc ON uc.id = u.created_by
-        LEFT JOIN adm_companies c ON u.company_id = c.id
+           u.created_at,
+           c.name AS company_name,
+           b.name AS branch_name
+          FROM adm_users u
+         LEFT JOIN adm_companies c ON u.company_id = c.id
         LEFT JOIN adm_branches b ON u.branch_id = b.id
          WHERE u.username = :username
     LIMIT 1

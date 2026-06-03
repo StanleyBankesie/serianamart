@@ -56,7 +56,7 @@ export function AuthProvider({ children }) {
       }
 
       try {
-        const res = await api.post("/auth/refresh", undefined, { timeout: 8000 });
+        const res = await api.post("/auth/refresh");
         if (!mounted) return;
         const nextToken = res.data?.token || res.data?.accessToken || null;
         if (!nextToken) throw new Error("Missing access token");
@@ -130,7 +130,7 @@ export function AuthProvider({ children }) {
   }, [initialized, token, user, scope]);
 
   async function login({ username, password, rememberMe = false }) {
-    const res = await api.post("/login", { username, password, rememberMe }, { timeout: 10000 });
+    const res = await api.post("/login", { username, password, rememberMe });
     const nextToken = res.data.token || res.data.accessToken || null;
     const nextUser = res.data.user || null;
     const nextScope = {

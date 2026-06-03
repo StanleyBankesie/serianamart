@@ -88,17 +88,12 @@ function toNumber(v, fallback = null) {
 }
 
 async function hasColumn(tableName, columnName) {
-  const rows = await query(
-    `
-    SELECT COUNT(*) AS c
-    FROM information_schema.columns
-    WHERE table_schema = DATABASE()
-      AND table_name = :tableName
-      AND column_name = :columnName
-    `,
-    { tableName, columnName },
-  );
-  return Number(rows?.[0]?.c || 0) > 0;
+  try {
+    await query(`SELECT ${columnName} FROM ${tableName} LIMIT 1`);
+    return true;
+  } catch (err) {
+    return false;
+  }
 }
 
 function normalizeModuleKey(moduleKey) {
@@ -1598,7 +1593,9 @@ const loginBackgroundUpload = multer({
   },
 });
 
+let _brandingTableEnsured = false;
 async function ensureLoginBrandingTable() {
+  if (_brandingTableEnsured) return;
   await query(`
     CREATE TABLE IF NOT EXISTS adm_login_branding (
       id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
@@ -1607,6 +1604,7 @@ async function ensureLoginBrandingTable() {
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  _brandingTableEnsured = true;
 }
 
 router.get("/settings/login-background/meta", async (req, res, next) => {

@@ -168,6 +168,7 @@ function createPoolInstance() {
     waitForConnections: true,
     connectionLimit: dbConfig.connectionLimit,
     queueLimit: 0,
+    acquireTimeout: 10000,
     namedPlaceholders: true,
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000,

@@ -21,6 +21,9 @@ const REMEMBER_REFRESH_DAYS = Math.max(
 const LOGIN_FAILURE_LIMIT = Math.max(
   1,
   Number(process.env.MAX_FAILED_LOGIN_ATTEMPTS || 5),
+const LOGIN_FAILURE_LIMIT = Math.max(
+  1,
+  Number(process.env.MAX_FAILED_LOGIN_ATTEMPTS || 5),
 );
 const LOGIN_FAILURE_COOLDOWN_MINUTES = Math.max(
   1,
@@ -28,22 +31,15 @@ const LOGIN_FAILURE_COOLDOWN_MINUTES = Math.max(
 );
 
 async function hasColumn(tableName, columnName) {
-  const rows = await query(
-    `
-    SELECT COUNT(*) AS c
-    FROM information_schema.columns
-    WHERE table_schema = DATABASE()
-      AND table_name = :tableName
-      AND column_name = :columnName
-    `,
-    { tableName, columnName },
-  );
-  return Number(rows?.[0]?.c || 0) > 0;
+  try {
+    await query(`SELECT ${columnName} FROM ${tableName} LIMIT 1`);
+    return true;
+  } catch (err) {
+    return false;
+  }
 }
 
 function getJwtSecret() {
-  const secret = String(process.env.JWT_SECRET || "").trim();
-  if (!secret) {
     throw httpError(500, "SERVER_ERROR", "JWT_SECRET is not configured");
   }
   return secret;
@@ -160,9 +156,11 @@ export function verifyAccessToken(token) {
 }
 
 export function signAccessToken(payload) {
+  const tokenPayload = { ...payload };
+  delete tokenPayload.profile_picture_url;
   return jwt.sign(
     {
-      ...payload,
+      ...tokenPayload,
       token_type: "access",
     },
     getJwtSecret(),
@@ -174,7 +172,10 @@ function addDays(days) {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 }
 
+let _authTablesEnsured = false;
 export async function ensureAuthTables() {
+  if (_authTablesEnsured) return;
+  _authTablesEnsured = true;
   await query(`
     CREATE TABLE IF NOT EXISTS refresh_tokens (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

@@ -37,17 +37,12 @@ router.use(
 );
 
 async function hasColumn(tableName, columnName) {
-  const rows = await query(
-    `
-    SELECT COUNT(*) AS c
-    FROM information_schema.columns
-    WHERE table_schema = DATABASE()
-      AND table_name = :tableName
-      AND column_name = :columnName
-    `,
-    { tableName, columnName },
-  );
-  return Number(rows?.[0]?.c || 0) > 0;
+  try {
+    await query(`SELECT ${columnName} FROM ${tableName} LIMIT 1`);
+    return true;
+  } catch (err) {
+    return false;
+  }
 }
 
 // Ensure sal_deliveries columns

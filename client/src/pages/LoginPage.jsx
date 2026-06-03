@@ -44,7 +44,7 @@ export default function LoginPage() {
     let mounted = true;
     async function loadLoginBackground() {
       try {
-        const resp = await api.get("/admin/settings/login-background/meta", { timeout: 10000 });
+        const resp = await api.get("/admin/settings/login-background/meta");
         const meta = resp.data;
         if (!mounted || !meta?.hasBackground) return;
         const version = meta.updatedAt || Date.now();
@@ -171,7 +171,7 @@ export default function LoginPage() {
         let companyId = companies.length === 1 ? companies[0] : null;
         if (!companyId) {
           try {
-            const res = await api.get("/admin/branches", { timeout: 8000 });
+            const res = await api.get("/admin/branches");
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const b = items.find((x) => Number(x.id) === Number(branchId));
             if (b) companyId = Number(b.company_id);

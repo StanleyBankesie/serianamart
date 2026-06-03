@@ -556,7 +556,7 @@ export default function PosSalesEntry() {
       ? { warehouse_id: terminalWarehouseId }
       : {};
     api
-      .get("/inventory/items", { params, timeout: 10000 })
+      .get("/inventory/items", { params })
       .then((res) => {
         if (!mounted) return;
         const raw = Array.isArray(res.data?.items) ? res.data.items : [];
@@ -1233,7 +1233,6 @@ export default function PosSalesEntry() {
       };
       const res = await api.post("/pos/sales", payload, {
         headers: { "x-skip-offline-queue": "1" },
-        timeout: 10000,
       });
       setProducts((prev) =>
         prev.map((p) => {
