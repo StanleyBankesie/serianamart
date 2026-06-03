@@ -25,7 +25,7 @@
 @layer base {
   /* ERP Theme Base Styles */
   body {
-    @apply antialiased;
+    @apply antialiased font-sans;
   }
   :root {
     --success-color: #28a745;

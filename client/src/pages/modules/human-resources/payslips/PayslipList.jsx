@@ -41,17 +41,10 @@ export default function PayslipList() {
 
   const loadData = async () => {
     try {
-      const [pRes, dRes, bRes] = await Promise.all([
-        api.get("/hr/payroll/periods"),
-        api.get("/admin/departments"),
-        api.get("/admin/branches"),
-      ]);
-      setPeriods(pRes.data?.items || []);
-      setDepartments(dRes.data?.items || []);
-      setBranches(bRes.data?.items || []);
-    } catch (err) {
-      console.error("Error loading payslip data:", err);
-    }
+      api.get("/hr/payroll/periods").then(r => setPeriods(r.data?.items || [])).catch(() => {});
+      api.get("/admin/departments").then(r => setDepartments(r.data?.items || [])).catch(() => {});
+      api.get("/admin/branches").then(r => setBranches(r.data?.items || [])).catch(() => {});
+    } catch {}
   };
 
   const loadPayslips = async () => {

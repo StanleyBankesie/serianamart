@@ -3,6 +3,9 @@ export default {
   darkMode: "class",
   content: ["./index.html", "./src/**/*.{js,jsx}"],
   theme: {
+    fontFamily: {
+      sans: ['"Segoe UI"', 'Tahoma', 'Geneva', 'Verdana', 'sans-serif'],
+    },
     extend: {
       colors: {
         // User-defined Brand Blend: #0E3646, #F57C00, #2E8B1F

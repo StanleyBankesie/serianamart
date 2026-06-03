@@ -134,7 +134,7 @@ export default function PolicyForm() {
             <div>
               <label className="label">Title *</label>
               <input
-                className="input"
+                className="input w-full"
                 value={form.title}
                 onChange={(e) => update("title", e.target.value)}
                 required
@@ -157,7 +157,7 @@ export default function PolicyForm() {
           <div>
             <label className="label">Policy Content *</label>
             <textarea
-              className="input h-96 font-sans"
+              className="input h-48 w-full font-sans"
               value={form.content || ""}
               onChange={(e) => update("content", e.target.value)}
               required

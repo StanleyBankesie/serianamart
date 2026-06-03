@@ -82,6 +82,90 @@ const app = express();
 
 app.use((req, res, next) => {
   res.setHeader(
+import cors from "cors";
+import dotenv from "dotenv";
+import fs from "fs";
+import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
+import http from "http";
+import rateLimit from "express-rate-limit";
+
+import { errorHandler } from "./middleware/errorHandler.js";
+import { notFound } from "./middleware/notFound.js";
+import adminRoutes from "./routes/admin.route.js";
+import salesRoutes from "./routes/sales.route.js";
+import purchaseRoutes from "./routes/purchase.routes.js";
+import purchaseBillsRoutes from "./routes/purchase.bills.routes.js";
+import inventoryRoutes from "./routes/inventory.routes.js";
+import financeRoutes from "./routes/finance.routes.js";
+import hrRoutes from "./routes/hr.routes.js";
+import maintenanceRoutes from "./routes/maintenance.routes.js";
+import projectsRoutes from "./routes/projects.routes.js";
+import productionRoutes from "./routes/production.routes.js";
+import posRoutes from "./routes/pos.routes.js";
+import biRoutes from "./routes/bi.routes.js";
+import serviceMgmtRoutes from "./routes/service-management.routes.js";
+import uploadRoutes from "./routes/upload.routes.js";
+import workflowRoutes from "./routes/workflow.routes.js";
+import healthRoutes from "./routes/health.route.js";
+import authRoutes from "./routes/auth.routes.js";
+import { logDbError, query, testDbConnection } from "./db/pool.js";
+import { isMailerConfigured, verifyMailer, sendMail } from "./utils/mailer.js";
+import pushRoutes, {
+  sendPushToUser,
+  getPublicKey,
+} from "./routes/push.routes.js";
+import templatesRoutes from "./routes/templates.routes.js";
+import documentsRoutes from "./routes/documents.routes.js";
+import socialFeedRoutes from "./routes/social-feed.routes.js";
+import accessRoutes from "./routes/access.routes.js";
+import chatRoutes from "./routes/chat.routes.js";
+import emailTestRoutes from "./routes/email-test.routes.js";
+import visitorsRoutes from "./routes/visitors.routes.js";
+import { initializeSocket } from "./utils/socket.js";
+import {
+  ensureExceptionalPermissionsTable,
+  ensureSystemLogsTable,
+} from "./utils/dbUtils.js";
+import { seedDefaultTemplates } from "./services/seed-defaults.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+/* ---------------- ENV ---------------- */
+dotenv.config({ path: path.join(__dirname, ".env") });
+const isProd = String(process.env.NODE_ENV).toLowerCase() === "production";
+const prodPath = path.join(__dirname, ".env.production");
+const localPath = path.join(__dirname, ".env.local");
+const forceLocal = String(process.env.DEV_FORCE_LOCAL_ENV || "").trim() === "1";
+if (forceLocal && fs.existsSync(localPath)) {
+  dotenv.config({ path: localPath, override: true });
+} else if (isProd && fs.existsSync(prodPath)) {
+  dotenv.config({ path: prodPath, override: true });
+} else if (fs.existsSync(localPath)) {
+  dotenv.config({ path: localPath, override: true });
+}
+try {
+  if (fs.existsSync(prodPath)) {
+    const parsed = dotenv.config({ path: prodPath }).parsed || {};
+    [
+      "SMTP_HOST",
+      "SMTP_PORT",
+      "SMTP_USER",
+      "SMTP_PASS",
+      "SMTP_FROM",
+      "SMTP_SECURE",
+    ].forEach((k) => {
+      if (parsed[k]) process.env[k] = parsed[k];
+    });
+  }
+} catch {}
+
+const app = express();
+
+app.use((req, res, next) => {
+  res.setHeader(
     "Content-Security-Policy",
     "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:*;"
   );
@@ -89,35 +173,11 @@ app.use((req, res, next) => {
 });
 
 /* ---------------- HTTP/2 COMPAT ---------------- */
-// Monkey-patch ServerResponse to strip HTTP/2-forbidden headers
-// that nginx may forward from HTTP/1.1 upstream to HTTP/2 clients.
-const ORIG_WRITE_HEAD = http.ServerResponse.prototype.writeHead;
-http.ServerResponse.prototype.writeHead = function () {
-  // Strip from both this._headers and the internal outHeaders symbol
-  const strip = (obj) => {
-    if (!obj) return;
-    const keys = Object.getOwnPropertyNames(obj);
-    for (const k of keys) {
-      if (k.toLowerCase() === "connection" || k.toLowerCase() === "transfer-encoding") {
-        delete obj[k];
-      }
-    }
-  };
-  strip(this._headers);
-  const sym = Object.getOwnPropertySymbols(this).find(
-    (s) => s.toString().includes("Headers") || s.toString().includes("headers"),
-  );
-  if (sym) strip(this[sym]);
-  return ORIG_WRITE_HEAD.apply(this, arguments);
-};
+// Removed monkey-patch: stripping Transfer-Encoding and Connection headers
+// severely breaks HTTP/1.1 chunked encoding behind Apache/Nginx proxies,
+// leading to 30-second delays and worker pool exhaustion (ERR_CONNECTION_TIMED_OUT).
 
-app.use((req, res, next) => {
-  res.removeHeader("Connection");
-  res.removeHeader("connection");
-  res.removeHeader("Transfer-Encoding");
-  res.removeHeader("transfer-encoding");
-  next();
-});
+
 
 /* ---------------- UTILS ---------------- */
 const boolEnv = (v) => {
@@ -165,504 +225,6 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-
-/* ---------------- RATE LIMITING ---------------- */
-const apiLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "TOO_MANY_REQUESTS", message: "Too many requests, please try again later" },
-  skip: (req) => req.path === "/api/health",
-});
-app.use("/api", apiLimiter);
-
-/* ---------------- DB ---------------- */
-(async () => {
-  try {
-    const dbCheck = await testDbConnection({ silent: true });
-    if (!dbCheck.ok) {
-      throw dbCheck.error;
-    }
-
-    // Check if the column already exists
-    const columns = await query(
-      "SHOW COLUMNS FROM `fin_voucher_lines` LIKE 'payment_method'",
-    );
-
-    if (!columns || columns.length === 0) {
-      console.log(
-        "Adding `payment_method` column to `fin_voucher_lines` table...",
-      );
-      await query(
-        "ALTER TABLE `fin_voucher_lines` ADD COLUMN `payment_method` VARCHAR(50) NULL DEFAULT NULL AFTER `cheque_date`",
-      );
-      console.log("Successfully added the `payment_method` column.");
-    }
-
-    // Check if created_by exists in fin_pdc_postings
-    const pdcColumns = await query(
-      "SHOW COLUMNS FROM `fin_pdc_postings` LIKE 'created_by'",
-    );
-    if (!pdcColumns || pdcColumns.length === 0) {
-      console.log("Adding `created_by` column to `fin_pdc_postings` table...");
-      await query(
-        "ALTER TABLE `fin_pdc_postings` ADD COLUMN `created_by` BIGINT UNSIGNED NULL DEFAULT NULL",
-      );
-      console.log(
-        "Successfully added the `created_by` column to `fin_pdc_postings`.",
-      );
-    }
-
-    // Check if created_by exists in fin_vouchers
-    const voucherColumns = await query(
-      "SHOW COLUMNS FROM `fin_vouchers` LIKE 'created_by'",
-    );
-    if (!voucherColumns || voucherColumns.length === 0) {
-      console.log("Adding `created_by` column to `fin_vouchers` table...");
-      await query(
-        "ALTER TABLE `fin_vouchers` ADD COLUMN `created_by` BIGINT UNSIGNED NULL DEFAULT NULL",
-      );
-      console.log(
-        "Successfully added the `created_by` column to `fin_vouchers`.",
-      );
-    }
-
-    // Check if created_by exists in fin_voucher_reversals
-    const reversalColumns = await query(
-      "SHOW COLUMNS FROM `fin_voucher_reversals` LIKE 'created_by'",
-    );
-    if (!reversalColumns || reversalColumns.length === 0) {
-      console.log(
-        "Adding `created_by` column to `fin_voucher_reversals` table...",
-      );
-      await query(
-        "ALTER TABLE `fin_voucher_reversals` ADD COLUMN `created_by` BIGINT UNSIGNED NULL DEFAULT NULL",
-      );
-      console.log(
-        "Successfully added the `created_by` column to `fin_voucher_reversals`.",
-      );
-    }
-
-    // Check if created_by exists in fin_bank_reconciliations
-    const reconColumns = await query(
-      "SHOW COLUMNS FROM `fin_bank_reconciliations` LIKE 'created_by'",
-    );
-    if (!reconColumns || reconColumns.length === 0) {
-      console.log(
-        "Adding `created_by` column to `fin_bank_reconciliations` table...",
-      );
-      await query(
-        "ALTER TABLE `fin_bank_reconciliations` ADD COLUMN `created_by` BIGINT UNSIGNED NULL DEFAULT NULL",
-      );
-      console.log(
-        "Successfully added the `created_by` column to `fin_bank_reconciliations`.",
-      );
-    }
-
-    try {
-      await query(
-        "ALTER TABLE `fin_account_groups` MODIFY COLUMN `code` VARCHAR(100) NOT NULL",
-      );
-    } catch (e) {
-      console.warn(
-        "Could not modify fin_account_groups code column: ",
-        e.message,
-      );
-    }
-
-    // Ensure HR Loan Type has account_id
-    try {
-      const resp = await query("SHOW TABLES LIKE 'hr_setup_loan_types'");
-      if (resp && resp.length > 0) {
-        const loanTypeCols = await query(
-          "SHOW COLUMNS FROM `hr_setup_loan_types` LIKE 'account_id'",
-        );
-        if (!loanTypeCols || loanTypeCols.length === 0) {
-          console.log("Adding `account_id` column to `hr_setup_loan_types`...");
-          await query(
-            "ALTER TABLE `hr_setup_loan_types` ADD COLUMN `account_id` BIGINT UNSIGNED NULL DEFAULT NULL",
-          );
-        }
-      }
-    } catch (e) {
-      console.warn(
-        "Could not add account_id to hr_setup_loan_types: ",
-        e.message,
-      );
-    }
-
-    // Ensure HR Loans has amount_due, end_date and correct status type
-    try {
-      const resp = await query("SHOW TABLES LIKE 'hr_loans'");
-      if (resp && resp.length > 0) {
-        const loanAmountDueCols = await query(
-          "SHOW COLUMNS FROM `hr_loans` LIKE 'amount_due'",
-        );
-        if (!loanAmountDueCols || loanAmountDueCols.length === 0) {
-          console.log("Adding `amount_due` column to `hr_loans`...");
-          await query(
-            "ALTER TABLE `hr_loans` ADD COLUMN `amount_due` DECIMAL(18,4) NULL DEFAULT NULL",
-          );
-        }
-        const loanEndDateCols = await query(
-          "SHOW COLUMNS FROM `hr_loans` LIKE 'end_date'",
-        );
-        if (!loanEndDateCols || loanEndDateCols.length === 0) {
-          console.log("Adding `end_date` column to `hr_loans`...");
-          await query(
-            "ALTER TABLE `hr_loans` ADD COLUMN `end_date` DATE NULL DEFAULT NULL",
-          );
-        }
-        const loanIdCols = await query(
-          "SHOW COLUMNS FROM `hr_loans` LIKE 'loan_id'",
-        );
-        if (!loanIdCols || loanIdCols.length === 0) {
-          console.log("Adding `loan_id` column to `hr_loans`...");
-          await query(
-            "ALTER TABLE `hr_loans` ADD COLUMN `loan_id` BIGINT UNSIGNED NULL DEFAULT NULL",
-          );
-        }
-
-        // CRITICAL: Ensure status is VARCHAR to avoid ENUM errors with NEW 'ACTIVE' and 'COMPLETED' statuses
-        await query(
-          "ALTER TABLE `hr_loans` MODIFY COLUMN `status` VARCHAR(50) NOT NULL DEFAULT 'PENDING'",
-        );
-      }
-    } catch (e) {
-      console.warn(
-        "Could not add columns or modify status in hr_loans: ",
-        e.message,
-      );
-    }
-
-    // Update HR Loan Statuses
-    try {
-      const resp = await query("SHOW TABLES LIKE 'hr_loans'");
-      if (resp && resp.length > 0) {
-        await query(
-          "UPDATE hr_loans SET status = 'ACTIVE' WHERE status = 'REPAID'",
-        );
-        await query(
-          "UPDATE hr_loans SET status = 'COMPLETED' WHERE status = 'DISBURSED'",
-        );
-      }
-    } catch (e) {
-      console.warn("Could not update hr_loans statuses: ", e.message);
-    }
-
-    // HR Loan Repayments Table
-    try {
-      await query(
-        `CREATE TABLE IF NOT EXISTS hr_loan_repayments (
-          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-          company_id BIGINT UNSIGNED NOT NULL,
-          employee_id BIGINT UNSIGNED NOT NULL,
-          loan_id BIGINT UNSIGNED NOT NULL,
-          amount_paid DECIMAL(18,4) NOT NULL,
-          payment_date DATE NOT NULL,
-          payroll_id BIGINT UNSIGNED NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          PRIMARY KEY (id),
-          KEY idx_loan (loan_id),
-          KEY idx_employee (employee_id),
-          KEY idx_payroll (payroll_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-      );
-    } catch (e) {
-      console.warn("Could not create hr_loan_repayments table: ", e.message);
-    }
-
-    // Visitors Log Book Table
-    try {
-      await query(
-        `CREATE TABLE IF NOT EXISTS svc_visitors_log (
-          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-          company_id BIGINT UNSIGNED NOT NULL,
-          branch_id BIGINT UNSIGNED NOT NULL,
-          visitor_name VARCHAR(255) NOT NULL,
-          phone_number VARCHAR(50) NULL DEFAULT NULL,
-          organisation VARCHAR(255) NULL DEFAULT NULL,
-          department_visited VARCHAR(255) NULL DEFAULT NULL,
-          temp_address VARCHAR(500) NULL DEFAULT NULL,
-          time_in TIME NULL DEFAULT NULL,
-          time_out TIME NULL DEFAULT NULL,
-          visit_date DATE NOT NULL,
-          purpose TEXT NULL DEFAULT NULL,
-          status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
-          created_by BIGINT UNSIGNED NULL DEFAULT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-          PRIMARY KEY (id),
-          KEY idx_company_branch (company_id, branch_id),
-          KEY idx_visit_date (visit_date),
-          KEY idx_status (status),
-          KEY idx_department (department_visited)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
-      );
-      console.log("svc_visitors_log table ensured");
-    } catch (e) {
-      console.warn("Could not create svc_visitors_log table: ", e.message);
-    }
-
-    // Add Triggers for hr_loans
-    try {
-      const resp = await query("SHOW TABLES LIKE 'hr_loans'");
-      if (resp && resp.length > 0) {
-        // Calculation Trigger (Insert)
-        await query("DROP TRIGGER IF EXISTS `tg_hr_loans_before_insert`").catch(
-          () => {},
-        );
-        await query(
-          `CREATE TRIGGER \`tg_hr_loans_before_insert\` BEFORE INSERT ON \`hr_loans\` FOR EACH ROW
-           BEGIN
-             IF NEW.start_date IS NOT NULL THEN
-               SET NEW.end_date = DATE_ADD(NEW.start_date, INTERVAL NEW.repayment_period_months MONTH);
-               SET NEW.amount_due = GREATEST(0, NEW.amount - (NEW.monthly_installment * GREATEST(0, TIMESTAMPDIFF(MONTH, NEW.start_date, CURDATE()))));
-             ELSE
-               SET NEW.end_date = NULL;
-               SET NEW.amount_due = NEW.amount;
-             END IF;
-           END`,
-        );
-
-        // Calculation Trigger (Update) - ONLY recalculate if amount_due is NOT being changed explicitly
-        await query("DROP TRIGGER IF EXISTS `tg_hr_loans_before_update`").catch(
-          () => {},
-        );
-        await query(
-          `CREATE TRIGGER \`tg_hr_loans_before_update\` BEFORE UPDATE ON \`hr_loans\` FOR EACH ROW
-           BEGIN
-             IF NEW.start_date IS NOT NULL THEN
-               SET NEW.end_date = DATE_ADD(NEW.start_date, INTERVAL NEW.repayment_period_months MONTH);
-               -- Only recalculate balance if NOT explicitly changing amount_due (avoids conflict with payroll)
-               IF NEW.amount_due = OLD.amount_due THEN
-                 SET NEW.amount_due = GREATEST(0, NEW.amount - (NEW.monthly_installment * GREATEST(0, TIMESTAMPDIFF(MONTH, NEW.start_date, CURDATE()))));
-               END IF;
-             ELSE
-               SET NEW.end_date = NULL;
-               -- Only reset if not explicitly changing
-               IF NEW.amount_due = OLD.amount_due THEN
-                 SET NEW.amount_due = NEW.amount;
-               END IF;
-             END IF;
-           END`,
-        );
-
-        // Approval Logic Trigger
-        await query(
-          "DROP TRIGGER IF EXISTS `trg_hr_loans_set_start_date`",
-        ).catch(() => {});
-        await query(
-          `CREATE TRIGGER \`trg_hr_loans_set_start_date\` BEFORE UPDATE ON \`hr_loans\` FOR EACH ROW
-           BEGIN
-             IF NEW.status = 'APPROVED' AND OLD.status <> 'APPROVED' THEN
-               IF NEW.start_date IS NULL THEN
-                 SET NEW.start_date = DATE_ADD(CURDATE(), INTERVAL 1 MONTH);
-               END IF;
-             END IF;
-           END`,
-        );
-      }
-    } catch (e) {
-      console.warn("Could not add triggers to hr_loans: ", e.message);
-    }
-
-    // Task 1: Remove constraints causing error in fin_pdc_postings
-    try {
-      // 1. Remove foreign key constraint fk_pdc_bank
-      const fkConstraints = await query(
-        `SELECT CONSTRAINT_NAME 
-         FROM information_schema.KEY_COLUMN_USAGE 
-         WHERE TABLE_SCHEMA = DATABASE() 
-           AND TABLE_NAME = 'fin_pdc_postings' 
-           AND CONSTRAINT_NAME = 'fk_pdc_bank'`,
-      );
-      if (fkConstraints && fkConstraints.length > 0) {
-        console.log(
-          "Dropping foreign key constraint `fk_pdc_bank` from `fin_pdc_postings`...",
-        );
-        await query(
-          "ALTER TABLE `fin_pdc_postings` DROP FOREIGN KEY `fk_pdc_bank`",
-        ).catch((e) => {
-          console.warn("Could not drop foreign key: ", e.message);
-        });
-        console.log("Successfully dropped `fk_pdc_bank`.");
-      }
-
-      // 2. Remove unique index uq_pdc_unique
-      const uniqueIndexes = await query(
-        `SELECT INDEX_NAME 
-         FROM information_schema.STATISTICS 
-         WHERE TABLE_SCHEMA = DATABASE() 
-           AND TABLE_NAME = 'fin_pdc_postings' 
-           AND INDEX_NAME = 'uq_pdc_unique'`,
-      );
-      if (uniqueIndexes && uniqueIndexes.length > 0) {
-        console.log(
-          "Dropping unique index `uq_pdc_unique` from `fin_pdc_postings`...",
-        );
-        await query(
-          "ALTER TABLE `fin_pdc_postings` DROP INDEX `uq_pdc_unique`",
-        ).catch((e) => {
-          console.warn("Could not drop unique index: ", e.message);
-        });
-        console.log("Successfully dropped `uq_pdc_unique`.");
-      }
-    } catch (e) {
-      console.warn("Error checking for constraints: ", e.message);
-    }
-  } catch (err) {
-    logDbError("Error during database initialization", err);
-  }
-})();
-
-/* ---------------- ROUTES ---------------- */
-if (boolEnv(process.env.DISABLE_KEEP_ALIVE)) {
-  app.use((req, res, next) => {
-    try {
-      res.setHeader("Connection", "close");
-    } catch {}
-    next();
-  });
-}
-app.use(
-  "/uploads",
-  express.static(
-    path.join(path.dirname(fileURLToPath(import.meta.url)), "uploads"),
-  ),
-);
-// Expose uploads also under /api/uploads so dev proxies can access files
-app.use(
-  "/api/uploads",
-  express.static(
-    path.join(path.dirname(fileURLToPath(import.meta.url)), "uploads"),
-  ),
-);
-app.use("/api/", healthRoutes);
-app.use("/api/admin", adminRoutes);
-app.use("/api/administration", adminRoutes);
-app.use("/api/workflows", workflowRoutes);
-app.use("/api/upload", uploadRoutes);
-app.use("/api/sales", salesRoutes);
-app.use("/api/purchase/bills", purchaseBillsRoutes);
-app.use("/api/purchase", purchaseRoutes);
-app.use("/api/inventory", inventoryRoutes);
-app.use("/api/finance", financeRoutes);
-app.use("/api/hr", hrRoutes);
-app.use("/api/maintenance", maintenanceRoutes);
-app.use("/api/projects", projectsRoutes);
-app.use("/api/production", productionRoutes);
-app.use("/api/pos", posRoutes);
-app.use("/api/bi", biRoutes);
-app.use("/api/service-management", serviceMgmtRoutes);
-app.use("/api", authRoutes);
-app.use("/api/push", pushRoutes);
-app.use("/api/templates", templatesRoutes);
-app.use("/api/documents", documentsRoutes);
-app.use("/api/social-feed", socialFeedRoutes);
-app.use("/api/access", accessRoutes);
-app.use("/api/chat", chatRoutes);
-app.use("/api/email-test", emailTestRoutes);
-app.use("/api/visitors", visitorsRoutes);
-
-/* ---------------- STATIC FILES & SPA FALLBACK ---------------- */
-const serveFrontendFlag = (() => {
-  const v1 = String(process.env.SERVE_FRONTEND || "").toLowerCase();
-  const v2 = String(process.env.ENABLE_SPA || "").toLowerCase();
-  return v1 === "1" || v1 === "true" || v2 === "1" || v2 === "true";
-})();
-if (serveFrontendFlag) {
-  let frontendPath = null;
-  const overrideDir =
-    String(process.env.STATIC_DIR || process.env.PUBLIC_DIR || "").trim() ||
-    null;
-  if (overrideDir) {
-    const abs =
-      path.isAbsolute(overrideDir) === true
-        ? overrideDir
-        : path.join(process.cwd(), overrideDir);
-    if (fs.existsSync(path.join(abs, "index.html"))) {
-      frontendPath = abs;
-    }
-  }
-  const distPath = path.join(__dirname, "../client/dist");
-  const distIndex = path.join(distPath, "index.html");
-  const publicPath = path.join(__dirname, "public");
-  const publicIndex = path.join(publicPath, "index.html");
-  if (!frontendPath && fs.existsSync(distIndex)) {
-    frontendPath = distPath;
-    console.log("Serving frontend from ../client/dist");
-  } else if (!frontendPath && fs.existsSync(publicIndex)) {
-    frontendPath = publicPath;
-    console.log("Serving frontend from ./public");
-  } else if (!frontendPath) {
-    frontendPath = fs.existsSync(distPath) ? distPath : publicPath;
-    console.warn(
-      "Frontend build not found (index.html missing) in ./public or ../client/dist",
-    );
-  }
-  if (frontendPath && fs.existsSync(frontendPath)) {
-    app.use(express.static(frontendPath));
-  }
-  app.get("*", (req, res, next) => {
-    if (req.url.startsWith("/api")) {
-      return next();
-    }
-    const indexPath = path.join(frontendPath, "index.html");
-    if (fs.existsSync(indexPath)) {
-      res.sendFile(indexPath);
-    } else {
-      res.status(404).send("Frontend not built or index.html missing.");
-    }
-  });
-} else {
-  app.get("/", (req, res) => {
-    res.status(200).json({ status: "ok" });
-  });
-  // Explicitly block any non-API routes from rendering a SPA or static login
-  app.get(/^\/(?!api\/|uploads\/|socket\.io\/).*/, (req, res) => {
-    res.status(404).json({
-      error: "Not Found",
-      scope: "backend-api",
-      path: req.path,
-    });
-  });
-}
-
-/* ---------------- ERRORS ---------------- */
-// app.use(notFound); // Handled by SPA catch-all now, or use for API 404s if desired
-app.use(errorHandler);
-
-const PORT = Number(process.env.PORT || 4002);
-
-// Create HTTP server for Socket.io
-const server = http.createServer(app);
-
-// Timeouts to avoid long-hanging connections in managed hosting
-// keepAliveTimeout=0 disables keep-alive, forcing "Connection: close"
-// instead of "Connection: keep-alive" (avoids ERR_HTTP2_PROTOCOL_ERROR
-// when nginx proxies HTTP/1.1 to HTTP/2 clients).
-try {
-  const keepAliveMs = process.env.KEEP_ALIVE_TIMEOUT_MS
-    ? Number(process.env.KEEP_ALIVE_TIMEOUT_MS)
-    : 0;
-  const headersMs = Number(process.env.HEADERS_TIMEOUT_MS || 65000);
-  const requestMs = process.env.REQUEST_TIMEOUT_MS
-    ? Number(process.env.REQUEST_TIMEOUT_MS)
-    : undefined;
-  server.keepAliveTimeout = keepAliveMs;
-  server.headersTimeout = headersMs;
-  if (requestMs !== undefined && Number.isFinite(requestMs)) {
-    server.requestTimeout = requestMs;
-  }
-} catch {}
-
-// Initialize Socket.io
-let ioInstance = null;
-const socketsDisabled =
   boolEnv(process.env.DISABLE_SOCKETS) ||
   boolEnv(process.env.DISABLE_LONG_CONNECTIONS);
 if (process.env.NODE_ENV !== "test" && !socketsDisabled) {

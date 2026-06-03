@@ -245,22 +245,22 @@ export default function RequisitionForm() {
               </div>
             </>
           )}
-          <div className="md:col-span-2">
+          <div>
             <label className="block text-sm font-medium mb-1">Reason</label>
             <textarea
               className="input"
-              rows={3}
+              rows={4}
               value={form.reason}
               onChange={(e) =>
                 setForm((s) => ({ ...s, reason: e.target.value }))
               }
             />
           </div>
-          <div className="md:col-span-2">
+          <div>
             <label className="block text-sm font-medium mb-1">Requirements</label>
             <textarea
               className="input"
-              rows={3}
+              rows={4}
               value={form.requirements}
               onChange={(e) =>
                 setForm((s) => ({ ...s, requirements: e.target.value }))

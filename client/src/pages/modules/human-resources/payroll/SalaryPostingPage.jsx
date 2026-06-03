@@ -34,41 +34,42 @@ export default function SalaryPostingPage() {
   // Load periods and accounts on mount
   useEffect(() => {
     setLoading(true);
+    let accList = [];
     Promise.all([
-      api.get("/hr/payroll/periods"),
-      api.get("/finance/accounts"),
+      api.get("/hr/payroll/periods").catch(() => {
+        toast.error("Failed to load payroll periods");
+        return { data: { items: [] } };
+      }),
+      api.get("/finance/accounts").catch(() => {
+        toast.error("Failed to load accounts");
+        return { data: { items: [] } };
+      }),
     ])
       .then(([pRes, aRes]) => {
         setPeriods(pRes?.data?.items || []);
-        const accList = aRes?.data?.items || [];
+        accList = aRes?.data?.items || [];
         setAccounts(accList);
-
-        // Auto-detect default accounts matching user's image labels:
-        // 1. "Salary Account" (Expense)
-        // 2. "TIER 2" (Expense)
-        // 3. "Salary Payable Account" (Liability)
-        // 4. "SSNIT - TIER 1" (Liability)
-        // 5. "PAYE" (Liability)
-        // 6. "WITHHOLDING PAYABLE" (Liability)
-        
-        const salaryExp = accList.find((a) => /salary.*account|salary.*expense/i.test(a.name)) || accList.find((a) => a.account_type === "EXPENSE");
-        const tier2Exp = accList.find((a) => /tier.*2|employer.*ssf/i.test(a.name)) || accList.find((a) => a.account_type === "EXPENSE");
-        const salaryPay = accList.find((a) => /salary.*payable/i.test(a.name)) || accList.find((a) => a.account_type === "LIABILITY");
-        const ssnitPay = accList.find((a) => /ssnit|tier.*1/i.test(a.name)) || accList.find((a) => a.account_type === "LIABILITY");
-        const payePay = accList.find((a) => /paye/i.test(a.name)) || accList.find((a) => a.account_type === "LIABILITY");
-        const withPay = accList.find((a) => /withholding/i.test(a.name)) || accList.find((a) => a.account_type === "LIABILITY");
-
-        setMappings({
-          salary_expense: salaryExp?.id || "",
-          tier2_expense: tier2Exp?.id || "",
-          salary_payable: salaryPay?.id || "",
-          ssnit_payable: ssnitPay?.id || "",
-          paye_payable: payePay?.id || "",
-          withholding_payable: withPay?.id || "",
-        });
       })
-      .catch(() => toast.error("Failed to load initial data"))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        // Auto-detect default accounts matching user's image labels:
+        if (accList.length) {
+          const salaryExp = accList.find((a) => /salary.*account|salary.*expense/i.test(a.name)) || accList.find((a) => a.account_type === "EXPENSE");
+          const tier2Exp = accList.find((a) => /tier.*2|employer.*ssf/i.test(a.name)) || accList.find((a) => a.account_type === "EXPENSE");
+          const salaryPay = accList.find((a) => /salary.*payable/i.test(a.name)) || accList.find((a) => a.account_type === "LIABILITY");
+          const ssnitPay = accList.find((a) => /ssnit|tier.*1/i.test(a.name)) || accList.find((a) => a.account_type === "LIABILITY");
+          const payePay = accList.find((a) => /paye/i.test(a.name)) || accList.find((a) => a.account_type === "LIABILITY");
+          const withPay = accList.find((a) => /withholding/i.test(a.name)) || accList.find((a) => a.account_type === "LIABILITY");
+          setMappings({
+            salary_expense: salaryExp?.id || "",
+            tier2_expense: tier2Exp?.id || "",
+            salary_payable: salaryPay?.id || "",
+            ssnit_payable: ssnitPay?.id || "",
+            paye_payable: payePay?.id || "",
+            withholding_payable: withPay?.id || "",
+          });
+        }
+        setLoading(false);
+      });
   }, []);
 
   // Fetch breakdown when period changes

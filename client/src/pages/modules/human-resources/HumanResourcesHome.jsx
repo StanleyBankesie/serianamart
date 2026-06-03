@@ -106,7 +106,7 @@ function HRDashboard() {
     let timer;
     async function load() {
       try {
-        const resp = await api.get("/human-resources/dashboard-stats");
+        const resp = await api.get("/hr/dashboard-stats");
         const d = resp?.data?.data;
         if (d && mounted) {
           setStats((prev) => {

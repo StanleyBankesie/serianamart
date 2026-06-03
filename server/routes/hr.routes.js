@@ -700,6 +700,71 @@ router.get(
   hrController.reportEmployeeAllowances,
 );
 
+// ===== DASHBOARD METRICS (detailed dashboard page) =====
+router.get("/dashboard/metrics", requireAuth, requireCompanyScope, async (req, res, next) => {
+  try {
+    const { companyId } = req.scope;
+    const year = Number(req.query.year) || new Date().getFullYear();
+    const whereCompany = { companyId };
+
+    const [totalEmp] = await query("SELECT COUNT(*) as count FROM hr_employees WHERE company_id = :companyId AND deleted_at IS NULL", whereCompany).catch(() => [{ count: 0 }]);
+    const [newEmp] = await query("SELECT COUNT(*) as count FROM hr_employees WHERE company_id = :companyId AND YEAR(created_at) = :year AND deleted_at IS NULL", { ...whereCompany, year }).catch(() => [{ count: 0 }]);
+    const [confirmations] = await query("SELECT COUNT(*) as count FROM hr_performance_reviews WHERE company_id = :companyId AND YEAR(created_at) = :year AND review_type = 'CONFIRMATION'", { ...whereCompany, year }).catch(() => [{ count: 0 }]);
+    const [male] = await query("SELECT COUNT(*) as count FROM hr_employees WHERE company_id = :companyId AND gender = 'MALE' AND deleted_at IS NULL", whereCompany).catch(() => [{ count: 0 }]);
+    const [female] = await query("SELECT COUNT(*) as count FROM hr_employees WHERE company_id = :companyId AND gender = 'FEMALE' AND deleted_at IS NULL", whereCompany).catch(() => [{ count: 0 }]);
+    const [tenure] = await query("SELECT ROUND(AVG(DATEDIFF(CURDATE(), joining_date) / 365.25), 1) as avg_tenure FROM hr_employees WHERE company_id = :companyId AND joining_date IS NOT NULL AND deleted_at IS NULL", whereCompany).catch(() => [{ avg_tenure: 0 }]);
+
+    // Attrition: employees who left in the year / total active at start
+    const [attrition] = await query(`SELECT ROUND(
+      (SELECT COUNT(*) FROM hr_employees WHERE company_id = :companyId AND YEAR(deleted_at) = :year AND deleted_at IS NOT NULL)
+      /
+      GREATEST((SELECT COUNT(*) FROM hr_employees WHERE company_id = :companyId AND deleted_at IS NULL), 1) * 100, 1
+    ) as rate`, { ...whereCompany, year }).catch(() => [{ rate: 0 }]);
+
+    // Category pie
+    const categoryPie = await query("SELECT ec.category_name as label, COUNT(*) as value FROM hr_employees e JOIN hr_employee_categories ec ON ec.id = e.category_id WHERE e.company_id = :companyId AND e.deleted_at IS NULL GROUP BY ec.category_name ORDER BY value DESC", whereCompany).catch(() => []);
+
+    // Location pie
+    const locationPie = await query("SELECT l.location_name as label, COUNT(*) as value FROM hr_employees e JOIN hr_locations l ON l.id = e.location_id WHERE e.company_id = :companyId AND e.deleted_at IS NULL GROUP BY l.location_name ORDER BY value DESC", whereCompany).catch(() => []);
+
+    // Employee type bar
+    const typeBar = await query("SELECT employment_type as label, COUNT(*) as value FROM hr_employees WHERE company_id = :companyId AND deleted_at IS NULL GROUP BY employment_type ORDER BY value DESC", whereCompany).catch(() => []);
+
+    // Department bar
+    const departmentBar = await query("SELECT d.dept_name as label, COUNT(*) as value FROM hr_employees e JOIN hr_departments d ON d.id = e.dept_id WHERE e.company_id = :companyId AND e.deleted_at IS NULL GROUP BY d.dept_name ORDER BY value DESC", whereCompany).catch(() => []);
+
+    // Status bar
+    const statusBar = await query("SELECT status as label, COUNT(*) as value FROM hr_employees WHERE company_id = :companyId AND deleted_at IS NULL GROUP BY status ORDER BY value DESC", whereCompany).catch(() => []);
+
+    // Confirmations by department
+    const confirmationsByDept = await query(`SELECT d.dept_name as label, COUNT(*) as value FROM hr_performance_reviews pr JOIN hr_employees e ON e.id = pr.employee_id JOIN hr_departments d ON d.id = e.dept_id WHERE pr.company_id = :companyId AND YEAR(pr.created_at) = :year AND pr.review_type = 'CONFIRMATION' GROUP BY d.dept_name ORDER BY value DESC`, { ...whereCompany, year }).catch(() => []);
+
+    // Monthly joiners trend
+    const monthlyJoiners = await query(`SELECT DATE_FORMAT(created_at, '%b') as label, MONTH(created_at) as m, COUNT(*) as value FROM hr_employees WHERE company_id = :companyId AND YEAR(created_at) = :year AND deleted_at IS NULL GROUP BY MONTH(created_at), label ORDER BY m ASC`, { ...whereCompany, year }).catch(() => []);
+
+    res.json({
+      cards: {
+        total_employees: totalEmp.count,
+        new_employees_year: newEmp.count,
+        confirmations_year: confirmations.count,
+        male_count: male.count,
+        female_count: female.count,
+        average_tenure_years: tenure.avg_tenure,
+        attrition_rate: attrition.rate,
+      },
+      category_pie: categoryPie.map(r => ({ label: r.label, value: Number(r.value) })),
+      location_pie: locationPie.map(r => ({ label: r.label, value: Number(r.value) })),
+      employee_type_bar: typeBar.map(r => ({ label: r.label, value: Number(r.value) })),
+      department_bar: departmentBar.map(r => ({ label: r.label, value: Number(r.value) })),
+      status_bar: statusBar.map(r => ({ label: r.label, value: Number(r.value) })),
+      confirmations_by_department: confirmationsByDept.map(r => ({ label: r.label, value: Number(r.value) })),
+      monthly_joiners_trend: monthlyJoiners.map(r => ({ label: r.label, value: Number(r.value) })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ===== DASHBOARD STATS =====
 router.get("/dashboard-stats", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
   try {

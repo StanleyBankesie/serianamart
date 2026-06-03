@@ -64,7 +64,7 @@ export default function SalaryProcessing() {
     api
       .get("/hr/salary-components")
       .then((r) => setComponents(r?.data?.items || []))
-      .catch(() => console.warn("Failed to load salary components"));
+      .catch(() => toast.warn("Failed to load salary components"));
   }, []);
 
   // ── preview ────────────────────────────────────────────────────────────────

@@ -37,10 +37,22 @@ export default function SalaryStructurePage() {
     setLoading(true);
     try {
       const [alwRes, structRes, taxRes, loanRes] = await Promise.all([
-        api.get("/hr/allowances"),
-        api.get("/hr/salary-structure/active"),
-        api.get("/hr/tax-configs"),
-        api.get("/hr/loans"),
+        api.get("/hr/allowances").catch(() => {
+          toast.error("Failed to load allowances");
+          return { data: { items: [] } };
+        }),
+        api.get("/hr/salary-structure/active").catch(() => {
+          toast.error("Failed to load salary structure");
+          return { data: { item: null } };
+        }),
+        api.get("/hr/tax-configs").catch(() => {
+          toast.error("Failed to load tax configurations");
+          return { data: { items: [] } };
+        }),
+        api.get("/hr/loans").catch(() => {
+          toast.error("Failed to load loans");
+          return { data: { items: [] } };
+        }),
       ]);
       setAllowances(alwRes.data.items || []);
       const taxItems = taxRes.data.items || [];
