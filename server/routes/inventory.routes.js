@@ -1428,32 +1428,31 @@ router.get(
           i.is_stockable,
           i.is_sellable,
           i.is_purchasable,
-          i.is_active,
-          COALESCE(sb.qty, 0) AS stock_level,
-          i.created_at,
-          u.username AS created_by_name
-         FROM inv_items i
-        LEFT JOIN inv_item_types it
-          ON it.company_id = i.company_id
-         AND it.type_code = i.item_type
-        LEFT JOIN inv_item_categories c ON c.id = i.category_id
-        LEFT JOIN inv_item_groups g ON g.id = i.item_group_id
-        LEFT JOIN fin_currencies cur ON cur.id = i.currency_id
-        LEFT JOIN fin_tax_codes tpur ON tpur.id = i.vat_on_purchase_id
-        LEFT JOIN fin_tax_codes tsal ON tsal.id = i.vat_on_sales_id
-        LEFT JOIN fin_accounts apur ON apur.id = i.purchase_account_id
-        LEFT JOIN fin_accounts asal ON asal.id = i.sales_account_id
-        LEFT JOIN (
-          SELECT company_id, item_id, SUM(qty) AS qty
-          FROM inv_stock_balances
-          ${sbWhere}
-          GROUP BY company_id, item_id
-        ) sb
-          ON sb.company_id = i.company_id
-         AND sb.item_id = i.id
-        LEFT JOIN adm_users u ON u.id = i.created_by
-         WHERE i.company_id = :companyId
-        ORDER BY i.item_name ASC
+           i.is_active,
+           COALESCE(sb.qty, 0) AS stock_level,
+           i.created_at
+          FROM inv_items i
+         LEFT JOIN inv_item_types it
+           ON it.company_id = i.company_id
+          AND it.type_code = i.item_type
+         LEFT JOIN inv_item_categories c ON c.id = i.category_id
+         LEFT JOIN inv_item_groups g ON g.id = i.item_group_id
+         LEFT JOIN fin_currencies cur ON cur.id = i.currency_id
+         LEFT JOIN fin_tax_codes tpur ON tpur.id = i.vat_on_purchase_id
+         LEFT JOIN fin_tax_codes tsal ON tsal.id = i.vat_on_sales_id
+         LEFT JOIN fin_accounts apur ON apur.id = i.purchase_account_id
+         LEFT JOIN fin_accounts asal ON asal.id = i.sales_account_id
+         LEFT JOIN (
+           SELECT company_id, item_id, SUM(qty) AS qty
+           FROM inv_stock_balances
+           ${sbWhere}
+           GROUP BY company_id, item_id
+         ) sb
+           ON sb.company_id = i.company_id
+          AND sb.item_id = i.id
+          WHERE i.company_id = :companyId
+         ORDER BY i.item_name ASC
+         LIMIT 2000
         `,
         { companyId: companyId || null, warehouseId },
       );

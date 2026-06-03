@@ -111,6 +111,23 @@ async function staleWhileRevalidate(cacheName, request) {
   return cached || networkPromise;
 }
 
+async function cacheFirstWithNetworkFallback(cacheName, request) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  try {
+    const resp = await fetch(request);
+    if (resp && resp.ok) {
+      try {
+        await cache.put(request, resp.clone());
+      } catch (e) {}
+    }
+    return resp;
+  } catch {
+    return Response.error();
+  }
+}
+
 if (!DEV_MODE) {
   self.addEventListener("fetch", (event) => {
   const req = event.request;
@@ -141,11 +158,11 @@ if (!DEV_MODE) {
 
   const dest = req.destination;
   if (dest === "script" && url.pathname.startsWith("/assets/")) {
-    event.respondWith(staleWhileRevalidate(ASSET_CACHE, req));
+    event.respondWith(cacheFirstWithNetworkFallback(ASSET_CACHE, req));
     return;
   }
   if (dest === "style" || dest === "image" || dest === "font") {
-    event.respondWith(staleWhileRevalidate(ASSET_CACHE, req));
+    event.respondWith(cacheFirstWithNetworkFallback(ASSET_CACHE, req));
     return;
   }
 

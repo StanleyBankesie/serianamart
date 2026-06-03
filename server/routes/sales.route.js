@@ -619,6 +619,11 @@ let _triggersEnsured = false;
 async function ensureStandardPriceSyncTriggersOnce() {
   if (_triggersEnsured) return;
   await ensureStandardPriceSyncTriggers();
+  await pool
+    .query(
+      `CREATE INDEX idx_best_price ON sal_standard_prices (company_id, product_id, price_type_id, branch_id)`,
+    )
+    .catch(() => null);
   _triggersEnsured = true;
 }
 async function ensureStandardPriceSyncTriggers() {
@@ -5554,15 +5559,7 @@ router.post(
           const name = String(priceTypeInput || "").trim();
           if (name) {
             const [pt] = await query(
-              `
-              SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM sal_price_types
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND UPPER(name) = UPPER(:name)
-              LIMIT 1
-              `,
+              `SELECT id FROM sal_price_types WHERE company_id = :companyId AND UPPER(name) = UPPER(:name) LIMIT 1`,
               { companyId, name },
             ).catch(() => []);
             if (pt?.id) priceTypeId = Number(pt.id);
@@ -5572,36 +5569,13 @@ router.post(
       let priceRow = null;
       if (priceTypeId != null) {
         const [row] = await query(
-          `
-          SELECT selling_price,
-          created_at,
-          u.username AS created_by_name
-         FROM sal_standard_prices
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
-            AND (branch_id = :branchId OR branch_id IS NULL)
-            AND product_id = :productId
-            AND price_type_id = :priceTypeId
-          ORDER BY (branch_id IS NULL) ASC, COALESCE(effective_date, DATE('1900-01-01')) DESC, id DESC
-          LIMIT 1
-          `,
+          `SELECT selling_price FROM sal_standard_prices WHERE company_id = :companyId AND (branch_id = :branchId OR branch_id IS NULL) AND product_id = :productId AND price_type_id = :priceTypeId ORDER BY (branch_id IS NULL) ASC, COALESCE(effective_date, DATE('1900-01-01')) DESC, id DESC LIMIT 1`,
           { companyId, branchId, productId, priceTypeId },
         ).catch(() => []);
         priceRow = row || null;
       } else {
         const [row] = await query(
-          `
-          SELECT selling_price,
-          created_at,
-          u.username AS created_by_name
-         FROM sal_standard_prices
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
-            AND (branch_id = :branchId OR branch_id IS NULL)
-            AND product_id = :productId
-          ORDER BY (branch_id IS NULL) ASC, COALESCE(effective_date, DATE('1900-01-01')) DESC, id DESC
-          LIMIT 1
-          `,
+          `SELECT selling_price FROM sal_standard_prices WHERE company_id = :companyId AND (branch_id = :branchId OR branch_id IS NULL) AND product_id = :productId ORDER BY (branch_id IS NULL) ASC, COALESCE(effective_date, DATE('1900-01-01')) DESC, id DESC LIMIT 1`,
           { companyId, branchId, productId },
         ).catch(() => []);
         priceRow = row || null;
@@ -5610,15 +5584,7 @@ router.post(
         return res.json({ price: Number(priceRow.selling_price) });
       }
       const [fallback] = await query(
-        `
-        SELECT selling_price,
-          created_at,
-          u.username AS created_by_name
-         FROM inv_items
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND id = :productId
-        LIMIT 1
-        `,
+        `SELECT selling_price FROM inv_items WHERE company_id = :companyId AND id = :productId LIMIT 1`,
         { companyId, productId },
       ).catch(() => []);
       const price = Number(fallback?.selling_price ?? 0);
