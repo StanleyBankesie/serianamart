@@ -479,12 +479,17 @@ async function fetchItemSalesAccountMap(conn, { companyId, itemIds }) {
 }
 
 async function hasColumn(tableName, columnName) {
-  try {
-    await query(`SELECT ${columnName} FROM ${tableName} LIMIT 1`);
-    return true;
-  } catch (err) {
-    return false;
-  }
+  const rows = await query(
+    `
+    SELECT COUNT(*) AS c
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = :tableName
+      AND column_name = :columnName
+    `,
+    { tableName, columnName },
+  );
+  return Number(rows?.[0]?.c || 0) > 0;
 }
 
 let _posTablesEnsured = false;
