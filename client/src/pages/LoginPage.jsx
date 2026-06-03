@@ -44,7 +44,7 @@ export default function LoginPage() {
     let mounted = true;
     async function loadLoginBackground() {
       try {
-        const resp = await api.get("/admin/settings/login-background/meta", { timeout: 5000 });
+        const resp = await api.get("/admin/settings/login-background/meta", { timeout: 10000 });
         const meta = resp.data;
         if (!mounted || !meta?.hasBackground) return;
         const version = meta.updatedAt || Date.now();
@@ -55,7 +55,7 @@ export default function LoginPage() {
         );
       } catch {}
     }
-    loadLoginBackground();
+    loadLoginBackground().catch(() => {});
     return () => {
       mounted = false;
     };

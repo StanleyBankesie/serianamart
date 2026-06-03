@@ -1598,7 +1598,9 @@ const loginBackgroundUpload = multer({
   },
 });
 
+let _brandingTableEnsured = false;
 async function ensureLoginBrandingTable() {
+  if (_brandingTableEnsured) return;
   await query(`
     CREATE TABLE IF NOT EXISTS adm_login_branding (
       id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
@@ -1607,6 +1609,7 @@ async function ensureLoginBrandingTable() {
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  _brandingTableEnsured = true;
 }
 
 router.get("/settings/login-background/meta", async (req, res, next) => {
