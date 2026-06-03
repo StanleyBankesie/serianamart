@@ -492,7 +492,10 @@ async function hasColumn(tableName, columnName) {
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
+let _posTablesEnsured = false;
 async function ensurePosTables() {
+  if (_posTablesEnsured) return;
+  _posTablesEnsured = true;
   await query(`
     CREATE TABLE IF NOT EXISTS pos_terminals (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

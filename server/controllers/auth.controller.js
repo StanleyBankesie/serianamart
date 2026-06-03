@@ -56,7 +56,10 @@ function getClientMeta(req) {
   return { ip, userAgent };
 }
 
+let _loginLogsTableEnsured = false;
 async function ensureLoginLogsTable() {
+  if (_loginLogsTableEnsured) return;
+  _loginLogsTableEnsured = true;
   await query(`
     CREATE TABLE IF NOT EXISTS adm_login_logs (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

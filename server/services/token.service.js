@@ -176,7 +176,10 @@ function addDays(days) {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 }
 
+let _authTablesEnsured = false;
 export async function ensureAuthTables() {
+  if (_authTablesEnsured) return;
+  _authTablesEnsured = true;
   await query(`
     CREATE TABLE IF NOT EXISTS refresh_tokens (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

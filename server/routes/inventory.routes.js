@@ -7548,7 +7548,10 @@ router.get(
 );
 
 // Items endpoints
+let _itemsTableEnsured = false;
 async function ensureItemsTable() {
+  if (_itemsTableEnsured) return;
+  _itemsTableEnsured = true;
   await query(`
     CREATE TABLE IF NOT EXISTS inv_items (
       id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
