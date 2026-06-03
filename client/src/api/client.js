@@ -27,12 +27,12 @@ export const api = axios.create({
   ],
 });
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || (
-  typeof window !== "undefined" &&
-  /^serianamart\.omnisuite-erp\.com$/i.test(window.location.hostname)
-    ? "https://serianaserver.omnisuite-erp.com/api"
-    : "/api"
-);
+let API_BASE = import.meta.env.VITE_API_BASE_URL;
+if (typeof window !== "undefined" && window.location.hostname.includes("serianamart.omnisuite-erp.com")) {
+  API_BASE = "https://serianaserver.omnisuite-erp.com/api";
+} else if (!API_BASE) {
+  API_BASE = "/api";
+}
 api.defaults.baseURL = API_BASE;
 
 let _syncStarted = false;
@@ -111,7 +111,7 @@ function isUnauthenticatedEndpoint(url) {
 function redirectToLogin() {
   if (typeof window === "undefined") return;
   if (window.location.pathname === "/login") return;
-  window.location.href = "/login";
+  window.dispatchEvent(new CustomEvent("omnisuite:auth-expired"));
 }
 
 async function requestTokenRefresh() {

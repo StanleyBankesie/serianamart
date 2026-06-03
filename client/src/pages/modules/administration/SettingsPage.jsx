@@ -53,6 +53,16 @@ export default function SettingsPage() {
   const [loginBackgroundUrl, setLoginBackgroundUrl] = useState("");
   const [loginBackgroundVersion, setLoginBackgroundVersion] = useState("");
   const [loginBackgroundSaving, setLoginBackgroundSaving] = useState(false);
+  
+  const [inactivityTimeout, setInactivityTimeout] = useState(() => {
+    try {
+      if (typeof localStorage !== "undefined") {
+        const val = localStorage.getItem("omnisuite.inactivityTimeout");
+        if (val !== null) return val;
+      }
+    } catch {}
+    return "60";
+  });
 
   function setLogoObjectUrl(nextUrl) {
     try {
@@ -476,6 +486,36 @@ export default function SettingsPage() {
             >
               Reset to Default
             </button>
+          </div>
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-body space-y-3">
+          <div className="flex justify-between items-start gap-4">
+            <div>
+              <div className="text-lg font-semibold">Security & Inactivity</div>
+              <div className="text-sm text-slate-500 dark:text-slate-400">
+                Set how many minutes until an inactive user is automatically logged out. Set to 0 to disable.
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <input
+              type="number"
+              min="0"
+              className="input w-32"
+              value={inactivityTimeout}
+              onChange={(e) => {
+                const val = e.target.value;
+                setInactivityTimeout(val);
+                try {
+                  if (typeof localStorage !== "undefined") {
+                    localStorage.setItem("omnisuite.inactivityTimeout", val);
+                  }
+                } catch {}
+              }}
+            />
+            <span className="text-sm text-slate-600">minutes</span>
           </div>
         </div>
       </div>

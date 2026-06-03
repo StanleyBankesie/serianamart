@@ -490,7 +490,7 @@ export default function DeliveryList() {
       setError("");
       const resp = await api.post(
         `/documents/delivery-note/${id}/render`,
-        { format: "html" },
+        { format: "html", feature_name: "delivery-note" },
         { headers: { "Content-Type": "application/json" } },
       );
       const html =
@@ -535,7 +535,7 @@ export default function DeliveryList() {
       setError("");
       const resp = await api.post(
         `/documents/delivery-note/${id}/render`,
-        { format: "html" },
+        { format: "html", feature_name: "delivery-note" },
         { headers: { "Content-Type": "application/json" } },
       );
       const html = typeof resp.data === "string" ? resp.data : String(resp.data || "");

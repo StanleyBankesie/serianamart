@@ -31,7 +31,7 @@ function parseDenominationCounts(input) {
 
 export default function PosDayManagement() {
   const navigate = useNavigate();
-  const { user, scope } = useAuth();
+  const { user, scope, logout } = useAuth();
   const { hasExceptional } = usePermission();
   function toLocalInputDateTime(value) {
     try {
@@ -649,6 +649,16 @@ export default function PosDayManagement() {
             detail: { terminal: terminalId, status: "CLOSED" },
           }),
         );
+
+        const rawSettings = localStorage.getItem("pos_general_settings");
+        if (rawSettings) {
+          const settings = JSON.parse(rawSettings);
+          if (settings.autoLogoutAfterShiftClose) {
+            setTimeout(() => {
+              if (logout) logout();
+            }, 1500);
+          }
+        }
       } catch {}
     } catch (err) {
       const message =

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import jsPDF from "jspdf";
+import QRCode from "qrcode";
 import api from "../../../../api/client.js";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
@@ -102,6 +103,10 @@ export default function CashCollectionDetails() {
             item.show_logo === 1 ||
             item.show_logo === true ||
             String(item.show_logo).toLowerCase() === "true",
+          showBarcode:
+            item.show_barcode === 1 ||
+            item.show_barcode === true ||
+            String(item.show_barcode).toLowerCase() === "true",
           headerText: item.header_text || "",
           footerText: item.footer_text || "",
           contactNumber: item.contact_number || "",
@@ -262,7 +267,7 @@ export default function CashCollectionDetails() {
     return Object.values(map);
   }, [filtered]);
 
-  function buildReceiptHtml(sale, details) {
+  function buildReceiptHtml(sale, details, qrHtml) {
     const settings = receiptSettings || {};
     const companyName = String(
       companyInfo.name || settings.companyName || "Company Name",
@@ -406,11 +411,44 @@ export default function CashCollectionDetails() {
             2,
           )}</strong></div>
         </div>
+        ${qrHtml || ""}
         <div class="footer">${footerText}</div>
       </body>
       </html>
     `;
     return html;
+  }
+
+  async function generateReceiptQrHtml(sale, details) {
+    try {
+      const settings = receiptSettings || {};
+      if (!settings.showBarcode) return "";
+      const items = (Array.isArray(details) ? details : []).map((d) => ({
+        name: d.item_name || "",
+        qty: Number(d.qty || 0),
+        price: Number(d.unit_price || 0),
+        total: Number(d.line_total || Number(d.qty || 0) * Number(d.unit_price || 0) || 0),
+      }));
+      const gross = Number(sale?.gross_amount || 0);
+      const discount = Number(sale?.discount_amount || 0);
+      const tax = Number(sale?.tax_amount || 0);
+      const total = Number(sale?.net_after_returns ?? sale?.net_amount ?? sale?.total_amount ?? (gross - discount + tax));
+      const qrData = JSON.stringify({
+        receipt_no: sale?.sale_no || "",
+        date: sale?.sale_date || "",
+        company: String(settings.companyName || ""),
+        payment: String(sale?.payment_method || ""),
+        items,
+        subtotal: gross - discount,
+        discount,
+        tax,
+        total,
+      });
+      const qrDataUrl = await QRCode.toDataURL(qrData, { width: 140, margin: 2 });
+      return `<div class="center" style="margin-top:12px;"><img src="${qrDataUrl}" alt="QR Code" style="width:140px;height:140px;" /></div>`;
+    } catch {
+      return "";
+    }
   }
 
   async function handleView(row) {
@@ -424,7 +462,8 @@ export default function CashCollectionDetails() {
         alert("Invoice not found");
         return;
       }
-      const html = buildReceiptHtml(sale, details);
+      const qrHtml = await generateReceiptQrHtml(sale, details);
+      const html = buildReceiptHtml(sale, details, qrHtml);
       setReceiptHtml(html);
       setShowReceiptModal(true);
     } catch {
@@ -445,7 +484,8 @@ export default function CashCollectionDetails() {
         alert("Invoice not found");
         return;
       }
-      const html = buildReceiptHtml(sale, details);
+      const qrHtml = await generateReceiptQrHtml(sale, details);
+      const html = buildReceiptHtml(sale, details, qrHtml);
       const iframe = document.createElement("iframe");
       iframe.style.position = "fixed";
       iframe.style.right = "0";

@@ -553,7 +553,7 @@ export default function SalesOrderList() {
     try {
       const resp = await api.post(
         `/documents/sales-order/${id}/render`,
-        { format: "html" },
+        { format: "html", feature_name: "sales-order" },
         { headers: { "Content-Type": "application/json" } },
       );
       const html =
@@ -595,7 +595,7 @@ export default function SalesOrderList() {
     try {
       const resp = await api.post(
         `/documents/sales-order/${id}/render`,
-        { format: "html" },
+        { format: "html", feature_name: "sales-order" },
         { headers: { "Content-Type": "application/json" } },
       );
       const html =

@@ -9,6 +9,7 @@ import { filterByPrefix } from "@/utils/searchUtils.js";
 import { saveLocalSale } from "../../../../offline/posStore.js";
 import { uuid } from "../../../../offline/uuid.js";
 import { toast } from "react-toastify";
+import QRCode from "qrcode";
 
 function FilterableSelect({
   value,
@@ -51,7 +52,15 @@ export default function PosSalesEntry() {
   const [entryQty, setEntryQty] = useState(1);
   const [entryPriceType, setEntryPriceType] = useState("");
   const [selectedItems, setSelectedItems] = useState([]);
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState(() => {
+    // Seed immediately from localStorage cache so barcode scans work
+    // before the API fetch completes (especially important on slow/flaky connections)
+    try {
+      const cached = localStorage.getItem("omnisuite.pos.products");
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  });
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemsError, setItemsError] = useState("");
   const [priceTypes, setPriceTypes] = useState([]);
@@ -63,6 +72,16 @@ export default function PosSalesEntry() {
   const [online, setOnline] = useState(
     typeof navigator !== "undefined" ? navigator.onLine !== false : true,
   );
+  // Price cache: { [productId:priceTypeId]: price } — skip network on repeated scans of same item
+  const priceCacheRef = useRef({});
+  const prevPriceTypeRef = useRef("");
+  // Clear price cache whenever the price type changes so fresh prices are fetched
+  useEffect(() => {
+    if (prevPriceTypeRef.current !== entryPriceType) {
+      priceCacheRef.current = {};
+      prevPriceTypeRef.current = entryPriceType;
+    }
+  }, [entryPriceType]);
   const [saleTimestamp, setSaleTimestamp] = useState(null);
   const [paymentModes, setPaymentModes] = useState([]);
   const [paymentModesLoading, setPaymentModesLoading] = useState(false);
@@ -96,6 +115,16 @@ export default function PosSalesEntry() {
     registrationNo: "",
     logoUrl: defaultLogo,
   });
+  const [generalSettings, setGeneralSettings] = useState({ allowDiscounts: true });
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("pos_general_settings");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setGeneralSettings(parsed || {});
+      }
+    } catch {}
+  }, []);
   const filtered = useMemo(() => {
     const q = String(search || "").trim();
     if (!q) return products;
@@ -133,13 +162,52 @@ export default function PosSalesEntry() {
     return () => clearInterval(t);
   }, []);
   useEffect(() => {
+    // Respond immediately to browser online/offline events
     const on = () => setOnline(true);
     const off = () => setOnline(false);
     window.addEventListener("online", on);
     window.addEventListener("offline", off);
+
+    // Active heartbeat: probe the server every 5 s to catch flaky connections
+    // faster than navigator.onLine alone (which only detects LAN disconnection).
+    let heartbeatTimer = null;
+    let lastHeartbeatFailed = false;
+    async function heartbeat() {
+      try {
+        // Lightweight request — the /ping endpoint or a HEAD of the API base.
+        const ctrl = new AbortController();
+        const id = setTimeout(() => ctrl.abort(), 1500);
+        await fetch("/api/ping", { method: "HEAD", signal: ctrl.signal, cache: "no-store" });
+        clearTimeout(id);
+        if (lastHeartbeatFailed) {
+          lastHeartbeatFailed = false;
+          setOnline(true);
+        }
+      } catch {
+        lastHeartbeatFailed = true;
+        setOnline(false);
+      }
+    }
+    // Only run heartbeat when the component is visible
+    function startHeartbeat() {
+      if (heartbeatTimer) return;
+      heartbeat(); // immediate first probe
+      heartbeatTimer = setInterval(heartbeat, 2000);
+    }
+    function stopHeartbeat() {
+      if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") startHeartbeat();
+      else stopHeartbeat();
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    startHeartbeat();
     return () => {
       window.removeEventListener("online", on);
       window.removeEventListener("offline", off);
+      document.removeEventListener("visibilitychange", onVisibility);
+      stopHeartbeat();
     };
   }, []);
 
@@ -488,7 +556,7 @@ export default function PosSalesEntry() {
       ? { warehouse_id: terminalWarehouseId }
       : {};
     api
-      .get("/inventory/items", { params })
+      .get("/inventory/items", { params, timeout: 10000 })
       .then((res) => {
         if (!mounted) return;
         const raw = Array.isArray(res.data?.items) ? res.data.items : [];
@@ -631,6 +699,19 @@ export default function PosSalesEntry() {
   function searchProducts() {}
 
   async function resolveStandardPrice(productId, priceTypeId, fallbackPrice) {
+    // 1. Return cached price immediately if we already fetched it once.
+    const cacheKey = `${productId}:${priceTypeId || ""}`;
+    if (priceCacheRef.current[cacheKey] !== undefined) {
+      return priceCacheRef.current[cacheKey];
+    }
+    // 2. If offline, skip network entirely.
+    if (!online) {
+      const price = Number(fallbackPrice || 0);
+      priceCacheRef.current[cacheKey] = price;
+      return price;
+    }
+    // 3. Race the API call against a 2-second timeout so a flaky connection
+    //    never stalls the cashier for more than 2 s.
     try {
       const body = {
         product_id: productId,
@@ -638,29 +719,31 @@ export default function PosSalesEntry() {
         price_type: priceTypeId || "",
         only_standard: true,
       };
-      const res = await api.post("/sales/prices/best-price", body);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("price-timeout")), 2000)
+      );
+      const fetchPromise = api.post("/sales/prices/best-price", body, { timeout: 2500 });
+      const res = await Promise.race([fetchPromise, timeoutPromise]);
       const price = Number(res.data?.price);
-      if (Number.isFinite(price)) {
-        return price;
-      }
-      return Number(fallbackPrice || 0);
+      const resolved = Number.isFinite(price) ? price : Number(fallbackPrice || 0);
+      priceCacheRef.current[cacheKey] = resolved;
+      return resolved;
     } catch {
-      return Number(fallbackPrice || 0);
+      const price = Number(fallbackPrice || 0);
+      // Cache fallback too so repeated scans of same item stay fast
+      priceCacheRef.current[cacheKey] = price;
+      return price;
     }
   }
 
   const selectedProduct = null;
 
-  async function addEntryToCartForProduct(prod, initialQtyOverride) {
+  function addEntryToCartForProduct(prod, initialQtyOverride) {
     const sourceQty =
       initialQtyOverride !== undefined ? initialQtyOverride : entryQty;
     const qty = Math.max(1, Number(sourceQty || 1));
     if (!prod || !qty) return;
-    const unitPrice = await resolveStandardPrice(
-      prod.id,
-      entryPriceType,
-      prod.price,
-    );
+    const unitPrice = prod.price;
     setCart((prev) => {
       const base = Array.isArray(prev) ? prev : [];
       const existing = base.find((p) => p.id === prod.id);
@@ -715,6 +798,15 @@ export default function PosSalesEntry() {
         cartRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
       } catch {}
     }
+    resolveStandardPrice(prod.id, entryPriceType, prod.price)
+      .then((realPrice) => {
+        if (Number.isFinite(realPrice) && realPrice !== unitPrice) {
+          setCart((prev) =>
+            prev.map((p) => (p.id === prod.id ? { ...p, price: realPrice } : p)),
+          );
+        }
+      })
+      .catch(() => {});
   }
   function handleSelectItemById(idStr) {
     const prod = products.find((p) => String(p.id) === String(idStr)) || null;
@@ -722,7 +814,7 @@ export default function PosSalesEntry() {
     setEntryBarcode("");
   }
 
-  async function addProductsToCartForIds(ids, qtyOverride) {
+  function addProductsToCartForIds(ids, qtyOverride) {
     const qty = Math.max(1, Number(qtyOverride ?? entryQty ?? 1));
     const values = Array.isArray(ids) ? ids : [];
     const unique = Array.from(
@@ -735,20 +827,10 @@ export default function PosSalesEntry() {
       .filter(Boolean);
     if (!prods.length) return;
 
-    const priced = await Promise.all(
-      prods.map(async (prod) => ({
-        prod,
-        unitPrice: await resolveStandardPrice(
-          prod.id,
-          entryPriceType,
-          prod.price,
-        ),
-      })),
-    );
-
     setCart((prev) => {
       const next = Array.isArray(prev) ? prev.slice() : [];
-      for (const { prod, unitPrice } of priced) {
+      for (const prod of prods) {
+        const unitPrice = prod.price;
         const idx = next.findIndex((p) => p.id === prod.id);
         if (idx >= 0) {
           const existing = next[idx];
@@ -803,6 +885,17 @@ export default function PosSalesEntry() {
       try {
         cartRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
       } catch {}
+    }
+    for (const prod of prods) {
+      resolveStandardPrice(prod.id, entryPriceType, prod.price)
+        .then((realPrice) => {
+          if (Number.isFinite(realPrice) && realPrice !== prod.price) {
+            setCart((prev) =>
+              prev.map((p) => (p.id === prod.id ? { ...p, price: realPrice } : p)),
+            );
+          }
+        })
+        .catch(() => {});
     }
   }
 
@@ -927,7 +1020,7 @@ export default function PosSalesEntry() {
   function updateCartField(id, field, value) {
     setCart((prev) => {
       // Hard guard: ignore discount updates when user lacks exceptional permission
-      if (field === "discount" && !canEditDiscount()) {
+      if (field === "discount" && (!canEditDiscount() || generalSettings.allowDiscounts === false)) {
         return prev;
       }
       if (field === "quantity") {
@@ -1052,6 +1145,10 @@ export default function PosSalesEntry() {
       );
       return;
     }
+    if (generalSettings.requireCustomer && !selectedCustomerId) {
+      toast.warn("Please select a customer before checkout");
+      return;
+    }
     const saleCart = cart;
     let payload;
     try {
@@ -1172,6 +1269,9 @@ export default function PosSalesEntry() {
       setReceiptNo(rcp);
       setSaleTimestamp(new Date());
       setShowModal(true);
+      if (generalSettings.autoPrintReceipt) {
+        setTimeout(() => printReceipt(), 500);
+      }
     } catch (err) {
       const isNetworkError = !err?.response;
       if (isNetworkError) {
@@ -1233,6 +1333,9 @@ export default function PosSalesEntry() {
         toast.info(
           "Sale saved offline. It will sync when connectivity returns.",
         );
+        if (generalSettings.autoPrintReceipt) {
+          setTimeout(() => printReceipt(), 500);
+        }
       } else {
         const message =
           err?.response?.data?.message ||
@@ -1285,6 +1388,10 @@ export default function PosSalesEntry() {
           item.show_logo === 1 ||
           item.show_logo === true ||
           item.show_logo === "1",
+        showBarcode:
+          item.show_barcode === 1 ||
+          item.show_barcode === true ||
+          item.show_barcode === "1",
         headerText: item.header_text || "",
         footerText: item.footer_text || "",
         contactNumber: item.contact_number || "",
@@ -1375,22 +1482,48 @@ export default function PosSalesEntry() {
             "",
         )
       : "";
-    const linesHtml = cart
+    const itemsArr = cart.map((it) => ({
+      name: it.name || "",
+      qty: Number(it.quantity || 0),
+      price: Number(it.price || 0),
+      total: Math.max(0, Number(it.quantity || 0) * Number(it.price || 0) - Number(it.discount || 0)),
+    }));
+    const linesHtml = itemsArr
       .map((it) => {
-        const qty = Number(it.quantity || 0);
-        const price = Number(it.price || 0);
-        const disc = Number(it.discount || 0);
-        const lineTotal = Math.max(0, qty * price - disc);
         return `
           <tr>
-            <td>${it.name || ""}</td>
-            <td class="right">${qty}</td>
-            <td class="right">GH₵ ${price.toFixed(2)}</td>
-            <td class="right">GH₵ ${lineTotal.toFixed(2)}</td>
+            <td>${it.name}</td>
+            <td class="right">${it.qty}</td>
+            <td class="right">GH₵ ${it.price.toFixed(2)}</td>
+            <td class="right">GH₵ ${it.total.toFixed(2)}</td>
           </tr>
         `;
       })
       .join("");
+
+    let qrHtml = "";
+    if (settings.showBarcode) {
+      try {
+        const qrData = JSON.stringify({
+          receipt_no: receiptNo || "",
+          date: when.toISOString(),
+          company: companyName,
+          cashier: cashierName,
+          payment: method,
+          customer: customerNameSelected || undefined,
+          items: itemsArr,
+          subtotal: subtotal,
+          discount: discountTotal,
+          tax: tax,
+          total: total,
+          tendered: tendered,
+          change: changeDue,
+        });
+        const qrDataUrl = await QRCode.toDataURL(qrData, { width: 140, margin: 2 });
+        qrHtml = `<div class="center" style="margin-top:12px;"><img src="${qrDataUrl}" alt="QR Code" style="width:140px;height:140px;" /></div>`;
+      } catch {}
+    }
+
     const html = `
       <!DOCTYPE html>
       <html>
@@ -1460,6 +1593,7 @@ export default function PosSalesEntry() {
           <div class="row"><span>Amount Tendered</span><span>GH₵ ${tendered.toFixed(2)}</span></div>
           <div class="row"><span>${changeDue >= 0 ? "Change" : "Amount Due"}</span><span>GH₵ ${Math.abs(changeDue).toFixed(2)}</span></div>
         </div>
+        ${qrHtml}
         <div class="footer">${footerText}</div>
       </body>
       </html>
@@ -1689,14 +1823,14 @@ export default function PosSalesEntry() {
                   <input
                     name="discount"
                     type="number"
-                    className={`input w-full ${!canEditDiscount() ? "disabled-light-blue" : ""}`}
+                    className={`input w-full ${(!canEditDiscount() || generalSettings.allowDiscounts === false) ? "disabled-light-blue" : ""}`}
                     min={0}
                     step="0.01"
                     value={headerDiscount}
                     onChange={(e) => {
                       const v = e.target.value;
                       setHeaderDiscount(v);
-                      if (selectedItems.length === 1 && canEditDiscount()) {
+                      if (selectedItems.length === 1 && canEditDiscount() && generalSettings.allowDiscounts !== false) {
                         updateCartField(selectedItems[0].id, "discount", v);
                       }
                     }}
@@ -1773,7 +1907,7 @@ export default function PosSalesEntry() {
                                   <input
                                     name="discount"
                                     type="number"
-                                    className={`input text-right w-24 ${!canEditDiscount() ? "disabled-light-blue" : ""}`}
+                                    className={`input text-right w-24 ${(!canEditDiscount() || generalSettings.allowDiscounts === false) ? "disabled-light-blue" : ""}`}
                                     min={1}
                                     step={1}
                                     value={discount}

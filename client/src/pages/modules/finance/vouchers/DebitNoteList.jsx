@@ -796,9 +796,17 @@ export default function DebitNoteList() {
         templateId = Number(tItems?.[0]?.id || 0) || null;
       } catch {}
 
+      let payload_data = null;
+      try {
+        const docRes = await api.get(`/finance/vouchers/${id}`);
+        if (docRes.data) payload_data = docRes.data;
+      } catch (err) {
+        console.warn('Failed to fetch document data for print:', err);
+      }
+
       const resp = await api.post(
         `/documents/${templateType}/${id}/render`,
-        { format: "html", ...(templateId ? { template_id: templateId } : {}) },
+        { format: "html", feature_name: templateType, payload_data, ...(templateId ? { template_id: templateId } : {}) },
         { headers: { "Content-Type": "application/json" } },
       );
 
@@ -883,9 +891,17 @@ export default function DebitNoteList() {
         templateId = Number(tItems?.[0]?.id || 0) || null;
       } catch {}
 
+      let payload_data = null;
+      try {
+        const docRes = await api.get(`/finance/vouchers/${id}`);
+        if (docRes.data) payload_data = docRes.data;
+      } catch (err) {
+        console.warn('Failed to fetch document data for print:', err);
+      }
+
       const resp = await api.post(
         `/documents/${templateType}/${id}/render`,
-        { format: "html", ...(templateId ? { template_id: templateId } : {}) },
+        { format: "html", feature_name: templateType, payload_data, ...(templateId ? { template_id: templateId } : {}) },
         { headers: { "Content-Type": "application/json" } },
       );
       const html =

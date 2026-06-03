@@ -44,15 +44,12 @@ export default function LoginPage() {
     let mounted = true;
     async function loadLoginBackground() {
       try {
-        const resp = await fetch("/api/admin/settings/login-background/meta", {
-          credentials: "include",
-        });
-        if (!resp.ok) return;
-        const meta = await resp.json();
+        const resp = await api.get("/admin/settings/login-background/meta", { timeout: 5000 });
+        const meta = resp.data;
         if (!mounted || !meta?.hasBackground) return;
         const version = meta.updatedAt || Date.now();
         setLoginBackgroundUrl(
-          `/api/admin/settings/login-background?v=${encodeURIComponent(
+          `${api.defaults.baseURL}/admin/settings/login-background?v=${encodeURIComponent(
             String(version),
           )}`,
         );
@@ -115,6 +112,8 @@ export default function LoginPage() {
     return profile.username.toLowerCase().includes(query);
   });
 
+  const shouldShowSuggestion = showSuggestion && usernameQuery.length >= 2 && filteredProfiles.length > 0;
+
   useEffect(() => {
     if (handledStartupRedirect.current) return;
     if (!initialized || !token) return;
@@ -172,7 +171,7 @@ export default function LoginPage() {
         let companyId = companies.length === 1 ? companies[0] : null;
         if (!companyId) {
           try {
-            const res = await api.get("/admin/branches");
+            const res = await api.get("/admin/branches", { timeout: 8000 });
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const b = items.find((x) => Number(x.id) === Number(branchId));
             if (b) companyId = Number(b.company_id);
@@ -251,7 +250,7 @@ export default function LoginPage() {
                 type="text"
                 className="input w-full"
                 ref={usernameRef}
-                autoComplete="username"
+                autoComplete="off"
                 required
                 defaultValue=""
                 onFocus={handleUsernameFocus}
@@ -263,7 +262,7 @@ export default function LoginPage() {
               />
 
               {/* Credential suggestion dropdown */}
-              {showSuggestion && filteredProfiles.length > 0 && (
+              {shouldShowSuggestion && (
                 <div
                   ref={suggestionRef}
                   style={{

@@ -34,7 +34,7 @@ export default function PurchaseBillsList() {
   async function fetchBillHtml(billId) {
     const res = await api.post(
       `/documents/purchase-bill/${billId}/render`,
-      { format: "html" },
+      { format: "html", feature_name: "purchase-bill" },
       { headers: { "Content-Type": "application/json" } },
     );
     return typeof res.data === "string" ? res.data : String(res.data || "");

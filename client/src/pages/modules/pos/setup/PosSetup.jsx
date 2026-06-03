@@ -1944,6 +1944,7 @@ function ReceiptSettingsTab() {
   const [addressLine1, setAddressLine1] = useState("");
   const [addressLine2, setAddressLine2] = useState("");
   const [showLogo, setShowLogo] = useState(false);
+  const [showBarcodeOnReceipt, setShowBarcodeOnReceipt] = useState(false);
   const [companyInfo, setCompanyInfo] = useState({
     name: "",
     address: "",
@@ -1978,6 +1979,11 @@ function ReceiptSettingsTab() {
             item.show_logo === 1 ||
               item.show_logo === true ||
               String(item.show_logo).toLowerCase() === "true",
+          );
+          setShowBarcodeOnReceipt(
+            item.show_barcode === 1 ||
+              item.show_barcode === true ||
+              String(item.show_barcode).toLowerCase() === "true",
           );
         }
       } catch {}
@@ -2049,6 +2055,7 @@ function ReceiptSettingsTab() {
       addressLine2: addressLine2.trim(),
       logoUrl: companyInfo.logoUrl || "",
       showLogo: !!showLogo,
+      showBarcode: !!showBarcodeOnReceipt,
     };
     try {
       await api.put("/pos/receipt-settings", payload);
@@ -2214,8 +2221,12 @@ function ReceiptSettingsTab() {
               <span className="text-sm">Show Logo on Receipt</span>
             </div>
             <div className="flex items-center gap-2">
-              <input type="checkbox" disabled />
-              <span className="text-sm">Show Barcode on Receipt</span>
+              <input
+                type="checkbox"
+                checked={showBarcodeOnReceipt}
+                onChange={(e) => setShowBarcodeOnReceipt(e.target.checked)}
+              />
+              <span className="text-sm">Show QR code on Receipt</span>
             </div>
           </div>
           <div>

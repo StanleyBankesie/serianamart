@@ -87,18 +87,31 @@ export function joinHeaderAndBody(headerHtml, bodyHtml) {
   return `${headerHtml || ""}\n${bodyHtml || ""}`;
 }
 
-export async function renderDocumentHtml(api, docType, id) {
+export async function renderDocumentHtml(api, docType, id, featureName, fetchDataFn) {
+  let payload_data = null;
+  if (typeof fetchDataFn === "function") {
+    try {
+      payload_data = await fetchDataFn();
+    } catch (e) {
+      console.warn("Failed to fetch full data payload before rendering:", e);
+    }
+  }
+
+  const payload = { format: "html" };
+  if (featureName) payload.feature_name = featureName;
+  if (payload_data) payload.payload_data = payload_data;
+
   const resp = await api.post(
     `/documents/${docType}/${id}/render`,
-    { format: "html" },
+    payload,
     { headers: { "Content-Type": "application/json" } },
   );
   return typeof resp.data === "string" ? resp.data : String(resp.data || "");
 }
 
-export async function printDocument(api, docType, id, toast) {
+export async function printDocument(api, docType, id, toast, featureName, fetchDataFn) {
   try {
-    const html = await renderDocumentHtml(api, docType, id);
+    const html = await renderDocumentHtml(api, docType, id, featureName, fetchDataFn);
     const iframe = document.createElement("iframe");
     iframe.style.position = "fixed";
     iframe.style.right = "0";
@@ -130,9 +143,9 @@ export async function printDocument(api, docType, id, toast) {
   }
 }
 
-export async function downloadDocumentPdf(api, docType, id, filename, toast) {
+export async function downloadDocumentPdf(api, docType, id, filename, toast, featureName, fetchDataFn) {
   try {
-    const html = await renderDocumentHtml(api, docType, id);
+    const html = await renderDocumentHtml(api, docType, id, featureName, fetchDataFn);
     await renderHtmlToPdf(html, filename);
   } catch (err) {
     console.error("PDF Download Error:", err);

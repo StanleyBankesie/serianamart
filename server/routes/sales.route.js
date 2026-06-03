@@ -615,6 +615,12 @@ async function hasTrigger(triggerName) {
   ).catch(() => []);
   return Number(rows?.[0]?.c || 0) > 0;
 }
+let _triggersEnsured = false;
+async function ensureStandardPriceSyncTriggersOnce() {
+  if (_triggersEnsured) return;
+  await ensureStandardPriceSyncTriggers();
+  _triggersEnsured = true;
+}
 async function ensureStandardPriceSyncTriggers() {
   if (!(await hasTrigger("tr_sal_standard_prices_ai_item_price"))) {
     await pool
@@ -5189,7 +5195,7 @@ router.post(
   ]),
   async (req, res, next) => {
     try {
-      await ensureStandardPriceSyncTriggers();
+      await ensureStandardPriceSyncTriggersOnce();
       const { companyId, branchId } = req.scope;
       const product_id = Number(req.body?.product_id);
       if (!Number.isFinite(product_id) || product_id <= 0) {
@@ -5532,7 +5538,7 @@ router.post(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      await ensureStandardPriceSyncTriggers();
+      await ensureStandardPriceSyncTriggersOnce();
       const { companyId, branchId } = req.scope;
       const productId = Number(req.body?.product_id);
       const priceTypeInput = req.body?.price_type;

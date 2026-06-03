@@ -3,6 +3,16 @@ export const LAST_ACTIVITY_KEY = "omnisuite.lastActivity";
 export const REMEMBERED_CREDS_KEY = "omnisuite.rememberedCreds";
 export const REMEMBER_ME_PREF_KEY = "omnisuite.rememberMe";
 export const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000;
+
+export function getInactivityTimeoutMs() {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") return INACTIVITY_TIMEOUT_MS;
+  const val = localStorage.getItem("omnisuite.inactivityTimeout");
+  if (val) {
+    const mins = parseInt(val, 10);
+    if (!isNaN(mins) && mins >= 0) return mins * 60 * 1000;
+  }
+  return INACTIVITY_TIMEOUT_MS;
+}
 const AUTH_EVENT_NAME = "omnisuite:auth-changed";
 
 function canUseStorage() {

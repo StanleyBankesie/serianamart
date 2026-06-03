@@ -395,7 +395,7 @@ export default function QuotationList() {
     try {
       const resp = await api.post(
         `/documents/quotation/${id}/render`,
-        { format: "html" },
+        { format: "html", feature_name: "quotation" },
         { headers: { "Content-Type": "application/json" } },
       );
       const html =
@@ -435,7 +435,7 @@ export default function QuotationList() {
     try {
       const resp = await api.post(
         `/documents/quotation/${id}/render`,
-        { format: "html" },
+        { format: "html", feature_name: "quotation" },
         { headers: { "Content-Type": "application/json" } },
       );
       const html = typeof resp.data === "string" ? resp.data : String(resp.data || "");

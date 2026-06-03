@@ -159,7 +159,7 @@ export default function SupplierQuotationsList() {
     try {
       const resp = await api.post(
         `/documents/supplier-quotation/${id}/render`,
-        { format: "html" },
+        { format: "html", feature_name: "supplier-quotation" },
         { headers: { "Content-Type": "application/json" } },
       );
       const html = typeof resp.data === "string" ? resp.data : String(resp.data || "");
@@ -191,7 +191,7 @@ export default function SupplierQuotationsList() {
     try {
       const resp = await api.post(
         `/documents/supplier-quotation/${id}/render`,
-        { format: "html" },
+        { format: "html", feature_name: "supplier-quotation" },
         { headers: { "Content-Type": "application/json" } },
       );
       const html = typeof resp.data === "string" ? resp.data : String(resp.data || "");

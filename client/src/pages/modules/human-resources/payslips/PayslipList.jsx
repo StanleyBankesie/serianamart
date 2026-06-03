@@ -190,7 +190,7 @@ export default function PayslipList() {
       } catch {}
       const res = await api.post(
         `/documents/salary-slip/${r.id}/render`,
-        { format: "html", ...(templateId ? { template_id: templateId } : {}) },
+        { format: "html", feature_name: "salary-slip", payload_data: r, ...(templateId ? { template_id: templateId } : {}) },
         { headers: { "Content-Type": "application/json" } },
       );
       const html =

@@ -338,7 +338,7 @@ export default function InvoiceList() {
     try {
       const resp = await api.post(
         `/documents/invoice/${id}/render`,
-        { format: "html" },
+        { format: "html", feature_name: "sales-invoice" },
         { headers: { "Content-Type": "application/json" } },
       );
       const html =
@@ -380,7 +380,7 @@ export default function InvoiceList() {
     try {
       const resp = await api.post(
         `/documents/invoice/${id}/render`,
-        { format: "html" },
+        { format: "html", feature_name: "sales-invoice" },
         { headers: { "Content-Type": "application/json" } },
       );
       const html =

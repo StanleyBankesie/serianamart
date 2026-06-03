@@ -58,7 +58,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   const isCN = String(voucherTypeCode).toUpperCase() === "CN";
   const isJV = String(voucherTypeCode).toUpperCase() === "JV";
   const isSV = String(voucherTypeCode).toUpperCase() === "SV";
-  const isPV = String(voucherTypeCode).toUpperCase() === "PV";
+  const isPAYV = String(voucherTypeCode).toUpperCase() === "PAYV";
   const [rvForm, setRvForm] = useState({
     receivedFrom: "",
     receivedFromCode: "",
@@ -626,10 +626,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
 
   useEffect(() => {
     async function loadNextNoPv() {
-      if (isEdit || !isPV) return;
+      if (isEdit || !isPAYV) return;
       try {
         const res = await api.get(
-          "/finance/vouchers/next-no?voucherTypeCode=PV",
+          "/finance/vouchers/next-no?voucherTypeCode=PAYV",
         );
         const raw = String(res.data?.nextNo || "");
         // Format as PV000001 (no dash)
@@ -641,7 +641,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       }
     }
     loadNextNoPv();
-  }, [isPV, isEdit]);
+  }, [isPAYV, isEdit]);
 
   useEffect(() => {
     async function loadNextNoSv() {
@@ -2943,7 +2943,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       items: cvForm.items.filter((_, i) => i !== idx),
     });
   }
-  if (isJV || isCN || isDN || isSV || isPV) {
+  if (isJV || isCN || isDN || isSV || isPAYV) {
     return (
       <div className="space-y-4">
         <div className="card">
@@ -3029,7 +3029,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     />
                   </div>
                 )}
-                {(isPAYV || isRV || isCV || isSV || isPV) && (
+                {(isPAYV || isRV || isCV || isSV || isPAYV) && (
                   <div className="md:col-span-3">
                     <label className="label font-bold text-brand">
                       Narration *
@@ -3135,7 +3135,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
               )}
               <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
                 {readOnly &&
-                  (isSV || isPV) &&
+                  (isSV || isPAYV) &&
                   (voucherHeaderAmounts.totalDebit > 0 ||
                     voucherHeaderAmounts.totalCredit > 0) && (
                     <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4 mb-4">
@@ -3254,12 +3254,12 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                             const displayCode =
                               l.accountCode || accFromList?.code || "";
                             const accountLabel =
-                              isSV || isPV
+                              isSV || isPAYV
                                 ? displayName
                                 : displayCode
                                   ? `${displayCode} - ${displayName}`
                                   : displayName;
-                            const isReadOnlySVorPV = readOnly && (isSV || isPV);
+                            const isReadOnlySVorPV = readOnly && (isSV || isPAYV);
                             return (
                               <tr key={idx}>
                                 <td>
@@ -3282,7 +3282,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                                       <option value="">Select account</option>
                                       {accounts.map((a) => (
                                         <option key={a.id} value={a.id}>
-                                          {isSV || isPV
+                                          {isSV || isPAYV
                                             ? a.name
                                             : `${a.code} - ${a.name}`}
                                         </option>

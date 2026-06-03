@@ -38,7 +38,20 @@ self.addEventListener("activate", (event) => {
             .map((k) => caches.delete(k)),
         );
       } catch {}
-      await self.clients.claim();
+      // Use clients.claim() only to take control of pages that don't yet have
+      // a service worker controller (e.g. first load). This does NOT force-reload
+      // pages that are already open and actively controlled — avoiding the
+      // unintended app restart that occurs during POS/cashier sessions.
+      try {
+        const allClients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+        const uncontrolled = allClients.filter(c => !c.controller);
+        if (uncontrolled.length > 0 || allClients.length === 0) {
+          await self.clients.claim();
+        }
+      } catch {
+        // Fallback: claim anyway (won't reload already-controlled clients in modern browsers)
+        await self.clients.claim();
+      }
     })(),
   );
 });
@@ -70,7 +83,10 @@ async function staleWhileRevalidate(cacheName, request) {
   const cached = await cache.match(request);
   const networkPromise = (async () => {
     try {
-      const resp = await fetch(request);
+      const ctrl = new AbortController();
+      const swTimeout = setTimeout(() => ctrl.abort(), 5000);
+      const resp = await fetch(request, { signal: ctrl.signal });
+      clearTimeout(swTimeout);
       if (resp && resp.ok) {
         const t = resp.type;
         const canCache =

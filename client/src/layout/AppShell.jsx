@@ -9,6 +9,7 @@ import {
 } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext.jsx";
+import { getLastActivity, getInactivityTimeoutMs } from "../auth/authStorage.js";
 import { usePermission } from "../auth/PermissionContext.jsx";
 import { useTheme } from "../theme/ThemeContext.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
@@ -621,6 +622,20 @@ export default function AppShell() {
       if (pollTimer) clearInterval(pollTimer);
     };
   }, [scope?.companyId, scope?.branchId, lowStockPrompted, token, online]);
+
+  useEffect(() => {
+    if (!token) return;
+    const inactivityTimer = setInterval(() => {
+      const timeoutMs = getInactivityTimeoutMs();
+      if (timeoutMs <= 0) return;
+      const lastActivity = getLastActivity();
+      if (lastActivity > 0 && Date.now() - lastActivity > timeoutMs) {
+        logout({ redirect: false });
+      }
+    }, 30000);
+    return () => clearInterval(inactivityTimer);
+  }, [token, logout]);
+
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     function onSwMessage(ev) {

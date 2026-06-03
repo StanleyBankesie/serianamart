@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api } from "api/client";
 import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { toast } from "react-toastify";
+import { Select } from "antd";
 import PrintPreviewModal from "../../../../components/PrintPreviewModal.jsx";
 
 const DOC_TYPES = [
@@ -21,6 +22,523 @@ const DOC_TYPES = [
   { value: "direct-purchase", label: "Direct Purchase" },
 ];
 
+// All available feature/page names across the system
+// Grouped by module so users can easily identify which feature a template maps to
+const FEATURE_PAGES = [
+  {
+    "label": "ADMINISTRATION",
+    "options": [
+      {
+        "label": "ExceptionalPermissionsList",
+        "value": "exceptional-permissions-list"
+      },
+      {
+        "label": "BranchList",
+        "value": "branch-list"
+      },
+      {
+        "label": "CompanyList",
+        "value": "company-list"
+      },
+      {
+        "label": "UserList",
+        "value": "user-list"
+      },
+      {
+        "label": "WorkflowList",
+        "value": "workflow-list"
+      }
+    ]
+  },
+  {
+    "label": "BUSINESS-INTELLIGENCE",
+    "options": [
+      {
+        "label": "DashboardList",
+        "value": "dashboard-list"
+      }
+    ]
+  },
+  {
+    "label": "FINANCE",
+    "options": [
+      {
+        "label": "BankReconciliationList",
+        "value": "bank-reconciliation-list"
+      },
+      {
+        "label": "PdcPostingsList",
+        "value": "pdc-postings-list"
+      },
+      {
+        "label": "JournalVoucherList",
+        "value": "journal-voucher-list"
+      },
+      {
+        "label": "ContraVoucherList",
+        "value": "contra-voucher-list"
+      },
+      {
+        "label": "CreditNoteList",
+        "value": "credit-note-list"
+      },
+      {
+        "label": "DebitNoteList",
+        "value": "debit-note-list"
+      },
+      {
+        "label": "JournalVoucherList",
+        "value": "journal-voucher-list"
+      },
+      {
+        "label": "PaymentVoucherList",
+        "value": "payment-voucher-list"
+      },
+      {
+        "label": "PurchaseVoucherList",
+        "value": "purchase-voucher-list"
+      },
+      {
+        "label": "ReceiptVoucherList",
+        "value": "receipt-voucher-list"
+      },
+      {
+        "label": "SalesVoucherList",
+        "value": "sales-voucher-list"
+      },
+      {
+        "label": "VoucherListPage",
+        "value": "voucher-list"
+      }
+    ]
+  },
+  {
+    "label": "HUMAN-RESOURCES",
+    "options": [
+      {
+        "label": "AllowanceList",
+        "value": "allowance-list"
+      },
+      {
+        "label": "AttendanceList",
+        "value": "attendance-list"
+      },
+      {
+        "label": "PolicyList",
+        "value": "policy-list"
+      },
+      {
+        "label": "EmployeeList",
+        "value": "employee-list"
+      },
+      {
+        "label": "LeaveApplicationsList",
+        "value": "leave-applications-list"
+      },
+      {
+        "label": "LeaveSetupList",
+        "value": "leave-setup-list"
+      },
+      {
+        "label": "LoanList",
+        "value": "loan-list"
+      },
+      {
+        "label": "MedicalPolicyList",
+        "value": "medical-policy-list"
+      },
+      {
+        "label": "PayslipList",
+        "value": "payslip-list"
+      },
+      {
+        "label": "PromotionList",
+        "value": "promotion-list"
+      },
+      {
+        "label": "CandidatesList",
+        "value": "candidates-list"
+      },
+      {
+        "label": "InterviewsList",
+        "value": "interviews-list"
+      },
+      {
+        "label": "OffersList",
+        "value": "offers-list"
+      },
+      {
+        "label": "RequisitionList",
+        "value": "requisition-list"
+      },
+      {
+        "label": "SalaryConfigList",
+        "value": "salary-config-list"
+      },
+      {
+        "label": "ShiftList",
+        "value": "shift-list"
+      },
+      {
+        "label": "TaxConfigList",
+        "value": "tax-config-list"
+      },
+      {
+        "label": "TrainingList",
+        "value": "training-list"
+      }
+    ]
+  },
+  {
+    "label": "INVENTORY",
+    "options": [
+      {
+        "label": "GRNImportList",
+        "value": "grnimport-list"
+      },
+      {
+        "label": "GRNLocalList",
+        "value": "grnlocal-list"
+      },
+      {
+        "label": "IssueToRequirementList",
+        "value": "issue-to-requirement-list"
+      },
+      {
+        "label": "ItemBatchesList",
+        "value": "item-batches-list"
+      },
+      {
+        "label": "ItemGroupsList",
+        "value": "item-groups-list"
+      },
+      {
+        "label": "ItemsList",
+        "value": "items-list"
+      },
+      {
+        "label": "MaterialRequisitionList",
+        "value": "material-requisition-list"
+      },
+      {
+        "label": "PurchaseReturnList",
+        "value": "purchase-return-list"
+      },
+      {
+        "label": "ReturnToStoresList",
+        "value": "return-to-stores-list"
+      },
+      {
+        "label": "ServiceConfirmationsList",
+        "value": "service-confirmations-list"
+      },
+      {
+        "label": "StockAdjustmentList",
+        "value": "stock-adjustment-list"
+      },
+      {
+        "label": "StockTakeList",
+        "value": "stock-take-list"
+      },
+      {
+        "label": "StockTransferList",
+        "value": "stock-transfer-list"
+      },
+      {
+        "label": "StockUpdationList",
+        "value": "stock-updation-list"
+      },
+      {
+        "label": "StockVerificationList",
+        "value": "stock-verification-list"
+      },
+      {
+        "label": "TransferAcceptanceList",
+        "value": "transfer-acceptance-list"
+      },
+      {
+        "label": "UnitConversionsList",
+        "value": "unit-conversions-list"
+      },
+      {
+        "label": "WarehousesList",
+        "value": "warehouses-list"
+      }
+    ]
+  },
+  {
+    "label": "MAINTENANCE",
+    "options": [
+      {
+        "label": "AssetList",
+        "value": "asset-list"
+      },
+      {
+        "label": "DowntimeLogList",
+        "value": "downtime-log-list"
+      },
+      {
+        "label": "MaintenanceContractList",
+        "value": "maintenance-contract-list"
+      },
+      {
+        "label": "EquipmentList",
+        "value": "equipment-list"
+      },
+      {
+        "label": "JobExecutionList",
+        "value": "job-execution-list"
+      },
+      {
+        "label": "MaintenanceJobOrdersList",
+        "value": "maintenance-job-orders-list"
+      },
+      {
+        "label": "MaintenanceBillList",
+        "value": "maintenance-bill-list"
+      },
+      {
+        "label": "MaintenanceRequestsList",
+        "value": "maintenance-requests-list"
+      },
+      {
+        "label": "PmScheduleList",
+        "value": "pm-schedule-list"
+      },
+      {
+        "label": "MaintenanceRFQList",
+        "value": "maintenance-rfqlist"
+      },
+      {
+        "label": "MaintenanceRosterList",
+        "value": "maintenance-roster-list"
+      },
+      {
+        "label": "MaintenanceScheduleList",
+        "value": "maintenance-schedule-list"
+      },
+      {
+        "label": "SupplierQuotationsList",
+        "value": "supplier-quotations-list"
+      },
+      {
+        "label": "MaintenanceWorkOrderList",
+        "value": "maintenance-work-order-list"
+      }
+    ]
+  },
+  {
+    "label": "POS",
+    "options": [
+      {
+        "label": "PosInvoiceList",
+        "value": "pos-invoice-list"
+      }
+    ]
+  },
+  {
+    "label": "PRODUCTION",
+    "options": [
+      {
+        "label": "BomList",
+        "value": "bom-list"
+      },
+      {
+        "label": "JobCardList",
+        "value": "job-card-list"
+      },
+      {
+        "label": "MaterialReceiptList",
+        "value": "material-receipt-list"
+      },
+      {
+        "label": "MaterialRequisitionList",
+        "value": "material-requisition-list"
+      },
+      {
+        "label": "ProductionTransferList",
+        "value": "production-transfer-list"
+      },
+      {
+        "label": "StockJournalList",
+        "value": "stock-journal-list"
+      },
+      {
+        "label": "DailyPlanList",
+        "value": "daily-plan-list"
+      },
+      {
+        "label": "RoutingList",
+        "value": "routing-list"
+      },
+      {
+        "label": "MachineList",
+        "value": "machine-list"
+      },
+      {
+        "label": "ProcessList",
+        "value": "process-list"
+      },
+      {
+        "label": "ShiftList",
+        "value": "shift-list"
+      },
+      {
+        "label": "WorkOrderList",
+        "value": "work-order-list"
+      }
+    ]
+  },
+  {
+    "label": "PROJECT-MANAGEMENT",
+    "options": [
+      {
+        "label": "ExpenseList",
+        "value": "expense-list"
+      },
+      {
+        "label": "MaterialReceiptList",
+        "value": "material-receipt-list"
+      },
+      {
+        "label": "MaterialRequisitionList",
+        "value": "material-requisition-list"
+      },
+      {
+        "label": "MaterialUtilizationList",
+        "value": "material-utilization-list"
+      },
+      {
+        "label": "ProjectList",
+        "value": "project-list"
+      },
+      {
+        "label": "TaskList",
+        "value": "task-list"
+      },
+      {
+        "label": "TimesheetList",
+        "value": "timesheet-list"
+      }
+    ]
+  },
+  {
+    "label": "PURCHASE",
+    "options": [
+      {
+        "label": "DirectPurchaseList",
+        "value": "direct-purchase-list"
+      },
+      {
+        "label": "GeneralRequisitionList",
+        "value": "general-requisition-list"
+      },
+      {
+        "label": "PortClearancesList",
+        "value": "port-clearances-list"
+      },
+      {
+        "label": "PurchaseBillsList",
+        "value": "purchase-bills-list"
+      },
+      {
+        "label": "PurchaseOrdersImportList",
+        "value": "purchase-orders-import-list"
+      },
+      {
+        "label": "PurchaseOrdersLocalList",
+        "value": "purchase-orders-local-list"
+      },
+      {
+        "label": "RequestForQuotationList",
+        "value": "request-for-quotation-list"
+      },
+      {
+        "label": "ShippingAdviceList",
+        "value": "shipping-advice-list"
+      },
+      {
+        "label": "SupplierQuotationsList",
+        "value": "supplier-quotations-list"
+      },
+      {
+        "label": "SuppliersList",
+        "value": "suppliers-list"
+      }
+    ]
+  },
+  {
+    "label": "SALES",
+    "options": [
+      {
+        "label": "CustomerCreditList",
+        "value": "customer-credit-list"
+      },
+      {
+        "label": "CustomerList",
+        "value": "customer-list"
+      },
+      {
+        "label": "DeliveryList",
+        "value": "delivery-list"
+      },
+      {
+        "label": "DiscountSchemeList",
+        "value": "discount-scheme-list"
+      },
+      {
+        "label": "InvoiceList",
+        "value": "invoice-list"
+      },
+      {
+        "label": "PotentialCustomerList",
+        "value": "potential-customer-list"
+      },
+      {
+        "label": "QuotationList",
+        "value": "quotation-list"
+      },
+      {
+        "label": "SalesReturnList",
+        "value": "sales-return-list"
+      },
+      {
+        "label": "SalesOrderList",
+        "value": "sales-order-list"
+      }
+    ]
+  },
+  {
+    "label": "SERVICE-MANAGEMENT",
+    "options": [
+      {
+        "label": "ServiceBillsList",
+        "value": "service-bills-list"
+      },
+      {
+        "label": "ServiceConfirmationsList",
+        "value": "service-confirmations-list"
+      },
+      {
+        "label": "ServiceExecutionsList",
+        "value": "service-executions-list"
+      },
+      {
+        "label": "ServiceOrdersList",
+        "value": "service-orders-list"
+      },
+      {
+        "label": "ServiceRequestsList",
+        "value": "service-requests-list"
+      },
+      {
+        "label": "VisitorsLogList",
+        "value": "visitors-log-list"
+      }
+    ]
+  }
+];
+
 export default function DocumentTemplatesPage() {
   const [searchParams] = useSearchParams();
   const initialType = useMemo(() => {
@@ -35,6 +553,7 @@ export default function DocumentTemplatesPage() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({
     name: "",
+    feature_names: [],
     html_content: "",
     is_default: false,
     header_logo_url: "",
@@ -73,6 +592,7 @@ export default function DocumentTemplatesPage() {
     setEditing(null);
     setForm({
       name: "",
+      feature_names: [],
       html_content: "",
       is_default: false,
       header_logo_url: "",
@@ -89,6 +609,7 @@ export default function DocumentTemplatesPage() {
     setEditing(t);
     setForm({
       name: String(t.name || ""),
+      feature_names: Array.isArray(t.feature_names) ? t.feature_names : (t.feature_names ? (typeof t.feature_names === "string" ? JSON.parse(t.feature_names) : t.feature_names) : ((t.feature_names && t.feature_names.length > 0) || t.feature_name ? [t.feature_name] : [])),
       html_content: "",
       is_default: Number(t.is_default) === 1,
       header_logo_url: "",
@@ -107,6 +628,7 @@ export default function DocumentTemplatesPage() {
         setForm((p) => ({
           ...p,
           html_content: String(item.html_content || ""),
+          feature_names: Array.isArray(item.feature_names) ? item.feature_names : (item.feature_names ? (typeof item.feature_names === "string" ? JSON.parse(item.feature_names) : item.feature_names) : (item.feature_name ? [item.feature_name] : [])),
           header_logo_url: String(item.header_logo_url || ""),
           header_name: String(item.header_name || ""),
           header_address: String(item.header_address || ""),
@@ -136,6 +658,7 @@ export default function DocumentTemplatesPage() {
         const res = await api.post(`/templates`, {
           name,
           document_type: docType,
+          feature_names: form.feature_names || [],
           html_content: content,
           is_default: form.is_default ? 1 : 0,
           header_logo_url: form.header_logo_url || "",
@@ -150,6 +673,7 @@ export default function DocumentTemplatesPage() {
       } else {
         await api.put(`/templates/${editing.id}`, {
           name,
+          feature_names: form.feature_names || [],
           html_content: content,
           is_default: form.is_default ? 1 : 0,
           header_logo_url: form.header_logo_url || "",
@@ -302,6 +826,9 @@ export default function DocumentTemplatesPage() {
                         Name
                       </th>
                       <th className="px-3 py-2 text-left text-xs font-semibold text-black">
+                        Feature
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-black">
                         Default
                       </th>
                       <th className="px-3 py-2 text-right text-xs font-semibold text-black">
@@ -313,6 +840,15 @@ export default function DocumentTemplatesPage() {
                     {templates.map((t) => (
                       <tr key={t.id} className="border-t">
                         <td className="px-3 py-2 text-sm">{t.name}</td>
+                        <td className="px-3 py-2 text-sm">
+                          {(t.feature_names && t.feature_names.length > 0) || t.feature_name ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-brand/10 text-brand border border-brand/20">
+                              {(() => { const names = Array.isArray(t.feature_names) ? t.feature_names : (t.feature_names ? (typeof t.feature_names === "string" ? JSON.parse(t.feature_names) : t.feature_names) : (t.feature_name ? [t.feature_name] : [])); const allOpts = FEATURE_PAGES.flatMap(g => g.options); return names.map(n => allOpts.find(o => o.value === n)?.label || n).join(", "); })()}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 text-xs">—</span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-sm">
                           {Number(t.is_default) === 1 ? "Yes" : "No"}
                         </td>
@@ -364,7 +900,7 @@ export default function DocumentTemplatesPage() {
                       <tr>
                         <td
                           className="px-3 py-3 text-sm text-slate-500"
-                          colSpan={3}
+                          colSpan={4}
                         >
                           No templates for this type
                         </td>
@@ -386,15 +922,31 @@ export default function DocumentTemplatesPage() {
                 </div>
               )}
               <div className="space-y-3">
-                <div>
-                  <label className="label">Name</label>
-                  <input
-                    className="input"
-                    value={form.name}
-                    onChange={(e) =>
-                      setForm((p) => ({ ...p, name: e.target.value }))
-                    }
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Name</label>
+                    <input
+                      className="input"
+                      value={form.name}
+                      onChange={(e) =>
+                        setForm((p) => ({ ...p, name: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Feature / Page Name</label>
+                    <Select
+  mode="multiple"
+  style={{ width: '100%' }}
+  placeholder="-- Not linked to any page --"
+  value={form.feature_names}
+  onChange={(val) => setForm((p) => ({ ...p, feature_names: val }))}
+  options={FEATURE_PAGES}
+/>
+                    <div className="text-xs text-slate-500 mt-1">
+                      When a page's Print/PDF button is clicked, this template will be used if linked here.
+                    </div>
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
