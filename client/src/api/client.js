@@ -151,8 +151,14 @@ async function requestTokenRefresh() {
           touchLastActivity();
           return freshToken;
         }
-        clearStoredAuth();
-        setAuthToken(null);
+        // CRITICAL: Only clear the session on an explicit 401 from the server.
+        // A network timeout, 502, 503, or CORS error should NOT log the user out
+        // mid-session — those are transient infrastructure errors, not auth failures.
+        const isExplicitAuthFailure = error?.response?.status === 401;
+        if (isExplicitAuthFailure) {
+          clearStoredAuth();
+          setAuthToken(null);
+        }
         throw error;
       })
       .finally(() => {
@@ -308,8 +314,14 @@ api.interceptors.response.use(
           originalRequest.headers.Authorization = `Bearer ${token}`;
           return api(originalRequest);
         })
-        .catch(() => {
-          redirectToLogin();
+        .catch((err) => {
+          // Only redirect to login if the refresh endpoint itself explicitly
+          // returned 401. Network errors (timeout, 502, 503, CORS) must not
+          // kick the user out — they are server-side transient failures.
+          const isHardAuthFailure = err?.response?.status === 401;
+          if (isHardAuthFailure) {
+            redirectToLogin();
+          }
           return Promise.reject({
             message: error.message,
             response: error.response,

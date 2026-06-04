@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v4";
+const CACHE_VERSION = "v5";
 const ASSET_CACHE = "omnisuite-assets-" + CACHE_VERSION;
 const API_CACHE = "omnisuite-api-" + CACHE_VERSION;
 const DEV_MODE =
@@ -21,7 +21,11 @@ if (!DEV_MODE) {
         "/apple-touch-icon.png",
         "/OMNISUITE_ICON_CLEAR.png",
       ]);
-      self.skipWaiting();
+      // NOTE: Do NOT call self.skipWaiting() here.
+      // skipWaiting causes the new SW to immediately take over ALL open tabs
+      // mid-session, which restarts their fetch lifecycles and looks like a
+      // random page reload or logout. The new SW will activate naturally once
+      // all tabs are closed and re-opened.
     })(),
   );
 });
@@ -43,14 +47,16 @@ self.addEventListener("activate", (event) => {
       // pages that are already open and actively controlled — avoiding the
       // unintended app restart that occurs during POS/cashier sessions.
       try {
+        // Only claim windows that have NO controller yet (first install).
+        // Do NOT claim already-controlled clients — doing so can disrupt active
+        // sessions by forcing re-evaluation of all pending fetches.
         const allClients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
         const uncontrolled = allClients.filter(c => !c.controller);
-        if (uncontrolled.length > 0 || allClients.length === 0) {
+        if (uncontrolled.length > 0) {
           await self.clients.claim();
         }
       } catch {
-        // Fallback: claim anyway (won't reload already-controlled clients in modern browsers)
-        await self.clients.claim();
+        // Ignore — if we can't read clients, don't claim anything.
       }
     })(),
   );
@@ -72,6 +78,19 @@ function buildApiFallbackResponse(request) {
       },
     },
   );
+}
+
+// Auth endpoints must NEVER be cached — stale auth responses cause silent
+// session failures and mid-session logouts.
+const AUTH_PATHS = [
+  "/api/auth/refresh",
+  "/api/login",
+  "/api/auth/logout",
+  "/api/forgot-password",
+];
+
+function isAuthRequest(url) {
+  return AUTH_PATHS.some((p) => url.pathname.startsWith(p));
 }
 
 function isApiRequest(url) {
@@ -165,6 +184,9 @@ if (!DEV_MODE) {
     event.respondWith(cacheFirstWithNetworkFallback(ASSET_CACHE, req));
     return;
   }
+
+  // Never cache auth-related API requests — always go to network.
+  if (isAuthRequest(url)) return;
 
   if (isApiRequest(url) && req.method === "GET") {
     event.respondWith(staleWhileRevalidate(API_CACHE, req));
