@@ -133,19 +133,20 @@ export default function GRNLocalForm() {
         );
         if (isNew) {
           api
-            .get("/inventory/grn", { params: { grn_type: "LOCAL" } })
-            .then((grnRes) => {
-              const grnItems = Array.isArray(grnRes.data?.items)
-                ? grnRes.data.items
+            .get("/inventory/grn/po-summary")
+            .then((sumRes) => {
+              const summary = Array.isArray(sumRes.data?.items)
+                ? sumRes.data.items
                 : [];
-              const usedPoIds = new Set(
-                grnItems
-                  .map((g) => g.po_id || g.poId)
-                  .filter((v) => v != null)
-                  .map((v) => String(v)),
+              const fullPoIds = new Set(
+                summary
+                  .filter(
+                    (s) => Number(s.total_accepted) >= Number(s.total_ordered),
+                  )
+                  .map((s) => String(s.po_id)),
               );
               setPurchaseOrders((prev) =>
-                prev.filter((po) => !usedPoIds.has(String(po.id))),
+                prev.filter((po) => !fullPoIds.has(String(po.id))),
               );
             })
             .catch(() => {});
@@ -1075,7 +1076,7 @@ export default function GRNLocalForm() {
               <div>
                 <label className="label">Remarks</label>
                 <textarea
-                  className="input w-96"
+                  className="input w-full"
                   rows="4"
                   value={formData.remarks}
                   onChange={(e) =>
@@ -1147,73 +1148,84 @@ export default function GRNLocalForm() {
 
                           return (
                             <tr key={idx}>
-                               <td>
-                                 <div className="relative">
-                                   <input
-                                     id={`grnl-item-search-${idx}`} autoComplete="off"
-                                     className="input min-w-[256px] w-[384px]"
-                                     placeholder="Type to search items"
-                                     value={itemQueries[idx] || ""}
-                                     onChange={(e) => {
-                                       const val = e.target.value;
-                                       setItemQueries((prev) => ({
-                                         ...prev,
-                                         [idx]: val,
-                                       }));
-                                       if (!val && d.item_id) {
-                                         updateLine(idx, {
-                                           item_id: "",
-                                           uom: defaultUomCode
-                                             ? String(defaultUomCode)
-                                             : "",
-                                           input_uom: defaultUomCode
-                                             ? String(defaultUomCode)
-                                             : "",
-                                           unit_price: "",
-                                         });
-                                       }
-                                     }}
-                                     onKeyDown={(e) => {
-                                       if (e.key === "Enter") {
-                                         const query = (
-                                           itemQueries[idx] || ""
-                                         ).trim();
-                                         if (!query || !searchResults.length)
-                                           return;
-                                         handleItemSelect(
-                                           idx,
-                                           searchResults[0].id,
-                                         );
-                                       }
-                                     }}
-                                   />
-                                   {searchResults.length ? (
-                                     (() => {
-                                       const el = document.getElementById(`grnl-item-search-${idx}`);
-                                       const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
-                                       return (
-                                         <div
-                                           className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto"
-                                           style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
-                                         >
-                                           {searchResults.map((o) => (
-                                             <button
-                                               type="button"
-                                               key={o.id}
-                                               className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
-                                               onClick={() =>
-                                                 handleItemSelect(idx, o.id)
-                                               }
-                                             >
-                                               {o.item_code} - {o.item_name}
-                                             </button>
-                                           ))}
-                                         </div>
-                                       );
-                                     })()
-                                   ) : null}
-                                 </div>
-                               </td>
+                              <td>
+                                <div className="relative">
+                                  <input
+                                    id={`grnl-item-search-${idx}`}
+                                    autoComplete="off"
+                                    className="input min-w-[256px] w-[384px]"
+                                    placeholder="Type to search items"
+                                    value={itemQueries[idx] || ""}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setItemQueries((prev) => ({
+                                        ...prev,
+                                        [idx]: val,
+                                      }));
+                                      if (!val && d.item_id) {
+                                        updateLine(idx, {
+                                          item_id: "",
+                                          uom: defaultUomCode
+                                            ? String(defaultUomCode)
+                                            : "",
+                                          input_uom: defaultUomCode
+                                            ? String(defaultUomCode)
+                                            : "",
+                                          unit_price: "",
+                                        });
+                                      }
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        const query = (
+                                          itemQueries[idx] || ""
+                                        ).trim();
+                                        if (!query || !searchResults.length)
+                                          return;
+                                        handleItemSelect(
+                                          idx,
+                                          searchResults[0].id,
+                                        );
+                                      }
+                                    }}
+                                  />
+                                  {searchResults.length
+                                    ? (() => {
+                                        const el = document.getElementById(
+                                          `grnl-item-search-${idx}`,
+                                        );
+                                        const r = el
+                                          ? el.getBoundingClientRect()
+                                          : { bottom: 0, left: 0, width: 0 };
+                                        return (
+                                          <div
+                                            className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                            style={{
+                                              position: "fixed",
+                                              top: `${r.bottom + 4}px`,
+                                              left: `${r.left}px`,
+                                              width: `${r.width}px`,
+                                              zIndex: 9999,
+                                            }}
+                                          >
+                                            {searchResults.map((o) => (
+                                              <button
+                                                type="button"
+                                                key={o.id}
+                                                className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                                                onClick={() =>
+                                                  handleItemSelect(idx, o.id)
+                                                }
+                                              >
+                                                {o.item_code} - {o.item_name}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        );
+                                      })()
+                                    : null}
+                                </div>
+                              </td>
                               <td>
                                 <input
                                   type="number"
@@ -1431,7 +1443,7 @@ export default function GRNLocalForm() {
                               <td>
                                 <input
                                   type="text"
-                                  className="input min-w-[200px]"
+                                  className="input min-w-[160px]"
                                   value={d.line_remarks}
                                   onChange={(e) =>
                                     updateLine(idx, {

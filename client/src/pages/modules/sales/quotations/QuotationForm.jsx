@@ -94,7 +94,7 @@ export default function QuotationForm() {
       "1. Validity: This quotation is valid for the period stated above.\n2. Payment: Payment is required as per the payment type selected.\n3. Delivery: Delivery will be made within the agreed timeline after order confirmation.\n4. Taxes: All prices are subject to applicable taxes as shown.",
     remarks: "",
     warehouse_id: "",
-    price_type: "RETAIL",
+    price_type: "",
     payment_type: "CASH",
     currency_id: 4,
     exchange_rate: 1,
@@ -575,7 +575,7 @@ export default function QuotationForm() {
         product_id: productId,
         quantity: 1,
         date: formData.quotation_date,
-        price_type: formData.price_type || "RETAIL",
+        price_type: formData.price_type || "",
         only_standard: true,
         ...(formData.customer_id ? { customer_id: formData.customer_id } : {}),
       });
@@ -590,38 +590,51 @@ export default function QuotationForm() {
     }
   };
 
-  const repriceQuotationLinesByPriceType = async (priceType) => {
+  const repriceQuotationLinesByPriceType = async (newPriceType, newCustomerId) => {
+    const pType = newPriceType !== undefined ? newPriceType : formData.price_type;
+    const cId = newCustomerId !== undefined ? newCustomerId : formData.customer_id;
     const dateStr = formData.quotation_date;
-    const custId = formData.customer_id;
-    const nextLines = await Promise.all(
+
+    const fetchPrice = async (prodId) => {
+      try {
+        const res = await api.post("/sales/prices/best-price", {
+          product_id: prodId,
+          quantity: 1,
+          date: dateStr,
+          price_type: typeof pType === "string" ? pType : String(pType || ""),
+          only_standard: true,
+          ...(cId ? { customer_id: cId } : {}),
+        });
+        if (res.data?.price !== undefined) {
+          return Number(res.data.price);
+        }
+      } catch {
+        // fall through
+      }
+      return null;
+    };
+
+    const out = await Promise.all(
       items.map(async (line) => {
         if (!line.item_id) {
           return { ...line, ...calcItemTotals(line) };
         }
-        try {
-          const res = await api.post("/sales/prices/best-price", {
-            product_id: line.item_id,
-            quantity: Number(line.qty || 1),
-            date: dateStr,
-            price_type:
-              typeof priceType === "string"
-                ? priceType
-                : String(priceType || ""),
-            only_standard: true,
-            ...(custId ? { customer_id: custId } : {}),
-          });
-          if (res.data && res.data.price !== undefined) {
-            const unit = Math.round(Number(res.data.price || 0) * 100) / 100;
-            const next = { ...line, unit_price: unit };
-            return { ...next, ...calcItemTotals(next) };
-          }
-        } catch {
-          // fall through
+        const newPrice = await fetchPrice(line.item_id);
+        if (newPrice !== null) {
+          const nextLine = { ...line, unit_price: newPrice };
+          return { ...nextLine, ...calcItemTotals(nextLine) };
         }
         return { ...line, ...calcItemTotals(line) };
       }),
     );
-    setItems(nextLines);
+    setItems(out);
+
+    if (newItem.item_id) {
+      const newPrice = await fetchPrice(newItem.item_id);
+      if (newPrice !== null) {
+        setNewItem((prev) => ({ ...prev, unit_price: newPrice }));
+      }
+    }
   };
 
   const fetchQuotation = async () => {
@@ -641,7 +654,7 @@ export default function QuotationForm() {
           terms_and_conditions: data.terms_and_conditions || "",
           remarks: data.remarks || "",
           warehouse_id: data.warehouse_id || "",
-          price_type: data.price_type || "RETAIL",
+          price_type: data.price_type || "",
           payment_type: data.payment_type || "CASH",
           currency_id: data.currency_id || 4,
           exchange_rate: data.exchange_rate || 1,
@@ -732,6 +745,7 @@ export default function QuotationForm() {
       setCustomerCityInput(cust.city || "");
       setCustomerStateInput(cust.state || "");
       setCustomerCountryInput(cust.country || "");
+      void repriceQuotationLinesByPriceType(formData.price_type, cust.id);
       return;
     }
 
@@ -763,7 +777,7 @@ export default function QuotationForm() {
       }));
     } else if (name === "price_type") {
       setFormData((prev) => ({ ...prev, [name]: value }));
-      void repriceQuotationLinesByPriceType(value);
+      void repriceQuotationLinesByPriceType(value, formData.customer_id);
     } else {
       setFormData((prev) => ({ ...prev, [name]: value }));
     }
@@ -1454,8 +1468,10 @@ export default function QuotationForm() {
                 onChange={handleInputChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
               >
-                <option value="RETAIL">Retail</option>
-                <option value="WHOLESALE">Wholesale</option>
+                <option value="">Select price type</option>
+                {priceTypes.map((pt) => (
+                  <option key={pt.id} value={pt.name}>{pt.name}</option>
+                ))}
               </select>
             </div>
             <div>

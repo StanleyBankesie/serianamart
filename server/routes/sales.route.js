@@ -2362,6 +2362,76 @@ router.get(
   },
 );
 
+router.post(
+  "/price-types",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const { priceTypes } = req.body;
+      const createdBy = req.user?.sub || null;
+      if (!Array.isArray(priceTypes)) {
+        throw { status: 400, message: "Invalid payload" };
+      }
+      for (const pt of priceTypes) {
+        if (!pt.name?.trim()) continue;
+        if (pt.id) {
+          await query(
+            `UPDATE sal_price_types 
+             SET name = :name, description = :description, is_active = :is_active 
+             WHERE id = :id AND company_id = :companyId`,
+            {
+              id: pt.id,
+              companyId,
+              name: pt.name.trim(),
+              description: pt.description || null,
+              is_active: pt.is_active === 0 || pt.is_active === false ? 0 : 1,
+            },
+          );
+        } else {
+          await query(
+            `INSERT INTO sal_price_types (company_id, name, description, is_active, created_by) 
+             VALUES (:companyId, :name, :description, :is_active, :created_by)`,
+            {
+              companyId,
+              name: pt.name.trim(),
+              description: pt.description || null,
+              is_active: pt.is_active === 0 || pt.is_active === false ? 0 : 1,
+              created_by: createdBy,
+            },
+          );
+        }
+      }
+      res.json({ message: "Price types saved successfully" });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.delete(
+  "/price-types/:id",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) {
+        throw { status: 400, message: "Invalid id" };
+      }
+      await query(
+        `DELETE FROM sal_price_types WHERE id = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
+      res.json({ message: "Price type deleted successfully" });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 router.get(
   "/quotations",
   requireAuth,
@@ -5566,6 +5636,32 @@ router.post(
           }
         }
       }
+
+      // Customer Price Override Logic
+      // Only applies when BOTH customer_id AND a resolved price_type_id are present.
+      // This ensures the exact customer+priceType combination is matched in sal_customer_prices.
+      const customerId = Number(req.body?.customer_id);
+
+      if (Number.isFinite(customerId) && customerId > 0 && priceTypeId != null) {
+        const [cpRow] = await query(
+          `SELECT customer_price FROM sal_customer_prices 
+           WHERE company_id = :companyId 
+             AND (branch_id = :branchId OR branch_id IS NULL) 
+             AND product_id = :productId 
+             AND customer_id = :customerId 
+             AND price_type_id = :priceTypeId
+             AND (effective_from IS NULL OR effective_from <= CURDATE())
+             AND (effective_to IS NULL OR effective_to >= CURDATE())
+           ORDER BY (branch_id IS NULL) ASC, COALESCE(effective_from, DATE('1900-01-01')) DESC, id DESC 
+           LIMIT 1`,
+          { companyId, branchId, productId, customerId, priceTypeId }
+        ).catch(() => []);
+        if (cpRow && cpRow.customer_price != null) {
+          return res.json({ price: Number(cpRow.customer_price) });
+        }
+      }
+
+
       let priceRow = null;
       if (priceTypeId != null) {
         const [row] = await query(

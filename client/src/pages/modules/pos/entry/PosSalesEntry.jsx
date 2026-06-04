@@ -764,6 +764,7 @@ export default function PosSalesEntry() {
         quantity: 1,
         price_type: priceTypeId || "",
         only_standard: true,
+        ...(selectedCustomerId ? { customer_id: selectedCustomerId } : {}),
       };
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error("price-timeout")), 2000)
@@ -1754,21 +1755,9 @@ export default function PosSalesEntry() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <div style={{ minWidth: 220 }}>
-                  <FilterableSelect
-                    value={selectedCustomerId}
-                    onChange={setSelectedCustomerId}
-                    options={(Array.isArray(customers) ? customers : []).map(
-                      (c) => ({
-                        value: String(c.id),
-                        label: String(c.customer_name || c.name || ""),
-                      }),
-                    )}
-                    placeholder="Select customer"
-                    disabled={false}
-                    filterPlaceholder="Filter customers..."
-                  />
-                </div>
+                <Link to="/sales/invoices/new" className="btn btn-primary">
+                  Customer Sales
+                </Link>
                 <Link
                   to="/pos/cash-collection"
                   className="btn btn-primary"

@@ -25,10 +25,10 @@ export default function BulkAttendance() {
       setLoading(true);
       try {
         const [resEmps, resPeriods, resDepts, resLocs] = await Promise.all([
-          api.get("/hr/employees"),
-          api.get("/hr/payroll/periods"),
-          api.get("/admin/departments"),
-          api.get("/hr/setup/locations"),
+          api.get("/hr/employees").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/payroll/periods").catch(() => ({ data: { items: [] } })),
+          api.get("/admin/departments").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/setup/locations").catch(() => ({ data: { items: [] } })),
         ]);
         setEmployees(resEmps?.data?.items || []);
         setPeriods(resPeriods?.data?.items || []);

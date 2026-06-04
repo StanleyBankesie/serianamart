@@ -222,6 +222,12 @@ router.post(
   requireCompanyScope,
   hrController.saveOffer,
 );
+router.get(
+  "/offers/:id",
+  requireAuth,
+  requireCompanyScope,
+  hrController.getOfferById,
+);
 
 // Onboarding
 router.get(

@@ -1094,7 +1094,11 @@ export default function TaxConfigList() {
                       <th className="px-4 py-3">Profile Name</th>
                       <th className="px-4 py-3">Employee Contribution (%)</th>
                       <th className="px-4 py-3">Employer Contribution (%)</th>
-                      <th className="px-4 py-3 w-16"></th>
+                        <th className="px-4 py-3">Employee Contribution (%)</th>
+                        <th className="px-4 py-3">Employer Contribution (%)</th>
+                        <th className="px-4 py-3">Created By</th>
+                        <th className="px-4 py-3">Created Date</th>
+                        <th className="px-4 py-3 w-16"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1147,6 +1151,8 @@ export default function TaxConfigList() {
                             }
                           />
                         </td>
+                        <td className="px-4 py-2 text-sm">{tax.created_by_name || "-"}</td>
+                        <td className="px-4 py-2 text-sm">{tax.created_at ? new Date(tax.created_at).toLocaleDateString() : "-"}</td>
                         <td className="px-4 py-2 text-right">
                           <button
                             onClick={() =>
@@ -1157,14 +1163,12 @@ export default function TaxConfigList() {
                             &times;
                           </button>
                         </td>
-                        <td>{b.created_by_name || "-"}</td>
-                        <td>{b.created_at ? new Date(b.created_at).toLocaleDateString() : "-"}</td>
                       </tr>
                     ))}
                     {tier3Taxes.length === 0 && (
                       <tr>
                         <td
-                          colSpan={4}
+                          colSpan={6}
                           className="px-4 py-8 text-center text-slate-500 text-sm"
                         >
                           No Tier 3 profiles defined.

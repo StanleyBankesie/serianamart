@@ -75,6 +75,13 @@ export default function PolicyForm() {
         url: res?.data?.url || "",
         name: res?.data?.filename || policyFile.name || "",
       };
+    } catch (err) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "File upload failed (may be too large)";
+      toast.error(msg);
+      throw err;
     } finally {
       setUploadingFile(false);
     }

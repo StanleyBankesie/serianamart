@@ -14,7 +14,7 @@ import { toast } from "react-toastify";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 export default function InvoiceForm() {
-  const { canEditDiscount } = usePermission();
+  const { canEditDiscount, canAccessPath } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const { getExchangeRate } = useExchangeRate();
@@ -36,6 +36,7 @@ export default function InvoiceForm() {
   const [warehouses, setWarehouses] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [taxes, setTaxes] = useState([]);
+  const [priceTypes, setPriceTypes] = useState([]);
   const [form, setForm] = useState({
     invoice_no: "",
     invoice_date: new Date().toISOString().split("T")[0],
@@ -43,7 +44,7 @@ export default function InvoiceForm() {
     sales_order_id: "",
     status: "POSTED",
     warehouse_id: "",
-    price_type: "RETAIL",
+    price_type: "",
     currency_id: "",
     exchange_rate: 1,
     address: "",
@@ -87,6 +88,8 @@ export default function InvoiceForm() {
   });
   const [preparedBy, setPreparedBy] = useState("");
   const [customerPrices, setCustomerPrices] = useState([]);
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [showPermModal, setShowPermModal] = useState(false);
   const { uoms } = useUoms();
   const defaultUomCode = React.useMemo(() => {
     const list = Array.isArray(uoms) ? uoms : [];
@@ -187,6 +190,7 @@ export default function InvoiceForm() {
     fetchOrders();
     fetchWarehouses();
     fetchCurrencies();
+    fetchPriceTypes();
     fetchTaxCodes();
     fetchCompanyInfo();
     fetchProjects();
@@ -385,6 +389,17 @@ export default function InvoiceForm() {
       }));
     } catch (error) {
       console.error("Error fetching currencies:", error);
+    }
+  };
+
+  const fetchPriceTypes = async () => {
+    try {
+      const response = await api.get("/sales/price-types");
+      setPriceTypes(
+        Array.isArray(response.data?.items) ? response.data.items : [],
+      );
+    } catch (error) {
+      console.error("Error fetching price types:", error);
     }
   };
 
@@ -615,7 +630,7 @@ export default function InvoiceForm() {
           phone: "",
           remarks: data.remarks || "",
           warehouse_id: data.warehouse_id || "",
-          price_type: data.price_type || "RETAIL",
+          price_type: data.price_type || "",
           payment_type: data.payment_type || "CASH",
           currency_id: data.currency_id || "",
           exchange_rate: Number(data.exchange_rate || 1),
@@ -702,8 +717,10 @@ export default function InvoiceForm() {
     }
   };
 
-  async function repriceLinesByPriceType(priceType) {
+  async function repriceLinesByPriceType(newPriceType, newCustomerId) {
     try {
+      const pType = newPriceType !== undefined ? newPriceType : form.price_type;
+      const cId = newCustomerId !== undefined ? newCustomerId : form.customer_id;
       const currentLines = [...lines];
       const results = await Promise.all(
         currentLines.map(async (l) => {
@@ -714,13 +731,13 @@ export default function InvoiceForm() {
           try {
             const res = await api.post("/sales/prices/best-price", {
               product_id: l.item_id,
-              customer_id: form.customer_id,
+              customer_id: cId,
               quantity: Number(l.qty || 1),
               date: form.invoice_date,
               price_type:
-                typeof priceType === "string"
-                  ? priceType
-                  : String(priceType || ""),
+                typeof pType === "string"
+                  ? pType
+                  : String(pType || ""),
               only_standard: true,
             });
             if (res.data && res.data.price !== undefined) {
@@ -750,12 +767,13 @@ export default function InvoiceForm() {
       next.country = cust?.country || "";
       next.phone = cust?.phone || cust?.customer_phone || "";
       fetchCustomerPrices();
+      repriceLinesByPriceType(form.price_type, value);
     }
     if (name === "sales_order_id" && value) {
       applyOrderToInvoice(value);
     }
     if (name === "price_type") {
-      repriceLinesByPriceType(value);
+      repriceLinesByPriceType(value, form.customer_id);
     }
     setForm(next);
   }
@@ -1535,6 +1553,20 @@ export default function InvoiceForm() {
                           </button>
                         ))}
                       </div>
+                    ) : q.length >= 2 ? (
+                      <div className="absolute z-30 w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg shadow-lg mt-1">
+                        <div className="p-3 text-sm text-slate-600 dark:text-slate-400 text-center">
+                          Customer not found.{" "}
+                          <button
+                            type="button"
+                            className="text-brand-700 dark:text-brand-400 font-medium underline ml-1"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => setShowCustomerModal(true)}
+                          >
+                            Add customer
+                          </button>
+                        </div>
+                      </div>
                     ) : null;
                   })()
                 )}
@@ -1596,8 +1628,10 @@ export default function InvoiceForm() {
                   onChange={(e) => update("price_type", e.target.value)}
                   disabled={readOnly}
                 >
-                  <option value="RETAIL">Retail</option>
-                  <option value="WHOLESALE">Wholesale</option>
+                  <option value="">Select price type</option>
+                  {priceTypes.map((pt) => (
+                    <option key={pt.id} value={pt.name}>{pt.name}</option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -2713,6 +2747,42 @@ export default function InvoiceForm() {
           }
         }}
       />
+      {showCustomerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowCustomerModal(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 p-6 max-w-sm mx-4 w-full" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Customer not found</h3>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
+              Customer cannot be found in the system. Would you like to add a new customer?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button type="button" className="btn btn-secondary" onClick={() => setShowCustomerModal(false)}>Back</button>
+              <button type="button" className="btn btn-primary" onClick={() => {
+                setShowCustomerModal(false);
+                if (!canAccessPath("/sales/customers/new")) {
+                  setShowPermModal(true);
+                } else {
+                  navigate("/sales/customers/new");
+                }
+              }}>
+                Add Customer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showPermModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowPermModal(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 p-6 max-w-sm mx-4 w-full" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Access Denied</h3>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
+              You do not have permission to access this page.
+            </p>
+            <div className="flex justify-end">
+              <button type="button" className="btn btn-secondary" onClick={() => setShowPermModal(false)}>Back</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

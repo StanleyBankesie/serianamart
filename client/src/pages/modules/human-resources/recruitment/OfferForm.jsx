@@ -148,24 +148,6 @@ export default function OfferForm() {
         <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
-              <label className="label font-semibold">Offer No *</label>
-              <input className="input font-mono bg-slate-50" value={form.offer_no} readOnly />
-            </div>
-            <div>
-              <label className="label font-semibold">Offer Date *</label>
-              <input type="date" className="input" value={form.offer_date} onChange={e => setForm({...form, offer_date: e.target.value})} required />
-            </div>
-            <div>
-              <label className="label font-semibold">Status</label>
-              <select className="input" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
-                <option value="DRAFT">Draft</option>
-                <option value="PENDING">Pending Approval</option>
-                <option value="APPROVED">Approved</option>
-                <option value="ACCEPTED">Accepted</option>
-                <option value="REJECTED">Rejected</option>
-              </select>
-            </div>
-            <div>
               <label className="label font-semibold">Candidate *</label>
               <select className="input" value={form.candidate_id} onChange={e => onCandidateChange(e.target.value)} required>
                 <option value="">Select Candidate</option>
@@ -187,11 +169,15 @@ export default function OfferForm() {
               </select>
             </div>
             <div>
+              <label className="label font-semibold">Offer Date *</label>
+              <input type="date" className="input" value={form.offer_date} onChange={e => setForm({...form, offer_date: e.target.value})} required />
+            </div>
+            <div>
               <label className="label font-semibold">Gross Salary *</label>
               <input type="number" className="input font-mono" value={form.gross_salary} onChange={e => setForm({...form, gross_salary: e.target.value})} required />
             </div>
-            <div className="md:col-span-2">
-              <label className="label font-semibold">Remarks</label>
+            <div>
+              <label className="label font-semibold">Remark</label>
               <input className="input" value={form.remarks} onChange={e => setForm({...form, remarks: e.target.value})} placeholder="Internal notes..." />
             </div>
           </div>

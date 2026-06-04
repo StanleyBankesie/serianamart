@@ -38,7 +38,7 @@ export default function SalesOrderForm() {
   const { id } = useParams();
   const isEditMode = !!id;
   const { user } = useAuth();
-  const { canEditDiscount } = usePermission();
+  const { canEditDiscount, canAccessPath } = usePermission();
   const { getExchangeRate } = useExchangeRate();
   const [searchParams] = useSearchParams();
   const isViewMode =
@@ -58,7 +58,7 @@ export default function SalesOrderForm() {
     exchange_rate: 1,
     sales_person_id: "",
     warehouse_id: "",
-    price_type: "RETAIL",
+    price_type: "",
     payment_type: "CASH",
     payment_terms: "",
     priority: "MEDIUM",
@@ -78,6 +78,8 @@ export default function SalesOrderForm() {
   const [items, setItems] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [customerSearch, setCustomerSearch] = useState("");
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [showPermModal, setShowPermModal] = useState(false);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [quotations, setQuotations] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -105,6 +107,7 @@ export default function SalesOrderForm() {
     [inventoryItems],
   );
   const [taxes, setTaxes] = useState([]);
+  const [priceTypes, setPriceTypes] = useState([]);
   const pdfRef = useRef(null);
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
   const [companyInfo, setCompanyInfo] = useState({
@@ -303,6 +306,7 @@ export default function SalesOrderForm() {
     fetchQuotations();
     fetchWarehouses();
     fetchCurrencies();
+    fetchPriceTypes();
     fetchTaxCodes();
     fetchCompanyInfo();
     if (isEditMode) {
@@ -474,6 +478,17 @@ export default function SalesOrderForm() {
     }
   };
 
+  const fetchPriceTypes = async () => {
+    try {
+      const response = await api.get("/sales/price-types");
+      setPriceTypes(
+        Array.isArray(response.data?.items) ? response.data.items : [],
+      );
+    } catch (error) {
+      console.error("Error fetching price types:", error);
+    }
+  };
+
   const fetchTaxCodes = async () => {
     try {
       const response = await api.get("/finance/tax-codes?form=SALES_ORDER");
@@ -621,7 +636,7 @@ export default function SalesOrderForm() {
           quotation_id: data.quotation_id || "",
           status: data.status || "DRAFT",
           warehouse_id: data.warehouse_id || "",
-          price_type: data.price_type || "RETAIL",
+          price_type: data.price_type || "",
           payment_type: data.payment_type || "CASH",
           currency_id: data.currency_id ?? prev.currency_id ?? "",
           exchange_rate: data.exchange_rate || 1,
@@ -705,7 +720,7 @@ export default function SalesOrderForm() {
           exchange_rate: item.exchange_rate || prev.exchange_rate || 1,
           remarks: item.remarks || "",
           payment_terms: item.terms_and_conditions || prev.payment_terms || "",
-          price_type: item.price_type || prev.price_type || "RETAIL",
+          price_type: item.price_type || prev.price_type || "",
           payment_type: item.payment_type || prev.payment_type || "CASH",
           warehouse_id: item.warehouse_id || prev.warehouse_id || "",
         }));
@@ -765,40 +780,51 @@ export default function SalesOrderForm() {
     }
   };
 
-  const repriceOrderLinesByPriceType = async (priceType) => {
+  const repriceOrderLinesByPriceType = async (newPriceType, newCustomerId) => {
+    const pType = newPriceType !== undefined ? newPriceType : formData.price_type;
+    const cId = newCustomerId !== undefined ? newCustomerId : formData.customer_id;
     const dateStr = formData.order_date;
-    const custId = formData.customer_id;
+    
+    const fetchPrice = async (prodId) => {
+      try {
+        const res = await api.post("/sales/prices/best-price", {
+          product_id: prodId,
+          quantity: 1,
+          date: dateStr,
+          price_type: typeof pType === "string" ? pType : String(pType || ""),
+          only_standard: true,
+          ...(cId ? { customer_id: cId } : {}),
+        });
+        if (res.data?.price !== undefined) {
+          return Number(res.data.price);
+        }
+      } catch {
+        // fall through
+      }
+      return null;
+    };
+
     const out = await Promise.all(
       items.map(async (line) => {
         if (!line.item_id) {
           return { ...line, ...calcItemTotals(line) };
         }
-        try {
-          const res = await api.post("/sales/prices/best-price", {
-            product_id: line.item_id,
-            quantity: Number(line.qty || 1),
-            date: dateStr,
-            price_type:
-              typeof priceType === "string"
-                ? priceType
-                : String(priceType || ""),
-            only_standard: true,
-            ...(custId ? { customer_id: custId } : {}),
-          });
-          if (res.data?.price !== undefined) {
-            const nextLine = {
-              ...line,
-              unit_price: Number(res.data.price),
-            };
-            return { ...nextLine, ...calcItemTotals(nextLine) };
-          }
-        } catch {
-          // fall through
+        const newPrice = await fetchPrice(line.item_id);
+        if (newPrice !== null) {
+          const nextLine = { ...line, unit_price: newPrice };
+          return { ...nextLine, ...calcItemTotals(nextLine) };
         }
         return { ...line, ...calcItemTotals(line) };
       }),
     );
     setItems(out);
+
+    if (newItem.item_id) {
+      const newPrice = await fetchPrice(newItem.item_id);
+      if (newPrice !== null) {
+        setNewItem((prev) => ({ ...prev, unit_price: newPrice }));
+      }
+    }
   };
 
   const handleInputChange = (e) => {
@@ -815,11 +841,12 @@ export default function SalesOrderForm() {
         country: cust?.country || "",
         phone: cust?.phone || cust?.customer_phone || "",
       }));
+      void repriceOrderLinesByPriceType(formData.price_type, value);
       return;
     }
     if (name === "price_type") {
       setFormData((prev) => ({ ...prev, [name]: value }));
-      void repriceOrderLinesByPriceType(value);
+      void repriceOrderLinesByPriceType(value, formData.customer_id);
       return;
     }
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -1398,6 +1425,20 @@ export default function SalesOrderForm() {
                               </button>
                             ))}
                           </div>
+                        ) : q.length >= 2 ? (
+                          <div className="absolute z-30 w-full bg-white border border-gray-300 rounded-lg shadow-lg mt-1">
+                            <div className="p-3 text-sm text-slate-600 text-center">
+                              Customer not found.{" "}
+                              <button
+                                type="button"
+                                className="text-brand-700 font-medium underline ml-1"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => setShowCustomerModal(true)}
+                              >
+                                Add customer
+                              </button>
+                            </div>
+                          </div>
                         ) : null;
                       })()
                     )}
@@ -1465,8 +1506,10 @@ export default function SalesOrderForm() {
                       onChange={handleInputChange}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
                     >
-                      <option value="RETAIL">Retail</option>
-                      <option value="WHOLESALE">Wholesale</option>
+                      <option value="">Select price type</option>
+                      {priceTypes.map((pt) => (
+                        <option key={pt.id} value={pt.name}>{pt.name}</option>
+                      ))}
                     </select>
                   </div>
                   <div>
@@ -2374,6 +2417,42 @@ export default function SalesOrderForm() {
           }
         }}
       />
+      {showCustomerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowCustomerModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl border border-gray-200 p-6 max-w-sm mx-4 w-full" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">Customer not found</h3>
+            <p className="text-sm text-slate-600 mb-6">
+              Customer cannot be found in the system. Would you like to add a new customer?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button type="button" className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50" onClick={() => setShowCustomerModal(false)}>Back</button>
+              <button type="button" className="px-4 py-2 text-sm rounded-lg bg-brand-900 text-white hover:bg-brand-800" onClick={() => {
+                setShowCustomerModal(false);
+                if (!canAccessPath("/sales/customers/new")) {
+                  setShowPermModal(true);
+                } else {
+                  navigate("/sales/customers/new");
+                }
+              }}>
+                Add Customer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showPermModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowPermModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl border border-gray-200 p-6 max-w-sm mx-4 w-full" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">Access Denied</h3>
+            <p className="text-sm text-slate-600 mb-6">
+              You do not have permission to access this page.
+            </p>
+            <div className="flex justify-end">
+              <button type="button" className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50" onClick={() => setShowPermModal(false)}>Back</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

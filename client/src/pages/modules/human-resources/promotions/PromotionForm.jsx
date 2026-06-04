@@ -54,7 +54,9 @@ export default function PromotionForm() {
         const item = res?.data?.item || {};
         setForm({
           ...item,
-          promotion_date: item.promotion_date ? item.promotion_date.slice(0, 10) : "",
+          promotion_date: item.promotion_date
+            ? item.promotion_date.slice(0, 10)
+            : "",
         });
       } catch {
         toast.error("Failed to fetch promotion details");
@@ -93,7 +95,7 @@ export default function PromotionForm() {
   async function submit(e) {
     e.preventDefault();
     if (!form.employee_id) return toast.error("Select employee");
-    
+
     setLoading(true);
     try {
       await api.post("/hr/promotions", form);
@@ -109,13 +111,19 @@ export default function PromotionForm() {
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold">{isEdit ? "Edit Promotion" : "New Assignment/Promotion"}</h1>
-        <Link to="/human-resources/promotions" className="btn-secondary">Back</Link>
+        <h1 className="text-2xl font-bold">
+          {isEdit ? "Edit Promotion" : "New Assignment/Promotion"}
+        </h1>
+        <Link to="/human-resources/promotions" className="btn-secondary">
+          Back
+        </Link>
       </div>
 
       <form onSubmit={submit} className="space-y-6">
         <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
-          <h2 className="text-lg font-semibold border-b pb-2 mb-4 text-brand">Employee Details</h2>
+          <h2 className="text-lg font-semibold border-b pb-2 mb-4 text-brand">
+            Employee Details
+          </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="label font-semibold">Employee *</label>
@@ -150,28 +158,44 @@ export default function PromotionForm() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Current Assignment */}
           <div className="bg-slate-50 dark:bg-slate-900/50 p-6 rounded-lg border border-slate-200 dark:border-slate-700">
-            <h2 className="text-lg font-semibold border-b pb-2 mb-4 text-slate-600">Current Assignment</h2>
+            <h2 className="text-lg font-semibold border-b pb-2 mb-4 text-slate-600">
+              Current Assignment
+            </h2>
             <div className="space-y-4">
               <div>
-                <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Department</label>
+                <label className="text-xs font-bold uppercase text-slate-500 block mb-1">
+                  Department
+                </label>
                 <div className="p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
-                  {departments.find(d => String(d.id) === String(form.previous_dept_id))?.name || "-"}
+                  {departments.find(
+                    (d) => String(d.id) === String(form.previous_dept_id),
+                  )?.name || "-"}
                 </div>
               </div>
               <div>
-                <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Location</label>
+                <label className="text-xs font-bold uppercase text-slate-500 block mb-1">
+                  Location
+                </label>
                 <div className="p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
-                  {locations.find(b => String(b.id) === String(form.previous_location_id))?.location_name || "-"}
+                  {locations.find(
+                    (b) => String(b.id) === String(form.previous_location_id),
+                  )?.location_name || "-"}
                 </div>
               </div>
               <div>
-                <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Position</label>
+                <label className="text-xs font-bold uppercase text-slate-500 block mb-1">
+                  Position
+                </label>
                 <div className="p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
-                  {positions.find(p => String(p.id) === String(form.previous_pos_id))?.pos_name || "None"}
+                  {positions.find(
+                    (p) => String(p.id) === String(form.previous_pos_id),
+                  )?.pos_name || "None"}
                 </div>
               </div>
               <div>
-                <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Salary</label>
+                <label className="text-xs font-bold uppercase text-slate-500 block mb-1">
+                  Salary
+                </label>
                 <div className="p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700 font-mono">
                   {Number(form.previous_salary).toLocaleString()}
                 </div>
@@ -181,7 +205,9 @@ export default function PromotionForm() {
 
           {/* New Assignment */}
           <div className="bg-white dark:bg-slate-800 p-6 rounded-lg border border-brand/20 shadow-sm">
-            <h2 className="text-lg font-semibold border-b pb-2 mb-4 text-brand">New Assignment</h2>
+            <h2 className="text-lg font-semibold border-b pb-2 mb-4 text-brand">
+              New Assignment
+            </h2>
             <div className="space-y-4">
               <div>
                 <label className="label font-semibold">New Department</label>
@@ -192,7 +218,9 @@ export default function PromotionForm() {
                 >
                   <option value="">No Change</option>
                   {departments.map((d) => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -205,7 +233,9 @@ export default function PromotionForm() {
                 >
                   <option value="">No Change</option>
                   {locations.map((b) => (
-                    <option key={b.id} value={b.id}>{b.location_name}</option>
+                    <option key={b.id} value={b.id}>
+                      {b.location_name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -218,7 +248,9 @@ export default function PromotionForm() {
                 >
                   <option value="">No Change</option>
                   {positions.map((p) => (
-                    <option key={p.id} value={p.id}>{p.pos_name}</option>
+                    <option key={p.id} value={p.id}>
+                      {p.pos_name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -239,7 +271,7 @@ export default function PromotionForm() {
         <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
           <label className="label font-semibold">Remarks/Notes</label>
           <textarea
-            className="input h-24"
+            className="input h-56 w-full font-sans"
             value={form.remarks}
             onChange={(e) => update("remarks", e.target.value)}
             placeholder="Reason for promotion, changes, etc."
@@ -247,7 +279,9 @@ export default function PromotionForm() {
         </div>
 
         <div className="flex justify-end gap-3 pt-4">
-          <Link to="/human-resources/promotions" className="btn-secondary">Cancel</Link>
+          <Link to="/human-resources/promotions" className="btn-secondary">
+            Cancel
+          </Link>
           <button className="btn-primary px-12" disabled={loading}>
             {loading ? "Saving..." : "Process Assignment"}
           </button>
@@ -256,10 +290,3 @@ export default function PromotionForm() {
     </div>
   );
 }
-
-
-
-
-
-
-

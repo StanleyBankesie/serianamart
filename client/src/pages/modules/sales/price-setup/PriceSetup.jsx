@@ -28,6 +28,13 @@ export default function PriceSetup() {
   // Form states
   const [formData, setFormData] = useState({});
   const [productQuery, setProductQuery] = useState("");
+  const [section, setSection] = useState("selector");
+  const [costData, setCostData] = useState([]);
+  const [costLoading, setCostLoading] = useState(false);
+  const [costModalOpen, setCostModalOpen] = useState(false);
+  const [costFormData, setCostFormData] = useState({});
+  const [costProductQuery, setCostProductQuery] = useState("");
+  const costFileInputRef = React.useRef(null);
 
   useEffect(() => {
     loadInitialData();
@@ -57,6 +64,10 @@ export default function PriceSetup() {
     }));
   }, [priceTypes, currencies, modalOpen]);
 
+  useEffect(() => {
+    if (section === "cost") loadCostData();
+  }, [section]);
+
   const loadInitialData = async () => {
     try {
       console.log("Loading initial data...");
@@ -84,12 +95,23 @@ export default function PriceSetup() {
     }
   };
 
+  const loadCostData = async () => {
+    setCostLoading(true);
+    try {
+      const res = await api.get("/inventory/items");
+      setCostData(res.data.items || []);
+    } catch (err) {
+      console.error("Error loading cost data:", err);
+    } finally {
+      setCostLoading(false);
+    }
+  };
+
   const loadTabData = async () => {
     setLoading(true);
     try {
       let endpoint = "";
       let params = {};
-
       switch (activeTab) {
         case "standard":
           endpoint = "/sales/prices/standard";
@@ -101,12 +123,7 @@ export default function PriceSetup() {
         default:
           return;
       }
-
-      console.log(`Fetching tab data from ${endpoint}`, params);
       const res = await api.get(endpoint, { params });
-      console.log("Tab data response:", res.data);
-
-      // Handle both array and object wrapper formats just in case
       const items = Array.isArray(res.data) ? res.data : res.data.items || [];
       setData(items);
     } catch (err) {
@@ -281,6 +298,40 @@ export default function PriceSetup() {
     XLSX.writeFile(wb, filename);
   };
 
+  const handleCostDownloadTemplate = () => {
+    const headers = [
+      "Item Code",
+      "Item Name",
+      "Current Cost Price",
+      "New Cost Price",
+    ];
+    const filename = "cost_prices_template.xlsx";
+    const rows = costData.map((item) => [
+      item.item_code || "",
+      item.item_name || "",
+      Number(item.cost_price || 0).toFixed(2),
+      "",
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    try {
+      const colCount = headers.length;
+      const widths = [];
+      for (let c = 0; c < colCount; c++) {
+        let maxLen = String(headers[c] || "").length;
+        for (let r = 0; r < rows.length; r++) {
+          const val = rows[r]?.[c];
+          const s = val == null ? "" : String(val);
+          if (s.length > maxLen) maxLen = s.length;
+        }
+        widths.push({ wch: Math.min(Math.max(maxLen + 2, 12), 40) });
+      }
+      ws["!cols"] = widths;
+    } catch {}
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Cost Prices");
+    XLSX.writeFile(wb, filename);
+  };
+
   const handleUploadClick = () => {
     fileInputRef.current.click();
   };
@@ -310,6 +361,41 @@ export default function PriceSetup() {
         await api.post(endpoint, { items });
         alert("Uploaded successfully");
         loadTabData();
+      } catch (err) {
+        console.error("Upload failed", err);
+        alert("Upload failed: " + (err.response?.data?.message || err.message));
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = "";
+  };
+
+  const handleOpenCostUpload = () => {
+    costFileInputRef.current.click();
+  };
+
+  const handleCostFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const items = XLSX.utils.sheet_to_json(sheet);
+        if (items.length === 0) {
+          alert("File is empty or invalid format");
+          return;
+        }
+        const res = await api.post("/inventory/items/cost-prices/bulk", {
+          items,
+        });
+        alert(
+          `Uploaded successfully. ${res.data.updated} updated, ${res.data.notFound} not found.`,
+        );
+        loadCostData();
       } catch (err) {
         console.error("Upload failed", err);
         alert("Upload failed: " + (err.response?.data?.message || err.message));
@@ -442,6 +528,52 @@ export default function PriceSetup() {
     }
   };
 
+  const handleOpenCostModal = () => {
+    setCostFormData({ cost_price: "" });
+    setCostProductQuery("");
+    setCostModalOpen(true);
+  };
+
+  const handleCloseCostModal = () => {
+    setCostModalOpen(false);
+    setCostFormData({});
+    setCostProductQuery("");
+  };
+
+  const handleCostProductSelect = (productId) => {
+    const product = products.find((p) => p.id == productId);
+    setCostProductQuery(product ? product.item_name : "");
+    setCostFormData((prev) => ({
+      ...prev,
+      item_id: productId,
+      current_cost: product ? Number(product.cost_price || 0).toFixed(2) : "",
+    }));
+  };
+
+  const handleCostSave = async () => {
+    try {
+      const itemId = Number(costFormData.item_id);
+      const costPrice = Number(costFormData.cost_price);
+      if (!itemId) {
+        alert("Select a product");
+        return;
+      }
+      if (!Number.isFinite(costPrice) || costPrice < 0) {
+        alert("Enter a valid cost price");
+        return;
+      }
+      await api.post("/inventory/items/cost-price", {
+        item_id: itemId,
+        cost_price: costPrice,
+      });
+      handleCloseCostModal();
+      loadCostData();
+    } catch (err) {
+      console.error("Error saving cost price:", err);
+      alert("Failed to save: " + (err.response?.data?.message || err.message));
+    }
+  };
+
   const renderStandardPrices = () => (
     <div className="table-container">
       <table>
@@ -468,7 +600,7 @@ export default function PriceSetup() {
             const currency = currencies.find((c) => c.id === item.currency_id);
             return (
               <tr key={index}>
-                 <td>{product ? product.item_name : item.product_id}</td>
+                <td>{product ? product.item_name : item.product_id}</td>
                 <td>{Number(item.cost_price).toFixed(2)}</td>
                 <td>{Number(item.selling_price).toFixed(2)}</td>
                 <td>{Number(item.margin_percent).toFixed(2)}%</td>
@@ -541,6 +673,34 @@ export default function PriceSetup() {
     </div>
   );
 
+  const renderCostTable = () => (
+    <div className="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Item Code</th>
+            <th>Item Name</th>
+            <th>Group</th>
+            <th>Current Cost Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          {costData.map((item, index) => {
+            const groupName = item.group_name || item.category_name || "";
+            return (
+              <tr key={index}>
+                <td>{item.item_code}</td>
+                <td>{item.item_name}</td>
+                <td>{groupName || "-"}</td>
+                <td>{Number(item.cost_price || 0).toFixed(2)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+
   const handleProductChange = (productId) => {
     const product = products.find((p) => p.id == productId);
     if (product) {
@@ -548,7 +708,11 @@ export default function PriceSetup() {
         ...prev,
         product_id: productId,
         uom: product.uom || product.default_uom || product.uom_code || "",
-        cost_price: product.cost_price || product.standard_cost || product.purchase_price || 0,
+        cost_price:
+          product.cost_price ||
+          product.standard_cost ||
+          product.purchase_price ||
+          0,
         currency_id: product.currency_id,
         price_type_id: product.price_type_id,
       }));
@@ -564,81 +728,93 @@ export default function PriceSetup() {
     if (modalType === "standard") {
       return (
         <div className="form-grid">
-            <div className="form-group">
-              <label className="required">Product</label>
-              <div className="relative">
-                <input
-                  id="price-setup-product-search-standard"
-                  autoComplete="off"
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-brand"
-                  placeholder="Type to search products"
-                  value={productQuery}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setProductQuery(val);
-                    if (!val && formData.product_id) {
-                      setFormData((prev) => ({
-                        ...prev,
-                        product_id: "",
-                      }));
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      const query = productQuery.trim();
-                      const results = query
-                        ? filterByPrefix(products, {
-                            query,
-                            searchFields: ["item_code", "item_name", "barcode"],
-                          })
-                        : [];
-                      if (!query || !results.length) return;
-                      handleProductChange(results[0].id);
-                      const prod = products.find((p) => p.id === results[0].id);
-                       setProductQuery(prod ? prod.item_name : "");
-                     }
-                   }}
-                 />
-                 {(() => {
-                   const query = productQuery.trim();
-                   const results = query
-                     ? filterByPrefix(products, {
-                         query,
-                         searchFields: ["item_code", "item_name", "barcode"],
-                       })
-                     : [];
-                   return results.length ? (
-                     (() => {
-                       const el = document.getElementById("price-setup-product-search-standard");
-                       const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
-                       return (
-                         <div
-                           className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
-                           style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
-                         >
-                           {results.map((o) => (
-                             <button
-                               type="button"
-                               key={o.id}
-                               className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
-                               onClick={() => {
-                                 handleProductChange(o.id);
-                                 const prod = products.find((p) => p.id === o.id);
-                                 setProductQuery(prod ? prod.item_name : "");
-                               }}
-                             >
-                               {o.item_name}
-                             </button>
-                           ))}
-                         </div>
-                       );
-                     })()
-                   ) : null;
-                 })()}
-              </div>
+          <div className="form-group">
+            <label className="required">Product</label>
+            <div className="relative">
+              <input
+                id="price-setup-product-search-standard"
+                autoComplete="off"
+                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-brand"
+                placeholder="Type to search products"
+                value={productQuery}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setProductQuery(val);
+                  if (!val && formData.product_id) {
+                    setFormData((prev) => ({
+                      ...prev,
+                      product_id: "",
+                    }));
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const query = productQuery.trim();
+                    const results = query
+                      ? filterByPrefix(products, {
+                          query,
+                          searchFields: ["item_code", "item_name", "barcode"],
+                        })
+                      : [];
+                    if (!query || !results.length) return;
+                    handleProductChange(results[0].id);
+                    const prod = products.find((p) => p.id === results[0].id);
+                    setProductQuery(prod ? prod.item_name : "");
+                  }
+                }}
+              />
+              {(() => {
+                const query = productQuery.trim();
+                const results = query
+                  ? filterByPrefix(products, {
+                      query,
+                      searchFields: ["item_code", "item_name", "barcode"],
+                    })
+                  : [];
+                return results.length
+                  ? (() => {
+                      const el = document.getElementById(
+                        "price-setup-product-search-standard",
+                      );
+                      const r = el
+                        ? el.getBoundingClientRect()
+                        : { bottom: 0, left: 0, width: 0 };
+                      return (
+                        <div
+                          className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
+                          style={{
+                            position: "fixed",
+                            top: `${r.bottom + 4}px`,
+                            left: `${r.left}px`,
+                            width: `${r.width}px`,
+                            zIndex: 9999,
+                          }}
+                        >
+                          {results.map((o) => (
+                            <button
+                              type="button"
+                              key={o.id}
+                              className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                              onClick={() => {
+                                handleProductChange(o.id);
+                                const prod = products.find(
+                                  (p) => p.id === o.id,
+                                );
+                                setProductQuery(prod ? prod.item_name : "");
+                              }}
+                            >
+                              {o.item_name}
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })()
+                  : null;
+              })()}
             </div>
-            <div className="form-group">
-              <label className="required">Price type</label>
+          </div>
+          <div className="form-group">
+            <label className="required">Price type</label>
             <select
               value={formData.price_type_id || ""}
               onChange={(e) =>
@@ -804,46 +980,58 @@ export default function PriceSetup() {
                     if (!query || !results.length) return;
                     handleProductChange(results[0].id);
                     const prod = products.find((p) => p.id === results[0].id);
-                     setProductQuery(prod ? prod.item_name : "");
-                   }
-                 }}
-               />
-               {(() => {
-                 const query = productQuery.trim();
-                 const results = query
-                   ? filterByPrefix(products, {
-                       query,
-                       searchFields: ["item_code", "item_name", "barcode"],
-                     })
-                   : [];
-                 return results.length ? (
-                   (() => {
-                     const el = document.getElementById("price-setup-product-search-customer");
-                     const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
-                     return (
-                       <div
-                         className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
-                         style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
-                       >
-                         {results.map((o) => (
-                           <button
-                             type="button"
-                             key={o.id}
-                             className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
-                             onClick={() => {
-                               handleProductChange(o.id);
-                               const prod = products.find((p) => p.id === o.id);
-                               setProductQuery(prod ? prod.item_name : "");
-                             }}
-                           >
-                             {o.item_name}
-                           </button>
-                         ))}
-                       </div>
-                     );
-                   })()
-                 ) : null;
-               })()}
+                    setProductQuery(prod ? prod.item_name : "");
+                  }
+                }}
+              />
+              {(() => {
+                const query = productQuery.trim();
+                const results = query
+                  ? filterByPrefix(products, {
+                      query,
+                      searchFields: ["item_code", "item_name", "barcode"],
+                    })
+                  : [];
+                return results.length
+                  ? (() => {
+                      const el = document.getElementById(
+                        "price-setup-product-search-customer",
+                      );
+                      const r = el
+                        ? el.getBoundingClientRect()
+                        : { bottom: 0, left: 0, width: 0 };
+                      return (
+                        <div
+                          className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
+                          style={{
+                            position: "fixed",
+                            top: `${r.bottom + 4}px`,
+                            left: `${r.left}px`,
+                            width: `${r.width}px`,
+                            zIndex: 9999,
+                          }}
+                        >
+                          {results.map((o) => (
+                            <button
+                              type="button"
+                              key={o.id}
+                              className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                              onClick={() => {
+                                handleProductChange(o.id);
+                                const prod = products.find(
+                                  (p) => p.id === o.id,
+                                );
+                                setProductQuery(prod ? prod.item_name : "");
+                              }}
+                            >
+                              {o.item_name}
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })()
+                  : null;
+              })()}
             </div>
           </div>
           <div className="form-group">
@@ -889,32 +1077,12 @@ export default function PriceSetup() {
             </select>
           </div>
           <div className="form-group">
-            <label>Standard Price</label>
-            <input
-              type="number"
-              value={formData.standard_price || ""}
-              onChange={(e) =>
-                setFormData({ ...formData, standard_price: e.target.value })
-              }
-            />
-          </div>
-          <div className="form-group">
             <label className="required">Customer Price</label>
             <input
               type="number"
               value={formData.customer_price || ""}
               onChange={(e) =>
                 setFormData({ ...formData, customer_price: e.target.value })
-              }
-            />
-          </div>
-          <div className="form-group">
-            <label>Discount %</label>
-            <input
-              type="number"
-              value={formData.discount_percent || ""}
-              onChange={(e) =>
-                setFormData({ ...formData, discount_percent: e.target.value })
               }
             />
           </div>
@@ -959,6 +1127,95 @@ export default function PriceSetup() {
     }
   };
 
+  const renderCostModalContent = () => (
+    <div className="form-grid">
+      <div className="form-group">
+        <label className="required">Product</label>
+        <div className="relative">
+          <input
+            autoComplete="off"
+            className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-brand"
+            placeholder="Type to search products"
+            value={costProductQuery}
+            onChange={(e) => {
+              const val = e.target.value;
+              setCostProductQuery(val);
+              if (!val && costFormData.item_id) {
+                setCostFormData((prev) => ({
+                  ...prev,
+                  item_id: "",
+                  current_cost: "",
+                }));
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const query = costProductQuery.trim();
+                const results = query
+                  ? filterByPrefix(products, {
+                      query,
+                      searchFields: ["item_code", "item_name", "barcode"],
+                    })
+                  : [];
+                if (!query || !results.length) return;
+                handleCostProductSelect(results[0].id);
+              }
+            }}
+          />
+          {(() => {
+            const query = costProductQuery.trim();
+            const results = query
+              ? filterByPrefix(products, {
+                  query,
+                  searchFields: ["item_code", "item_name", "barcode"],
+                })
+              : [];
+            return results.length ? (
+              <div
+                className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
+                style={{ position: "fixed", zIndex: 9999, minWidth: "280px" }}
+              >
+                {results.map((o) => (
+                  <button
+                    type="button"
+                    key={o.id}
+                    className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                    onClick={() => handleCostProductSelect(o.id)}
+                  >
+                    {o.item_name}
+                  </button>
+                ))}
+              </div>
+            ) : null;
+          })()}
+        </div>
+      </div>
+      {costFormData.current_cost !== undefined && (
+        <div className="form-group">
+          <label>Current Cost Price</label>
+          <input
+            type="text"
+            value={costFormData.current_cost || "0.00"}
+            readOnly
+            className="bg-gray-100"
+          />
+        </div>
+      )}
+      <div className="form-group">
+        <label className="required">New Cost Price</label>
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={costFormData.cost_price || ""}
+          onChange={(e) =>
+            setCostFormData((prev) => ({ ...prev, cost_price: e.target.value }))
+          }
+        />
+      </div>
+    </div>
+  );
+
   return (
     <div className="price-setup-container">
       <input
@@ -968,111 +1225,263 @@ export default function PriceSetup() {
         accept=".csv"
         onChange={handleFileChange}
       />
-      <div className="price-setup-header">
-        <h1>
-          <span>💰</span>
-          Price Setup
-        </h1>
-        <div className="header-actions">
-          <Link to="/sales" className="btn btn-secondary">
-            ← Return to Menu
-          </Link>
-          <button
-            className="btn btn-secondary"
-            onClick={handleDownloadTemplate}
-          >
-            📥 Download Template
-          </button>
-          <button className="btn btn-secondary" onClick={handleUploadClick}>
-            📤 Upload Prices
-          </button>
-          <button className="btn btn-secondary" onClick={loadTabData}>
-            🔄 Refresh
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={() => handleOpenModal(activeTab)}
-          >
-            ➕ New Price
-          </button>
-        </div>
-      </div>
+      <input
+        type="file"
+        ref={costFileInputRef}
+        style={{ display: "none" }}
+        accept=".csv"
+        onChange={handleCostFileChange}
+      />
 
-      <div className="content">
-        <div className="tabs">
-          <button
-            className={`tab ${activeTab === "standard" ? "active" : ""}`}
-            onClick={() => setActiveTab("standard")}
-          >
-            💵 Standard Prices
-          </button>
-          <button
-            className={`tab ${activeTab === "customer" ? "active" : ""}`}
-            onClick={() => setActiveTab("customer")}
-          >
-            👥 Customer Specific Prices
-          </button>
-        </div>
-
-        {activeTab === "standard" && (
-          <div className="tab-content active">
-            <div className="filter-section">
-              <div className="filter-grid">
-                <div className="form-group">
-                  <label>Search Product</label>
-                  <input type="text" placeholder="Search by code or name" />
-                </div>
-                <div className="form-group">
-                  <button className="btn btn-primary">🔍 Search</button>
-                </div>
-              </div>
+      {section === "selector" && (
+        <>
+          <div className="flex items-center justify-between px-8 pt-8 pb-2">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-800">
+                Price Setup
+              </h1>
+              <p className="text-slate-500 mt-1 text-sm">
+                Manage standard, customer, and cost pricing
+              </p>
             </div>
-            {loading ? (
-              <div className="text-center py-8 text-gray-500">Loading...</div>
-            ) : data.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                No standard prices found. Click "New Price" to add one.
-              </div>
+            <Link
+              to="/sales"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-slate-800 transition-colors shrink-0"
+            >
+              ← Back to Menu
+            </Link>
+          </div>
+          <div className="p-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <button
+                onClick={() => {
+                  setSection("selling");
+                  loadTabData();
+                }}
+                className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 text-left"
+              >
+                <div className="h-1.5 w-full bg-gradient-to-r from-emerald-500 to-emerald-500" />
+                <div className="p-6 flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-3xl">💰</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full bg-slate-100 text-slate-500">
+                      Selling
+                    </span>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-800 group-hover:text-emerald-600 transition-colors">
+                      Selling Price Setup
+                    </h2>
+                    <p className="text-sm text-slate-500 mt-1 leading-relaxed">
+                      Manage standard and customer selling prices, apply
+                      discounts, and set price lists
+                    </p>
+                  </div>
+                  <div className="mt-auto pt-2 flex items-center gap-1.5 text-sm font-semibold text-emerald-600">
+                    Open
+                    <svg
+                      className="w-4 h-4 group-hover:translate-x-1 transition-transform"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </div>
+              </button>
+              <button
+                onClick={() => setSection("cost")}
+                className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 text-left"
+              >
+                <div className="h-1.5 w-full bg-gradient-to-r from-blue-500 to-blue-500" />
+                <div className="p-6 flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-3xl">📊</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full bg-slate-100 text-slate-500">
+                      Cost
+                    </span>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
+                      Cost Price Setup
+                    </h2>
+                    <p className="text-sm text-slate-500 mt-1 leading-relaxed">
+                      Set and update item cost prices individually or via bulk
+                      upload
+                    </p>
+                  </div>
+                  <div className="mt-auto pt-2 flex items-center gap-1.5 text-sm font-semibold text-blue-600">
+                    Open
+                    <svg
+                      className="w-4 h-4 group-hover:translate-x-1 transition-transform"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {section !== "selector" && (
+        <div className="price-setup-header">
+          <h1>
+            <span>{section === "selling" ? "💰" : "📊"}</span>
+            {section === "selling" ? "Selling Price Setup" : "Cost Price Setup"}
+          </h1>
+          <div className="header-actions">
+            <button
+              className="btn btn-secondary"
+              onClick={() => setSection("selector")}
+            >
+              ← Back
+            </button>
+            {section === "selling" ? (
+              <>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleDownloadTemplate}
+                >
+                  📥 Download Template
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleUploadClick}
+                >
+                  📤 Upload Prices
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => handleOpenModal(activeTab)}
+                >
+                  ➕ New Price
+                </button>
+              </>
             ) : (
-              renderStandardPrices()
+              <>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleCostDownloadTemplate}
+                >
+                  📥 Download Template
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleOpenCostUpload}
+                >
+                  📤 Upload Cost Prices
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleOpenCostModal}
+                >
+                  ➕ New Cost
+                </button>
+              </>
             )}
           </div>
-        )}
+        </div>
+      )}
 
-        {activeTab === "customer" && (
-          <div className="tab-content active">
-            <div className="filter-section">
-              <div className="filter-grid">
-                <div className="form-group">
-                  <label>Select Customer</label>
-                  <select
-                    value={filters.customer}
-                    onChange={(e) =>
-                      setFilters({ ...filters, customer: e.target.value })
-                    }
-                  >
-                    <option value="">All Customers</option>
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.customer_name}
-                      </option>
-                    ))}
-                  </select>
+      {section === "selling" && (
+        <div className="content">
+          <div className="tabs">
+            <button
+              className={`tab ${activeTab === "standard" ? "active" : ""}`}
+              onClick={() => setActiveTab("standard")}
+            >
+              💵 Standard Prices
+            </button>
+            <button
+              className={`tab ${activeTab === "customer" ? "active" : ""}`}
+              onClick={() => setActiveTab("customer")}
+            >
+              👥 Customer Specific Prices
+            </button>
+          </div>
+
+          {activeTab === "standard" && (
+            <div className="tab-content active">
+              <div className="filter-section">
+                <div className="filter-grid">
+                  <div className="form-group">
+                    <label>Search Product</label>
+                    <input type="text" placeholder="Search by code or name" />
+                  </div>
+                  <div className="form-group">
+                    <button className="btn btn-primary">🔍 Search</button>
+                  </div>
                 </div>
               </div>
+              {loading ? (
+                <div className="text-center py-8 text-gray-500">Loading...</div>
+              ) : data.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  No standard prices found. Click "New Price" to add one.
+                </div>
+              ) : (
+                renderStandardPrices()
+              )}
             </div>
-            {loading ? (
-              <div className="text-center py-8 text-gray-500">Loading...</div>
-            ) : data.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                No customer prices found. Click "New Price" to add one.
+          )}
+
+          {activeTab === "customer" && (
+            <div className="tab-content active">
+              <div className="filter-section">
+                <div className="filter-grid">
+                  <div className="form-group">
+                    <label>Select Customer</label>
+                    <select
+                      value={filters.customer}
+                      onChange={(e) =>
+                        setFilters({ ...filters, customer: e.target.value })
+                      }
+                    >
+                      <option value="">All Customers</option>
+                      {customers.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.customer_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
-            ) : (
-              renderCustomerPrices()
-            )}
-          </div>
-        )}
-      </div>
+              {loading ? (
+                <div className="text-center py-8 text-gray-500">Loading...</div>
+              ) : data.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  No customer prices found. Click "New Price" to add one.
+                </div>
+              ) : (
+                renderCustomerPrices()
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {section === "cost" && (
+        <div className="content">
+          {costLoading ? (
+            <div className="text-center py-8 text-gray-500">Loading...</div>
+          ) : costData.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              No items found. Add items first in the item master.
+            </div>
+          ) : (
+            renderCostTable()
+          )}
+        </div>
+      )}
 
       {modalOpen && (
         <div className="price-modal-overlay">
@@ -1092,6 +1501,31 @@ export default function PriceSetup() {
                 Cancel
               </button>
               <button className="btn btn-primary" onClick={handleSave}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {costModalOpen && (
+        <div className="price-modal-overlay">
+          <div className="price-modal-content" style={{ maxWidth: "600px" }}>
+            <div className="modal-header">
+              <h2>📊 Set Cost Price</h2>
+              <button className="close-btn" onClick={handleCloseCostModal}>
+                &times;
+              </button>
+            </div>
+            <div className="modal-body">{renderCostModalContent()}</div>
+            <div className="modal-footer">
+              <button
+                className="btn btn-secondary"
+                onClick={handleCloseCostModal}
+              >
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={handleCostSave}>
                 Save
               </button>
             </div>

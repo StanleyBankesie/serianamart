@@ -5160,6 +5160,46 @@ router.get(
 
 // ─── GRN alias endpoints for Inventory module UI ──────────────────────────────
 router.get(
+  "/grn/po-summary",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const rows = await query(
+        `
+        SELECT pt.po_id, pt.total_ordered, COALESCE(gt.total_accepted,0) AS total_accepted
+         FROM (
+           SELECT pod.po_id, SUM(pod.qty) AS total_ordered
+             FROM pur_order_details pod
+            WHERE pod.po_id IN (
+              SELECT id FROM pur_orders
+               WHERE company_id = :companyId AND branch_id = :branchId
+            )
+            GROUP BY pod.po_id
+         ) pt
+         LEFT JOIN (
+           SELECT g.po_id, SUM(d.qty_accepted) AS total_accepted
+             FROM inv_goods_receipt_note_details d
+             JOIN inv_goods_receipt_notes g ON g.id = d.grn_id
+            WHERE g.company_id = :companyId
+              AND g.branch_id = :branchId
+              AND g.po_id IS NOT NULL
+              AND g.status NOT IN ('DRAFT')
+            GROUP BY g.po_id
+         ) gt ON gt.po_id = pt.po_id
+        `,
+        { companyId, branchId },
+      );
+      res.json({ items: rows || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
   "/grn",
   requireAuth,
   requireCompanyScope,
@@ -8167,6 +8207,67 @@ router.put(
           "An item with this code or name already exists",
         );
       }
+      next(e);
+    }
+  },
+);
+
+// ─── Cost Price Endpoints ──────────────────────────────────────────────────
+router.post(
+  "/items/cost-price",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const body = req.body || {};
+      const itemId = toNumber(body.item_id);
+      const costPrice = Number(body.cost_price);
+      if (!itemId) throw httpError(400, "VALIDATION_ERROR", "item_id is required");
+      if (!Number.isFinite(costPrice) || costPrice < 0)
+        throw httpError(400, "VALIDATION_ERROR", "Valid cost_price is required");
+      const upd = await query(
+        "UPDATE inv_items SET cost_price = :costPrice WHERE id = :id AND company_id = :companyId",
+        { costPrice, id: itemId, companyId },
+      );
+      if (!upd.affectedRows)
+        throw httpError(404, "NOT_FOUND", "Item not found");
+      res.json({ ok: true });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.post(
+  "/items/cost-prices/bulk",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const items = Array.isArray(req.body?.items) ? req.body.items : [];
+      if (!items.length)
+        throw httpError(400, "VALIDATION_ERROR", "No items provided");
+      let updated = 0;
+      let notFound = 0;
+      for (const row of items) {
+        const itemCode = String(row.item_code || row["Item Code"] || "").trim();
+        const costPrice = Number(row.cost_price || row["Cost Price"] || 0);
+        if (!itemCode || !Number.isFinite(costPrice)) continue;
+        const [existing] = await query(
+          "SELECT id FROM inv_items WHERE item_code = :itemCode AND company_id = :companyId LIMIT 1",
+          { itemCode, companyId },
+        );
+        if (!existing) { notFound++; continue; }
+        await query(
+          "UPDATE inv_items SET cost_price = :costPrice WHERE id = :id",
+          { costPrice, id: existing.id },
+        );
+        updated++;
+      }
+      res.json({ ok: true, updated, notFound });
+    } catch (e) {
       next(e);
     }
   },

@@ -1,414 +1,364 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
+import { Link, useLocation } from "react-router-dom";
+import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
-import { api } from "../../../../api/client";
-import { Link } from "react-router-dom";
-import { Trash2, Plus, Save, RotateCcw } from "lucide-react";
+import { Guard } from "../../../../hooks/usePermissions.jsx";
 
 export default function SalesSetupPage() {
-  const [reasons, setReasons] = useState([]);
-  const [zones, setZones] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const initialTab = searchParams.get("tab") || "zones";
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [loading, setLoading] = useState(false);
+  const [items, setItems] = useState([]);
+  const [form, setForm] = useState({});
+  const [isEditing, setIsEditing] = useState(false);
 
-  // Load existing return reasons
-  async function loadReasons() {
-    try {
-      setLoading(true);
-      const res = await api.get("/sales/return-reasons");
-      setReasons(Array.isArray(res.data?.items) ? res.data.items : []);
-    } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to load return reasons");
-    }
-  }
-
-  // Load existing zones
-  async function loadZones() {
-    try {
-      const res = await api.get("/sales/zones");
-      setZones(Array.isArray(res.data?.items) ? res.data.items : []);
-    } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to load zones");
-    }
-  }
-
-  async function loadAll() {
+  const loadData = async () => {
     setLoading(true);
-    await Promise.all([loadReasons(), loadZones()]);
-    setLoading(false);
-  }
+    try {
+      let endpoint = "";
+      if (activeTab === "zones") endpoint = "/sales/zones";
+      else if (activeTab === "reasons") endpoint = "/sales/return-reasons";
+      else if (activeTab === "price-types") endpoint = "/sales/price-types";
+
+      if (endpoint) {
+        const res = await api.get(endpoint);
+        setItems(res?.data?.items || []);
+      }
+    } catch {
+      toast.error("Failed to load data");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    loadAll();
-  }, []);
+    loadData();
+    setForm({});
+    setIsEditing(false);
+  }, [activeTab]);
 
-  // Handle local text changes in the reasons rows
-  function handleReasonChange(index, field, value) {
-    setReasons((prev) =>
-      prev.map((r, i) => (i === index ? { ...r, [field]: value } : r))
-    );
-  }
-
-  // Add an empty row for a new reason
-  function handleAddReasonRow() {
-    setReasons((prev) => [
-      ...prev,
-      {
-        id: "",
-        reason_code: "",
-        reason_name: "",
-        is_active: 1,
-      },
-    ]);
-  }
-
-  // Remove a row (delete from database if saved, or just remove from state if not saved)
-  async function handleRemoveReasonRow(index, id) {
-    if (!id) {
-      setReasons((prev) => prev.filter((_, i) => i !== index));
-      return;
-    }
-
-    if (!window.confirm("Are you sure you want to delete this return reason?")) {
-      return;
-    }
-
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     try {
-      setSaving(true);
-      await api.delete(`/sales/return-reasons/${id}`);
-      toast.success("Return reason deleted successfully");
-      setReasons((prev) => prev.filter((_, i) => i !== index));
-    } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to delete return reason");
-    } finally {
-      setSaving(false);
-    }
-  }
+      let endpoint = "";
+      if (activeTab === "zones") endpoint = "/sales/zones";
+      else if (activeTab === "reasons") endpoint = "/sales/return-reasons";
+      else if (activeTab === "price-types") endpoint = "/sales/price-types";
 
-  // Save all reasons to the backend
-  async function handleSaveReasons() {
-    const invalid = reasons.some((r) => !r.reason_code.trim() || !r.reason_name.trim());
-    if (invalid) {
-      toast.error("Please fill in both the Reason Code and Reason Name for all rows.");
-      return;
-    }
+      // The original SalesSetupPage sent a batch of items via POST { [tab]: items }
+      // To adapt this to the HrSetupPage model (single item add/edit) without writing new endpoints,
+      // wait, the original SalesSetupPage actually replaces ALL items for a category using POST.
+      // So if we just append the form to the existing items and POST, it works!
+      // But let's check the endpoints. `/sales/zones` accepts `{ zones: [...] }`.
+      
+      let payload = {};
+      if (activeTab === "zones") {
+        let updatedItems = [...items];
+        if (isEditing) {
+          updatedItems = updatedItems.map((it) => (it.id === form.id ? form : it));
+        } else {
+          updatedItems.push(form);
+        }
+        payload = { zones: updatedItems };
+      } else if (activeTab === "reasons") {
+        let updatedItems = [...items];
+        if (isEditing) {
+          updatedItems = updatedItems.map((it) => (it.id === form.id ? form : it));
+        } else {
+          updatedItems.push(form);
+        }
+        payload = { reasons: updatedItems };
+      } else if (activeTab === "price-types") {
+        let updatedItems = [...items];
+        if (isEditing) {
+          updatedItems = updatedItems.map((it) => (it.id === form.id ? form : it));
+        } else {
+          updatedItems.push(form);
+        }
+        payload = { priceTypes: updatedItems };
+      }
 
+      await api.post(endpoint, payload);
+      toast.success("Saved successfully");
+      setForm({});
+      setIsEditing(false);
+      loadData();
+    } catch (err) {
+      toast.error("Failed to save");
+    }
+  };
+
+  const handleEdit = (item) => {
+    setForm(item);
+    setIsEditing(true);
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this item?")) return;
     try {
-      setSaving(true);
-      await api.post("/sales/return-reasons", { reasons });
-      toast.success("Sales return reasons saved successfully");
-      await loadReasons();
-    } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to save return reasons");
-    } finally {
-      setSaving(false);
+      let endpoint = "";
+      if (activeTab === "zones") endpoint = `/sales/zones/${id}`;
+      else if (activeTab === "reasons") endpoint = `/sales/return-reasons/${id}`;
+      else if (activeTab === "price-types") endpoint = `/sales/price-types/${id}`;
+
+      await api.delete(endpoint);
+      toast.success("Deleted successfully");
+      loadData();
+    } catch (err) {
+      toast.error("Failed to delete item");
     }
-  }
-
-  // ---- Zones handlers ----
-
-  function handleZoneChange(index, field, value) {
-    setZones((prev) =>
-      prev.map((z, i) => (i === index ? { ...z, [field]: value } : z))
-    );
-  }
-
-  function handleAddZoneRow() {
-    setZones((prev) => [
-      ...prev,
-      {
-        id: "",
-        zone_name: "",
-        description: "",
-        is_active: 1,
-      },
-    ]);
-  }
-
-  async function handleRemoveZoneRow(index, id) {
-    if (!id) {
-      setZones((prev) => prev.filter((_, i) => i !== index));
-      return;
-    }
-
-    if (!window.confirm("Are you sure you want to delete this zone?")) {
-      return;
-    }
-
-    try {
-      setSaving(true);
-      await api.delete(`/sales/zones/${id}`);
-      toast.success("Zone deleted successfully");
-      setZones((prev) => prev.filter((_, i) => i !== index));
-    } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to delete zone");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleSaveZones() {
-    const invalid = zones.some((z) => !z.zone_name.trim());
-    if (invalid) {
-      toast.error("Please fill in the Zone Name for all rows.");
-      return;
-    }
-
-    try {
-      setSaving(true);
-      await api.post("/sales/zones", { zones });
-      toast.success("Zones saved successfully");
-      await loadZones();
-    } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to save zones");
-    } finally {
-      setSaving(false);
-    }
-  }
+  };
 
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold dark:text-brand-300">Sales Module Setup</h1>
-            <p className="text-sm mt-1">Configure return workflows, zones, reasons, and parameters</p>
-          </div>
-          <div className="flex gap-2">
-            <Link to="/sales" className="btn btn-secondary shadow-sm">
-              Return to Menu
-            </Link>
+    <Guard moduleKey="sales">
+      <div className="p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Link to="/sales" className="btn-secondary text-sm">
+            Back to Menu
+          </Link>
+          <h2 className="text-lg font-semibold">Sales Setup & Parameters</h2>
+        </div>
+
+        <div className="flex border-b mb-6 overflow-x-auto">
+          {["zones", "reasons", "price-types"].map((tab) => (
             <button
-              className="btn btn-secondary flex items-center gap-1"
-              onClick={loadAll}
-              disabled={loading || saving}
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2 text-sm font-medium capitalize whitespace-nowrap ${
+                activeTab === tab
+                  ? "border-b-2 border-brand text-brand"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
             >
-              <RotateCcw className="w-4 h-4" />
-              Refresh
+              {tab.replace("-", " ")}
             </button>
-          </div>
+          ))}
         </div>
-      </div>
 
-      {/* Zones Configuration Card */}
-      <div className="card">
-        <div className="card-header bg-brand/10 dark:bg-brand/20 border-b border-slate-200 dark:border-slate-700 p-4 flex justify-between items-center">
-          <div className="font-semibold text-slate-800 dark:text-slate-200">
-            Zone Configuration
-          </div>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm flex items-center gap-1"
-            onClick={handleAddZoneRow}
-            disabled={loading || saving}
-          >
-            <Plus className="w-4 h-4" />
-            Add Zone
-          </button>
-        </div>
-        <div className="card-body p-6">
-          {loading ? (
-            <div className="text-center py-12">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-brand" />
-              <div className="mt-2 text-slate-600 dark:text-slate-400">Loading configurations...</div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Form Section */}
+          <div className="lg:col-span-1">
+            <div className="bg-white dark:bg-slate-800 p-4 rounded shadow-sm">
+              <h3 className="font-medium mb-4">
+                {(isEditing ? "Edit" : "Add New") + " " + activeTab.replace("-", " ")}
+              </h3>
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {activeTab === "zones" && (
+                  <>
+                    <div>
+                      <label className="block text-sm mb-1">Zone Name *</label>
+                      <input
+                        className="input"
+                        placeholder="e.g. NORTH"
+                        value={form.zone_name || ""}
+                        onChange={(e) =>
+                          setForm({ ...form, zone_name: e.target.value.toUpperCase().replace(/\s+/g, "_") })
+                        }
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm mb-1">Description</label>
+                      <input
+                        className="input"
+                        placeholder="e.g. Northern Region"
+                        value={form.description || ""}
+                        onChange={(e) => setForm({ ...form, description: e.target.value })}
+                      />
+                    </div>
+                  </>
+                )}
+                {activeTab === "reasons" && (
+                  <>
+                    <div>
+                      <label className="block text-sm mb-1">Reason Code *</label>
+                      <input
+                        className="input"
+                        placeholder="e.g. DAMAGED"
+                        value={form.reason_code || ""}
+                        onChange={(e) =>
+                          setForm({ ...form, reason_code: e.target.value.toUpperCase().replace(/\s+/g, "_") })
+                        }
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm mb-1">Reason Name / Description *</label>
+                      <input
+                        className="input"
+                        placeholder="e.g. Item Damaged in Transit"
+                        value={form.reason_name || ""}
+                        onChange={(e) => setForm({ ...form, reason_name: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </>
+                )}
+                {activeTab === "price-types" && (
+                  <>
+                    <div>
+                      <label className="block text-sm mb-1">Price Type Name *</label>
+                      <input
+                        className="input"
+                        placeholder="e.g. Wholesale"
+                        value={form.name || ""}
+                        onChange={(e) =>
+                          setForm({ ...form, name: e.target.value })
+                        }
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm mb-1">Description</label>
+                      <input
+                        className="input"
+                        placeholder="e.g. Wholesale Customer Pricing"
+                        value={form.description || ""}
+                        onChange={(e) => setForm({ ...form, description: e.target.value })}
+                      />
+                    </div>
+                  </>
+                )}
+                <div>
+                  <label className="block text-sm mb-1">Status</label>
+                  <select
+                    className="input"
+                    value={form.is_active !== undefined ? (form.is_active ? "1" : "0") : "1"}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        is_active: e.target.value === "1",
+                      })
+                    }
+                  >
+                    <option value="1">Active</option>
+                    <option value="0">Inactive</option>
+                  </select>
+                </div>
+
+                <div className="flex gap-2">
+                  <button type="submit" className="btn-primary flex-1">
+                    Save
+                  </button>
+                  {isEditing && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForm({});
+                        setIsEditing(false);
+                      }}
+                      className="btn-secondary"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </form>
             </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="overflow-x-auto">
-                <table className="table w-full">
-                  <thead>
+          </div>
+
+          {/* List Section */}
+          <div className="lg:col-span-2">
+            <div className="bg-white dark:bg-slate-800 rounded shadow-sm overflow-hidden">
+              <table className="min-w-full">
+                <thead className="bg-slate-50 dark:bg-slate-900/50">
+                  <tr className="text-left font-bold text-xs text-slate-500 uppercase">
+                    {activeTab === "zones" && (
+                      <>
+                        <th className="px-4 py-3">Zone Name</th>
+                        <th className="px-4 py-3">Description</th>
+                      </>
+                    )}
+                    {activeTab === "reasons" && (
+                      <>
+                        <th className="px-4 py-3">Reason Code</th>
+                        <th className="px-4 py-3">Description</th>
+                      </>
+                    )}
+                    {activeTab === "price-types" && (
+                      <>
+                        <th className="px-4 py-3">Price Type Name</th>
+                        <th className="px-4 py-3">Description</th>
+                      </>
+                    )}
+                    <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
                     <tr>
-                      <th style={{ width: "30%" }}>Zone Name *</th>
-                      <th style={{ width: "50%" }}>Description</th>
-                      <th style={{ width: "12%", textAlign: "center" }}>Status</th>
-                      <th style={{ width: "8%", textAlign: "center" }}>Actions</th>
+                      <td colSpan={4} className="text-center py-8 text-slate-500">
+                        <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-brand" />
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {zones.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="text-center py-8 text-slate-500">
-                          No zones configured. Click "Add Zone" to create one.
+                  ) : items.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="text-center py-8 text-slate-500">
+                        No items found.
+                      </td>
+                    </tr>
+                  ) : (
+                    items.map((item) => (
+                      <tr
+                        key={item.id}
+                        className="border-t hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                      >
+                        {activeTab === "zones" && (
+                          <>
+                            <td className="px-4 py-3 font-medium">{item.zone_name}</td>
+                            <td className="px-4 py-3 text-slate-500">{item.description}</td>
+                          </>
+                        )}
+                        {activeTab === "reasons" && (
+                          <>
+                            <td className="px-4 py-3 font-medium">{item.reason_code}</td>
+                            <td className="px-4 py-3 text-slate-500">{item.reason_name}</td>
+                          </>
+                        )}
+                        {activeTab === "price-types" && (
+                          <>
+                            <td className="px-4 py-3 font-medium">{item.name}</td>
+                            <td className="px-4 py-3 text-slate-500">{item.description}</td>
+                          </>
+                        )}
+                        <td className="px-4 py-3 text-center">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                              item.is_active
+                                ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                                : "bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-slate-300"
+                            }`}
+                          >
+                            {item.is_active ? "Active" : "Inactive"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => handleEdit(item)}
+                            className="text-brand hover:text-brand-600 mr-3 text-sm font-medium"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDelete(item.id)}
+                            className="text-red-600 hover:text-red-800 text-sm font-medium"
+                          >
+                            Delete
+                          </button>
                         </td>
                       </tr>
-                    ) : (
-                      zones.map((z, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                          <td>
-                            <input
-                              className="input font-semibold"
-                              placeholder="e.g. NORTH"
-                              value={z.zone_name}
-                              onChange={(e) =>
-                                handleZoneChange(idx, "zone_name", e.target.value.toUpperCase().replace(/\s+/g, "_"))
-                              }
-                              disabled={saving}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              className="input"
-                              placeholder="e.g. Northern Region"
-                              value={z.description || ""}
-                              onChange={(e) => handleZoneChange(idx, "description", e.target.value)}
-                              disabled={saving}
-                            />
-                          </td>
-                          <td className="text-center">
-                            <select
-                              className="input text-center"
-                              value={z.is_active}
-                              onChange={(e) => handleZoneChange(idx, "is_active", Number(e.target.value))}
-                              disabled={saving}
-                            >
-                              <option value={1}>Active</option>
-                              <option value={0}>Inactive</option>
-                            </select>
-                          </td>
-                          <td className="text-center">
-                            <button
-                              type="button"
-                              className="btn btn-outline hover:bg-red-500 hover:text-white p-2 rounded-lg text-red-500 border border-slate-200 dark:border-slate-700"
-                              onClick={() => handleRemoveZoneRow(idx, z.id)}
-                              disabled={saving}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {zones.length > 0 && (
-                <div className="flex justify-end pt-4 border-t border-slate-200 dark:border-slate-700">
-                  <button
-                    type="button"
-                    className="btn btn-success flex items-center gap-1 px-6"
-                    onClick={handleSaveZones}
-                    disabled={saving}
-                  >
-                    <Save className="w-4 h-4" />
-                    {saving ? "Saving Changes..." : "Save Changes"}
-                  </button>
-                </div>
-              )}
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Return Reasons Configuration Card */}
-      <div className="card">
-        <div className="card-header bg-brand/10 dark:bg-brand/20 border-b border-slate-200 dark:border-slate-700 p-4 flex justify-between items-center">
-          <div className="font-semibold text-slate-800 dark:text-slate-200">
-            Reasons for Return Configuration
           </div>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm flex items-center gap-1"
-            onClick={handleAddReasonRow}
-            disabled={loading || saving}
-          >
-            <Plus className="w-4 h-4" />
-            Add Reason
-          </button>
-        </div>
-        <div className="card-body p-6">
-          {loading ? (
-            <div className="text-center py-12">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-brand" />
-              <div className="mt-2 text-slate-600 dark:text-slate-400">Loading configurations...</div>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="overflow-x-auto">
-                <table className="table w-full">
-                  <thead>
-                    <tr>
-                      <th style={{ width: "30%" }}>Reason Code *</th>
-                      <th style={{ width: "50%" }}>Reason Name / Description *</th>
-                      <th style={{ width: "12%", textAlign: "center" }}>Status</th>
-                      <th style={{ width: "8%", textAlign: "center" }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reasons.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="text-center py-8 text-slate-500">
-                          No return reasons configured. Click "Add Reason" to create one.
-                        </td>
-                      </tr>
-                    ) : (
-                      reasons.map((r, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                          <td>
-                            <input
-                              className="input font-semibold"
-                              placeholder="e.g. DAMAGED"
-                              value={r.reason_code}
-                              onChange={(e) =>
-                                handleReasonChange(idx, "reason_code", e.target.value.toUpperCase().replace(/\s+/g, "_"))
-                              }
-                              disabled={saving}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              className="input"
-                              placeholder="e.g. Item Damaged in Transit"
-                              value={r.reason_name}
-                              onChange={(e) => handleReasonChange(idx, "reason_name", e.target.value)}
-                              disabled={saving}
-                            />
-                          </td>
-                          <td className="text-center">
-                            <select
-                              className="input text-center"
-                              value={r.is_active}
-                              onChange={(e) => handleReasonChange(idx, "is_active", Number(e.target.value))}
-                              disabled={saving}
-                            >
-                              <option value={1}>Active</option>
-                              <option value={0}>Inactive</option>
-                            </select>
-                          </td>
-                          <td className="text-center">
-                            <button
-                              type="button"
-                              className="btn btn-outline hover:bg-red-500 hover:text-white p-2 rounded-lg text-red-500 border border-slate-200 dark:border-slate-700"
-                              onClick={() => handleRemoveReasonRow(idx, r.id)}
-                              disabled={saving}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {reasons.length > 0 && (
-                <div className="flex justify-end pt-4 border-t border-slate-200 dark:border-slate-700">
-                  <button
-                    type="button"
-                    className="btn btn-success flex items-center gap-1 px-6"
-                    onClick={handleSaveReasons}
-                    disabled={saving}
-                  >
-                    <Save className="w-4 h-4" />
-                    {saving ? "Saving Changes..." : "Save Changes"}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
-    </div>
+    </Guard>
   );
 }

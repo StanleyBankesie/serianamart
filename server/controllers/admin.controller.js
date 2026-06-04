@@ -154,7 +154,11 @@ export const getMe = async (req, res) => {
           const blob = rows[0].profile_picture || null;
           if (blob) {
             const b = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
-            let mime = "image/jpeg";
+            const str = b.toString("utf8");
+            if (str.startsWith("http://") || str.startsWith("https://") || str.startsWith("data:")) {
+              profile_picture_url = str;
+            } else {
+              let mime = "image/jpeg";
             if (
               b.length >= 3 &&
               b[0] === 0xff &&
@@ -188,6 +192,7 @@ export const getMe = async (req, res) => {
               mime = "image/webp";
             }
             profile_picture_url = `data:${mime};base64,${b.toString("base64")}`;
+            }
           }
         }
       } catch {}

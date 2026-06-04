@@ -152,13 +152,14 @@ router.get("/users", async (req, res, next) => {
     const users =
       (await query(
         `
-        SELECT id, username, full_name,
-          created_at,
+        SELECT adm_users.id, adm_users.username, adm_users.full_name,
+          IF(adm_users.profile_picture IS NULL, NULL, IF(LEFT(adm_users.profile_picture, 4) = 'http' OR LEFT(adm_users.profile_picture, 5) = 'data:', CONVERT(adm_users.profile_picture USING utf8), CONCAT('data:image/jpeg;base64,', REPLACE(TO_BASE64(adm_users.profile_picture), '\\n', '')))) AS profile_picture_url,
+          adm_users.created_at,
           u.username AS created_by_name
          FROM adm_users
-        LEFT JOIN adm_users u ON u.id = created_by
+        LEFT JOIN adm_users u ON u.id = adm_users.created_by
          WHERE ${where}
-        ORDER BY username ASC
+        ORDER BY adm_users.username ASC
         `,
         params,
       ).catch(() => [])) || [];
@@ -191,7 +192,7 @@ router.get("/users", async (req, res, next) => {
           full_name: u.full_name,
           is_online: pr ? Number(pr.is_online) === 1 : false,
           last_seen: pr?.last_seen || null,
-          avatar_url: null,
+          profile_picture_url: u.profile_picture_url || null,
         };
       }),
     });

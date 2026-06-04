@@ -166,7 +166,9 @@ export default function ItemForm() {
             ? categoriesRes.data.items
             : [],
         );
-        const fallbackAccs = Array.isArray(accountsRes.data?.items) ? accountsRes.data.items : [];
+        const fallbackAccs = Array.isArray(accountsRes.data?.items)
+          ? accountsRes.data.items
+          : [];
         setAccounts(fallbackAccs);
         if (isNew) {
           setFormData((prev) => ({
@@ -740,7 +742,7 @@ export default function ItemForm() {
             <div>
               <label className="label">Description</label>
               <textarea
-                className="input"
+                className="input w-1/2 h-48"
                 value={formData.description}
                 onChange={(e) =>
                   setFormData({ ...formData, description: e.target.value })

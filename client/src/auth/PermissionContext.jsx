@@ -916,9 +916,9 @@ export const PermissionProvider = ({ children }) => {
     try {
       if (typeof document !== "undefined" && document.body) {
         if (exceptionalPerms.has("SALES.DISCOUNT.ALLOW")) {
-          document.body.classList.add("discount-guard-disabled");
-        } else {
           document.body.classList.remove("discount-guard-disabled");
+        } else {
+          document.body.classList.add("discount-guard-disabled");
         }
         const guards = [
           'input[name="discount_percent"]',
@@ -930,7 +930,7 @@ export const PermissionProvider = ({ children }) => {
           ".discount-guard textarea",
         ];
 
-        const guardEnabled = exceptionalPerms.has("SALES.DISCOUNT.ALLOW");
+        const guardEnabled = !exceptionalPerms.has("SALES.DISCOUNT.ALLOW");
 
         // Apply guard immediately to existing elements
         if (guardEnabled) {

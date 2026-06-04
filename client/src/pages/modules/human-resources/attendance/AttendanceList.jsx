@@ -105,8 +105,6 @@ export default function AttendanceList() {
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Clock In</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Clock Out</th>
-                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
-                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
               </tr>
             </thead>
@@ -128,8 +126,6 @@ export default function AttendanceList() {
                   </td>
                   <td className="px-4 py-2">{r.clock_in ? new Date(r.clock_in).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "-"}</td>
                   <td className="px-4 py-2">{r.clock_out ? new Date(r.clock_out).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "-"}</td>
-                  <td className="px-4 py-2">{r.created_by_name || "-"}</td>
-                  <td className="px-4 py-2">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                   <td className="px-4 py-2 text-right">
                     <Link to={`/human-resources/attendance/${r.id}`} className="text-brand hover:underline text-sm">Edit</Link>
                   </td>
@@ -137,7 +133,7 @@ export default function AttendanceList() {
               ))}
               {items.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={8} className="text-center py-10 text-slate-500">No records found for selected filters</td>
+                  <td colSpan={6} className="text-center py-10 text-slate-500">No records found for selected filters</td>
                 </tr>
               )}
             </tbody>

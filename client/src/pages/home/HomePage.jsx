@@ -40,6 +40,10 @@ export default function HomePage() {
   const [roleFeatures, setRoleFeatures] = useState([]);
   const [allFeatures, setAllFeatures] = useState([]);
   const [activeModule, setActiveModule] = useState(null);
+  const [profileData, setProfileData] = useState(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [showPhotoMenu, setShowPhotoMenu] = useState(false);
+  const photoInputRef = useRef(null);
   const moduleReportsMap = useMemo(
     () => ({
       inventory: [
@@ -307,6 +311,23 @@ export default function HomePage() {
       cancelled = true;
     };
   }, [token]);
+
+  useEffect(() => {
+    let cancelled = false;
+    client
+      .get("/auth/me")
+      .then((res) => {
+        if (cancelled) return;
+        setProfileData(res.data?.user || null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setProfileData(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const normalizeType = (s) =>
     String(s || "")
@@ -679,24 +700,118 @@ export default function HomePage() {
     }
   };
 
+  const fullName = user?.full_name || user?.name || user?.username || "User";
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    try {
+      const reader = new FileReader();
+      const base64 = await new Promise((resolve, reject) => {
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const { data } = await client.put("/auth/me/photo", {
+        profile_picture: base64,
+      });
+      setProfileData(data.user || null);
+      toast.success("Photo updated");
+    } catch (err) {
+      toast.error("Failed to upload photo");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const handlePhotoRemove = async () => {
+    setProfileData((prev) =>
+      prev ? { ...prev, profile_picture_url: null } : prev,
+    );
+  };
+
   return (
     <div className="min-h-screen p-2 md:p-3 font-sans text-slate-900 bg-slate-50 dark:bg-transparent">
       <div className="max-w-7xl mx-auto space-y-4 fullbleed-sm">
         {/* Header Section */}
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-brand-900 to-brand-800 p-8 shadow-erp text-white">
-          <div className="relative z-10">
-            <h1 className="text-3xl font-bold tracking-tight">
-              Welcome back, {user?.name || user?.username || "User"}! 👋
-            </h1>
-            {(user?.companyName || user?.branchName) && (
-              <p className="mt-1 text-brand-200 text-sm">
-                {[user?.companyName, user?.branchName].filter(Boolean).join(" — ")}
+          <div className="relative z-10 flex items-start gap-5">
+            <div className="relative shrink-0">
+              <div
+                className="w-24 h-24 rounded-full bg-white/10 flex items-center justify-center overflow-hidden ring-2 ring-white/30 cursor-pointer"
+                onClick={() => setShowPhotoMenu((v) => !v)}
+              >
+                {profileData?.profile_picture_url ? (
+                  <img
+                    src={profileData.profile_picture_url}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-2xl font-semibold text-white/70">
+                    {fullName.charAt(0).toUpperCase()}
+                  </span>
+                )}
+                {uploadingPhoto && (
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-full">
+                    <span className="text-white text-xs">...</span>
+                  </div>
+                )}
+              </div>
+              {showPhotoMenu && (
+                <div className="absolute top-full mt-2 left-0 flex flex-col gap-1 min-w-[140px] z-50">
+                  <button
+                    type="button"
+                    className="text-left text-sm text-white/90 hover:text-white"
+                    onClick={() => {
+                      setShowPhotoMenu(false);
+                      photoInputRef.current?.click();
+                    }}
+                  >
+                    {profileData?.profile_picture_url ? "Replace" : "Upload"}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-left text-sm text-red-300 hover:text-red-200"
+                    onClick={() => {
+                      setShowPhotoMenu(false);
+                      handlePhotoRemove();
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                ref={photoInputRef}
+                onChange={handlePhotoUpload}
+                className="hidden"
+              />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-3xl font-bold tracking-tight">
+                Welcome back, {fullName}!
+              </h1>
+              {profileData?.role_name && (
+                <p className="mt-1 text-brand-200 text-sm font-medium">
+                  {profileData.role_name}
+                </p>
+              )}
+              {(user?.companyName || user?.branchName) && (
+                <p className="mt-1 text-brand-200 text-sm">
+                  {[user?.companyName, user?.branchName]
+                    .filter(Boolean)
+                    .join(" — ")}
+                </p>
+              )}
+              <p className="mt-2 text-brand-100 text-lg max-w-2xl">
+                Here's an overview of your business performance and pending
+                tasks today.
               </p>
-            )}
-            <p className="mt-2 text-brand-100 text-lg max-w-2xl">
-              Here's an overview of your business performance and pending tasks
-              today.
-            </p>
+            </div>
           </div>
           <div className="absolute right-0 top-0 h-full w-1/3 bg-white/5 skew-x-12 transform translate-x-20" />
           <button
@@ -737,9 +852,11 @@ export default function HomePage() {
                       </span>
                     </div>
                     <div className="mt-6">
-                      <div 
+                      <div
                         className="text-3xl font-extrabold text-white tracking-tight drop-shadow-[0_2px_8px_rgba(255,255,255,0.35)]"
-                        style={{ textShadow: "0 0 12px rgba(255, 255, 255, 0.45)" }}
+                        style={{
+                          textShadow: "0 0 12px rgba(255, 255, 255, 0.45)",
+                        }}
                       >
                         {metric.value}
                       </div>
@@ -771,8 +888,18 @@ export default function HomePage() {
                       </div>
                       <div className="mt-2.5 text-[10px] font-bold text-white/80 uppercase tracking-widest leading-none flex items-center">
                         <span>{metric.label}</span>
-                        <svg className="w-8 h-4 text-white/20 ml-2 group-hover:text-white/40 transition-colors" viewBox="0 0 50 20" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M0 15 L10 12 L20 18 L30 8 L40 10 L50 2" strokeLinecap="round" strokeLinejoin="round" />
+                        <svg
+                          className="w-8 h-4 text-white/20 ml-2 group-hover:text-white/40 transition-colors"
+                          viewBox="0 0 50 20"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path
+                            d="M0 15 L10 12 L20 18 L30 8 L40 10 L50 2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
                         </svg>
                       </div>
                     </div>
@@ -797,8 +924,18 @@ export default function HomePage() {
                     <div className="mt-6">
                       <div className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-1.5">
                         <span>{metric.value}</span>
-                        <svg className="w-5 h-5 text-white/40 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
+                        <svg
+                          className="w-5 h-5 text-white/40 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25"
+                          />
                         </svg>
                       </div>
                       <div className="mt-2.5 text-[10px] font-bold text-white/80 uppercase tracking-widest leading-none">
@@ -832,9 +969,23 @@ export default function HomePage() {
                       </div>
                     </div>
                   </div>
-                  <svg className="w-4.5 h-4.5 text-white/20 absolute right-5 bottom-5 group-hover:scale-110 group-hover:text-white/40 transition-all duration-300" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <svg
+                    className="w-4.5 h-4.5 text-white/20 absolute right-5 bottom-5 group-hover:scale-110 group-hover:text-white/40 transition-all duration-300"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                    />
                   </svg>
                   <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/5 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
                 </div>
@@ -846,7 +997,7 @@ export default function HomePage() {
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="space-y-6">
-            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] p-6 border border-slate-100 dark:border-slate-800/80 hover:border-slate-200/80 dark:hover:border-slate-700/80 hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] dark:hover:shadow-[0_12px_40px_rgb(0,0,0,0.25)] transition-all duration-300 relative overflow-hidden before:absolute before:top-0 before:left-0 before:w-full before:h-[3px] before:bg-gradient-to-r before:from-brand-500/80 before:to-primary-500/80">
+            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] p-6 border border-slate-100 dark:border-slate-800/80 hover:border-slate-200/80 dark:hover:border-slate-700/80 hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] dark:hover:shadow-[0_12px_40px_rgb(0,0,0,0.25)] transition-all duration-300 relative overflow-hidden ">
               <button
                 type="button"
                 onClick={() => navigate("/social-feed")}
@@ -973,7 +1124,7 @@ export default function HomePage() {
           </div>
           <div className="space-y-6">
             <div
-              className="bg-white dark:bg-slate-900 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] p-6 border border-slate-100 dark:border-slate-800/80 hover:border-slate-200/80 dark:hover:border-slate-700/80 hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] dark:hover:shadow-[0_12px_40px_rgb(0,0,0,0.25)] transition-all duration-300 relative overflow-hidden before:absolute before:top-0 before:left-0 before:w-full before:h-[3px] before:bg-gradient-to-r before:from-brand-500/80 before:to-secondary-500/80"
+              className="bg-white dark:bg-slate-900 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] p-6 border border-slate-100 dark:border-slate-800/80 hover:border-slate-200/80 dark:hover:border-slate-700/80 hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] dark:hover:shadow-[0_12px_40px_rgb(0,0,0,0.25)] transition-all duration-300 relative overflow-hidden "
               style={{
                 height: pendingHeight ? `${pendingHeight}px` : undefined,
                 display: "flex",
@@ -1066,7 +1217,7 @@ export default function HomePage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] p-6 border border-slate-100 dark:border-slate-800/80 hover:border-slate-200/80 dark:hover:border-slate-700/80 hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] dark:hover:shadow-[0_12px_40px_rgb(0,0,0,0.25)] transition-all duration-300 relative overflow-visible before:absolute before:top-0 before:left-0 before:w-full before:h-[3px] before:bg-gradient-to-r before:from-purple-500/80 before:to-pink-500/80 before:rounded-t-xl">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] p-6 border border-slate-100 dark:border-slate-800/80 hover:border-slate-200/80 dark:hover:border-slate-700/80 hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] dark:hover:shadow-[0_12px_40px_rgb(0,0,0,0.25)] transition-all duration-300 relative overflow-visible ">
             <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
               <span className="text-purple-500">📑</span> Reports
             </h2>
@@ -1206,7 +1357,7 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] p-6 border border-slate-100 dark:border-slate-800/80 hover:border-slate-200/80 dark:hover:border-slate-700/80 hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] dark:hover:shadow-[0_12px_40px_rgb(0,0,0,0.25)] transition-all duration-300 relative overflow-hidden before:absolute before:top-0 before:left-0 before:w-full before:h-[3px] before:bg-gradient-to-r before:from-brand-500/80 before:to-ticker-teal/80">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] p-6 border border-slate-100 dark:border-slate-800/80 hover:border-slate-200/80 dark:hover:border-slate-700/80 hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] dark:hover:shadow-[0_12px_40px_rgb(0,0,0,0.25)] transition-all duration-300 relative overflow-hidden ">
             <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
               <span className="text-brand-500">🔔</span> Notifications
             </h2>
