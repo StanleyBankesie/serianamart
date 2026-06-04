@@ -10,6 +10,7 @@ import { saveLocalSale } from "../../../../offline/posStore.js";
 import { uuid } from "../../../../offline/uuid.js";
 import { toast } from "react-toastify";
 import QRCode from "qrcode";
+import { getPosDatum, cachePosDatum, POS_CACHE_KEYS } from "../../../../offline/offlinePosCache.js";
 
 function FilterableSelect({
   value,
@@ -216,91 +217,108 @@ export default function PosSalesEntry() {
     async function resolveTerminalAndDay() {
       setDayLoading(true);
       try {
-        const uid =
-          Number(user?.sub || 0) || Number(user?.id || 0) || undefined;
-        const [termsRes, linksRes] = await Promise.all([
-          api.get("/pos/terminals"),
-          api.get("/pos/terminal-users"),
-        ]);
-        const allTerminals = Array.isArray(termsRes.data?.items)
-          ? termsRes.data.items
-          : [];
-        const links = Array.isArray(linksRes.data?.items)
-          ? linksRes.data.items
-          : [];
+        const uid = Number(user?.sub || 0) || Number(user?.id || 0) || undefined;
+
+        // Try network first; fall back to IndexedDB-cached data if offline
+        let allTerminals = [];
+        let links = [];
+        try {
+          const [termsRes, linksRes] = await Promise.all([
+            api.get("/pos/terminals"),
+            api.get("/pos/terminal-users"),
+          ]);
+          allTerminals = Array.isArray(termsRes.data?.items) ? termsRes.data.items : [];
+          links = Array.isArray(linksRes.data?.items) ? linksRes.data.items : [];
+          // Cache for offline
+          cachePosDatum(POS_CACHE_KEYS.TERMINALS, allTerminals).catch(() => {});
+          cachePosDatum(POS_CACHE_KEYS.TERMINAL_USERS, links).catch(() => {});
+        } catch {
+          // Offline: load terminals/users from IndexedDB
+          const cachedTerms = await getPosDatum(POS_CACHE_KEYS.TERMINALS, []);
+          const cachedLinks = await getPosDatum(POS_CACHE_KEYS.TERMINAL_USERS, []);
+          allTerminals = Array.isArray(cachedTerms?.data) ? cachedTerms.data : [];
+          links = Array.isArray(cachedLinks?.data) ? cachedLinks.data : [];
+        }
+
         const assignedIds = new Set(
           links
             .filter((x) => Number(x?.user_id) === Number(uid))
             .map((x) => Number(x?.terminal_id))
             .filter((n) => Number.isFinite(n) && n > 0),
         );
-        const assigned = allTerminals.filter((t) =>
-          assignedIds.has(Number(t?.id)),
-        );
-        const code =
-          (assigned.length ? String(assigned[0]?.code || "") : "") || "";
-        const wId =
-          (assigned.length ? String(assigned[0]?.warehouse_id || "") : "") ||
-          "";
+        const assigned = allTerminals.filter((t) => assignedIds.has(Number(t?.id)));
+        const code = (assigned.length ? String(assigned[0]?.code || "") : "") || "";
+        const wId = (assigned.length ? String(assigned[0]?.warehouse_id || "") : "") || "";
         setTerminalCode(code);
         setTerminalWarehouseId(wId);
-        try {
-          const raw = sessionStorage.getItem("omni.pos.day");
-          if (raw) {
+
+        // Check sessionStorage first (most recent), then localStorage (survives tab close)
+        for (const store of [sessionStorage, localStorage]) {
+          try {
+            const raw = store.getItem("omni.pos.day");
+            if (!raw) continue;
             const data = JSON.parse(raw);
             const t = String(data?.terminal || data?.terminalCode || "");
             const status = String(data?.status || "").toUpperCase();
             const recent = Number(data?.ts || 0) > Date.now() - 5000;
-            if (status === "OPEN" && recent && (!code || !t || t === code)) {
-              setDayExists(true);
-              setDayStatus("OPEN");
-              setDayOpen(true);
+            // sessionStorage: accept only if written <5s ago (from PosDayManagement)
+            // localStorage: accept any OPEN status regardless of age
+            const isSession = store === sessionStorage;
+            if (status === "OPEN" && (!isSession || recent) && (!code || !t || t === code)) {
+              setDayExists(true); setDayStatus("OPEN"); setDayOpen(true);
               setDayLoading(false);
-              return;
+              if (cancelled) return;
+              break;
+            }
+          } catch {}
+        }
+
+        // Query server for authoritative day status
+        try {
+          const params = code ? { params: { terminal: code } } : undefined;
+          const res = await api.get("/pos/day/status", params);
+          const item = res?.data?.item || null;
+          const status = String(item?.status || "").toUpperCase();
+          const exists = !!item;
+          if (!cancelled) {
+            setDayExists(exists); setDayStatus(status); setDayOpen(status === "OPEN");
+            // Persist authoritative status to localStorage
+            if (exists) {
+              try {
+                localStorage.setItem("omni.pos.day", JSON.stringify({
+                  status, terminal: code, terminalCode: code, ts: Date.now(),
+                }));
+              } catch {}
             }
           }
-        } catch {}
-        const params = code ? { params: { terminal: code } } : undefined;
-        const res = await api.get("/pos/day/status", params);
-        const item = res?.data?.item || null;
-        const status = String(item?.status || "").toUpperCase();
-        const exists = !!item;
-        setDayExists(exists);
-        setDayStatus(status);
-        setDayOpen(status === "OPEN");
+        } catch {
+          // Network failed — day status already set from cache above, nothing more to do
+        }
       } catch {
         if (cancelled) return;
-        // Offline fallback: use sessionStorage cache even if stale
-        try {
-          const raw = sessionStorage.getItem("omni.pos.day");
-          if (raw) {
+        // Full offline fallback: check both storage layers
+        for (const store of [sessionStorage, localStorage]) {
+          try {
+            const raw = store.getItem("omni.pos.day");
+            if (!raw) continue;
             const data = JSON.parse(raw);
             const t = String(data?.terminal || data?.terminalCode || "");
             const status = String(data?.status || "").toUpperCase();
-            if (
-              status === "OPEN" &&
-              (!terminalCode || !t || t === terminalCode)
-            ) {
-              setDayExists(true);
-              setDayStatus("OPEN");
-              setDayOpen(true);
+            if (status === "OPEN" && (!terminalCode || !t || t === terminalCode)) {
+              setDayExists(true); setDayStatus("OPEN"); setDayOpen(true);
               setDayLoading(false);
               return;
             }
-          }
-        } catch {}
-        setDayExists(false);
-        setDayStatus("");
-        setDayOpen(false);
+          } catch {}
+        }
+        setDayExists(false); setDayStatus(""); setDayOpen(false);
       } finally {
         if (cancelled) return;
         setDayLoading(false);
       }
     }
     resolveTerminalAndDay();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [user?.id, user?.sub]);
 
   useEffect(() => {
@@ -357,6 +375,8 @@ export default function PosSalesEntry() {
         const active = raw.filter(
           (m) => m && m.is_active !== 0 && m.is_active !== false,
         );
+        // Cache for offline use
+        cachePosDatum(POS_CACHE_KEYS.PAYMENT_MODES, raw).catch(() => {});
         setPaymentModes(active);
         if (!selectedPaymentModeId && active.length) {
           let def =
@@ -371,16 +391,24 @@ export default function PosSalesEntry() {
           }
         }
       })
-      .catch((e) => {
+      .catch(async (e) => {
         if (!mounted) return;
-        setPaymentModesError(
-          e?.response?.data?.message || "Failed to load payment modes",
-        );
-        // Offline fallback: use a built-in Cash payment mode
-        const cashMode = { id: 1, name: "Cash", type: "cash", is_active: true };
-        setPaymentModes([cashMode]);
-        if (!selectedPaymentModeId) {
-          setSelectedPaymentModeId("1");
+        // Offline fallback: try IndexedDB cache first
+        const cached = await getPosDatum(POS_CACHE_KEYS.PAYMENT_MODES, null);
+        const cachedModes = Array.isArray(cached?.data) ? cached.data : null;
+        if (cachedModes && cachedModes.length > 0) {
+          const active = cachedModes.filter((m) => m && m.is_active !== 0 && m.is_active !== false);
+          setPaymentModes(active.length ? active : cachedModes);
+          if (!selectedPaymentModeId) {
+            const def = active.find((m) => String(m.type || "").toLowerCase() === "cash") || active[0] || cachedModes[0];
+            if (def?.id) setSelectedPaymentModeId(String(def.id));
+          }
+        } else {
+          // Last resort: built-in Cash mode
+          setPaymentModesError(e?.response?.data?.message || "Failed to load payment modes");
+          const cashMode = { id: 1, name: "Cash", type: "cash", is_active: true };
+          setPaymentModes([cashMode]);
+          if (!selectedPaymentModeId) setSelectedPaymentModeId("1");
         }
       })
       .finally(() => {
@@ -394,71 +422,68 @@ export default function PosSalesEntry() {
 
   useEffect(() => {
     let mounted = true;
+    async function applyTaxItem(item) {
+      if (!item) {
+        setTaxActive(false); setTaxRatePercent(0); setTaxType("Exclusive");
+        setTaxCodeLabel(""); setTaxComponents([]); setTaxCodeId(null);
+        return;
+      }
+      const enabled = item.is_active !== 0 && item.is_active !== false;
+      setTaxActive(enabled);
+      if (!enabled) {
+        setTaxRatePercent(0); setTaxType("Exclusive"); setTaxCodeLabel("");
+        setTaxComponents([]); setTaxCodeId(null);
+        return;
+      }
+      if (item.tax_type) setTaxType(String(item.tax_type));
+      const rate = Number(item.tax_rate_percent ?? 12.5);
+      setTaxRatePercent(Number.isFinite(rate) ? rate : 12.5);
+      setTaxCodeLabel(String(item.tax_name || item.tax_code || item.tax_code_id || "").trim());
+      const resolvedCodeId = Number(item.tax_code_id || 0);
+      if (resolvedCodeId > 0) {
+        setTaxCodeId(resolvedCodeId);
+      } else {
+        setTaxComponents([]); setTaxCodeId(null);
+      }
+    }
     async function loadTaxSettings() {
       try {
         const res = await api.get("/pos/tax-settings");
         if (!mounted) return;
         const item = res.data?.item || null;
-        if (!item) {
-          setTaxActive(false);
-          setTaxRatePercent(0);
-          setTaxType("Exclusive");
-          setTaxCodeLabel("");
-          setTaxComponents([]);
-          setTaxCodeId(null);
-          return;
-        }
-        const enabled = item.is_active !== 0 && item.is_active !== false;
-        setTaxActive(enabled);
-        if (!enabled) {
-          setTaxRatePercent(0);
-          setTaxType("Exclusive");
-          setTaxCodeLabel("");
-          setTaxComponents([]);
-          setTaxCodeId(null);
-          return;
-        }
-        if (item.tax_type) setTaxType(String(item.tax_type));
-        const rate = Number(item.tax_rate_percent ?? 12.5);
-        setTaxRatePercent(Number.isFinite(rate) ? rate : 12.5);
-        const name = String(item.tax_name || "").trim();
-        const code = String(item.tax_code || "").trim();
-        const id = String(item.tax_code_id || "").trim();
-        setTaxCodeLabel(name || code || id || "");
-
-        // Fetch tax components if tax code exists
-        const taxCodeId = Number(item.tax_code_id || 0);
-        if (taxCodeId > 0) {
-          setTaxCodeId(taxCodeId);
+        // Cache for offline
+        cachePosDatum(POS_CACHE_KEYS.TAX_SETTINGS, item).catch(() => {});
+        await applyTaxItem(item);
+        const resolvedCodeId = Number(item?.tax_code_id || 0);
+        if (resolvedCodeId > 0) {
           try {
-            const compRes = await api.get(
-              `/finance/tax-codes/${taxCodeId}/components`,
-            );
-            if (Array.isArray(compRes.data?.items)) {
-              setTaxComponents(compRes.data.items);
-            }
-          } catch (err) {
-            console.warn("Failed to fetch tax components", err);
-            setTaxComponents([]);
+            const compRes = await api.get(`/finance/tax-codes/${resolvedCodeId}/components`);
+            if (!mounted) return;
+            const comps = Array.isArray(compRes.data?.items) ? compRes.data.items : [];
+            setTaxComponents(comps);
+            cachePosDatum(POS_CACHE_KEYS.TAX_COMPONENTS, comps).catch(() => {});
+          } catch {
+            // Try cached components
+            const cached = await getPosDatum(POS_CACHE_KEYS.TAX_COMPONENTS, []);
+            if (mounted) setTaxComponents(Array.isArray(cached?.data) ? cached.data : []);
           }
-        } else {
-          setTaxComponents([]);
-          setTaxCodeId(null);
         }
-      } catch (err) {
+      } catch {
         if (!mounted) return;
-        setTaxActive(false);
-        setTaxRatePercent(0);
-        setTaxType("Exclusive");
-        setTaxCodeLabel("");
-        setTaxComponents([]);
-        setTaxCodeId(null);
+        // Offline fallback: load from IndexedDB cache
+        const cachedTax = await getPosDatum(POS_CACHE_KEYS.TAX_SETTINGS, null);
+        const cachedComps = await getPosDatum(POS_CACHE_KEYS.TAX_COMPONENTS, []);
+        if (cachedTax?.data) {
+          await applyTaxItem(cachedTax.data);
+          setTaxComponents(Array.isArray(cachedComps?.data) ? cachedComps.data : []);
+        } else {
+          setTaxActive(false); setTaxRatePercent(0); setTaxType("Exclusive");
+          setTaxCodeLabel(""); setTaxComponents([]); setTaxCodeId(null);
+        }
       }
     }
     loadTaxSettings();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
   const [headerDiscount, setHeaderDiscount] = useState("");
 
@@ -470,44 +495,62 @@ export default function PosSalesEntry() {
         const companyId = meResp.data?.scope?.companyId;
         if (!companyId) {
           if (!mounted) return;
-          setCompanyInfo((prev) => ({
-            ...prev,
-            logoUrl: prev.logoUrl || defaultLogo,
-          }));
+          setCompanyInfo((prev) => ({ ...prev, logoUrl: prev.logoUrl || defaultLogo }));
           return;
         }
         const cResp = await api.get(`/admin/companies/${companyId}`);
         const item = cResp.data?.item || {};
         if (!mounted) return;
+        const nextInfo = {
+          name: item.name || "",
+          address: item.address || "",
+          city: item.city || "",
+          state: item.state || "",
+          country: item.country || "",
+          phone: item.telephone || "",
+          email: item.email || "",
+          website: item.website || "",
+          taxId: item.tax_id || "",
+          registrationNo: item.registration_no || "",
+          hasLogo: item.has_logo === 1 || item.has_logo === true,
+          companyId,
+        };
+        // Cache for offline use
+        cachePosDatum(POS_CACHE_KEYS.COMPANY_INFO, nextInfo).catch(() => {});
         setCompanyInfo((prev) => ({
           ...prev,
-          name: item.name || prev.name || "",
-          address: item.address || prev.address || "",
-          city: item.city || prev.city || "",
-          state: item.state || prev.state || "",
-          country: item.country || prev.country || "",
-          phone: item.telephone || prev.phone || "",
-          email: item.email || prev.email || "",
-          website: item.website || prev.website || "",
-          taxId: item.tax_id || prev.taxId || "",
-          registrationNo: item.registration_no || prev.registrationNo || "",
-          logoUrl:
-            item.has_logo === 1 || item.has_logo === true
-              ? `/api/admin/companies/${companyId}/logo`
-              : prev.logoUrl || defaultLogo,
+          ...nextInfo,
+          logoUrl: nextInfo.hasLogo ? `/api/admin/companies/${companyId}/logo` : prev.logoUrl || defaultLogo,
         }));
       } catch {
         if (!mounted) return;
-        setCompanyInfo((prev) => ({
-          ...prev,
-          logoUrl: prev.logoUrl || defaultLogo,
-        }));
+        // Offline fallback: load from IndexedDB cache
+        const cached = await getPosDatum(POS_CACHE_KEYS.COMPANY_INFO, null);
+        if (cached?.data) {
+          const d = cached.data;
+          setCompanyInfo((prev) => ({
+            ...prev,
+            name: d.name || prev.name || "",
+            address: d.address || prev.address || "",
+            city: d.city || prev.city || "",
+            state: d.state || prev.state || "",
+            country: d.country || prev.country || "",
+            phone: d.phone || prev.phone || "",
+            email: d.email || prev.email || "",
+            website: d.website || prev.website || "",
+            taxId: d.taxId || prev.taxId || "",
+            registrationNo: d.registrationNo || prev.registrationNo || "",
+            logoUrl: d.hasLogo && d.companyId
+              ? `/api/admin/companies/${d.companyId}/logo`
+              : prev.logoUrl || defaultLogo,
+          }));
+        } else {
+          setCompanyInfo((prev) => ({ ...prev, logoUrl: prev.logoUrl || defaultLogo }));
+        }
       }
     }
     fetchCompanyInfo();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
   useEffect(() => {
@@ -519,33 +562,34 @@ export default function PosSalesEntry() {
       .then((res) => {
         if (!mounted) return;
         const raw = Array.isArray(res.data?.items) ? res.data.items : [];
+        // Cache for offline
+        cachePosDatum(POS_CACHE_KEYS.PRICE_TYPES, raw).catch(() => {});
         setPriceTypes(raw);
         if (!entryPriceType && raw.length) {
-          let def =
-            raw.find(
-              (pt) =>
-                String(pt.name || "")
-                  .trim()
-                  .toLowerCase() === "retail",
-            ) || raw[0];
-          if (def && def.id) {
-            setEntryPriceType(String(def.id));
-          }
+          const def = raw.find((pt) => String(pt.name || "").trim().toLowerCase() === "retail") || raw[0];
+          if (def?.id) setEntryPriceType(String(def.id));
         }
       })
-      .catch((e) => {
+      .catch(async (e) => {
         if (!mounted) return;
-        setPriceTypesError(
-          e?.response?.data?.message || "Failed to load price types",
-        );
+        // Offline fallback: try IndexedDB cache
+        const cached = await getPosDatum(POS_CACHE_KEYS.PRICE_TYPES, null);
+        const cachedTypes = Array.isArray(cached?.data) ? cached.data : null;
+        if (cachedTypes && cachedTypes.length > 0) {
+          setPriceTypes(cachedTypes);
+          if (!entryPriceType) {
+            const def = cachedTypes.find((pt) => String(pt.name || "").trim().toLowerCase() === "retail") || cachedTypes[0];
+            if (def?.id) setEntryPriceType(String(def.id));
+          }
+        } else {
+          setPriceTypesError(e?.response?.data?.message || "Failed to load price types");
+        }
       })
       .finally(() => {
         if (!mounted) return;
         setPriceTypesLoading(false);
       });
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [entryPriceType]);
 
   useEffect(() => {
@@ -611,15 +655,17 @@ export default function PosSalesEntry() {
       .then((res) => {
         if (!mounted) return;
         const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        // Cache for offline
+        cachePosDatum(POS_CACHE_KEYS.CUSTOMERS, items).catch(() => {});
         setCustomers(items);
       })
-      .catch(() => {
+      .catch(async () => {
         if (!mounted) return;
-        setCustomers([]);
+        // Offline fallback: load from IndexedDB cache
+        const cached = await getPosDatum(POS_CACHE_KEYS.CUSTOMERS, []);
+        setCustomers(Array.isArray(cached?.data) ? cached.data : []);
       });
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
   const gross = useMemo(() => {

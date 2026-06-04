@@ -1,8 +1,9 @@
 const DB_NAME = "omnisuite_offline";
-const DB_VERSION = 4;
+const DB_VERSION = 5; // bumped from 4 to add pos_cache store
 const QUEUE_STORE = "queue";
 const CACHE_STORE = "cache";
 const POS_SALES_STORE = "pos_sales";
+const POS_CACHE_STORE = "pos_cache"; // NEW: key-value store for POS reference data
 
 let _db = null;
 
@@ -28,6 +29,12 @@ export async function openDB() {
         const store = db.createObjectStore(POS_SALES_STORE, { keyPath: "id" });
         store.createIndex("status", "status", { unique: false });
         store.createIndex("createdAt", "createdAt", { unique: false });
+      }
+
+      // NEW: Dedicated store for POS reference data (payment modes, tax, customers etc.)
+      if (!db.objectStoreNames.contains(POS_CACHE_STORE)) {
+        const store = db.createObjectStore(POS_CACHE_STORE, { keyPath: "key" });
+        store.createIndex("updatedAt", "updatedAt", { unique: false });
       }
     };
     req.onsuccess = () => {
@@ -112,4 +119,49 @@ export async function deleteItem(id) {
     tx.oncomplete = () => resolve(true);
     tx.onerror = () => reject(tx.error);
   });
+}
+
+// ── POS Cache helpers ─────────────────────────────────────────────────────────
+
+export async function putPosCache(key, data) {
+  try {
+    const db = await openDB();
+    if (!db.objectStoreNames.contains(POS_CACHE_STORE)) return false;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(POS_CACHE_STORE, "readwrite");
+      tx.objectStore(POS_CACHE_STORE).put({ key, data, updatedAt: Date.now() });
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    return false;
+  }
+}
+
+export async function getPosCache(key) {
+  try {
+    const db = await openDB();
+    if (!db.objectStoreNames.contains(POS_CACHE_STORE)) return null;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(POS_CACHE_STORE, "readonly");
+      const req = tx.objectStore(POS_CACHE_STORE).get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function clearPosCache() {
+  try {
+    const db = await openDB();
+    if (!db.objectStoreNames.contains(POS_CACHE_STORE)) return;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(POS_CACHE_STORE, "readwrite");
+      tx.objectStore(POS_CACHE_STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {}
 }
