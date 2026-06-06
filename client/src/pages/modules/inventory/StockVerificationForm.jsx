@@ -596,7 +596,7 @@ export default function StockVerificationForm({
                               <input
                                 id={`sv-item-search-${item.id}`} autoComplete="off"
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                placeholder="Type to search items"
+                                placeholder="Scan barcode or type item name"
                                 value={itemQueries[item.id] || ""}
                                 onChange={(e) => {
                                   const val = e.target.value;
@@ -604,12 +604,13 @@ export default function StockVerificationForm({
                                     ...prev,
                                     [item.id]: val,
                                   }));
-                                  if (!val && item.item_id) {
+                                  if (item.item_id) {
                                     updateItem(item.id, "item_id", "");
                                   }
                                 }}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") {
+                                    e.preventDefault();
                                     const query = (
                                       itemQueries[item.id] || ""
                                     ).trim();
@@ -621,12 +622,12 @@ export default function StockVerificationForm({
                                     );
                                     setItemQueries((prev) => ({
                                       ...prev,
-                                      [item.id]: "",
+                                      [item.id]: searchResults[0].item_name,
                                     }));
                                   }
                                 }}
                               />
-                              {searchResults.length ? (
+                              {searchResults.length && !item.item_id ? (
                                 (() => {
                                   const el = document.getElementById(`sv-item-search-${item.id}`);
                                   const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
@@ -648,7 +649,7 @@ export default function StockVerificationForm({
                                             );
                                             setItemQueries((prev) => ({
                                               ...prev,
-                                              [item.id]: "",
+                                              [item.id]: o.item_name,
                                             }));
                                           }}
                                         >

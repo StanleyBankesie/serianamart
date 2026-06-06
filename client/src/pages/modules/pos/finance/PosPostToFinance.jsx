@@ -455,11 +455,22 @@ export default function PosPostToFinance() {
           }
         }
 
-        const method = String(s.payment_method || "CASH").toUpperCase();
-        paymentTotals.set(
-          method,
-          roundTo2((paymentTotals.get(method) || 0) + total),
-        );
+        const paymentsRaw = s.payments;
+        if (Array.isArray(paymentsRaw) && paymentsRaw.length > 1) {
+          paymentsRaw.forEach((p) => {
+            const pm = String(p.method || "CASH").toUpperCase();
+            paymentTotals.set(
+              pm,
+              roundTo2((paymentTotals.get(pm) || 0) + Number(p.amount || 0)),
+            );
+          });
+        } else {
+          const method = String(s.payment_method || "CASH").toUpperCase();
+          paymentTotals.set(
+            method,
+            roundTo2((paymentTotals.get(method) || 0) + total),
+          );
+        }
       }
 
       // Process Returns (Subtract from totals)

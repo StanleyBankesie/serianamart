@@ -247,22 +247,36 @@ export default function CashCollectionDetails() {
   const paymentModeTotals = useMemo(() => {
     const map = {};
     for (const it of filtered) {
-      const method = String(it.payment_method || "").toUpperCase() || "UNKNOWN";
       const amount = Number(it.net_after_returns ?? it.total_amount ?? 0);
       const isPaid = String(it.payment_status || "") === "PAID";
-      if (!map[method]) {
-        map[method] = {
-          method,
-          invoices: 0,
-          totalAmount: 0,
-          collectedAmount: 0,
-        };
+      const paymentsRaw = it.payments;
+      let paymentMethods = [];
+      if (Array.isArray(paymentsRaw) && paymentsRaw.length > 0) {
+        // Use the stored payments array for split payment breakdown
+        paymentMethods = paymentsRaw.map((p) => String(p.method || "CASH").toUpperCase());
+      } else {
+        paymentMethods = [String(it.payment_method || "CASH").toUpperCase()];
       }
-      map[method].invoices += 1;
-      map[method].totalAmount += amount;
-      if (isPaid) {
-        map[method].collectedAmount += amount;
-      }
+      // Count each payment method in the split
+      paymentMethods.forEach((method, idx) => {
+        const m = method || "UNKNOWN";
+        if (!map[m]) {
+          map[m] = {
+            method: m,
+            invoices: 0,
+            totalAmount: 0,
+            collectedAmount: 0,
+          };
+        }
+        // Only count invoice once (first method gets the invoice count)
+        if (idx === 0) map[m].invoices += 1;
+        // Split the amount evenly across payment methods
+        const splitAmount = amount / paymentMethods.length;
+        map[m].totalAmount += splitAmount;
+        if (isPaid) {
+          map[m].collectedAmount += splitAmount;
+        }
+      });
     }
     return Object.values(map);
   }, [filtered]);
@@ -683,15 +697,7 @@ export default function CashCollectionDetails() {
             List of all invoices from POS sales with collection summary
           </p>
         </div>
-        <div className="flex items-center">
-          <Link
-            to="/pos/day-management"
-            className="btn-danger px-4 py-2 rounded"
-            style={{ display: "inline-block" }}
-          >
-            Close Day
-          </Link>
-        </div>
+
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
@@ -899,7 +905,13 @@ export default function CashCollectionDetails() {
                           .slice(0, 16)}
                       </td>
                       <td className="p-2">
-                        {String(it.payment_method || "").toUpperCase() || "-"}
+                        {(() => {
+                          const raw = it.payments;
+                          if (Array.isArray(raw) && raw.length > 1) {
+                            return raw.map((p) => String(p.method || "").toUpperCase() || "-").join(" + ");
+                          }
+                          return String(it.payment_method || "").toUpperCase() || "-";
+                        })()}
                       </td>
                       <td className="p-2 text-right">
                         {`GH₵ ${Number(it.net_after_returns ?? it.total_amount ?? 0).toFixed(2)}`}

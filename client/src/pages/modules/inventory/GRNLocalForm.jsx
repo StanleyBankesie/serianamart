@@ -529,7 +529,10 @@ export default function GRNLocalForm() {
       input_qty: "",
       unit_price: unitPrice,
     });
-    setItemQueries((prev) => ({ ...prev, [idx]: "" }));
+    setItemQueries((prev) => ({
+      ...prev,
+      [idx]: selected ? selected.item_name : "",
+    }));
   };
 
   useEffect(() => {
@@ -1154,7 +1157,7 @@ export default function GRNLocalForm() {
                                     id={`grnl-item-search-${idx}`}
                                     autoComplete="off"
                                     className="input min-w-[256px] w-[384px]"
-                                    placeholder="Type to search items"
+                                    placeholder="Scan barcode or type item name"
                                     value={itemQueries[idx] || ""}
                                     onChange={(e) => {
                                       const val = e.target.value;
@@ -1162,7 +1165,7 @@ export default function GRNLocalForm() {
                                         ...prev,
                                         [idx]: val,
                                       }));
-                                      if (!val && d.item_id) {
+                                      if (d.item_id) {
                                         updateLine(idx, {
                                           item_id: "",
                                           uom: defaultUomCode
@@ -1177,6 +1180,7 @@ export default function GRNLocalForm() {
                                     }}
                                     onKeyDown={(e) => {
                                       if (e.key === "Enter") {
+                                        e.preventDefault();
                                         const query = (
                                           itemQueries[idx] || ""
                                         ).trim();
@@ -1189,7 +1193,7 @@ export default function GRNLocalForm() {
                                       }
                                     }}
                                   />
-                                  {searchResults.length
+                                  {searchResults.length && !d.item_id
                                     ? (() => {
                                         const el = document.getElementById(
                                           `grnl-item-search-${idx}`,

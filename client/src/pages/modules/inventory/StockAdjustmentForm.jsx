@@ -653,7 +653,7 @@ export default function StockAdjustmentForm() {
                                 <input
                                   id={`sa-item-search-${item.id}`} autoComplete="off"
                                   className="input text-sm py-1 w-full"
-                                  placeholder="Type to search items"
+                                  placeholder="Scan barcode or type item name"
                                   value={itemQueries[item.id] || ""}
                                   onChange={(e) => {
                                     const val = e.target.value;
@@ -661,12 +661,13 @@ export default function StockAdjustmentForm() {
                                       ...prev,
                                       [item.id]: val,
                                     }));
-                                    if (!val && item.item_id) {
+                                    if (item.item_id) {
                                       updateItem(item.id, "item_id", "");
                                     }
                                   }}
                                   onKeyDown={(e) => {
                                     if (e.key === "Enter") {
+                                      e.preventDefault();
                                       const query = (
                                         itemQueries[item.id] || ""
                                       ).trim();
@@ -679,12 +680,12 @@ export default function StockAdjustmentForm() {
                                       );
                                       setItemQueries((prev) => ({
                                         ...prev,
-                                        [item.id]: "",
+                                        [item.id]: searchResults[0].item_name,
                                       }));
                                     }
                                   }}
                                 />
-                                {searchResults.length
+                                {searchResults.length && !item.item_id
                                   ? (() => {
                                       const el = document.getElementById(
                                         `sa-item-search-${item.id}`,
@@ -716,7 +717,7 @@ export default function StockAdjustmentForm() {
                                                 );
                                                 setItemQueries((prev) => ({
                                                   ...prev,
-                                                  [item.id]: "",
+                                                  [item.id]: o.item_name,
                                                 }));
                                               }}
                                             >

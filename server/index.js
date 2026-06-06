@@ -149,9 +149,12 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "TOO_MANY_REQUESTS", message: "Too many requests, please try again later" },
-  skip: (req) => req.path === "/api/health",
+  skip: (req) => req.path === "/api/health" || req.path === "/api/ping",
 });
 app.use("/api", apiLimiter);
+
+app.head("/api/ping", (_req, res) => res.status(200).end());
+app.get("/api/ping", (_req, res) => res.json({ ok: true }));
 
 /* ---------------- DB ---------------- */
 (async () => {

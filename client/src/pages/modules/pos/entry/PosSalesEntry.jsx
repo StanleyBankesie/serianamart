@@ -88,6 +88,8 @@ export default function PosSalesEntry() {
   const [paymentModesLoading, setPaymentModesLoading] = useState(false);
   const [paymentModesError, setPaymentModesError] = useState("");
   const [selectedPaymentModeId, setSelectedPaymentModeId] = useState("");
+  const [additionalPaymentModeIds, setAdditionalPaymentModeIds] = useState([]);
+  const [showSplitPaymentModal, setShowSplitPaymentModal] = useState(false);
   const [taxRatePercent, setTaxRatePercent] = useState(12.5);
   const [taxType, setTaxType] = useState("Exclusive");
   const [taxCodeLabel, setTaxCodeLabel] = useState("");
@@ -708,6 +710,7 @@ export default function PosSalesEntry() {
 
   useEffect(() => {
     setAmountPaid(String(total.toFixed(2)));
+    setAdditionalPaymentModeIds([]);
   }, [total]);
   const cartRef = useRef(null);
   const barcodeDebounceRef = useRef(null);
@@ -1232,9 +1235,22 @@ export default function PosSalesEntry() {
         customers.find((c) => String(c.id) === String(selectedCustomerId)) ||
         null;
       const method = resolvePaymentMethodForSale(selectedPaymentMode);
+      const paymentsData = [];
+      const primaryAmount = Number(amountPaid || 0);
+      paymentsData.push({ payment_mode_id: Number(effectivePaymentModeId), amount: primaryAmount, method });
+      const remainingAmount = total - primaryAmount;
+      if (additionalPaymentModeIds.length > 0 && remainingAmount > 0) {
+        const perAdditional = remainingAmount / additionalPaymentModeIds.length;
+        additionalPaymentModeIds.forEach((id) => {
+          const mode = paymentModes.find((pm) => String(pm.id) === id);
+          const modeMethod = resolvePaymentMethodForSale(mode);
+          paymentsData.push({ payment_mode_id: Number(id), amount: perAdditional, method: modeMethod });
+        });
+      }
       payload = {
         payment_method: method,
         payment_mode_id: Number(effectivePaymentModeId),
+        payments: paymentsData,
         customer_id: chosenCustomer ? Number(chosenCustomer.id) : null,
         customer_name: chosenCustomer
           ? String(chosenCustomer.customer_name || chosenCustomer.name || "")
@@ -1246,8 +1262,8 @@ export default function PosSalesEntry() {
         subtotal,
         tax_total: tax,
         grand_total: total,
-        amount_paid: tendered,
-        change_due: changeDue,
+        amount_paid: additionalPaymentModeIds.length > 0 ? total : tendered,
+        change_due: additionalPaymentModeIds.length > 0 ? 0 : changeDue,
         tax_rate_percent: taxActive ? taxRatePercent : 0,
         tax_type: taxActive ? taxType : "Exclusive",
         tax_code_id: taxActive && taxCodeId ? Number(taxCodeId) : null,
@@ -1400,6 +1416,7 @@ export default function PosSalesEntry() {
     setSelectedItems([]);
     setReceiptNo("");
     setAmountPaid("");
+    setAdditionalPaymentModeIds([]);
     setSelectedCustomerId("");
     setEntryBarcode("");
     setEntryQty(1);
@@ -1459,16 +1476,26 @@ export default function PosSalesEntry() {
     const dateStr = when.toLocaleString();
     const cashierName =
       user?.username || user?.name || user?.fullName || "Cashier";
-    const method =
-      selectedPaymentMode?.name ||
-      (function () {
-        const t = String(selectedPaymentMode?.type || "").toLowerCase();
-        if (t === "cash") return "Cash";
-        if (t === "card") return "Card";
-        if (t === "mobile") return "Mobile Money";
-        if (t === "bank") return "Bank";
-        return "Other";
-      })();
+    const method = (() => {
+      const primary =
+        selectedPaymentMode?.name ||
+        (function () {
+          const t = String(selectedPaymentMode?.type || "").toLowerCase();
+          if (t === "cash") return "Cash";
+          if (t === "card") return "Card";
+          if (t === "mobile") return "Mobile Money";
+          if (t === "bank") return "Bank";
+          return "Other";
+        })();
+      if (!additionalPaymentModeIds.length) return primary;
+      const additional = additionalPaymentModeIds
+        .map((id) => {
+          const m = paymentModes.find((pm) => String(pm.id) === id);
+          return m?.name || "";
+        })
+        .filter(Boolean);
+      return [primary, ...additional].join(" + ");
+    })();
     const companyName = String(
       settings.companyName || companyInfo.name || "Company Name",
     );
@@ -1636,8 +1663,8 @@ export default function PosSalesEntry() {
           <div class="row"><strong>Grand Total</strong><strong>GH₵ ${total.toFixed(
             2,
           )}</strong></div>
-          <div class="row"><span>Amount Tendered</span><span>GH₵ ${tendered.toFixed(2)}</span></div>
-          <div class="row"><span>${changeDue >= 0 ? "Change" : "Amount Due"}</span><span>GH₵ ${Math.abs(changeDue).toFixed(2)}</span></div>
+          <div class="row"><span>Amount Tendered</span><span>GH₵ ${additionalPaymentModeIds.length > 0 ? total.toFixed(2) : tendered.toFixed(2)}</span></div>
+          <div class="row"><span>${changeDue >= 0 ? "Change" : "Amount Due"}</span><span>GH₵ ${additionalPaymentModeIds.length > 0 ? "0.00" : Math.abs(changeDue).toFixed(2)}</span></div>
         </div>
         ${qrHtml}
         <div class="footer">${footerText}</div>
@@ -1759,11 +1786,11 @@ export default function PosSalesEntry() {
                   Customer Sales
                 </Link>
                 <Link
-                  to="/pos/cash-collection"
+                  to="/pos/day-management"
                   className="btn btn-primary"
-                  title="Go to Cash Collection to close day"
+                  title="Go to Start/End Business Day"
                 >
-                  Check Account &amp; Close Day
+                  Close Day
                 </Link>
               </div>
             </div>
@@ -2059,10 +2086,10 @@ export default function PosSalesEntry() {
                     disabled={false}
                   />
                 </div>
-                <div className="flex justify-between text-lg mt-2">
+                <div className="flex justify-between font-bold text-lg mt-2">
                   <div>{changeDue >= 0 ? "Change" : "Amount Due"}</div>
                   <div
-                    className={`font-semibold whitespace-nowrap ${changeDue >= 0 ? "text-brand-700" : "text-red-600"}`}
+                    className={`font-extrabold whitespace-nowrap ${changeDue >= 0 ? "text-brand-700" : "text-red-600"}`}
                   >
                     {`GH₵ ${Math.abs(changeDue).toFixed(2)}`}
                   </div>
@@ -2083,21 +2110,31 @@ export default function PosSalesEntry() {
                     No payment modes configured
                   </div>
                 ) : (
-                  paymentModes.map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      className={`btn text-base ${
-                        String(selectedPaymentModeId) === String(m.id)
-                          ? "btn-primary"
-                          : "btn-secondary"
-                      }`}
-                      onClick={() => setSelectedPaymentModeId(String(m.id))}
-                      disabled={false}
-                    >
-                      {m.name}
-                    </button>
-                  ))
+                  paymentModes.map((m) => {
+                    const isPrimary = String(selectedPaymentModeId) === String(m.id);
+                    const isAdditional = additionalPaymentModeIds.includes(String(m.id));
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        className={`btn text-base ${
+                          isPrimary || isAdditional
+                            ? "btn-primary"
+                            : "btn-secondary"
+                        }`}
+                        onClick={() => {
+                          setSelectedPaymentModeId(String(m.id));
+                          setAdditionalPaymentModeIds([]);
+                        }}
+                        disabled={false}
+                      >
+                        {m.name}
+                        {isAdditional && (
+                          <span className="text-xs ml-1 opacity-75">(+split)</span>
+                        )}
+                      </button>
+                    );
+                  })
                 )}
               </div>
               <div className="space-y-2">
@@ -2112,7 +2149,13 @@ export default function PosSalesEntry() {
                 <button
                   type="button"
                   className="btn-success w-full text-base"
-                  onClick={checkout}
+                  onClick={() => {
+                    if (tendered < total && !additionalPaymentModeIds.length) {
+                      setShowSplitPaymentModal(true);
+                    } else {
+                      checkout();
+                    }
+                  }}
                   disabled={
                     !cart.length ||
                     saving ||
@@ -2121,7 +2164,9 @@ export default function PosSalesEntry() {
                     !selectedPaymentModeId
                   }
                 >
-                  Complete Sale
+                  {tendered < total
+                    ? `Amount Due: GH₵ ${(total - tendered).toFixed(2)}`
+                    : "Complete Sale"}
                 </button>
               </div>
             </div>
@@ -2157,17 +2202,28 @@ export default function PosSalesEntry() {
               <div className="flex justify-between">
                 <div>Payment Method</div>
                 <div className="font-semibold">
-                  {selectedPaymentMode?.name ||
-                    (function () {
-                      const t = String(
-                        selectedPaymentMode?.type || "",
-                      ).toLowerCase();
-                      if (t === "cash") return "Cash";
-                      if (t === "card") return "Card";
-                      if (t === "mobile") return "Mobile Money";
-                      if (t === "bank") return "Bank";
-                      return "Other";
-                    })()}
+                  {(() => {
+                    const primary =
+                      selectedPaymentMode?.name ||
+                      (function () {
+                        const t = String(
+                          selectedPaymentMode?.type || "",
+                        ).toLowerCase();
+                        if (t === "cash") return "Cash";
+                        if (t === "card") return "Card";
+                        if (t === "mobile") return "Mobile Money";
+                        if (t === "bank") return "Bank";
+                        return "Other";
+                      })();
+                    if (!additionalPaymentModeIds.length) return primary;
+                    const additional = additionalPaymentModeIds
+                      .map((id) => {
+                        const m = paymentModes.find((pm) => String(pm.id) === id);
+                        return m?.name || "";
+                      })
+                      .filter(Boolean);
+                    return [primary, ...additional].join(" + ");
+                  })()}
                 </div>
               </div>
             </div>
@@ -2183,6 +2239,45 @@ export default function PosSalesEntry() {
                 Print Receipt
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showSplitPaymentModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm mx-4">
+            <div className="text-xl font-extrabold text-red-600 mb-2">
+              Amount Due: GH₵ {(total - tendered).toFixed(2)}
+            </div>
+            <p className="text-sm text-slate-600 mb-4">Select another payment method</p>
+            <div className="grid grid-cols-2 gap-2">
+              {paymentModes
+                .filter((m) => String(m.id) !== String(selectedPaymentModeId))
+                .map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className="btn btn-secondary text-base"
+                    onClick={() => {
+                      setAdditionalPaymentModeIds((prev) => {
+                        if (prev.includes(String(m.id))) return prev;
+                        return [...prev, String(m.id)];
+                      });
+                      setAmountPaid(String(total.toFixed(2)));
+                      setShowSplitPaymentModal(false);
+                    }}
+                  >
+                    {m.name}
+                  </button>
+                ))}
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary w-full mt-4"
+              onClick={() => setShowSplitPaymentModal(false)}
+            >
+              Back
+            </button>
           </div>
         </div>
       )}

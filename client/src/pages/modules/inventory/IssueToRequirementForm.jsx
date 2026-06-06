@@ -266,7 +266,7 @@ export default function IssueToRequirementForm() {
           }
         : l
     ));
-    setItemQueries(prev => ({ ...prev, [lineId]: "" }));
+    setItemQueries(prev => ({ ...prev, [lineId]: item.item_name || "" }));
   };
 
   const removeLine = (lineId) => {
@@ -493,7 +493,7 @@ export default function IssueToRequirementForm() {
                             <input
                               id={`ir-item-search-${line.id}`} autoComplete="off"
                               className="input w-full"
-                              placeholder="Type to search items"
+                              placeholder="Scan barcode or type item name"
                               value={itemQueries[line.id] || ""}
                               onChange={(e) => {
                                 const val = e.target.value;
@@ -501,7 +501,7 @@ export default function IssueToRequirementForm() {
                                   ...prev,
                                   [line.id]: val,
                                 }));
-                                if (!val && line.item_id) {
+                                if (line.item_id) {
                                   setLines(lines.map(l =>
                                     l.id === line.id ? { ...l, item_id: "", itemCode: "", itemName: "", uom: "" } : l
                                   ));
@@ -509,13 +509,14 @@ export default function IssueToRequirementForm() {
                               }}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") {
+                                  e.preventDefault();
                                   const query = (itemQueries[line.id] || "").trim();
                                   if (!query || !searchResults.length) return;
                                   handleSelectItem(line.id, searchResults[0]);
                                 }
                               }}
                             />
-                            {searchResults.length ? (
+                            {searchResults.length && !line.item_id ? (
                               (() => {
                                 const el = document.getElementById(`ir-item-search-${line.id}`);
                                 const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };

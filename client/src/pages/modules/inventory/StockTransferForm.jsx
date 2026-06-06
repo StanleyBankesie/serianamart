@@ -429,7 +429,7 @@ export default function StockTransferForm() {
           }
         : i
     ));
-    setItemQueries((prev) => ({ ...prev, [rowId]: "" }));
+    setItemQueries((prev) => ({ ...prev, [rowId]: item.item_name || "" }));
     refreshRowBatchOptions(rowId, item.id);
   };
 
@@ -807,7 +807,7 @@ export default function StockTransferForm() {
                             <input
                               id={`st-item-search-${item.id}`} autoComplete="off"
                               className="input w-full"
-                              placeholder="Type to search items"
+                              placeholder="Scan barcode or type item name"
                               value={itemQueries[item.id] || ""}
                               onChange={(e) => {
                                 const val = e.target.value;
@@ -815,7 +815,7 @@ export default function StockTransferForm() {
                                   ...prev,
                                   [item.id]: val,
                                 }));
-                                if (!val && item.item_id) {
+                                if (item.item_id) {
                                   setItems(items.map(i =>
                                     i.id === item.id ? { ...i, item_id: "", itemCode: "", itemName: "", uom: "PCS" } : i
                                   ));
@@ -823,13 +823,14 @@ export default function StockTransferForm() {
                               }}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") {
+                                  e.preventDefault();
                                   const query = (itemQueries[item.id] || "").trim();
                                   if (!query || !searchResults.length) return;
                                   handleSelectItem(item.id, searchResults[0]);
                                 }
                               }}
                             />
-                            {searchResults.length ? (
+                            {searchResults.length && !item.item_id ? (
                               (() => {
                                 const el = document.getElementById(`st-item-search-${item.id}`);
                                 const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };

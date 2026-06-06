@@ -235,33 +235,34 @@ export default function SupplierQuotationForm() {
                     <input
                       autoComplete="off"
                       className="input text-sm w-full"
-                      placeholder="Type to search items"
+                      placeholder="Scan barcode or type item name"
                       value={itemQueries.new || ""}
                       onChange={(e) => {
                         const val = e.target.value;
                         setItemQueries((prev) => ({ ...prev, new: val }));
-                        if (!val && newItem.description) {
+                        if (newItem.description) {
                           setNewItem((prev) => ({ ...prev, description: "" }));
                         }
                       }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
+                          e.preventDefault();
                           const query = (itemQueries.new || "").trim();
                           const results = query ? filterByPrefix(inventoryItems, { query, searchFields: ["item_code", "item_name", "barcode"] }) : [];
                           if (!query || !results.length) return;
                           const sel = results[0];
                           setNewItem((prev) => ({ ...prev, description: `${sel.item_code} - ${sel.item_name}` }));
-                          setItemQueries((prev) => ({ ...prev, new: "" }));
+                          setItemQueries((prev) => ({ ...prev, new: sel.item_name }));
                         }
                       }}
                     />
                     {(() => {
                       const query = (itemQueries.new || "").trim();
                       const results = query ? filterByPrefix(inventoryItems, { query, searchFields: ["item_code", "item_name", "barcode"] }) : [];
-                      return results.length ? (
+                      return results.length && !newItem.description ? (
                         <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto">
                           {results.map((o) => (
-                            <button type="button" key={o.id} className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs" onClick={() => { setNewItem((prev) => ({ ...prev, description: `${o.item_code} - ${o.item_name}` })); setItemQueries((prev) => ({ ...prev, new: "" })); }}>
+                            <button type="button" key={o.id} className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs" onClick={() => { setNewItem((prev) => ({ ...prev, description: `${o.item_code} - ${o.item_name}` })); setItemQueries((prev) => ({ ...prev, new: o.item_name })); }}>
                               {o.item_code} - {o.item_name}
                             </button>
                           ))}

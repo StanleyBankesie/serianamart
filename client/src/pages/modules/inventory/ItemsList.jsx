@@ -1249,6 +1249,7 @@ export default function ItemsList() {
                     onToggle={onSort}
                   />
                   <th>Barcode</th>
+                  <th>Actions</th>
                   <SortableHeader
                     label="Stock Level"
                     sortKey="stock_level"
@@ -1281,7 +1282,6 @@ export default function ItemsList() {
                   />
                   <th>Created By</th>
                   <th>Created Date</th>
-                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1316,6 +1316,22 @@ export default function ItemsList() {
                     <td>{it.group_name || "-"}</td>
                     <td>{it.uom}</td>
                     <td>{it.barcode || "-"}</td>
+                    <td>
+                      <div className="flex items-center gap-2 whitespace-nowrap">
+                        <Link
+                          to={`/inventory/items/${it.id}?mode=view`}
+                          className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                        >
+                          View
+                        </Link>
+                        <Link
+                          to={`/inventory/items/${it.id}?mode=edit`}
+                          className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                        >
+                          Edit
+                        </Link>
+                      </div>
+                    </td>
                     <td>{it.stock_level ?? "-"}</td>
                     <td className="text-right">
                       {Number(it.cost_price || 0).toFixed(2)}
@@ -1337,22 +1353,6 @@ export default function ItemsList() {
                       {it.created_at
                         ? new Date(it.created_at).toLocaleDateString()
                         : "-"}
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-2 whitespace-nowrap">
-                        <Link
-                          to={`/inventory/items/${it.id}?mode=view`}
-                          className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors"
-                        >
-                          View
-                        </Link>
-                        <Link
-                          to={`/inventory/items/${it.id}?mode=edit`}
-                          className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 hover:text-slate-900 transition-colors"
-                        >
-                          Edit
-                        </Link>
-                      </div>
                     </td>
                   </tr>
                 ))}

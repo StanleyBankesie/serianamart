@@ -964,34 +964,36 @@ export default function DirectPurchase() {
                     id="dp-item-search"
                     autoComplete="off"
                     className="input w-full"
-                    placeholder="Type to search items"
-                    value={itemQueries.new || ""}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setItemQueries((prev) => ({ ...prev, new: val }));
-                      if (!val && newItem.item_id) {
-                        setNewItem((prev) => ({
-                          ...prev,
-                          item_id: "",
-                          uom: defaultUomCode,
-                          unit_price: 0,
-                        }));
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const query = (itemQueries.new || "").trim();
-                        const searchResults = query
-                          ? filterByPrefix(items, {
-                              query,
-                              searchFields: ["item_code", "item_name", "barcode"],
-                            })
-                          : [];
-                        if (!query || !searchResults.length) return;
-                        handleNewItemChange({ target: { name: "item_id", value: String(searchResults[0].id) } });
-                        setItemQueries((prev) => ({ ...prev, new: "" }));
-                      }
-                    }}
+                    placeholder="Scan barcode or type item name"
+                      autoFocus
+                      value={itemQueries.new || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setItemQueries((prev) => ({ ...prev, new: val }));
+                        if (newItem.item_id) {
+                          setNewItem((prev) => ({
+                            ...prev,
+                            item_id: "",
+                            uom: defaultUomCode,
+                            unit_price: 0,
+                          }));
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          const query = (itemQueries.new || "").trim();
+                          const searchResults = query
+                            ? filterByPrefix(items, {
+                                query,
+                                searchFields: ["item_code", "item_name", "barcode"],
+                              })
+                            : [];
+                          if (!query || !searchResults.length) return;
+                          handleNewItemChange({ target: { name: "item_id", value: String(searchResults[0].id) } });
+                          setItemQueries((prev) => ({ ...prev, new: searchResults[0].item_name }));
+                        }
+                      }}
                     disabled={isViewMode}
                   />
                   {(() => {
@@ -1002,7 +1004,7 @@ export default function DirectPurchase() {
                           searchFields: ["item_code", "item_name", "barcode"],
                         })
                       : [];
-                    return searchResults.length ? (
+                    return searchResults.length && !newItem.item_id ? (
                       <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto">
                         {searchResults.map((o) => (
                           <button
@@ -1011,7 +1013,7 @@ export default function DirectPurchase() {
                             className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
                             onClick={() => {
                               handleNewItemChange({ target: { name: "item_id", value: String(o.id) } });
-                              setItemQueries((prev) => ({ ...prev, new: "" }));
+                              setItemQueries((prev) => ({ ...prev, new: o.item_name }));
                             }}
                           >
                             {o.item_code} - {o.item_name}

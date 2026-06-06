@@ -648,7 +648,7 @@ export default function StockUpdationForm({
                                 <input
                                   id={`su-item-search-${item.id}`} autoComplete="off"
                                   className="input text-sm py-1 w-full"
-                                  placeholder="Type to search items"
+                                  placeholder="Scan barcode or type item name"
                                   value={itemQueries[item.id] || ""}
                                   onChange={(e) => {
                                     const val = e.target.value;
@@ -656,12 +656,13 @@ export default function StockUpdationForm({
                                       ...prev,
                                       [item.id]: val,
                                     }));
-                                    if (!val && item.item_id) {
+                                    if (item.item_id) {
                                       updateItem(item.id, "item_id", "");
                                     }
                                   }}
                                   onKeyDown={(e) => {
                                     if (e.key === "Enter") {
+                                      e.preventDefault();
                                       const query = (
                                         itemQueries[item.id] || ""
                                       ).trim();
@@ -674,12 +675,12 @@ export default function StockUpdationForm({
                                       );
                                       setItemQueries((prev) => ({
                                         ...prev,
-                                        [item.id]: "",
+                                        [item.id]: searchResults[0].item_name,
                                       }));
                                     }
                                   }}
                                 />
-                                {searchResults.length ? (
+                                {searchResults.length && !item.item_id ? (
                                   (() => {
                                     const el = document.getElementById(`su-item-search-${item.id}`);
                                     const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
@@ -701,7 +702,7 @@ export default function StockUpdationForm({
                                               );
                                               setItemQueries((prev) => ({
                                                 ...prev,
-                                                [item.id]: "",
+                                                [item.id]: o.item_name,
                                               }));
                                             }}
                                           >

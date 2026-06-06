@@ -1380,7 +1380,7 @@ export default function GRNImportForm() {
                                     id={`grni-item-search-${idx}`}
                                     autoComplete="off"
                                     className="input min-w-[256px] w-[384px]"
-                                    placeholder="Type to search items"
+                                    placeholder="Scan barcode or type item name"
                                     value={itemQueries[idx] || ""}
                                     onChange={(e) => {
                                       const val = e.target.value;
@@ -1388,7 +1388,7 @@ export default function GRNImportForm() {
                                         ...prev,
                                         [idx]: val,
                                       }));
-                                      if (!val && d.item_id) {
+                                      if (d.item_id) {
                                         updateLine(idx, {
                                           item_id: "",
                                           uom: defaultUomCode
@@ -1403,6 +1403,7 @@ export default function GRNImportForm() {
                                     }}
                                     onKeyDown={(e) => {
                                       if (e.key === "Enter") {
+                                        e.preventDefault();
                                         const query = (
                                           itemQueries[idx] || ""
                                         ).trim();
@@ -1413,12 +1414,12 @@ export default function GRNImportForm() {
                                         });
                                         setItemQueries((prev) => ({
                                           ...prev,
-                                          [idx]: "",
+                                          [idx]: searchResults[0].item_name,
                                         }));
                                       }
                                     }}
                                   />
-                                  {searchResults.length
+                                  {searchResults.length && !d.item_id
                                     ? (() => {
                                         const el = document.getElementById(
                                           `grni-item-search-${idx}`,
@@ -1442,13 +1443,13 @@ export default function GRNImportForm() {
                                                 type="button"
                                                 key={o.id}
                                                 className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
-                                                onClick={() => {
+                                                  onClick={() => {
                                                   updateLine(idx, {
                                                     item_id: o.id,
                                                   });
                                                   setItemQueries((prev) => ({
                                                     ...prev,
-                                                    [idx]: "",
+                                                    [idx]: o.item_name,
                                                   }));
                                                 }}
                                               >

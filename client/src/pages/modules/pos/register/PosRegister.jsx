@@ -53,6 +53,118 @@ export default function PosRegister() {
   const [terminalCode, setTerminalCode] = useState("");
   const [assignedTerminals, setAssignedTerminals] = useState([]);
   const [terminalsLoading, setTerminalsLoading] = useState(false);
+  const [sessionHistory, setSessionHistory] = useState([]);
+  const [sessionDetail, setSessionDetail] = useState({
+    open: false,
+    mode: "details",
+    index: -1,
+    item: null,
+  });
+
+  const cashierName = useMemo(() => {
+    const name = user?.username || user?.name || user?.fullName || "Cashier";
+    return String(name);
+  }, [user]);
+  const sessionModalItem = useMemo(() => {
+    if (!sessionDetail.open) return null;
+    if (sessionDetail.index >= 0 && sessionDetail.index < sessionHistory.length) {
+      return sessionHistory[sessionDetail.index];
+    }
+    return sessionDetail.item;
+  }, [sessionDetail.open, sessionDetail.index, sessionDetail.item, sessionHistory]);
+
+  function fmtCurrency(n) {
+    return `₵${Number(n || 0).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  }
+  function normalizeDaySummary(summary) {
+    const s = summary || {};
+    return {
+      cashCount: Number(s.cashCount || 0),
+      cashAmount: Number(s.cashAmount || 0),
+      cardCount: Number(s.cardCount || 0),
+      cardAmount: Number(s.cardAmount || 0),
+      mobileCount: Number(s.mobileCount || 0),
+      mobileAmount: Number(s.mobileAmount || 0),
+    };
+  }
+  function diffDaySummary(endSummary, startSummary) {
+    const end = normalizeDaySummary(endSummary);
+    const start = normalizeDaySummary(startSummary);
+    const diff = (a, b) => Math.max(0, Number(a || 0) - Number(b || 0));
+    return {
+      cashCount: diff(end.cashCount, start.cashCount),
+      cashAmount: diff(end.cashAmount, start.cashAmount),
+      cardCount: diff(end.cardCount, start.cardCount),
+      cardAmount: diff(end.cardAmount, start.cardAmount),
+      mobileCount: diff(end.mobileCount, start.mobileCount),
+      mobileAmount: diff(end.mobileAmount, start.mobileAmount),
+    };
+  }
+  function sessionSalesTotals(session) {
+    const hasStartSummary = session?.startSummary !== null && session?.startSummary !== undefined;
+    const end = session?.endSummary || { cashCount: 0, cashAmount: 0, cardCount: 0, cardAmount: 0, mobileCount: 0, mobileAmount: 0 };
+    const d = hasStartSummary ? diffDaySummary(end, session?.startSummary || null) : { cashCount: 0, cashAmount: 0, cardCount: 0, cardAmount: 0, mobileCount: 0, mobileAmount: 0 };
+    const totalCount = Number(d.cashCount || 0) + Number(d.cardCount || 0) + Number(d.mobileCount || 0);
+    const computedTotalAmount = Number(d.cashAmount || 0) + Number(d.cardAmount || 0) + Number(d.mobileAmount || 0);
+    const totalAmount = hasStartSummary ? computedTotalAmount : Number(session?.sales || 0);
+    const expectedCashAtClose = session?.status === "Closed" && session?.expectedCash !== null && session?.expectedCash !== undefined
+      ? Number(session.expectedCash || 0) : Number(session?.opening || 0) + Number(d.cashAmount || 0);
+    const actualCashAtClose = session?.status === "Closed" && session?.actualCash !== null && session?.actualCash !== undefined
+      ? Number(session.actualCash || 0) : session?.actualCash === null || session?.actualCash === undefined ? null : Number(session.actualCash || 0);
+    const cashVarianceAtClose = session?.status === "Closed" && session?.cashVariance !== null && session?.cashVariance !== undefined
+      ? Number(session.cashVariance || 0) : actualCashAtClose === null ? null : actualCashAtClose - expectedCashAtClose;
+    return { diff: d, totalCount, totalAmount, expectedCashAtClose, actualCashAtClose, cashVarianceAtClose };
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    const term = terminalCode;
+    if (!term) return undefined;
+    const params = { terminal: term };
+    if (dateFrom) params.dateFrom = dateFrom;
+    if (dateTo) params.dateTo = dateTo;
+    api.get("/pos/day/history", { params })
+      .then((res) => {
+        if (cancelled) return;
+        const items = Array.isArray(res?.data?.items) ? res.data.items : [];
+        const mapped = items.map((item) => {
+          const isOpen = String(item.status || "").toUpperCase() === "OPEN";
+          const opening = Number(item.opening_float || 0);
+          const actualCash = item.actual_cash === null || item.actual_cash === undefined ? null : Number(item.actual_cash || 0);
+          let expectedCash = null;
+          let cashVariance = null;
+          if (!isOpen && actualCash !== null) {
+            expectedCash = opening;
+            cashVariance = actualCash - opening;
+          }
+          return {
+            dayStatusId: Number(item.id || 0) || null,
+            no: `DAY-${String(item.id || "").padStart(6, "0")}`,
+            terminal: String(item.terminal_code || term || ""),
+            cashier: String(item.created_by_name || cashierName),
+            start: item.open_datetime ? new Date(item.open_datetime).toLocaleString() : "-",
+            startTime: item.open_datetime || null,
+            end: item.close_datetime ? new Date(item.close_datetime).toLocaleString() : "-",
+            endTime: item.close_datetime || null,
+            opening,
+            status: isOpen ? "Open" : "Closed",
+            startSummary: normalizeDaySummary({}),
+            endSummary: null,
+            expectedCash,
+            actualCash,
+            cashVariance,
+            closeNotes: item.close_notes || "",
+            sales: 0,
+          };
+        });
+        setSessionHistory(mapped);
+      })
+      .catch(() => { setSessionHistory([]); });
+    return () => { cancelled = true; };
+  }, [terminalCode, cashierName, dateFrom, dateTo]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
@@ -390,6 +502,199 @@ export default function PosRegister() {
           </div>
         </div>
       </div>
+
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">Session History</div>
+          <div className="text-2xl">📊</div>
+        </div>
+        <div className="card-body">
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Session #</th>
+                  <th>Terminal</th>
+                  <th>Cashier</th>
+                  <th>Start Time</th>
+                  <th>End Time</th>
+                  <th>Opening Cash</th>
+                  <th>Total Sales</th>
+                  <th>Cash Variance</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!sessionHistory.length ? (
+                  <tr>
+                    <td colSpan="10">
+                      <div className="text-center text-slate-600 py-6">
+                        No session history found
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  sessionHistory.map((h, idx) => (
+                    <tr key={idx} className="border-t">
+                      <td className="p-2">{h.no}</td>
+                      <td className="p-2">{h.terminal}</td>
+                      <td className="p-2">{h.cashier}</td>
+                      <td className="p-2">{h.start}</td>
+                      <td className="p-2">{h.end}</td>
+                      <td className="p-2">{fmtCurrency(h.opening)}</td>
+                      <td className="p-2">{fmtCurrency(Number(h.sales || 0))}</td>
+                      <td className="p-2">
+                        {h.cashVariance !== null ? (
+                          <span style={{ color: h.cashVariance >= 0 ? "#28a745" : "#dc3545", fontWeight: 700 }}>
+                            {fmtCurrency(h.cashVariance)}
+                          </span>
+                        ) : "-"}
+                      </td>
+                      <td className="p-2">
+                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${h.status === "Open" ? "bg-blue-100 text-blue-700" : h.status === "Closed" ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-700"}`}>
+                          {h.status}
+                        </span>
+                      </td>
+                      <td className="p-2">
+                        <button
+                          type="button"
+                          className="btn btn-info"
+                          onClick={() => setSessionDetail({ open: true, mode: "details", index: idx, item: h })}
+                        >
+                          Details
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {sessionDetail.open && sessionModalItem && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="rounded-xl bg-white dark:bg-slate-800 shadow-lg w-full max-w-2xl">
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
+              <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                Session {sessionModalItem.no}
+              </div>
+              <button
+                type="button"
+                className="btn btn-sm btn-link"
+                onClick={() => setSessionDetail({ open: false, mode: "details", index: -1, item: null })}
+              >
+                ✖
+              </button>
+            </div>
+            <div className="max-h-[70vh] overflow-y-auto p-6 space-y-4">
+              {(() => {
+                const s = sessionModalItem;
+                const t = sessionSalesTotals(s);
+                const startLabel = s.start || (s.startTime ? new Date(s.startTime).toLocaleString() : "-");
+                const endLabel = s.end && s.end !== "-" ? s.end : s.endTime ? new Date(s.endTime).toLocaleString() : "-";
+                return (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
+                        <div className="text-xs text-slate-600">Terminal</div>
+                        <div className="font-semibold">{s.terminal}</div>
+                      </div>
+                      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
+                        <div className="text-xs text-slate-600">Cashier</div>
+                        <div className="font-semibold">{s.cashier}</div>
+                      </div>
+                      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
+                        <div className="text-xs text-slate-600">Status</div>
+                        <div className="font-semibold">{s.status}</div>
+                      </div>
+                      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
+                        <div className="text-xs text-slate-600">Start Time</div>
+                        <div className="font-semibold">{startLabel}</div>
+                      </div>
+                      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
+                        <div className="text-xs text-slate-600">End Time</div>
+                        <div className="font-semibold">{endLabel}</div>
+                      </div>
+                      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
+                        <div className="text-xs text-slate-600">Opening Cash</div>
+                        <div className="font-bold">{fmtCurrency(s.opening)}</div>
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 overflow-hidden">
+                      <div className="p-3 font-semibold bg-slate-50">Sales Breakdown</div>
+                      <div className="overflow-x-auto">
+                        <table className="table">
+                          <thead>
+                            <tr>
+                              <th>Payment Method</th>
+                              <th>Transactions</th>
+                              <th>Amount Received</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td>Cash</td>
+                              <td>{t.diff.cashCount}</td>
+                              <td>{fmtCurrency(t.diff.cashAmount)}</td>
+                            </tr>
+                            <tr>
+                              <td>Card</td>
+                              <td>{t.diff.cardCount}</td>
+                              <td>{fmtCurrency(t.diff.cardAmount)}</td>
+                            </tr>
+                            <tr>
+                              <td>Mobile Money</td>
+                              <td>{t.diff.mobileCount}</td>
+                              <td>{fmtCurrency(t.diff.mobileAmount)}</td>
+                            </tr>
+                            <tr className="bg-blue-50 font-semibold">
+                              <td>TOTAL</td>
+                              <td>{t.totalCount}</td>
+                              <td>{fmtCurrency(t.totalAmount)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 overflow-hidden">
+                      <div className="p-3 font-semibold bg-slate-50">Cash Reconciliation</div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
+                        <div className="p-3 rounded-lg border border-slate-200 bg-white">
+                          <div className="text-xs text-slate-600">Expected Cash</div>
+                          <div className="font-bold">{fmtCurrency(t.expectedCashAtClose)}</div>
+                        </div>
+                        <div className="p-3 rounded-lg border border-slate-200 bg-white">
+                          <div className="text-xs text-slate-600">Actual Cash</div>
+                          <div className="font-bold">{t.actualCashAtClose === null ? "-" : fmtCurrency(t.actualCashAtClose)}</div>
+                        </div>
+                        <div className="p-3 rounded-lg border border-slate-200 bg-white">
+                          <div className="text-xs text-slate-600">Variance</div>
+                          <div className="font-bold" style={{ color: t.cashVarianceAtClose === null ? undefined : t.cashVarianceAtClose >= 0 ? "#28a745" : "#dc3545" }}>
+                            {t.cashVarianceAtClose !== null ? fmtCurrency(t.cashVarianceAtClose) : "-"}
+                          </div>
+                        </div>
+                      </div>
+                      {(s.closeNotes || sessionModalItem?.closeNotes) && (
+                        <div className="px-4 pb-4 text-sm text-slate-700">
+                          {s.closeNotes || sessionModalItem?.closeNotes}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex justify-end">
+                      <button type="button" className="btn-primary" onClick={() => setSessionDetail({ open: false, mode: "details", index: -1, item: null })}>
+                        Close
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <div className="card-body overflow-x-auto">

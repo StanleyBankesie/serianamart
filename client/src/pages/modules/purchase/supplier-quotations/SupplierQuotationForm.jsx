@@ -951,43 +951,44 @@ export default function SupplierQuotationForm() {
                          <input
                            id={`sq-item-search-${index}`} autoComplete="off"
                            className="input w-72"
-                           placeholder="Type to search items"
-                           value={itemQueries[index] || ""}
-                           onChange={(e) => {
-                             const val = e.target.value;
-                             setItemQueries((prev) => ({
-                               ...prev,
-                               [index]: val,
-                             }));
-                             if (!val && item.item_id) {
-                               handleItemChange(index, "item_id", "");
-                             }
-                           }}
-                           onKeyDown={(e) => {
-                             if (e.key === "Enter") {
-                               const query = (itemQueries[index] || "").trim();
-                               const results = query
-                                 ? filterByPrefix(availableItems, {
-                                     query,
-                                     searchFields: [
-                                       "item_code",
-                                       "item_name",
-                                       "barcode",
-                                     ],
-                                   })
-                                 : [];
-                               if (!query || !results.length) return;
-                               handleItemChange(
-                                 index,
-                                 "item_id",
-                                 String(results[0].id),
-                               );
-                               setItemQueries((prev) => ({
-                                 ...prev,
-                                 [index]: "",
-                               }));
-                             }
-                           }}
+                            placeholder="Scan barcode or type item name"
+                            value={itemQueries[index] || ""}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setItemQueries((prev) => ({
+                                ...prev,
+                                [index]: val,
+                              }));
+                              if (item.item_id) {
+                                handleItemChange(index, "item_id", "");
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                const query = (itemQueries[index] || "").trim();
+                                const results = query
+                                  ? filterByPrefix(availableItems, {
+                                      query,
+                                      searchFields: [
+                                        "item_code",
+                                        "item_name",
+                                        "barcode",
+                                      ],
+                                    })
+                                  : [];
+                                if (!query || !results.length) return;
+                                e.preventDefault();
+                                handleItemChange(
+                                  index,
+                                  "item_id",
+                                  String(results[0].id),
+                                );
+                                setItemQueries((prev) => ({
+                                  ...prev,
+                                  [index]: results[0].item_name || results[0].name || "",
+                                }));
+                              }
+                            }}
                          />
                          {(() => {
                            const query = (itemQueries[index] || "").trim();
@@ -1001,9 +1002,9 @@ export default function SupplierQuotationForm() {
                                  ],
                                })
                              : [];
-                           return results.length ? (
-                             (() => {
-                               const el = document.getElementById(`sq-item-search-${index}`);
+                            return results.length && !item.item_id ? (
+                              (() => {
+                                const el = document.getElementById(`sq-item-search-${index}`);
                                const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
                                return (
                                  <div
@@ -1015,21 +1016,21 @@ export default function SupplierQuotationForm() {
                                        type="button"
                                        key={o.id}
                                        className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
-                                       onClick={() => {
-                                         handleItemChange(
-                                           index,
-                                           "item_id",
-                                           String(o.id),
-                                         );
-                                         setItemQueries((prev) => ({
-                                           ...prev,
-                                           [index]: "",
-                                         }));
-                                       }}
-                                     >
-                                       {(o.item_code || o.code || o.id) +
-                                         " - " +
-                                         (o.item_name || o.name || "")}
+                                      onClick={() => {
+                                          handleItemChange(
+                                            index,
+                                            "item_id",
+                                            String(o.id),
+                                          );
+                                          setItemQueries((prev) => ({
+                                            ...prev,
+                                            [index]: o.item_name || o.name || "",
+                                          }));
+                                        }}
+                                      >
+                                        {(o.item_code || o.code || o.id) +
+                                          " - " +
+                                          (o.item_name || o.name || "")}
                                      </button>
                                    ))}
                                  </div>

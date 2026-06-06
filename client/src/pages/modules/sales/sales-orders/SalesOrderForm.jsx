@@ -831,8 +831,7 @@ export default function SalesOrderForm() {
     const { name, value } = e.target;
     if (name === "customer_id") {
       const cust = customers.find((c) => String(c.id) === String(value));
-      setFormData((prev) => ({
-        ...prev,
+      const updatedData = {
         customer_id: value,
         address: cust?.address || "",
         address2: cust?.address2 || "",
@@ -840,8 +839,14 @@ export default function SalesOrderForm() {
         state: cust?.state || "",
         country: cust?.country || "",
         phone: cust?.phone || cust?.customer_phone || "",
-      }));
-      void repriceOrderLinesByPriceType(formData.price_type, value);
+      };
+      // Auto-apply customer's linked price type if available
+      if (cust?.price_type_id) {
+        updatedData.price_type = String(cust.price_type_id);
+      }
+      setFormData((prev) => ({ ...prev, ...updatedData }));
+      const priceTypeToUse = cust?.price_type_id ? String(cust.price_type_id) : formData.price_type;
+      void repriceOrderLinesByPriceType(priceTypeToUse, value);
       return;
     }
     if (name === "price_type") {
@@ -1610,12 +1615,12 @@ export default function SalesOrderForm() {
                             name="item_id"
                             autoComplete="off"
                             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                            placeholder="Type to search items"
+                            placeholder="Scan barcode or type item name"
                             value={itemQuery}
                             onChange={(e) => {
                               const val = e.target.value;
                               setItemQuery(val);
-                              if (!val && newItem.item_id) {
+                              if (newItem.item_id) {
                                 setNewItem((prev) => ({
                                   ...prev,
                                   item_id: "",
@@ -1634,18 +1639,9 @@ export default function SalesOrderForm() {
                                     })
                                   : [];
                                 if (!query || !results.length) return;
-                                const prod = inventoryItems.find(
-                                  (p) => String(p.id) === String(results[0].id),
-                                );
-                                setNewItem((prev) => ({
-                                  ...prev,
-                                  item_id: results[0].id,
-                                  item_name: prod?.item_name || "",
-                                  unit_price: prod?.selling_price || "",
-                                  qty: 1,
-                                  uom: String(prod?.uom || "") || defaultUomCode,
-                                }));
-                                setItemQuery("");
+                                e.preventDefault();
+                                handleNewItemChange({ target: { name: "item_id", value: results[0].id } });
+                                setItemQuery(results[0].item_name);
                               }
                             }}
                           />
@@ -1657,7 +1653,7 @@ export default function SalesOrderForm() {
                                   searchFields: ["item_code", "item_name", "barcode"],
                                 })
                               : [];
-                            return results.length ? (
+                            return results.length && !newItem.item_id ? (
                               (() => {
                                 const el = document.getElementById("sales-order-item-search");
                                 const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
@@ -1672,18 +1668,8 @@ export default function SalesOrderForm() {
                                         key={o.id}
                                         className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-xs"
                                         onClick={() => {
-                                          const prod = inventoryItems.find(
-                                            (p) => String(p.id) === String(o.id),
-                                          );
-                                          setNewItem((prev) => ({
-                                            ...prev,
-                                            item_id: o.id,
-                                            item_name: prod?.item_name || "",
-                                            unit_price: prod?.selling_price || "",
-                                            qty: 1,
-                                            uom: String(prod?.uom || "") || defaultUomCode,
-                                          }));
-                                          setItemQuery("");
+                                          handleNewItemChange({ target: { name: "item_id", value: o.id } });
+                                          setItemQuery(o.item_name);
                                         }}
                                       >
                                         {o.item_code} - {o.item_name}

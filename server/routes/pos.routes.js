@@ -602,6 +602,10 @@ async function ensurePosTables() {
     await query("ALTER TABLE pos_sales ADD COLUMN tax_components JSON NULL");
   }
 
+  if (!(await hasColumn("pos_sales", "payments"))) {
+    await query("ALTER TABLE pos_sales ADD COLUMN payments JSON NULL");
+  }
+
   await query(`
     CREATE TABLE IF NOT EXISTS pos_sale_lines (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1012,16 +1016,26 @@ router.get(
       await ensurePosTables();
       const rows = await query(
         `
-        SELECT payment_method, COUNT(*) AS cnt, COALESCE(SUM(net_amount), 0) AS amt,
-          created_at,
+        SELECT 
+          COALESCE(pt.method, payment_method, 'UNKNOWN') AS method,
+          COUNT(*) AS cnt,
+          COALESCE(SUM(pt.amount), SUM(net_amount), 0) AS amt,
+          p.created_at,
           u.username AS created_by_name
-         FROM pos_sales
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
-          AND branch_id = :branchId
+         FROM pos_sales p
+        LEFT JOIN JSON_TABLE(
+          p.payments,
+          '$[*]' COLUMNS (
+            method VARCHAR(20) PATH '$.method',
+            amount DECIMAL(18,2) PATH '$.amount'
+          )
+        ) pt ON 1=1
+        LEFT JOIN adm_users u ON u.id = p.created_by
+         WHERE p.company_id = :companyId
+          AND p.branch_id = :branchId
           AND ${salesDateCond}
-          AND status = 'COMPLETED'
-        GROUP BY payment_method
+          AND p.status = 'COMPLETED'
+        GROUP BY COALESCE(pt.method, p.payment_method, 'UNKNOWN')
         `,
         params,
       );
@@ -1195,12 +1209,19 @@ router.get(
         `
         SELECT 
           COALESCE(t.code, 'UNKNOWN') AS terminal,
-          SUM(CASE WHEN p.payment_method='CASH' THEN p.net_amount ELSE 0 END) AS cash_total,
-          SUM(CASE WHEN p.payment_method='CARD' THEN p.net_amount ELSE 0 END) AS card_total,
-          SUM(CASE WHEN p.payment_method='MOBILE' THEN p.net_amount ELSE 0 END) AS mobile_total,
+          SUM(CASE WHEN COALESCE(pt.method, p.payment_method)='CASH' THEN COALESCE(pt.amount, p.net_amount) ELSE 0 END) AS cash_total,
+          SUM(CASE WHEN COALESCE(pt.method, p.payment_method)='CARD' THEN COALESCE(pt.amount, p.net_amount) ELSE 0 END) AS card_total,
+          SUM(CASE WHEN COALESCE(pt.method, p.payment_method)='MOBILE' THEN COALESCE(pt.amount, p.net_amount) ELSE 0 END) AS mobile_total,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
+        LEFT JOIN JSON_TABLE(
+          p.payments,
+          '$[*]' COLUMNS (
+            method VARCHAR(20) PATH '$.method',
+            amount DECIMAL(18,2) PATH '$.amount'
+          )
+        ) pt ON 1=1
         LEFT JOIN pos_terminals t
           ON t.id = p.terminal_id AND t.company_id = p.company_id AND t.branch_id = p.branch_id
         LEFT JOIN adm_users u ON u.id = p.created_by
@@ -1849,15 +1870,22 @@ router.get(
       const items = await query(
         `
         SELECT 
-          COALESCE(p.payment_method, 'UNKNOWN') AS method,
+          COALESCE(pt.method, p.payment_method, 'UNKNOWN') AS method,
           COUNT(*) AS count,
-          COALESCE(SUM(p.net_amount), 0) AS total,
+          COALESCE(SUM(pt.amount), SUM(p.net_amount), 0) AS total,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
+        LEFT JOIN JSON_TABLE(
+          p.payments,
+          '$[*]' COLUMNS (
+            method VARCHAR(20) PATH '$.method',
+            amount DECIMAL(18,2) PATH '$.amount'
+          )
+        ) pt ON 1=1
         LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE ${where.join(" AND ")}
-        GROUP BY COALESCE(p.payment_method, 'UNKNOWN')
+        GROUP BY COALESCE(pt.method, p.payment_method, 'UNKNOWN')
         ORDER BY total DESC
         `,
         params,
@@ -1903,282 +1931,6 @@ router.get(
 );
 
 router.get(
-  "/reports/returns",
-  requireAuth,
-  requireCompanyScope,
-  requireBranchScope,
-  async (req, res, next) => {
-    try {
-      const { companyId, branchId } = req.scope;
-      const startDate = String(req.query.startDate || "").trim();
-      const endDate = String(req.query.endDate || "").trim();
-      await ensurePosTables();
-      const where = ["r.company_id = :companyId", "r.branch_id = :branchId"];
-      const params = { companyId, branchId };
-      if (startDate && endDate) {
-        params.startDate = startDate;
-        params.endDate = endDate;
-        where.push(
-          "DATE(r.return_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
-        );
-      } else {
-        where.push(
-          "DATE(r.return_datetime) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)",
-        );
-      }
-      const items = await query(
-        `
-        SELECT
-          r.id,
-          r.receipt_no,
-          r.return_datetime,
-          r.refund_method,
-          r.total_refund,
-          r.notes,
-          r.sale_id,
-          ps.receipt_no AS sale_receipt_no,
-          COALESCE(t.code, '') AS terminal_code,
-          COALESCE(t.warehouse, '') AS warehouse,
-          (SELECT COUNT(*) FROM pos_return_lines rl WHERE rl.return_id = r.id) AS items_count,
-          r.created_at,
-          u.username AS created_by_name
-        FROM pos_returns r
-        JOIN pos_sales ps
-          ON ps.id = r.sale_id
-         AND ps.company_id = r.company_id
-         AND ps.branch_id = r.branch_id
-        LEFT JOIN pos_terminals t
-          ON t.id = ps.terminal_id
-         AND t.company_id = ps.company_id
-         AND t.branch_id = ps.branch_id
-        LEFT JOIN adm_users u
-          ON u.id = r.created_by
-        WHERE ${where.join(" AND ")}
-        ORDER BY r.return_datetime DESC, r.id DESC
-        `,
-        params,
-      );
-      res.json({ items });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-router.get(
-  "/reports/returns-summary",
-  requireAuth,
-  requireCompanyScope,
-  requireBranchScope,
-  async (req, res, next) => {
-    try {
-      const { companyId, branchId } = req.scope;
-      const startDate = String(req.query.startDate || "").trim();
-      const endDate = String(req.query.endDate || "").trim();
-      await ensurePosTables();
-      const where = ["company_id = :companyId", "branch_id = :branchId"];
-      const params = { companyId, branchId };
-      if (startDate && endDate) {
-        params.startDate = startDate;
-        params.endDate = endDate;
-        where.push(
-          "DATE(return_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
-        );
-      } else {
-        where.push(
-          "DATE(return_datetime) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)",
-        );
-      }
-      const byDay = await query(
-        `
-        SELECT
-          DATE(return_datetime) AS date,
-          COUNT(*) AS count,
-          COALESCE(SUM(total_refund), 0) AS total
-        FROM pos_returns
-        WHERE ${where.join(" AND ")}
-        GROUP BY DATE(return_datetime)
-        ORDER BY date ASC
-        `,
-        params,
-      );
-      const byMethod = await query(
-        `
-        SELECT
-          COALESCE(refund_method, 'UNKNOWN') AS method,
-          COUNT(*) AS count,
-          COALESCE(SUM(total_refund), 0) AS total
-        FROM pos_returns
-        WHERE ${where.join(" AND ")}
-        GROUP BY COALESCE(refund_method, 'UNKNOWN')
-        ORDER BY total DESC
-        `,
-        params,
-      );
-      res.json({ byDay, byMethod });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-router.get(
-  "/reports/top-items",
-  requireAuth,
-  requireCompanyScope,
-  requireBranchScope,
-  async (req, res, next) => {
-    try {
-      const { companyId, branchId } = req.scope;
-      const startDate = String(req.query.startDate || "").trim();
-      const endDate = String(req.query.endDate || "").trim();
-      const rawLimit = Number(req.query.limit || 10);
-      const limit =
-        Number.isFinite(rawLimit) && rawLimit > 0
-          ? Math.min(100, Math.floor(rawLimit))
-          : 10;
-      await ensurePosTables();
-      const where = [
-        "p.company_id = :companyId",
-        "p.branch_id = :branchId",
-        "p.status = 'COMPLETED'",
-      ];
-      const params = { companyId, branchId, limit };
-      if (startDate && endDate) {
-        params.startDate = startDate;
-        params.endDate = endDate;
-        where.push(
-          "DATE(p.sale_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
-        );
-      } else {
-        where.push("DATE(p.sale_datetime) = CURDATE()");
-      }
-      const items = await query(
-        `
-        SELECT 
-          COALESCE(l.item_name, 'Unknown') AS item,
-          COALESCE(SUM(l.qty - COALESCE(l.returned_qty, 0)), 0) AS qty,
-          COALESCE(SUM(l.line_total - (COALESCE(l.returned_qty, 0) * l.unit_price)), 0) AS amount,
-          l.created_at,
-          u.username AS created_by_name
-         FROM pos_sale_lines l
-        JOIN pos_sales p ON p.id = l.sale_id
-        LEFT JOIN adm_users u ON u.id = l.created_by
-         WHERE ${where.join(" AND ")}
-        GROUP BY COALESCE(l.item_name, 'Unknown')
-        ORDER BY amount DESC
-        LIMIT ${limit}
-        `,
-        params,
-      );
-      res.json({ items });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-// Backward-compatible singular aliases (execute same logic instead of rewriting URL)
-router.get(
-  "/report/daily-sales",
-  requireAuth,
-  requireCompanyScope,
-  requireBranchScope,
-  async (req, res, next) => {
-    try {
-      const { companyId, branchId } = req.scope;
-      const startDate = String(req.query.startDate || "").trim();
-      const endDate = String(req.query.endDate || "").trim();
-      await ensurePosTables();
-      const where = [
-        "p.company_id = :companyId",
-        "p.branch_id = :branchId",
-        "p.status = 'COMPLETED'",
-      ];
-      const params = { companyId, branchId };
-      if (startDate && endDate) {
-        params.startDate = startDate;
-        params.endDate = endDate;
-        where.push(
-          "DATE(p.sale_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
-        );
-      } else {
-        where.push(
-          "DATE(p.sale_datetime) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)",
-        );
-      }
-      const items = await query(
-        `
-        SELECT 
-          DATE(p.sale_datetime) AS date,
-          COUNT(*) AS count,
-          COALESCE(SUM(p.gross_amount), 0) AS gross,
-          COALESCE(SUM(p.discount_amount), 0) AS discount,
-          COALESCE(SUM(p.tax_amount), 0) AS tax,
-          COALESCE(SUM(p.net_amount), 0) AS net,
-          p.created_at,
-          u.username AS created_by_name
-         FROM pos_sales p
-        LEFT JOIN adm_users u ON u.id = p.created_by
-         WHERE ${where.join(" AND ")}
-        GROUP BY DATE(p.sale_datetime)
-        ORDER BY date ASC
-        `,
-        params,
-      );
-      const retWhere = ["company_id = :companyId", "branch_id = :branchId"];
-      const retParams = { companyId, branchId };
-      if (startDate && endDate) {
-        retParams.startDate = startDate;
-        retParams.endDate = endDate;
-        retWhere.push(
-          "DATE(return_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
-        );
-      } else {
-        retWhere.push(
-          "DATE(return_datetime) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)",
-        );
-      }
-      const returnRows = await query(
-        `
-        SELECT
-          DATE(return_datetime) AS date,
-          COALESCE(SUM(total_refund), 0) AS return_total
-         FROM pos_returns
-         WHERE ${retWhere.join(" AND ")}
-        GROUP BY DATE(return_datetime)
-        `,
-        retParams,
-      );
-      const returnsByDate = new Map(
-        (Array.isArray(returnRows) ? returnRows : []).map((r) => [
-          String(r.date || "").slice(0, 10),
-          Number(r.return_total || 0),
-        ]),
-      );
-      const adjusted = (Array.isArray(items) ? items : []).map((it) => {
-        const d = String(it.date || "").slice(0, 10);
-        const rawNet = Number(it.net || 0);
-        const rawTax = Number(it.tax || 0);
-        const ret = returnsByDate.get(d) || 0;
-        const net = roundTo2(rawNet - ret);
-        const taxRatio = rawNet > 0 ? rawTax / rawNet : 0;
-        const tax = roundTo2(rawTax - ret * taxRatio);
-        return {
-          ...it,
-          tax,
-          net,
-          return_total: roundTo2(ret),
-          net_after_returns: net,
-        };
-      });
-      res.json({ items: adjusted });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-router.get(
   "/report/payment-breakdown",
   requireAuth,
   requireCompanyScope,
@@ -2207,15 +1959,22 @@ router.get(
       const items = await query(
         `
         SELECT 
-          COALESCE(p.payment_method, 'UNKNOWN') AS method,
+          COALESCE(pt.method, p.payment_method, 'UNKNOWN') AS method,
           COUNT(*) AS count,
-          COALESCE(SUM(p.net_amount), 0) AS total,
+          COALESCE(SUM(pt.amount), SUM(p.net_amount), 0) AS total,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
+        LEFT JOIN JSON_TABLE(
+          p.payments,
+          '$[*]' COLUMNS (
+            method VARCHAR(20) PATH '$.method',
+            amount DECIMAL(18,2) PATH '$.amount'
+          )
+        ) pt ON 1=1
         LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE ${where.join(" AND ")}
-        GROUP BY COALESCE(p.payment_method, 'UNKNOWN')
+        GROUP BY COALESCE(pt.method, p.payment_method, 'UNKNOWN')
         ORDER BY total DESC
         `,
         params,
@@ -2400,6 +2159,7 @@ router.get(
              ELSE status 
            END AS payment_status,
            payment_method,
+           payments,
            (SELECT COALESCE(SUM(l.returned_qty), 0) > 0 FROM pos_sale_lines l WHERE l.sale_id = ps.id) AS has_returns,
           created_at,
           u.username AS created_by_name
@@ -2435,6 +2195,7 @@ router.get(
            sale_datetime AS sale_date,
            customer_name,
            payment_method,
+           payments,
            gross_amount,
            discount_amount,
            tax_amount,
@@ -2749,6 +2510,7 @@ router.post(
       const {
         payment_method,
         payment_mode_id,
+        payments: reqPayments,
         customer_id,
         customer_name,
         lines,
@@ -2892,11 +2654,16 @@ router.post(
           `Active terminal "${terminal}" does not have an assigned warehouse for inventory deduction. Please assign a warehouse in POS Setup.`,
         );
       }
+      const paymentsJson =
+        Array.isArray(reqPayments) && reqPayments.length > 0
+          ? JSON.stringify(reqPayments)
+          : null;
+
       const [saleResult] = await conn.execute(
         `INSERT INTO pos_sales 
-         (company_id, branch_id, terminal_id, receipt_no, sale_datetime, customer_name, payment_method, gross_amount, discount_amount, tax_amount, tax_components, net_amount, status, created_by)
+         (company_id, branch_id, terminal_id, receipt_no, sale_datetime, customer_name, payment_method, payments, gross_amount, discount_amount, tax_amount, tax_components, net_amount, status, created_by)
          VALUES 
-         (:companyId, :branchId, :terminal_id, :receipt_no, :sale_datetime, :customer_name, :payment_method, :gross_amount, :discount_amount, :tax_amount, :tax_components, :net_amount, :status, :created_by)`,
+         (:companyId, :branchId, :terminal_id, :receipt_no, :sale_datetime, :customer_name, :payment_method, :payments, :gross_amount, :discount_amount, :tax_amount, :tax_components, :net_amount, :status, :created_by)`,
         {
           companyId,
           branchId,
@@ -2905,6 +2672,7 @@ router.post(
           sale_datetime,
           customer_name: customer_name || null,
           payment_method: pm === "CARD" || pm === "MOBILE" ? pm : "CASH",
+          payments: paymentsJson,
           gross_amount: gross,
           discount_amount: discount,
           tax_amount: tax,
@@ -3284,13 +3052,20 @@ router.post(
       }
       const [aggRows] = await conn.execute(
         `SELECT
-           SUM(CASE WHEN payment_method='CASH' THEN net_amount ELSE 0 END) AS cash_total,
-           SUM(CASE WHEN payment_method='CARD' THEN net_amount ELSE 0 END) AS card_total,
-           SUM(CASE WHEN payment_method='MOBILE' THEN net_amount ELSE 0 END) AS mobile_total,
+           SUM(CASE WHEN COALESCE(pt.method, payment_method)='CASH' THEN COALESCE(pt.amount, net_amount) ELSE 0 END) AS cash_total,
+           SUM(CASE WHEN COALESCE(pt.method, payment_method)='CARD' THEN COALESCE(pt.amount, net_amount) ELSE 0 END) AS card_total,
+           SUM(CASE WHEN COALESCE(pt.method, payment_method)='MOBILE' THEN COALESCE(pt.amount, net_amount) ELSE 0 END) AS mobile_total,
            SUM(tax_amount) AS tax_total,
            SUM(discount_amount) AS discount_total,
            SUM(net_amount) AS net_total
          FROM pos_sales
+        LEFT JOIN JSON_TABLE(
+          payments,
+          '$[*]' COLUMNS (
+            method VARCHAR(20) PATH '$.method',
+            amount DECIMAL(18,2) PATH '$.amount'
+          )
+        ) pt ON 1=1
          WHERE company_id = :companyId
            AND branch_id = :branchId
            AND status = 'COMPLETED'
@@ -3738,13 +3513,20 @@ router.post(
       if (!useCustomLines) {
         const [aggRows] = await conn.execute(
           `SELECT
-             SUM(CASE WHEN p.payment_method='CASH' THEN p.net_amount ELSE 0 END) AS cash_total,
-             SUM(CASE WHEN p.payment_method='CARD' THEN p.net_amount ELSE 0 END) AS card_total,
-             SUM(CASE WHEN p.payment_method='MOBILE' THEN p.net_amount ELSE 0 END) AS mobile_total,
+             SUM(CASE WHEN COALESCE(pt.method, p.payment_method)='CASH' THEN COALESCE(pt.amount, p.net_amount) ELSE 0 END) AS cash_total,
+             SUM(CASE WHEN COALESCE(pt.method, p.payment_method)='CARD' THEN COALESCE(pt.amount, p.net_amount) ELSE 0 END) AS card_total,
+             SUM(CASE WHEN COALESCE(pt.method, p.payment_method)='MOBILE' THEN COALESCE(pt.amount, p.net_amount) ELSE 0 END) AS mobile_total,
              SUM(p.tax_amount) AS tax_total,
              SUM(p.discount_amount) AS discount_total,
              SUM(p.net_amount) AS net_total
            FROM pos_sales p
+          LEFT JOIN JSON_TABLE(
+            p.payments,
+            '$[*]' COLUMNS (
+              method VARCHAR(20) PATH '$.method',
+              amount DECIMAL(18,2) PATH '$.amount'
+            )
+          ) pt ON 1=1
            LEFT JOIN pos_terminals t
              ON t.id = p.terminal_id AND t.company_id = p.company_id AND t.branch_id = p.branch_id
            WHERE p.company_id = :companyId
@@ -4123,6 +3905,69 @@ router.post(
         { id },
       );
       res.json({ item });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/day/history",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const terminal = String(req.query.terminal || "").trim();
+      const dateFrom = String(req.query.dateFrom || "").trim();
+      const dateTo = String(req.query.dateTo || "").trim();
+      await ensurePosTables();
+      const coerceJsonValue = (value) => {
+        if (value === null || value === undefined) return null;
+        if (typeof value === "string") {
+          try { return JSON.parse(value); } catch { return value; }
+        }
+        if (Buffer.isBuffer(value)) {
+          try { return JSON.parse(value.toString("utf8")); } catch { return value.toString("utf8"); }
+        }
+        if (value && typeof value === "object" && value.type === "Buffer" && Array.isArray(value.data)) {
+          try { const text = Buffer.from(value.data).toString("utf8"); return JSON.parse(text); } catch { return value; }
+        }
+        return value;
+      };
+      const params = { companyId, branchId };
+      const conditions = ["company_id = :companyId", "branch_id = :branchId"];
+      if (terminal) {
+        conditions.push("terminal_code = :terminal");
+        params.terminal = terminal;
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
+        conditions.push("business_date >= :dateFrom");
+        params.dateFrom = dateFrom;
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+        conditions.push("business_date <= :dateTo");
+        params.dateTo = dateTo;
+      }
+      const rows = await query(
+        `SELECT id, terminal_code, business_date, open_datetime, opening_float,
+                supervisor_name, open_notes, open_denomination_counts,
+                close_datetime, actual_cash, close_notes,
+                close_denomination_counts, next_opening_float, status,
+                created_at, u.username AS created_by_name
+         FROM pos_day_status
+         LEFT JOIN adm_users u ON u.id = created_by
+         WHERE ${conditions.join(" AND ")}
+         ORDER BY open_datetime DESC`,
+        params,
+      );
+      const items = rows.map((item) => {
+        item.open_denomination_counts = coerceJsonValue(item.open_denomination_counts);
+        item.close_denomination_counts = coerceJsonValue(item.close_denomination_counts);
+        return item;
+      });
+      res.json({ items });
     } catch (err) {
       next(err);
     }

@@ -1855,45 +1855,46 @@ export default function PurchaseOrdersLocalForm() {
                                   <input
                                     id={`po-local-item-search-${idx}`} autoComplete="off"
                                     className="w-full p-2 border border-[#dee2e6] rounded text-sm focus:outline-none focus:border-[#0E3646]"
-                                    placeholder="Type to search items"
-                                    value={itemQueries[idx] || ""}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setItemQueries((prev) => ({
-                                        ...prev,
-                                        [idx]: val,
-                                      }));
-                                      if (!val && row.item_id) {
-                                        handleItemChange(idx, "item_id", "");
-                                      }
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        const query = (
-                                          itemQueries[idx] || ""
-                                        ).trim();
-                                        const results = query
-                                          ? filterByPrefix(availableItems, {
-                                              query,
-                                              searchFields: [
-                                                "item_code",
-                                                "item_name",
-                                                "barcode",
-                                              ],
-                                            })
-                                          : [];
-                                        if (!query || !results.length) return;
-                                        handleItemChange(
-                                          idx,
-                                          "item_id",
-                                          String(results[0].id),
-                                        );
-                                        setItemQueries((prev) => ({
-                                          ...prev,
-                                          [idx]: "",
-                                        }));
-                                      }
-                                    }}
+                                          placeholder="Scan barcode or type item name"
+                                          value={itemQueries[idx] || ""}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            setItemQueries((prev) => ({
+                                              ...prev,
+                                              [idx]: val,
+                                            }));
+                                            if (row.item_id) {
+                                              handleItemChange(idx, "item_id", "");
+                                            }
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                              e.preventDefault();
+                                              const query = (
+                                                itemQueries[idx] || ""
+                                              ).trim();
+                                              const results = query
+                                                ? filterByPrefix(availableItems, {
+                                                    query,
+                                                    searchFields: [
+                                                      "item_code",
+                                                      "item_name",
+                                                      "barcode",
+                                                    ],
+                                                  })
+                                                : [];
+                                              if (!query || !results.length) return;
+                                              handleItemChange(
+                                                idx,
+                                                "item_id",
+                                                String(results[0].id),
+                                              );
+                                              setItemQueries((prev) => ({
+                                                ...prev,
+                                                [idx]: results[0].item_name,
+                                              }));
+                                            }
+                                          }}
                                   />
                                   {(() => {
                                     const query = (
@@ -1909,7 +1910,7 @@ export default function PurchaseOrdersLocalForm() {
                                           ],
                                         })
                                       : [];
-                                    return results.length
+                                    return results.length && !row.item_id
                                       ? (() => {
                                           const el = document.getElementById(
                                             `po-local-item-search-${idx}`,
@@ -1941,7 +1942,7 @@ export default function PurchaseOrdersLocalForm() {
                                                     );
                                                     setItemQueries((prev) => ({
                                                       ...prev,
-                                                      [idx]: "",
+                                                      [idx]: o.item_name,
                                                     }));
                                                   }}
                                                 >

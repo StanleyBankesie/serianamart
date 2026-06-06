@@ -5375,6 +5375,46 @@ router.post(
             ? Number(req.body.currency_id)
             : null,
       };
+      const ptId =
+        payload.price_type_id !== null && payload.price_type_id !== undefined
+          ? Number(payload.price_type_id)
+          : null;
+      const [existing] = await query(
+        `SELECT id FROM sal_customer_prices
+          WHERE company_id = :companyId
+            AND customer_id = :customer_id
+            AND product_id = :product_id
+            AND (price_type_id <=> :price_type_id)
+          LIMIT 1`,
+        {
+          companyId,
+          customer_id,
+          product_id,
+          price_type_id: Number.isFinite(ptId) ? ptId : null,
+        },
+      ).catch(() => []);
+      if (existing?.id) {
+        await query(
+          `UPDATE sal_customer_prices SET
+             standard_price = :standard_price,
+             customer_price = :customer_price,
+             discount_percent = :discount_percent,
+             min_quantity = :min_quantity,
+             effective_from = :effective_from,
+             effective_to = :effective_to,
+             price_type_id = :price_type_id,
+             uom = :uom,
+             currency_id = :currency_id,
+             updated_at = CURRENT_TIMESTAMP
+           WHERE id = :id AND company_id = :companyId`,
+          { ...payload, id: existing.id },
+        );
+        return res.json({
+          id: existing.id,
+          updated: true,
+          item: { ...payload },
+        });
+      }
       const ins = await query(
         `INSERT INTO sal_customer_prices
           (company_id, branch_id, customer_id, product_id, standard_price, customer_price, discount_percent, min_quantity, effective_from, effective_to, price_type_id, uom, currency_id)
@@ -5561,6 +5601,39 @@ router.post(
           }
         }
       }
+      const customerId = Number(req.body?.customer_id);
+
+      if (Number.isFinite(customerId) && customerId > 0) {
+        if (priceTypeId != null) {
+          const [cpRow] = await query(
+            `SELECT customer_price FROM sal_customer_prices 
+             WHERE company_id = :companyId 
+               AND product_id = :productId 
+               AND customer_id = :customerId 
+               AND price_type_id = :priceTypeId
+             ORDER BY id DESC 
+             LIMIT 1`,
+            { companyId, productId, customerId, priceTypeId }
+          ).catch(() => []);
+          if (cpRow && cpRow.customer_price != null) {
+            return res.json({ price: Number(cpRow.customer_price) });
+          }
+        }
+        const [cpRow2] = await query(
+          `SELECT customer_price FROM sal_customer_prices 
+           WHERE company_id = :companyId 
+             AND product_id = :productId 
+             AND customer_id = :customerId 
+             AND price_type_id IS NULL
+           ORDER BY id DESC 
+           LIMIT 1`,
+          { companyId, productId, customerId }
+        ).catch(() => []);
+        if (cpRow2 && cpRow2.customer_price != null) {
+          return res.json({ price: Number(cpRow2.customer_price) });
+        }
+      }
+
       let priceRow = null;
       if (priceTypeId != null) {
         const [row] = await query(

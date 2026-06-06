@@ -323,6 +323,19 @@ export default function PosInvoiceList() {
     const when = sale && sale.sale_date ? new Date(sale.sale_date) : new Date();
     const dateStr = when.toLocaleString();
     const method = (function () {
+      const paymentsRaw = sale?.payments;
+      if (Array.isArray(paymentsRaw) && paymentsRaw.length > 1) {
+        return paymentsRaw
+          .map((p) => {
+            const t = String(p.method || "").toUpperCase();
+            if (t === "CASH") return "Cash";
+            if (t === "CARD") return "Card";
+            if (t === "MOBILE") return "Mobile Money";
+            if (t === "BANK") return "Bank";
+            return t || "Other";
+          })
+          .join(" + ");
+      }
       const t = String(sale?.payment_method || "").toUpperCase();
       if (t === "CASH") return "Cash";
       if (t === "CARD") return "Card";
@@ -460,6 +473,19 @@ export default function PosInvoiceList() {
     const when = sale && sale.sale_date ? new Date(sale.sale_date) : new Date();
     const dateStr = when.toLocaleString();
     const method = (function () {
+      const paymentsRaw = sale?.payments;
+      if (Array.isArray(paymentsRaw) && paymentsRaw.length > 1) {
+        return paymentsRaw
+          .map((p) => {
+            const t = String(p.method || "").toUpperCase();
+            if (t === "CASH") return "Cash";
+            if (t === "CARD") return "Card";
+            if (t === "MOBILE") return "Mobile Money";
+            if (t === "BANK") return "Bank";
+            return t || "Other";
+          })
+          .join(" + ");
+      }
       const t = String(sale?.payment_method || "").toUpperCase();
       if (t === "CASH") return "Cash";
       if (t === "CARD") return "Card";
@@ -705,14 +731,27 @@ export default function PosInvoiceList() {
       const when =
         sale && sale.sale_date ? new Date(sale.sale_date) : new Date();
       const dateStr = when.toLocaleString();
-      const method = (function () {
-        const t = String(sale?.payment_method || "").toUpperCase();
-        if (t === "CASH") return "Cash";
-        if (t === "CARD") return "Card";
-        if (t === "MOBILE") return "Mobile Money";
-        if (t === "BANK") return "Bank";
-        return "Other";
-      })();
+    const method = (function () {
+      const paymentsRaw = sale?.payments;
+      if (Array.isArray(paymentsRaw) && paymentsRaw.length > 1) {
+        return paymentsRaw
+          .map((p) => {
+            const t = String(p.method || "").toUpperCase();
+            if (t === "CASH") return "Cash";
+            if (t === "CARD") return "Card";
+            if (t === "MOBILE") return "Mobile Money";
+            if (t === "BANK") return "Bank";
+            return t || "Other";
+          })
+          .join(" + ");
+      }
+      const t = String(sale?.payment_method || "").toUpperCase();
+      if (t === "CASH") return "Cash";
+      if (t === "CARD") return "Card";
+      if (t === "MOBILE") return "Mobile Money";
+      if (t === "BANK") return "Bank";
+      return "Other";
+    })();
       const gross = Number(sale?.gross_amount || 0);
       const discount = Number(sale?.discount_amount || 0);
       const tax = Number(sale?.tax_amount || 0);
@@ -951,26 +990,7 @@ export default function PosInvoiceList() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="p-4 rounded-lg border border-slate-200 bg-white">
-          <div className="text-xs uppercase text-slate-500">Invoices</div>
-          <div className="text-2xl font-bold text-slate-900">
-            {totals.count}
-          </div>
-        </div>
-        <div className="p-4 rounded-lg border border-slate-200 bg-white">
-          <div className="text-xs uppercase text-slate-500">Total Amount</div>
-          <div className="text-2xl font-bold text-brand-700">
-            {`GH₵ ${Number(totals.totalAmount).toFixed(2)}`}
-          </div>
-        </div>
-        <div className="p-4 rounded-lg border border-slate-200 bg-white">
-          <div className="text-xs uppercase text-slate-500">Paid</div>
-          <div className="text-2xl font-bold text-green-700">
-            {`GH₵ ${Number(totals.paid).toFixed(2)}`}
-          </div>
-        </div>
-      </div>
+
 
       <div className="card">
         <div className="card-body overflow-x-auto">

@@ -516,7 +516,7 @@ export default function RequestForQuotationForm() {
                             <input
                               id={`rfq-item-search-${idx}`} autoComplete="off"
                               className="w-full p-1 border border-gray-300 rounded focus:ring-2 focus:ring-[#0E3646] focus:border-transparent outline-none"
-                              placeholder="Type to search items"
+                              placeholder="Scan barcode or type item name"
                               value={itemQueries[idx] || ""}
                               onChange={(e) => {
                                 const val = e.target.value;
@@ -524,7 +524,7 @@ export default function RequestForQuotationForm() {
                                   ...prev,
                                   [idx]: val,
                                 }));
-                                if (!val && item.item_id) {
+                                if (item.item_id) {
                                   const newItems = [...items];
                                   newItems[idx] = {
                                     ...newItems[idx],
@@ -537,6 +537,7 @@ export default function RequestForQuotationForm() {
                               }}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") {
+                                  e.preventDefault();
                                   const query = (itemQueries[idx] || "").trim();
                                   const results = query
                                     ? filterByPrefix(allItems, {
@@ -552,7 +553,7 @@ export default function RequestForQuotationForm() {
                                   handleItemSelect(idx, String(results[0].id));
                                   setItemQueries((prev) => ({
                                     ...prev,
-                                    [idx]: "",
+                                    [idx]: results[0].item_name,
                                   }));
                                 }
                               }}
@@ -569,7 +570,7 @@ export default function RequestForQuotationForm() {
                                     ],
                                   })
                                 : [];
-                              return results.length ? (
+                              return results.length && !item.item_id ? (
                                 <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto">
                                   {results.map((o) => (
                                     <button
@@ -580,7 +581,7 @@ export default function RequestForQuotationForm() {
                                         handleItemSelect(idx, String(o.id));
                                         setItemQueries((prev) => ({
                                           ...prev,
-                                          [idx]: "",
+                                          [idx]: o.item_name,
                                         }));
                                       }}
                                     >

@@ -54,14 +54,6 @@ export default function PosDayManagement() {
   const [terminalOptions, setTerminalOptions] = useState([]);
   const [terminalsLoading, setTerminalsLoading] = useState(false);
   const [supervisorUsers, setSupervisorUsers] = useState([]);
-  const [sessionDetail, setSessionDetail] = useState({
-    open: false,
-    mode: "details",
-    index: -1,
-    item: null,
-    actualCash: "",
-    notes: "",
-  });
   const userId = useMemo(() => Number(user?.sub || user?.id || 0), [user]);
   const cashierName = useMemo(() => {
     const name = user?.username || user?.name || user?.fullName || "Cashier";
@@ -123,7 +115,12 @@ export default function PosDayManagement() {
     [closeDenomCounts],
   );
   const closeDenomTotal = useMemo(
-    () => Number(closeDenomTotals.reduce((s, n) => s + n, Number(coinsValue || 0)).toFixed(2)),
+    () =>
+      Number(
+        closeDenomTotals
+          .reduce((s, n) => s + n, Number(coinsValue || 0))
+          .toFixed(2),
+      ),
     [closeDenomTotals, coinsValue],
   );
 
@@ -147,21 +144,6 @@ export default function PosDayManagement() {
       mobileAmount: Number(salesData.mobile.amount || 0),
     };
   }, [salesData]);
-  const sessionModalItem = useMemo(() => {
-    if (!sessionDetail.open) return null;
-    if (
-      sessionDetail.index >= 0 &&
-      sessionDetail.index < sessionHistory.length
-    ) {
-      return sessionHistory[sessionDetail.index];
-    }
-    return sessionDetail.item;
-  }, [
-    sessionDetail.open,
-    sessionDetail.index,
-    sessionDetail.item,
-    sessionHistory,
-  ]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
@@ -551,11 +533,16 @@ export default function PosDayManagement() {
       toast.warn("Provide closing date/time");
       return;
     }
+    // Auto-copy denomination total into actual cash if counts were entered
+    const effectiveActualCash = closeDenomTotal > 0
+      ? closeDenomTotal
+      : Number(closing.actualCash || 0);
+    setClosing((p) => ({ ...p, actualCash: String(effectiveActualCash.toFixed(2)) }));
     try {
       const payload = {
         terminal: terminalId,
         closingDateTime: closing.dateTime,
-        actualCash: Number(closing.actualCash || 0),
+        actualCash: effectiveActualCash,
         nextOpeningFloat: Number(closing.nextOpeningFloat || 0),
         notes: closing.notes,
         denominationCounts: closeDenomCounts,
@@ -1028,110 +1015,114 @@ export default function PosDayManagement() {
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                  <div className="text-xs text-slate-600">Total Sales</div>
-                  <div className="font-bold">
-                    {fmtCurrency(totals.totalAmount)}
-                  </div>
-                </div>
-                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                  <div className="text-xs text-slate-600">Transactions</div>
-                  <div className="font-semibold">{totals.totalCount}</div>
-                </div>
-              </div>
-
-              <div>
-                <label className="label">Actual Cash Count (₵)</label>
-                <input
-                  type="number"
-                  className="input"
-                  step="1"
-                  value={closing.actualCash}
-                  onChange={(e) =>
-                    setClosing((p) => ({ ...p, actualCash: e.target.value }))
-                  }
-                  required
-                />
-              </div>
-              {String(closing.actualCash || "").trim() ? (
-                <div className="rounded-lg border border-brand/30 bg-brand/5 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm text-slate-700 dark:text-slate-200">
-                      Cash entered. Confirm with denomination count.
+                {hasExceptional("POS.EXPECTED_CASH.VIEW") ? (
+                  <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
+                    <div className="text-xs text-slate-600">Total Sales</div>
+                    <div className="font-bold">
+                      {fmtCurrency(totals.totalAmount)}
                     </div>
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={() => setShowCashConfirmModal(true)}
-                    >
-                      Confirm Cash
-                    </button>
                   </div>
-                </div>
-              ) : null}
-              {hasExceptional("POS.EXPECTED_CASH.VIEW") ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="label">Expected Cash</label>
-                  <input
-                    type="text"
-                    className="input"
-                    disabled
-                    value={fmtCurrency(expectedCash)}
-                  />
-                </div>
+                ) : null}
                 {hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
-                <div>
-                  <label className="label">Cash Variance</label>
-                  <input
-                    type="text"
-                    className="input"
-                    disabled
-                    value={fmtCurrency(cashVariance)}
-                    style={{
-                      color: cashVariance >= 0 ? "#28a745" : "#dc3545",
-                      fontWeight: 700,
-                    }}
-                  />
-                </div>
+                  <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
+                    <div className="text-xs text-slate-600">Transactions</div>
+                    <div className="font-semibold">{totals.totalCount}</div>
+                  </div>
                 ) : null}
               </div>
-              ) : hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="label">Cash Variance</label>
-                  <input
-                    type="text"
-                    className="input"
-                    disabled
-                    value={fmtCurrency(cashVariance)}
-                    style={{
-                      color: cashVariance >= 0 ? "#28a745" : "#dc3545",
-                      fontWeight: 700,
-                    }}
-                  />
+
+              <div className="rounded-lg border border-brand/30 bg-brand/5 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm text-slate-700 dark:text-slate-200">
+                    Cash entered. Confirm with denomination count.
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => setShowCashConfirmModal(true)}
+                  >
+                    Confirm Cash
+                  </button>
                 </div>
               </div>
+              {hasExceptional("POS.EXPECTED_CASH.VIEW") ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">Expected Cash</label>
+                    <input
+                      type="text"
+                      className="input"
+                      disabled
+                      value={fmtCurrency(expectedCash)}
+                    />
+                  </div>
+                  {hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
+                    <div>
+                      <label className="label">Cash Variance</label>
+                      <input
+                        type="text"
+                        className="input"
+                        disabled
+                        value={fmtCurrency(cashVariance)}
+                        style={{
+                          color: cashVariance >= 0 ? "#28a745" : "#dc3545",
+                          fontWeight: 700,
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ) : hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">Cash Variance</label>
+                    <input
+                      type="text"
+                      className="input"
+                      disabled
+                      value={fmtCurrency(cashVariance)}
+                      style={{
+                        color: cashVariance >= 0 ? "#28a745" : "#dc3545",
+                        fontWeight: 700,
+                      }}
+                    />
+                  </div>
+                </div>
               ) : null}
-              <div>
-                <label className="label">Enter float for next sales</label>
-                <input
-                  type="number"
-                  className="input"
-                  step="1"
-                  value={closing.nextOpeningFloat}
-                  onChange={(e) =>
-                    setClosing((p) => ({
-                      ...p,
-                      nextOpeningFloat: e.target.value,
-                    }))
-                  }
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Actual Cash Count (₵)</label>
+                  <input
+                    type="number"
+                    className="input"
+                    step="1"
+                    value={closing.actualCash}
+                    onChange={(e) =>
+                      setClosing((p) => ({ ...p, actualCash: e.target.value }))
+                    }
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="label">Enter float for next sales</label>
+                  <input
+                    type="number"
+                    className="input"
+                    step="1"
+                    value={closing.nextOpeningFloat}
+                    onChange={(e) =>
+                      setClosing((p) => ({
+                        ...p,
+                        nextOpeningFloat: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
               </div>
               <div>
                 <label className="label">Closing Notes</label>
                 <textarea
-                  className="input"
+                  className="input w-full"
                   rows={3}
                   value={closing.notes}
                   onChange={(e) =>
@@ -1140,50 +1131,21 @@ export default function PosDayManagement() {
                 />
               </div>
 
-              <div className="rounded-lg border border-slate-200">
-                <div className="p-3 font-semibold">Sales Report</div>
-                <div className="overflow-x-auto">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Payment Method</th>
-                        <th>Transactions</th>
-                        <th>Amount Received</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td>Cash</td>
-                        <td>{salesData.cash.count}</td>
-                        <td>{fmtCurrency(salesData.cash.amount)}</td>
-                      </tr>
-                      <tr>
-                        <td>Card</td>
-                        <td>{salesData.card.count}</td>
-                        <td>{fmtCurrency(salesData.card.amount)}</td>
-                      </tr>
-                      <tr>
-                        <td>Mobile Money</td>
-                        <td>{salesData.mobile.count}</td>
-                        <td>{fmtCurrency(salesData.mobile.amount)}</td>
-                      </tr>
-                      <tr className="bg-blue-50 font-semibold">
-                        <td>TOTAL</td>
-                        <td>{totals.totalCount}</td>
-                        <td>{fmtCurrency(totals.totalAmount)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              {/* Sales Report table hidden per user request */}
 
               <div className="flex gap-2">
                 <button
                   type="button"
                   className="btn-danger flex-1 px-4 py-2"
                   onClick={async () => {
-                    if (!dayOpen) { toast.error("Open the day first"); return; }
-                    if (!closing.dateTime) { toast.warn("Provide closing date/time"); return; }
+                    if (!dayOpen) {
+                      toast.error("Open the day first");
+                      return;
+                    }
+                    if (!closing.dateTime) {
+                      toast.warn("Provide closing date/time");
+                      return;
+                    }
                     await handleCloseSubmit({ preventDefault: () => {} });
                   }}
                 >
@@ -1227,506 +1189,7 @@ export default function PosDayManagement() {
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">Sessions/Shifts</div>
-          <div className="text-2xl">📊</div>
-        </div>
-        <div className="card-body space-y-4">
-          <div>
-            <div className="text-lg font-semibold text-slate-900 mb-2">
-              Session History
-            </div>
-            <div className="overflow-x-auto rounded-lg border border-slate-200">
-              <table className="min-w-full">
-                <thead className="bg-slate-800 text-white">
-                  <tr>
-                    <th className="text-left p-2 text-xs uppercase">
-                      Session #
-                    </th>
-                    <th className="text-left p-2 text-xs uppercase">
-                      Terminal
-                    </th>
-                    <th className="text-left p-2 text-xs uppercase">Cashier</th>
-                    <th className="text-left p-2 text-xs uppercase">
-                      Start Time
-                    </th>
-                    <th className="text-left p-2 text-xs uppercase">
-                      End Time
-                    </th>
-                    <th className="text-left p-2 text-xs uppercase">
-                      Opening Cash
-                    </th>
-                    <th className="text-left p-2 text-xs uppercase">
-                      Total Sales
-                    </th>
-                    <th className="text-left p-2 text-xs uppercase">Status</th>
-                    <th className="text-left p-2 text-xs uppercase">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white">
-                  {sessionHistory.map((h, idx) => (
-                    <tr key={idx} className="border-t">
-                      <td className="p-2">{h.no}</td>
-                      <td className="p-2">{h.terminal}</td>
-                      <td className="p-2">{h.cashier}</td>
-                      <td className="p-2">{h.start}</td>
-                      <td className="p-2">{h.end}</td>
-                      <td className="p-2">
-                        {Number(h.opening).toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </td>
-                      <td className="p-2">
-                        {Number(h.sales).toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </td>
-                      <td className="p-2">
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                            h.status === "Open"
-                              ? "bg-blue-100 text-blue-700"
-                              : h.status === "Closed"
-                                ? "bg-green-100 text-green-700"
-                                : "bg-slate-100 text-slate-700"
-                          }`}
-                        >
-                          {h.status}
-                        </span>
-                      </td>
-                      <td className="p-2">
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            className="btn btn-info"
-                            onClick={() =>
-                              setSessionDetail({
-                                open: true,
-                                mode: "details",
-                                index: idx,
-                                item: h,
-                                actualCash: "",
-                                notes: "",
-                              })
-                            }
-                          >
-                            Details
-                          </button>
-                          {h.status === "Open" ? (
-                            <button
-                              type="button"
-                              className="btn btn-secondary"
-                              onClick={() => {
-                                setSessionDetail({
-                                  open: true,
-                                  mode: "close",
-                                  index: idx,
-                                  item: h,
-                                  actualCash: "",
-                                  notes: "",
-                                });
-                              }}
-                            >
-                              Close
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              className="btn btn-info"
-                              disabled
-                            >
-                              Closed
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {sessionDetail.open && sessionModalItem && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="rounded-xl bg-white dark:bg-slate-800 shadow-lg w-full max-w-2xl">
-            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
-              <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                {sessionDetail.mode === "close"
-                  ? `Close ${sessionModalItem.no}`
-                  : `Session ${sessionModalItem.no}`}
-              </div>
-              <button
-                type="button"
-                className="btn btn-sm btn-link"
-                onClick={() =>
-                  setSessionDetail({
-                    open: false,
-                    mode: "details",
-                    index: -1,
-                    item: null,
-                    actualCash: "",
-                    notes: "",
-                  })
-                }
-              >
-                ✖
-              </button>
-            </div>
-
-            {(() => {
-              const s = sessionModalItem;
-              const t = sessionSalesTotals(s);
-              const startLabel =
-                s.start ||
-                (s.startTime ? new Date(s.startTime).toLocaleString() : "-");
-              const endLabel =
-                s.end && s.end !== "-"
-                  ? s.end
-                  : s.endTime
-                    ? new Date(s.endTime).toLocaleString()
-                    : "-";
-              const showVariance = t.cashVarianceAtClose !== null;
-
-              if (sessionDetail.mode === "close") {
-                return (
-                  <div className="max-h-[70vh] overflow-y-auto p-6 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                        <div className="text-xs text-slate-600">Terminal</div>
-                        <div className="font-semibold">{s.terminal}</div>
-                      </div>
-                      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                        <div className="text-xs text-slate-600">Cashier</div>
-                        <div className="font-semibold">{s.cashier}</div>
-                      </div>
-                      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                        <div className="text-xs text-slate-600">Start Time</div>
-                        <div className="font-semibold">{startLabel}</div>
-                      </div>
-                      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                        <div className="text-xs text-slate-600">
-                          Expected Cash
-                        </div>
-                        <div className="font-bold">
-                          {fmtCurrency(t.expectedCashAtClose)}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-slate-200 overflow-hidden">
-                      <div className="p-3 font-semibold bg-slate-50">
-                        Sales (Since Session Start)
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="table">
-                          <thead>
-                            <tr>
-                              <th>Payment Method</th>
-                              <th>Transactions</th>
-                              <th>Amount Received</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <tr>
-                              <td>Cash</td>
-                              <td>{t.diff.cashCount}</td>
-                              <td>{fmtCurrency(t.diff.cashAmount)}</td>
-                            </tr>
-                            <tr>
-                              <td>Card</td>
-                              <td>{t.diff.cardCount}</td>
-                              <td>{fmtCurrency(t.diff.cardAmount)}</td>
-                            </tr>
-                            <tr>
-                              <td>Mobile Money</td>
-                              <td>{t.diff.mobileCount}</td>
-                              <td>{fmtCurrency(t.diff.mobileAmount)}</td>
-                            </tr>
-                            <tr className="bg-blue-50 font-semibold">
-                              <td>TOTAL</td>
-                              <td>{t.totalCount}</td>
-                              <td>{fmtCurrency(t.totalAmount)}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="label">Actual Cash Count (₵)</label>
-                        <input
-                          type="number"
-                          className="input"
-                          step="1"
-                          value={sessionDetail.actualCash}
-                          onChange={(e) =>
-                            setSessionDetail((p) => ({
-                              ...p,
-                              actualCash: e.target.value,
-                            }))
-                          }
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="label">Closing Notes</label>
-                        <textarea
-                          className="input"
-                          rows={3}
-                          value={sessionDetail.notes}
-                          onChange={(e) =>
-                            setSessionDetail((p) => ({
-                              ...p,
-                              notes: e.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={() =>
-                          setSessionDetail({
-                            open: false,
-                            mode: "details",
-                            index: -1,
-                            item: null,
-                            actualCash: "",
-                            notes: "",
-                          })
-                        }
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-danger"
-                        onClick={async () => {
-                          const idx = sessionDetail.index;
-                          if (idx < 0 || idx >= sessionHistory.length) return;
-                          if (
-                            String(sessionDetail.actualCash || "").trim() === ""
-                          ) {
-                            toast.warn("Provide actual cash count");
-                            return;
-                          }
-                          let endSummary = currentSalesSummary;
-                          try {
-                            const res = await api.get(
-                              "/pos/analytics/day-summary",
-                            );
-                            endSummary = normalizeDaySummary(
-                              res?.data?.summary || {},
-                            );
-                          } catch {}
-
-                          const endAt = new Date();
-                          const actualCash = Number(
-                            sessionDetail.actualCash || 0,
-                          );
-
-                          setSessionHistory((prev) =>
-                            prev.map((row, i) => {
-                              if (i !== idx) return row;
-                              const d = diffDaySummary(
-                                endSummary,
-                                row?.startSummary || null,
-                              );
-                              const totalSales =
-                                Number(d.cashAmount || 0) +
-                                Number(d.cardAmount || 0) +
-                                Number(d.mobileAmount || 0);
-                              const expectedCashAtClose =
-                                Number(row?.opening || 0) +
-                                Number(d.cashAmount || 0);
-                              const variance = actualCash - expectedCashAtClose;
-                              return {
-                                ...row,
-                                end: endAt.toLocaleString(),
-                                endTime: endAt.toISOString(),
-                                status: "Closed",
-                                sales: totalSales,
-                                endSummary,
-                                expectedCash: expectedCashAtClose,
-                                actualCash,
-                                cashVariance: variance,
-                                closeNotes: sessionDetail.notes || "",
-                              };
-                            }),
-                          );
-
-                          addToTimeline(
-                            "Session Closed",
-                            `${sessionModalItem.cashier} on ${sessionModalItem.terminal}`,
-                          );
-                          setSessionDetail({
-                            open: false,
-                            mode: "details",
-                            index: -1,
-                            item: null,
-                            actualCash: "",
-                            notes: "",
-                          });
-                        }}
-                      >
-                        Close Session
-                      </button>
-                    </div>
-                  </div>
-                );
-              }
-
-              return (
-                <div className="max-h-[70vh] overflow-y-auto p-6 space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                      <div className="text-xs text-slate-600">Terminal</div>
-                      <div className="font-semibold">{s.terminal}</div>
-                    </div>
-                    <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                      <div className="text-xs text-slate-600">Cashier</div>
-                      <div className="font-semibold">{s.cashier}</div>
-                    </div>
-                    <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                      <div className="text-xs text-slate-600">Status</div>
-                      <div className="font-semibold">{s.status}</div>
-                    </div>
-                    <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                      <div className="text-xs text-slate-600">Start Time</div>
-                      <div className="font-semibold">{startLabel}</div>
-                    </div>
-                    <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                      <div className="text-xs text-slate-600">End Time</div>
-                      <div className="font-semibold">{endLabel}</div>
-                    </div>
-                    <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                      <div className="text-xs text-slate-600">Opening Cash</div>
-                      <div className="font-bold">{fmtCurrency(s.opening)}</div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 overflow-hidden">
-                    <div className="p-3 font-semibold bg-slate-50">
-                      Sales Breakdown
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="table">
-                        <thead>
-                          <tr>
-                            <th>Payment Method</th>
-                            <th>Transactions</th>
-                            <th>Amount Received</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td>Cash</td>
-                            <td>{t.diff.cashCount}</td>
-                            <td>{fmtCurrency(t.diff.cashAmount)}</td>
-                          </tr>
-                          <tr>
-                            <td>Card</td>
-                            <td>{t.diff.cardCount}</td>
-                            <td>{fmtCurrency(t.diff.cardAmount)}</td>
-                          </tr>
-                          <tr>
-                            <td>Mobile Money</td>
-                            <td>{t.diff.mobileCount}</td>
-                            <td>{fmtCurrency(t.diff.mobileAmount)}</td>
-                          </tr>
-                          <tr className="bg-blue-50 font-semibold">
-                            <td>TOTAL</td>
-                            <td>{t.totalCount}</td>
-                            <td>{fmtCurrency(t.totalAmount)}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 overflow-hidden">
-                    <div className="p-3 font-semibold bg-slate-50">
-                      Cash Reconciliation
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
-                      <div className="p-3 rounded-lg border border-slate-200 bg-white">
-                        <div className="text-xs text-slate-600">
-                          Expected Cash
-                        </div>
-                        <div className="font-bold">
-                          {fmtCurrency(t.expectedCashAtClose)}
-                        </div>
-                      </div>
-                      <div className="p-3 rounded-lg border border-slate-200 bg-white">
-                        <div className="text-xs text-slate-600">
-                          Actual Cash
-                        </div>
-                        <div className="font-bold">
-                          {t.actualCashAtClose === null
-                            ? "-"
-                            : fmtCurrency(t.actualCashAtClose)}
-                        </div>
-                      </div>
-                      <div className="p-3 rounded-lg border border-slate-200 bg-white">
-                        <div className="text-xs text-slate-600">Variance</div>
-                        <div
-                          className="font-bold"
-                          style={{
-                            color:
-                              t.cashVarianceAtClose === null
-                                ? undefined
-                                : t.cashVarianceAtClose >= 0
-                                  ? "#28a745"
-                                  : "#dc3545",
-                          }}
-                        >
-                          {showVariance
-                            ? fmtCurrency(t.cashVarianceAtClose)
-                            : "-"}
-                        </div>
-                      </div>
-                    </div>
-                    {(s.closeNotes || sessionModalItem?.closeNotes) && (
-                      <div className="px-4 pb-4 text-sm text-slate-700">
-                        {s.closeNotes || sessionModalItem?.closeNotes}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={() =>
-                        setSessionDetail({
-                          open: false,
-                          mode: "details",
-                          index: -1,
-                          item: null,
-                          actualCash: "",
-                          notes: "",
-                        })
-                      }
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        </div>
-      )}
 
       {modal.open && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
