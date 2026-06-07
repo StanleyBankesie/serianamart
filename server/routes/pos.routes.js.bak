@@ -1031,18 +1031,25 @@ router.get(
       const rows = await query(
         `
         SELECT 
-          COALESCE(payment_method, 'UNKNOWN') AS method,
+          COALESCE(pt.method COLLATE utf8mb4_unicode_ci, payment_method, 'UNKNOWN') AS method,
           COUNT(*) AS cnt,
-          COALESCE(SUM(net_amount), 0) AS amt,
+          COALESCE(SUM(pt.amount), SUM(net_amount), 0) AS amt,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
+        LEFT JOIN JSON_TABLE(
+          p.payments,
+          '$[*]' COLUMNS (
+            method VARCHAR(20) PATH '$.method',
+            amount DECIMAL(18,2) PATH '$.amount'
+          )
+        ) pt ON 1=1
         LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.company_id = :companyId
           AND p.branch_id = :branchId
           AND ${salesDateCond}
           AND p.status = 'COMPLETED'
-        GROUP BY COALESCE(payment_method, 'UNKNOWN')
+        GROUP BY COALESCE(pt.method COLLATE utf8mb4_unicode_ci, p.payment_method, 'UNKNOWN')
         `,
         params,
       );
@@ -1072,7 +1079,7 @@ router.get(
         mobileAmount: 0,
       };
       for (const row of rows) {
-        const method = String(row.method || "").toUpperCase();
+        const method = String(row.payment_method || "").toUpperCase();
         const count = Number(row.cnt || 0);
         const amount = Number(row.amt || 0);
         if (method === "CASH") {
@@ -1216,12 +1223,19 @@ router.get(
         `
         SELECT 
           COALESCE(t.code, 'UNKNOWN') AS terminal,
-          SUM(CASE WHEN COALESCE(p.payment_method, '')='CASH' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS cash_total,
-          SUM(CASE WHEN COALESCE(p.payment_method, '')='CARD' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS card_total,
-          SUM(CASE WHEN COALESCE(p.payment_method, '')='MOBILE' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS mobile_total,
+          SUM(CASE WHEN COALESCE(pt.method COLLATE utf8mb4_unicode_ci, p.payment_method)='CASH' THEN COALESCE(pt.amount, p.net_amount) ELSE 0 END) AS cash_total,
+          SUM(CASE WHEN COALESCE(pt.method COLLATE utf8mb4_unicode_ci, p.payment_method)='CARD' THEN COALESCE(pt.amount, p.net_amount) ELSE 0 END) AS card_total,
+          SUM(CASE WHEN COALESCE(pt.method COLLATE utf8mb4_unicode_ci, p.payment_method)='MOBILE' THEN COALESCE(pt.amount, p.net_amount) ELSE 0 END) AS mobile_total,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
+        LEFT JOIN JSON_TABLE(
+          p.payments,
+          '$[*]' COLUMNS (
+            method VARCHAR(20) PATH '$.method',
+            amount DECIMAL(18,2) PATH '$.amount'
+          )
+        ) pt ON 1=1
         LEFT JOIN pos_terminals t
           ON t.id = p.terminal_id AND t.company_id = p.company_id AND t.branch_id = p.branch_id
         LEFT JOIN adm_users u ON u.id = p.created_by
@@ -1883,15 +1897,22 @@ router.get(
       const items = await query(
         `
         SELECT 
-          COALESCE(p.payment_method, 'UNKNOWN') AS method,
+          COALESCE(pt.method COLLATE utf8mb4_unicode_ci, p.payment_method, 'UNKNOWN') AS method,
           COUNT(*) AS count,
-          COALESCE(SUM(p.net_amount), 0) AS total,
+          COALESCE(SUM(pt.amount), SUM(p.net_amount), 0) AS total,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
+        LEFT JOIN JSON_TABLE(
+          p.payments,
+          '$[*]' COLUMNS (
+            method VARCHAR(20) PATH '$.method',
+            amount DECIMAL(18,2) PATH '$.amount'
+          )
+        ) pt ON 1=1
         LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE ${where.join(" AND ")}
-        GROUP BY COALESCE(p.payment_method, 'UNKNOWN')
+        GROUP BY COALESCE(pt.method COLLATE utf8mb4_unicode_ci, p.payment_method, 'UNKNOWN')
         ORDER BY total DESC
         `,
         params,
@@ -1914,7 +1935,6 @@ router.get(
           COALESCE(SUM(total_refund), 0) AS return_total
          FROM pos_returns
          WHERE ${retWhere.join(" AND ")}
-
         GROUP BY COALESCE(refund_method, 'UNKNOWN')
         `,
         retParams,
@@ -1966,15 +1986,22 @@ router.get(
       const items = await query(
         `
         SELECT 
-          COALESCE(p.payment_method, 'UNKNOWN') AS method,
+          COALESCE(pt.method COLLATE utf8mb4_unicode_ci, p.payment_method, 'UNKNOWN') AS method,
           COUNT(*) AS count,
-          COALESCE(SUM(p.net_amount), 0) AS total,
+          COALESCE(SUM(pt.amount), SUM(p.net_amount), 0) AS total,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
+        LEFT JOIN JSON_TABLE(
+          p.payments,
+          '$[*]' COLUMNS (
+            method VARCHAR(20) PATH '$.method',
+            amount DECIMAL(18,2) PATH '$.amount'
+          )
+        ) pt ON 1=1
         LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE ${where.join(" AND ")}
-        GROUP BY COALESCE(p.payment_method, 'UNKNOWN')
+        GROUP BY COALESCE(pt.method COLLATE utf8mb4_unicode_ci, p.payment_method, 'UNKNOWN')
         ORDER BY total DESC
         `,
         params,
@@ -2018,62 +2045,6 @@ router.get(
     }
   },
 );
-router.get(
-  "/reports/top-items",
-  requireAuth,
-  requireCompanyScope,
-  requireBranchScope,
-  async (req, res, next) => {
-    try {
-      const { companyId, branchId } = req.scope;
-      const startDate = String(req.query.startDate || "").trim();
-      const endDate = String(req.query.endDate || "").trim();
-      const rawLimit = Number(req.query.limit || 10);
-      const limit =
-        Number.isFinite(rawLimit) && rawLimit > 0
-          ? Math.min(100, Math.floor(rawLimit))
-          : 10;
-      await ensurePosTables();
-      const where = [
-        "p.company_id = :companyId",
-        "p.branch_id = :branchId",
-        "p.status = 'COMPLETED'",
-      ];
-      const params = { companyId, branchId, limit };
-      if (startDate && endDate) {
-        params.startDate = startDate;
-        params.endDate = endDate;
-        where.push(
-          "DATE(p.sale_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)",
-        );
-      } else {
-        where.push("DATE(p.sale_datetime) = CURDATE()");
-      }
-      const items = await query(
-        `
-        SELECT 
-          COALESCE(l.item_name, 'Unknown') AS item,
-          COALESCE(SUM(l.qty - COALESCE(l.returned_qty, 0)), 0) AS qty,
-          COALESCE(SUM(l.line_total - (COALESCE(l.returned_qty, 0) * l.unit_price)), 0) AS amount,
-          l.created_at,
-          u.username AS created_by_name
-         FROM pos_sale_lines l
-        JOIN pos_sales p ON p.id = l.sale_id
-        LEFT JOIN adm_users u ON u.id = l.created_by
-         WHERE ${where.join(" AND ")}
-        GROUP BY COALESCE(l.item_name, 'Unknown')
-        ORDER BY amount DESC
-        LIMIT ${limit}
-        `,
-        params,
-      );
-      res.json({ items });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
 router.get(
   "/report/top-items",
   requireAuth,
@@ -3119,13 +3090,20 @@ router.post(
       }
       const [aggRows] = await conn.execute(
         `SELECT
-           SUM(CASE WHEN COALESCE(payment_method, '')='CASH' THEN COALESCE(net_amount, 0) ELSE 0 END) AS cash_total,
-           SUM(CASE WHEN COALESCE(payment_method, '')='CARD' THEN COALESCE(net_amount, 0) ELSE 0 END) AS card_total,
-           SUM(CASE WHEN COALESCE(payment_method, '')='MOBILE' THEN COALESCE(net_amount, 0) ELSE 0 END) AS mobile_total,
+           SUM(CASE WHEN COALESCE(pt.method COLLATE utf8mb4_unicode_ci, payment_method)='CASH' THEN COALESCE(pt.amount, net_amount) ELSE 0 END) AS cash_total,
+           SUM(CASE WHEN COALESCE(pt.method COLLATE utf8mb4_unicode_ci, payment_method)='CARD' THEN COALESCE(pt.amount, net_amount) ELSE 0 END) AS card_total,
+           SUM(CASE WHEN COALESCE(pt.method COLLATE utf8mb4_unicode_ci, payment_method)='MOBILE' THEN COALESCE(pt.amount, net_amount) ELSE 0 END) AS mobile_total,
            SUM(tax_amount) AS tax_total,
            SUM(discount_amount) AS discount_total,
            SUM(net_amount) AS net_total
          FROM pos_sales
+        LEFT JOIN JSON_TABLE(
+          payments,
+          '$[*]' COLUMNS (
+            method VARCHAR(20) PATH '$.method',
+            amount DECIMAL(18,2) PATH '$.amount'
+          )
+        ) pt ON 1=1
          WHERE company_id = :companyId
            AND branch_id = :branchId
            AND status = 'COMPLETED'
@@ -3573,13 +3551,20 @@ router.post(
       if (!useCustomLines) {
         const [aggRows] = await conn.execute(
           `SELECT
-             SUM(CASE WHEN COALESCE(p.payment_method, '')='CASH' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS cash_total,
-             SUM(CASE WHEN COALESCE(p.payment_method, '')='CARD' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS card_total,
-             SUM(CASE WHEN COALESCE(p.payment_method, '')='MOBILE' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS mobile_total,
+             SUM(CASE WHEN COALESCE(pt.method COLLATE utf8mb4_unicode_ci, p.payment_method)='CASH' THEN COALESCE(pt.amount, p.net_amount) ELSE 0 END) AS cash_total,
+             SUM(CASE WHEN COALESCE(pt.method COLLATE utf8mb4_unicode_ci, p.payment_method)='CARD' THEN COALESCE(pt.amount, p.net_amount) ELSE 0 END) AS card_total,
+             SUM(CASE WHEN COALESCE(pt.method COLLATE utf8mb4_unicode_ci, p.payment_method)='MOBILE' THEN COALESCE(pt.amount, p.net_amount) ELSE 0 END) AS mobile_total,
              SUM(p.tax_amount) AS tax_total,
              SUM(p.discount_amount) AS discount_total,
              SUM(p.net_amount) AS net_total
            FROM pos_sales p
+          LEFT JOIN JSON_TABLE(
+            p.payments,
+            '$[*]' COLUMNS (
+              method VARCHAR(20) PATH '$.method',
+              amount DECIMAL(18,2) PATH '$.amount'
+            )
+          ) pt ON 1=1
            LEFT JOIN pos_terminals t
              ON t.id = p.terminal_id AND t.company_id = p.company_id AND t.branch_id = p.branch_id
            WHERE p.company_id = :companyId
@@ -4021,8 +4006,9 @@ router.get(
                     AND s.status = 'COMPLETED'
                 ), 0) AS total_sales,
                 COALESCE((
-                  SELECT SUM(CASE WHEN COALESCE(s.payment_method, '') = 'CASH' THEN COALESCE(s.net_amount, 0) ELSE 0 END)
+                  SELECT SUM(CASE WHEN COALESCE(pt.method COLLATE utf8mb4_unicode_ci, s.payment_method) = 'CASH' THEN COALESCE(pt.amount, s.net_amount) ELSE 0 END)
                   FROM pos_sales s
+                  LEFT JOIN JSON_TABLE(s.payments, '$[*]' COLUMNS(method VARCHAR(20) PATH '$.method', amount DECIMAL(18,2) PATH '$.amount')) pt ON 1=1
                   LEFT JOIN pos_terminals t ON t.id = s.terminal_id AND t.company_id = s.company_id AND t.branch_id = s.branch_id
                   WHERE s.company_id = ds.company_id
                     AND s.branch_id = ds.branch_id
