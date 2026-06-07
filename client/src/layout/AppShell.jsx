@@ -1427,7 +1427,7 @@ export default function AppShell() {
                 </div>
               </div>
             ) : null}
-            {!online && !isRootPage ? (
+            {!online && !isRootPage && !location.pathname.startsWith("/pos") ? (
               <div className="min-h-[60vh] flex items-center justify-center">
                 <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-6 max-w-lg w-full text-center">
                   <div className="text-4xl mb-2">📡</div>
