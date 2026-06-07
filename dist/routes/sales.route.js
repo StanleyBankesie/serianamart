@@ -37,12 +37,17 @@ router.use(
 );
 
 async function hasColumn(tableName, columnName) {
-  try {
-    await query(`SELECT ${columnName} FROM ${tableName} LIMIT 1`);
-    return true;
-  } catch (err) {
-    return false;
-  }
+  const rows = await query(
+    `
+    SELECT COUNT(*) AS c
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = :tableName
+      AND column_name = :columnName
+    `,
+    { tableName, columnName },
+  );
+  return Number(rows?.[0]?.c || 0) > 0;
 }
 
 // Ensure sal_deliveries columns
@@ -2351,6 +2356,76 @@ router.get(
         params,
       ).catch(() => []);
       res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.post(
+  "/price-types",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const { priceTypes } = req.body;
+      const createdBy = req.user?.sub || null;
+      if (!Array.isArray(priceTypes)) {
+        throw { status: 400, message: "Invalid payload" };
+      }
+      for (const pt of priceTypes) {
+        if (!pt.name?.trim()) continue;
+        if (pt.id) {
+          await query(
+            `UPDATE sal_price_types 
+             SET name = :name, description = :description, is_active = :is_active 
+             WHERE id = :id AND company_id = :companyId`,
+            {
+              id: pt.id,
+              companyId,
+              name: pt.name.trim(),
+              description: pt.description || null,
+              is_active: pt.is_active === 0 || pt.is_active === false ? 0 : 1,
+            },
+          );
+        } else {
+          await query(
+            `INSERT INTO sal_price_types (company_id, name, description, is_active, created_by) 
+             VALUES (:companyId, :name, :description, :is_active, :created_by)`,
+            {
+              companyId,
+              name: pt.name.trim(),
+              description: pt.description || null,
+              is_active: pt.is_active === 0 || pt.is_active === false ? 0 : 1,
+              created_by: createdBy,
+            },
+          );
+        }
+      }
+      res.json({ message: "Price types saved successfully" });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.delete(
+  "/price-types/:id",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) {
+        throw { status: 400, message: "Invalid id" };
+      }
+      await query(
+        `DELETE FROM sal_price_types WHERE id = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
+      res.json({ message: "Price type deleted successfully" });
     } catch (e) {
       next(e);
     }
@@ -5725,6 +5800,7 @@ router.post(
           }
         }
       }
+
       const customerId = Number(req.body?.customer_id);
 
       if (Number.isFinite(customerId) && customerId > 0) {
@@ -5757,6 +5833,7 @@ router.post(
           return res.json({ price: Number(cpRow2.customer_price) });
         }
       }
+
 
       let priceRow = null;
       if (priceTypeId != null) {
@@ -5822,6 +5899,259 @@ router.get(
         { companyId },
       ).catch(() => []);
       res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// ===== BOGO CAMPAIGNS =====
+let _bogoTablesEnsured = false;
+
+async function ensureBogoTables() {
+  if (_bogoTablesEnsured) return;
+  await query(`
+    CREATE TABLE IF NOT EXISTS sal_bogo_campaigns (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      campaign_name VARCHAR(255) NOT NULL,
+      campaign_qty DECIMAL(18,3) NOT NULL DEFAULT '0.000',
+      used_qty DECIMAL(18,3) NOT NULL DEFAULT '0.000',
+      effective_from DATE NOT NULL,
+      effective_to DATE DEFAULT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT '1',
+      created_by BIGINT UNSIGNED DEFAULT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_bogo_company (company_id),
+      KEY idx_bogo_created_by (created_by),
+      KEY idx_bogo_active (company_id, is_active, effective_from, effective_to)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS sal_bogo_campaign_items (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      campaign_id BIGINT UNSIGNED NOT NULL,
+      item_id BIGINT UNSIGNED NOT NULL,
+      item_qty DECIMAL(18,3) NOT NULL DEFAULT '0.000',
+      free_item_id BIGINT UNSIGNED NOT NULL,
+      free_qty DECIMAL(18,3) NOT NULL DEFAULT '0.000',
+      PRIMARY KEY (id),
+      KEY idx_bc_items_campaign (campaign_id),
+      KEY idx_bc_items_item (item_id),
+      KEY idx_bc_items_free (free_item_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  _bogoTablesEnsured = true;
+  try {
+    await query(`
+      ALTER TABLE sal_bogo_campaigns
+      ADD COLUMN used_qty DECIMAL(18,3) NOT NULL DEFAULT '0.000'
+      AFTER campaign_qty
+    `);
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+  }
+}
+router.get(
+  "/bogo-campaigns/active",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      await ensureBogoTables();
+      const campaigns = await query(
+        `SELECT * FROM sal_bogo_campaigns
+          WHERE company_id = :companyId
+            AND is_active = 1
+            AND used_qty < campaign_qty
+            AND (effective_to IS NULL OR effective_to >= CURDATE())
+            AND effective_from <= CURDATE()
+          ORDER BY id DESC`,
+        { companyId },
+      );
+      const result = Array.isArray(campaigns) ? campaigns : [];
+      for (const c of result) {
+        const items = await query(
+          `SELECT * FROM sal_bogo_campaign_items WHERE campaign_id = :id ORDER BY id`,
+          { id: c.id },
+        );
+        c.rows = items || [];
+      }
+      res.json({ items: result });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/bogo-campaigns",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      await ensureBogoTables();
+      const items = await query(
+        `
+        SELECT c.*, u.username AS created_by_name
+         FROM sal_bogo_campaigns c
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.company_id = :companyId
+         ORDER BY c.id DESC
+        `,
+        { companyId },
+      ).catch(() => []);
+      res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.get(
+  "/bogo-campaigns/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      await ensureBogoTables();
+      const { id } = req.params;
+      const rows = await query(
+        `SELECT * FROM sal_bogo_campaigns WHERE id = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
+      if (!rows || !rows.length) return res.status(404).json({ message: "Not found" });
+      const campaign = rows[0];
+      const items = await query(
+        `SELECT * FROM sal_bogo_campaign_items WHERE campaign_id = :id ORDER BY id`,
+        { id },
+      );
+      campaign.rows = items || [];
+      res.json(campaign);
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.post(
+  "/bogo-campaigns",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      await ensureBogoTables();
+      const userId = req.user?.id || null;
+      const { campaign_name, campaign_qty, effective_from, effective_to, is_active, rows } = req.body;
+      const result = await query(
+        `INSERT INTO sal_bogo_campaigns (company_id, campaign_name, campaign_qty, effective_from, effective_to, is_active, created_by)
+         VALUES (:companyId, :campaign_name, :campaign_qty, :effective_from, :effective_to, :is_active, :created_by)`,
+        { companyId, campaign_name, campaign_qty: campaign_qty || 0, effective_from, effective_to, is_active: is_active ?? 1, created_by: userId },
+      );
+      const campaignId = result?.insertId || result?.insertId || 0;
+      if (Array.isArray(rows) && rows.length) {
+        for (const row of rows) {
+          if (row.item_id) {
+            await query(
+              `INSERT INTO sal_bogo_campaign_items (campaign_id, item_id, item_qty, free_item_id, free_qty)
+               VALUES (:campaign_id, :item_id, :item_qty, :free_item_id, :free_qty)`,
+              { campaign_id: campaignId, item_id: row.item_id, item_qty: row.item_qty || 0, free_item_id: row.free_item_id, free_qty: row.free_qty || 0 },
+            );
+          }
+        }
+      }
+      res.status(201).json({ id: campaignId, message: "BOGO campaign created" });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.put(
+  "/bogo-campaigns/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      await ensureBogoTables();
+      const { id } = req.params;
+      const { campaign_name, campaign_qty, effective_from, effective_to, is_active, rows } = req.body;
+      await query(
+        `UPDATE sal_bogo_campaigns SET campaign_name = :campaign_name, campaign_qty = :campaign_qty, effective_from = :effective_from, effective_to = :effective_to, is_active = :is_active WHERE id = :id AND company_id = :companyId`,
+        { campaign_name, campaign_qty: campaign_qty || 0, effective_from, effective_to, is_active: is_active ?? 1, id, companyId },
+      );
+      await query(`DELETE FROM sal_bogo_campaign_items WHERE campaign_id = :id`, { id });
+      if (Array.isArray(rows) && rows.length) {
+        for (const row of rows) {
+          if (row.item_id) {
+            await query(
+              `INSERT INTO sal_bogo_campaign_items (campaign_id, item_id, item_qty, free_item_id, free_qty)
+               VALUES (:campaign_id, :item_id, :item_qty, :free_item_id, :free_qty)`,
+              { campaign_id: id, item_id: row.item_id, item_qty: row.item_qty || 0, free_item_id: row.free_item_id, free_qty: row.free_qty || 0 },
+            );
+          }
+        }
+      }
+      res.json({ message: "BOGO campaign updated" });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.delete(
+  "/bogo-campaigns/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      await ensureBogoTables();
+      const { id } = req.params;
+      await query(`DELETE FROM sal_bogo_campaign_items WHERE campaign_id = :id`, { id });
+      await query(`DELETE FROM sal_bogo_campaigns WHERE id = :id AND company_id = :companyId`, { id, companyId });
+      res.json({ message: "Deleted" });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// Endpoint to consume BOGO campaign qty (used by POS)
+router.post(
+  "/bogo-campaigns/:id/consume",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      await ensureBogoTables();
+      const { id } = req.params;
+      const { qty } = req.body;
+      const rows = await query(
+        `SELECT campaign_qty, used_qty FROM sal_bogo_campaigns WHERE id = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
+      if (!rows || !rows.length) return res.status(404).json({ message: "Not found" });
+      const campaign = rows[0];
+      const used = Number(campaign.used_qty || 0) + Number(qty || 0);
+      const total = Number(campaign.campaign_qty || 0);
+      if (used > total) return res.status(400).json({ message: "Campaign qty exhausted" });
+      await query(`UPDATE sal_bogo_campaigns SET used_qty = :used WHERE id = :id`, { used, id });
+      res.json({ used_qty: used, remaining: total - used });
     } catch (e) {
       next(e);
     }

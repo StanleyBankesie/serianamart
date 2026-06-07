@@ -329,6 +329,7 @@ export async function saveExit(req, res, next) {
 
 export async function listExits(req, res, next) {
   try {
+    await ensureHRTables();
     const { employee_id } = req.query;
     const clauses = [];
     const params = {};
@@ -337,8 +338,8 @@ export async function listExits(req, res, next) {
       params.employee_id = toNumber(employee_id, null);
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const items = await query(`SELECT e.*, emp.first_name, emp.last_name,
-          e.created_at FROM hr_exits e
+    const items = await query(`SELECT e.*, emp.first_name, emp.last_name
+         FROM hr_exits e
        LEFT JOIN hr_employees emp ON emp.id = e.employee_id
        ${where}
          ORDER BY e.id DESC`,
@@ -353,8 +354,8 @@ export async function listExits(req, res, next) {
 export async function listClearance(req, res, next) {
   try {
     const { exit_id } = req.query;
-    const items = await query(`SELECT *,
-          created_at FROM hr_clearance
+    const items = await query(`SELECT *
+         FROM hr_clearance
          WHERE exit_id = :exit_id ORDER BY department ASC`,
       { exit_id },
     );
@@ -1534,6 +1535,27 @@ export async function listInterviews(req, res, next) {
 /**
  * Recruitment - Offers
  */
+export async function getOfferById(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { companyId } = req.scope;
+    const [item] = await query(`SELECT o.*, c.first_name, c.last_name,
+         r.title AS requisition_title, r.id AS requisition_id,
+         p.pos_name, p.id AS position_id
+         FROM hr_offers o
+         LEFT JOIN hr_candidates c ON c.id = o.candidate_id
+         LEFT JOIN hr_job_requisitions r ON r.id = o.requisition_id
+         LEFT JOIN hr_positions p ON p.id = o.position_id
+         WHERE o.id = :id AND o.company_id = :companyId`,
+      { id, companyId },
+    );
+    if (!item) return res.status(404).json({ message: "Offer not found" });
+    res.json({ item });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function saveOffer(req, res, next) {
   try {
     const {
@@ -1694,8 +1716,8 @@ export async function clockIn(req, res, next) {
     if (!employee_id)
       throw httpError(400, "BAD_REQUEST", "employee_id required");
 
-    const existing = await query(`SELECT id, clock_in,
-          created_at FROM hr_attendance
+    const existing = await query(`SELECT id, clock_in
+         FROM hr_attendance
          WHERE employee_id = :employee_id AND attendance_date = :attendance_date`,
       { employee_id, attendance_date },
     );
@@ -1725,8 +1747,8 @@ export async function clockOut(req, res, next) {
       req.body.attendance_date || new Date().toISOString().slice(0, 10);
     if (!employee_id)
       throw httpError(400, "BAD_REQUEST", "employee_id required");
-    const rows = await query(`SELECT id, clock_in,
-          created_at FROM hr_attendance
+    const rows = await query(`SELECT id, clock_in
+         FROM hr_attendance
          WHERE employee_id = :employee_id AND attendance_date = :attendance_date`,
       { employee_id, attendance_date },
     );
@@ -1759,8 +1781,8 @@ export async function listAttendance(req, res, next) {
       params.to_date = to_date;
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const items = await query(`SELECT a.*, e.first_name, e.last_name,
-          a.created_at FROM hr_attendance a
+    const items = await query(`SELECT a.*, e.first_name, e.last_name
+         FROM hr_attendance a
        LEFT JOIN hr_employees e ON e.id = a.employee_id
        ${where}
          ORDER BY a.attendance_date DESC`,
@@ -1887,8 +1909,8 @@ export async function biometricWebhook(req, res, next) {
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Employee not found");
     const employee_id = rows[0].id;
     const dateStr = (event_time || new Date().toISOString()).slice(0, 10);
-    const exist = await query(`SELECT id, clock_in, clock_out,
-          created_at FROM hr_attendance
+    const exist = await query(`SELECT id, clock_in, clock_out
+         FROM hr_attendance
          WHERE employee_id = :eid AND attendance_date = :d`,
       { eid: employee_id, d: dateStr },
     );
@@ -1938,8 +1960,8 @@ export async function listPayrollPeriods(req, res, next) {
   try {
     await ensureHRTables();
     const { companyId } = req.scope;
-    const items = await query(`SELECT *,
-          created_at FROM hr_payroll_periods
+    const items = await query(`SELECT *
+         FROM hr_payroll_periods
          WHERE company_id = :companyId ORDER BY start_date DESC`,
       { companyId },
     );

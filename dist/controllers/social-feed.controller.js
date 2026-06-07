@@ -111,6 +111,8 @@ export const getPosts = async (req, res) => {
           const toUrl = (blob) => {
             if (!blob) return null;
             const b = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
+            const str = b.toString("utf8");
+            if (str.startsWith("http://") || str.startsWith("https://") || str.startsWith("data:")) return str;
             let mime = "image/jpeg";
             if (
               b.length >= 3 &&
@@ -241,6 +243,8 @@ export const getPostById = async (req, res) => {
       const toUrl = (blob) => {
         if (!blob) return null;
         const b = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
+        const str = b.toString("utf8");
+        if (str.startsWith("http://") || str.startsWith("https://") || str.startsWith("data:")) return str;
         let mime = "image/jpeg";
         if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) {
           mime = "image/jpeg";
@@ -402,6 +406,8 @@ export const createPost = async (req, res) => {
       const toUrl = (blob) => {
         if (!blob) return null;
         const b = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
+        const str = b.toString("utf8");
+        if (str.startsWith("http://") || str.startsWith("https://") || str.startsWith("data:")) return str;
         let mime = "image/jpeg";
         if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) {
           mime = "image/jpeg";
@@ -496,6 +502,8 @@ export const getPostComments = async (req, res) => {
       const toUrl2 = (blob) => {
         if (!blob) return null;
         const b = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
+        const str = b.toString("utf8");
+        if (str.startsWith("http://") || str.startsWith("https://") || str.startsWith("data:")) return str;
         let mime = "image/jpeg";
         if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) {
           mime = "image/jpeg";
@@ -622,6 +630,8 @@ export const getPostLikes = async (req, res) => {
       const toUrl = (blob) => {
         if (!blob) return null;
         const b = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
+        const str = b.toString("utf8");
+        if (str.startsWith("http://") || str.startsWith("https://") || str.startsWith("data:")) return str;
         let mime = "image/jpeg";
         if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) {
           mime = "image/jpeg";

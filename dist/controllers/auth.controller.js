@@ -412,3 +412,55 @@ export const resetPasswordWithOtp = async (req, res, next) => {
     next(err);
   }
 };
+
+export const updateCurrentUserPhoto = async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.sub || req.user?.id);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { profile_picture } = req.body;
+    let buffer = null;
+    if (profile_picture && typeof profile_picture === "string") {
+      buffer = Buffer.from(
+        String(profile_picture).replace(/^data:[^;]+;base64,/, ""),
+        "base64",
+      );
+    }
+
+    await query(
+      "UPDATE adm_users SET profile_picture = :profile_picture WHERE id = :userId",
+      { profile_picture: buffer, userId },
+    );
+
+    const [user] = await query(`SELECT u.id, u.username, u.email, u.full_name,
+         u.role_id, r.name AS role_name,
+         IF(u.profile_picture IS NULL, NULL, IF(LEFT(u.profile_picture, 4) = 'http' OR LEFT(u.profile_picture, 5) = 'data:', CONVERT(u.profile_picture USING utf8), CONCAT('data:image/jpeg;base64,', REPLACE(TO_BASE64(u.profile_picture), '\\n', '')))) AS profile_picture_url
+         FROM adm_users u
+         LEFT JOIN adm_roles r ON r.id = u.role_id
+         WHERE u.id = :userId`,
+      { userId },
+    );
+
+    res.json({ user: user || null, message: "Photo updated" });
+  } catch (err) {
+    next(err);
+  }
+};
+export const getCurrentUser = async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.sub || req.user?.id);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+    const [user] = await query(`SELECT u.id, u.username, u.email, u.full_name,
+         u.role_id, r.name AS role_name,
+         IF(u.profile_picture IS NULL, NULL, IF(LEFT(u.profile_picture, 4) = 'http' OR LEFT(u.profile_picture, 5) = 'data:', CONVERT(u.profile_picture USING utf8), CONCAT('data:image/jpeg;base64,', REPLACE(TO_BASE64(u.profile_picture), '\\n', '')))) AS profile_picture_url
+         FROM adm_users u
+         LEFT JOIN adm_roles r ON r.id = u.role_id
+         WHERE u.id = :userId`,
+      { userId },
+    );
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.json({ user });
+  } catch (err) {
+    next(err);
+  }
+};

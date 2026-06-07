@@ -21,9 +21,6 @@ const REMEMBER_REFRESH_DAYS = Math.max(
 const LOGIN_FAILURE_LIMIT = Math.max(
   1,
   Number(process.env.MAX_FAILED_LOGIN_ATTEMPTS || 5),
-const LOGIN_FAILURE_LIMIT = Math.max(
-  1,
-  Number(process.env.MAX_FAILED_LOGIN_ATTEMPTS || 5),
 );
 const LOGIN_FAILURE_COOLDOWN_MINUTES = Math.max(
   1,
@@ -31,15 +28,22 @@ const LOGIN_FAILURE_COOLDOWN_MINUTES = Math.max(
 );
 
 async function hasColumn(tableName, columnName) {
-  try {
-    await query(`SELECT ${columnName} FROM ${tableName} LIMIT 1`);
-    return true;
-  } catch (err) {
-    return false;
-  }
+  const rows = await query(
+    `
+    SELECT COUNT(*) AS c
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = :tableName
+      AND column_name = :columnName
+    `,
+    { tableName, columnName },
+  );
+  return Number(rows?.[0]?.c || 0) > 0;
 }
 
 function getJwtSecret() {
+  const secret = String(process.env.JWT_SECRET || "").trim();
+  if (!secret) {
     throw httpError(500, "SERVER_ERROR", "JWT_SECRET is not configured");
   }
   return secret;

@@ -83,41 +83,15 @@ const app = express();
 app.use((req, res, next) => {
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:*;"
+    "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:* https://serianaserver.omnisuite-erp.com wss://serianaserver.omnisuite-erp.com https://serianamart.omnisuite-erp.com;"
   );
   next();
 });
 
 /* ---------------- HTTP/2 COMPAT ---------------- */
-// Monkey-patch ServerResponse to strip HTTP/2-forbidden headers
-// that nginx may forward from HTTP/1.1 upstream to HTTP/2 clients.
-const ORIG_WRITE_HEAD = http.ServerResponse.prototype.writeHead;
-http.ServerResponse.prototype.writeHead = function () {
-  // Strip from both this._headers and the internal outHeaders symbol
-  const strip = (obj) => {
-    if (!obj) return;
-    const keys = Object.getOwnPropertyNames(obj);
-    for (const k of keys) {
-      if (k.toLowerCase() === "connection" || k.toLowerCase() === "transfer-encoding") {
-        delete obj[k];
-      }
-    }
-  };
-  strip(this._headers);
-  const sym = Object.getOwnPropertySymbols(this).find(
-    (s) => s.toString().includes("Headers") || s.toString().includes("headers"),
-  );
-  if (sym) strip(this[sym]);
-  return ORIG_WRITE_HEAD.apply(this, arguments);
-};
-
-app.use((req, res, next) => {
-  res.removeHeader("Connection");
-  res.removeHeader("connection");
-  res.removeHeader("Transfer-Encoding");
-  res.removeHeader("transfer-encoding");
-  next();
-});
+// Removed monkey-patch: stripping Transfer-Encoding and Connection headers
+// severely breaks HTTP/1.1 chunked encoding behind Apache/Nginx proxies,
+// leading to 30-second delays and worker pool exhaustion (ERR_CONNECTION_TIMED_OUT).
 
 /* ---------------- UTILS ---------------- */
 const boolEnv = (v) => {
@@ -175,9 +149,12 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "TOO_MANY_REQUESTS", message: "Too many requests, please try again later" },
-  skip: (req) => req.path === "/api/health",
+  skip: (req) => req.path === "/api/health" || req.path === "/api/ping",
 });
 app.use("/api", apiLimiter);
+
+app.head("/api/ping", (_req, res) => res.status(200).end());
+app.get("/api/ping", (_req, res) => res.json({ ok: true }));
 
 /* ---------------- DB ---------------- */
 (async () => {
@@ -642,19 +619,17 @@ const PORT = Number(process.env.PORT || 4002);
 const server = http.createServer(app);
 
 // Timeouts to avoid long-hanging connections in managed hosting
-// keepAliveTimeout=0 disables keep-alive, forcing "Connection: close"
-// instead of "Connection: keep-alive" (avoids ERR_HTTP2_PROTOCOL_ERROR
-// when nginx proxies HTTP/1.1 to HTTP/2 clients).
 try {
-  const keepAliveMs = process.env.KEEP_ALIVE_TIMEOUT_MS
-    ? Number(process.env.KEEP_ALIVE_TIMEOUT_MS)
-    : 0;
+  const keepAliveMs = process.env.KEEP_ALIVE_TIMEOUT_MS ? Number(process.env.KEEP_ALIVE_TIMEOUT_MS) : 0;
   const headersMs = Number(process.env.HEADERS_TIMEOUT_MS || 65000);
-  const requestMs = process.env.REQUEST_TIMEOUT_MS
-    ? Number(process.env.REQUEST_TIMEOUT_MS)
-    : undefined;
+  const requestMs = process.env.REQUEST_TIMEOUT_MS ? Number(process.env.REQUEST_TIMEOUT_MS) : undefined;
+  
+  // This is CRITICAL for Plesk HTTP/2 + Nginx + Passenger environments.
+  // Setting this to 0 forces Node to send Connection: close,
+  // preventing Nginx from passing keep-alive to HTTP/2 clients which causes ERR_HTTP2_PROTOCOL_ERROR.
   server.keepAliveTimeout = keepAliveMs;
   server.headersTimeout = headersMs;
+  
   if (requestMs !== undefined && Number.isFinite(requestMs)) {
     server.requestTimeout = requestMs;
   }

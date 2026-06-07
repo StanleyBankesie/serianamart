@@ -73,7 +73,7 @@ export const getUserById = async (req, res, next) => {
       SELECT 
         u.*,
         r.name AS role_name,
-        IF(u.profile_picture IS NULL, NULL, CONCAT('data:image/jpeg;base64,', TO_BASE64(u.profile_picture))) AS profile_picture_url,
+        IF(u.profile_picture IS NULL, NULL, IF(LEFT(u.profile_picture, 4) = 'http' OR LEFT(u.profile_picture, 5) = 'data:', CONVERT(u.profile_picture USING utf8), CONCAT('data:image/jpeg;base64,', REPLACE(TO_BASE64(u.profile_picture), '\\n', '')))) AS profile_picture_url,
           u.created_at,
           uc.username AS created_by_name
          FROM adm_users u
