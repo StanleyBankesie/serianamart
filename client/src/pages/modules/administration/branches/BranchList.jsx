@@ -427,7 +427,7 @@ export default function BranchList() {
           </Link>
           <button
             className="btn btn-primary"
-            onClick={() => window.location.reload()}
+            onClick={() => fetchBranches()}
           >
             🔄 Refresh
           </button>

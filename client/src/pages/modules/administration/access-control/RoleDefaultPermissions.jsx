@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 
 export default function RoleDefaultPermissions() {
@@ -93,9 +94,9 @@ export default function RoleDefaultPermissions() {
             Define CRUD defaults per module
           </p>
         </div>
-        <a href="/administration" className="btn btn-secondary">
+        <Link to="/administration" className="btn btn-secondary">
           Back to Menu
-        </a>
+        </Link>
       </div>
       {error && <div className="alert alert-error">{error}</div>}
       <div className="card">

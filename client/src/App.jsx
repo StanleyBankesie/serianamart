@@ -7,6 +7,7 @@ import { AuthProvider } from "./auth/AuthContext.jsx";
 import { PermissionProvider } from "./auth/PermissionContext.jsx";
 import { ThemeProvider } from "./theme/ThemeContext.jsx";
 import ProtectedRoute from "./auth/ProtectedRoute.jsx";
+import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import ForgotPasswordRequest from "./pages/ForgotPasswordRequest.jsx";
 import ResetPasswordPage from "./pages/ResetPasswordPage.jsx";
@@ -34,17 +35,19 @@ export default function App() {
               <ToastContainer position="top-right" theme="dark" />
               <Notifications />
               <Routes>
-                <Route path="/login" element={<LoginPage />} />
+                <Route path="/login" element={
+                  <ErrorBoundary><LoginPage /></ErrorBoundary>
+                } />
                 <Route
                   path="/forgot-password"
-                  element={<ForgotPasswordRequest />}
+                  element={<ErrorBoundary><ForgotPasswordRequest /></ErrorBoundary>}
                 />
-                <Route path="/reset-password" element={<ResetPasswordPage />} />
+                <Route path="/reset-password" element={<ErrorBoundary><ResetPasswordPage /></ErrorBoundary>} />
                 <Route
                   path="/select-branch"
                   element={
                     <ProtectedRoute>
-                      <BranchSelectionPage />
+                      <ErrorBoundary><BranchSelectionPage /></ErrorBoundary>
                     </ProtectedRoute>
                   }
                 />
@@ -52,7 +55,7 @@ export default function App() {
                   path="/*"
                   element={
                     <ProtectedRoute>
-                      <AppShell />
+                      <ErrorBoundary><AppShell /></ErrorBoundary>
                     </ProtectedRoute>
                   }
                 />

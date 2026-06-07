@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { api } from "api/client";
 import { toast } from "react-toastify";
@@ -19,6 +19,7 @@ import {
 
 export default function PurchaseOrdersImportList() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [exceptionalAllowed, setExceptionalAllowed] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -106,7 +107,7 @@ export default function PurchaseOrdersImportList() {
             window.Notification?.permission === "granted",
           icon,
           onClick: () => {
-            window.location.assign(link);
+            navigate(link);
           },
         });
       } catch {}
@@ -137,7 +138,7 @@ export default function PurchaseOrdersImportList() {
               window.Notification?.permission === "granted",
             icon,
             onClick: () => {
-              window.location.assign(link);
+              navigate(link);
             },
           });
         } catch {}
@@ -177,7 +178,7 @@ export default function PurchaseOrdersImportList() {
                     window.Notification?.permission === "granted",
                   icon,
                   onClick: () => {
-                    window.location.assign(link);
+                    navigate(link);
                   },
                 });
               } catch {}
@@ -212,7 +213,7 @@ export default function PurchaseOrdersImportList() {
                   window.Notification?.permission === "granted",
                 icon,
                 onClick: () => {
-                  window.location.assign(link);
+                  navigate(link);
                 },
               });
             } catch {}

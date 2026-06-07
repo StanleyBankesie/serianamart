@@ -268,16 +268,20 @@ export default function PosReturnForm() {
             : Array.isArray(res.data?.item)
               ? res.data.item
               : [];
-          const mapped = rows.map((it) => ({
-            id: it.id,
-            receiptNo: String(it.receipt_no || it.sale_no || ""),
-            date: String(it.sale_date || "").slice(0, 10),
-            customer: String(it.customer_id || ""),
-            payment: String(it.payment_method || "").replace(/^./, (c) =>
-              c.toUpperCase(),
-            ),
-            has_returns: Boolean(it.has_returns),
-          }));
+          const mapped = rows.map((it) => {
+            const pmts = it.payments;
+            const paymentLabel = Array.isArray(pmts) && pmts.length > 1
+              ? pmts.map((p) => String(p.method || "").replace(/^./, (c) => c.toUpperCase())).join(" + ")
+              : String(it.payment_method || "").replace(/^./, (c) => c.toUpperCase());
+            return {
+              id: it.id,
+              receiptNo: String(it.receipt_no || it.sale_no || ""),
+              date: String(it.sale_date || "").slice(0, 10),
+              customer: String(it.customer_id || ""),
+              payment: paymentLabel,
+              has_returns: Boolean(it.has_returns),
+            };
+          });
           setReceipts(mapped);
         } catch {
           setReceipts([]);
@@ -325,16 +329,20 @@ export default function PosReturnForm() {
         }
 
         if (cancelled) return;
-        const mapped = rows.map((it) => ({
-          id: it.id,
-          receiptNo: String(it.receipt_no || it.sale_no || ""),
-          date: String(it.sale_date || "").slice(0, 10),
-          customer: String(it.customer_id || ""),
-          payment: String(it.payment_method || "").replace(/^./, (c) =>
-            c.toUpperCase(),
-          ),
-          has_returns: Boolean(it.has_returns),
-        }));
+        const mapped = rows.map((it) => {
+          const pmts = it.payments;
+          const paymentLabel = Array.isArray(pmts) && pmts.length > 1
+            ? pmts.map((p) => String(p.method || "").replace(/^./, (c) => c.toUpperCase())).join(" + ")
+            : String(it.payment_method || "").replace(/^./, (c) => c.toUpperCase());
+          return {
+            id: it.id,
+            receiptNo: String(it.receipt_no || it.sale_no || ""),
+            date: String(it.sale_date || "").slice(0, 10),
+            customer: String(it.customer_id || ""),
+            payment: paymentLabel,
+            has_returns: Boolean(it.has_returns),
+          };
+        });
         setReceipts(mapped);
       } catch {
         if (cancelled) return;
@@ -350,11 +358,15 @@ export default function PosReturnForm() {
     };
   }, [searchDate]);
 
+  const taxRate = useMemo(() => {
+    const r = Number(currentReceipt?.taxRate ?? 0);
+    return r > 0 ? r : 0;
+  }, [currentReceipt?.taxRate]);
   const subtotal = useMemo(
     () => returnItems.reduce((sum, i) => sum + i.price * i.returnQuantity, 0),
     [returnItems],
   );
-  const tax = useMemo(() => subtotal * 0.125, [subtotal]);
+  const tax = useMemo(() => subtotal * taxRate, [subtotal, taxRate]);
   const totalRefund = useMemo(() => subtotal + tax, [subtotal, tax]);
 
   async function searchReceipt() {
@@ -364,6 +376,7 @@ export default function PosReturnForm() {
     if (!match) return;
     try {
       const res = await api.get(`/pos/sales/${match.id}`);
+      const sale = res.data?.item || {};
       const details = Array.isArray(res.data?.details) ? res.data.details : [];
       const items = details.map((d) => ({
         id: Number(d.sale_line_id || d.id || 0),
@@ -373,10 +386,13 @@ export default function PosReturnForm() {
         quantity: Number(d.qty || 0),
         returned_qty: Number(d.returned_qty || 0),
       }));
-      setCurrentReceipt({ ...match, items });
+      const grossAmount = Number(sale.gross_amount || 0);
+      const taxAmount = Number(sale.tax_amount || 0);
+      const taxRate = grossAmount > 0 ? taxAmount / grossAmount : 0;
+      setCurrentReceipt({ ...match, items, taxAmount, grossAmount, taxRate });
       setReturnItems([]);
     } catch {
-      setCurrentReceipt({ ...match, items: [] });
+      setCurrentReceipt({ ...match, items: [], taxAmount: 0, grossAmount: 0, taxRate: 0 });
       setReturnItems([]);
     }
   }
@@ -818,12 +834,9 @@ export default function PosReturnForm() {
                       <div className="text-slate-500">Original Total</div>
                       <div className="font-medium">
                         {(() => {
-                          const s = currentReceipt.items.reduce(
-                            (sum, i) => sum + i.price * i.quantity,
-                            0,
-                          );
-                          const t = s * 0.125;
-                          return `GH₵ ${(s + t).toFixed(2)}`;
+                          const origGross = Number(currentReceipt.grossAmount || 0);
+                          const origTax = Number(currentReceipt.taxAmount || 0);
+                          return `GH₵ ${(origGross + origTax).toFixed(2)}`;
                         })()}
                       </div>
                     </div>

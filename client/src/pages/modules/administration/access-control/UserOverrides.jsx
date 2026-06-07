@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 
@@ -178,9 +178,9 @@ export default function UserOverrides() {
             Set exceptional overrides per user
           </p>
         </div>
-        <a href="/administration" className="btn btn-secondary">
+        <Link to="/administration" className="btn btn-secondary">
           Back to Menu
-        </a>
+        </Link>
       </div>
       {error && <div className="alert alert-error">{error}</div>}
       <div className="card">

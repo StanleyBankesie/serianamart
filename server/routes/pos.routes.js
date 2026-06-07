@@ -574,7 +574,7 @@ async function ensurePosTables() {
       receipt_no VARCHAR(50) NOT NULL,
       sale_datetime DATETIME NOT NULL,
       customer_name VARCHAR(150) NULL,
-      payment_method ENUM('CASH','CARD','MOBILE') NOT NULL DEFAULT 'CASH',
+      payment_method ENUM('CASH','CARD','MOBILE','SPLIT') NOT NULL DEFAULT 'CASH',
       gross_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
       discount_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
       tax_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
@@ -605,6 +605,20 @@ async function ensurePosTables() {
   if (!(await hasColumn("pos_sales", "payments"))) {
     await query("ALTER TABLE pos_sales ADD COLUMN payments JSON NULL");
   }
+
+  try {
+    const colRows = await query(`
+      SELECT COLUMN_TYPE 
+      FROM information_schema.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+        AND TABLE_NAME = 'pos_sales' 
+        AND COLUMN_NAME = 'payment_method'
+    `);
+    const colType = colRows?.[0]?.COLUMN_TYPE || '';
+    if (colType && !colType.includes("'SPLIT'")) {
+      await query("ALTER TABLE pos_sales MODIFY payment_method ENUM('CASH','CARD','MOBILE','SPLIT') NOT NULL DEFAULT 'CASH'");
+    }
+  } catch (e) {}
 
   await query(`
     CREATE TABLE IF NOT EXISTS pos_sale_lines (
@@ -640,7 +654,7 @@ async function ensurePosTables() {
       sale_id BIGINT UNSIGNED NOT NULL,
       receipt_no VARCHAR(50) NOT NULL,
       return_datetime DATETIME NOT NULL,
-      refund_method ENUM('CASH','CARD','MOBILE') NOT NULL DEFAULT 'CASH',
+      refund_method ENUM('CASH','CARD','MOBILE','SPLIT') NOT NULL DEFAULT 'CASH',
       total_refund DECIMAL(18,2) NOT NULL DEFAULT 0,
       notes TEXT NULL,
       created_by BIGINT UNSIGNED NULL,
@@ -1381,6 +1395,7 @@ router.get(
           DATE(p.sale_datetime) AS sale_date,
           p.customer_name,
           p.payment_method,
+          p.payments,
           p.gross_amount,
           p.discount_amount,
           p.tax_amount,
@@ -1426,7 +1441,19 @@ router.get(
       }
       sql += ` ORDER BY p.sale_datetime DESC, p.id DESC`;
       const rows = await query(sql, params);
-      res.json({ items: rows });
+      const items = rows.map((row) => {
+        if (row.payments) {
+          if (typeof row.payments === "string") {
+            try { row.payments = JSON.parse(row.payments); } catch { row.payments = []; }
+          } else if (Buffer.isBuffer(row.payments)) {
+            try { row.payments = JSON.parse(row.payments.toString("utf8")); } catch { row.payments = []; }
+          } else if (row.payments && typeof row.payments === "object" && row.payments.type === "Buffer" && Array.isArray(row.payments.data)) {
+            try { row.payments = JSON.parse(Buffer.from(row.payments.data).toString("utf8")); } catch { row.payments = []; }
+          }
+        }
+        return row;
+      });
+      res.json({ items });
     } catch (err) {
       next(err);
     }
@@ -2225,6 +2252,17 @@ router.get(
         { id, companyId, branchId },
       );
       if (!items.length) throw httpError(404, "NOT_FOUND", "Sale not found");
+      const saleItem = items[0];
+      // Parse payments JSON column
+      if (saleItem.payments) {
+        if (typeof saleItem.payments === "string") {
+          try { saleItem.payments = JSON.parse(saleItem.payments); } catch { saleItem.payments = []; }
+        } else if (Buffer.isBuffer(saleItem.payments)) {
+          try { saleItem.payments = JSON.parse(saleItem.payments.toString("utf8")); } catch { saleItem.payments = []; }
+        } else if (saleItem.payments && typeof saleItem.payments === "object" && saleItem.payments.type === "Buffer" && Array.isArray(saleItem.payments.data)) {
+          try { saleItem.payments = JSON.parse(Buffer.from(saleItem.payments.data).toString("utf8")); } catch { saleItem.payments = []; }
+        }
+      }
       const details = await query(
         `SELECT id AS sale_line_id, item_id, item_name, qty, returned_qty, unit_price, line_total,
           created_at,
@@ -2235,7 +2273,7 @@ router.get(
          ORDER BY line_no ASC`,
         { id },
       );
-      res.json({ item: items[0], details });
+      res.json({ item: saleItem, details });
     } catch (err) {
       next(err);
     }
@@ -2671,7 +2709,7 @@ router.post(
           receipt_no,
           sale_datetime,
           customer_name: customer_name || null,
-          payment_method: pm === "CARD" || pm === "MOBILE" ? pm : "CASH",
+          payment_method: (Array.isArray(reqPayments) && reqPayments.length > 1) ? "SPLIT" : (pm === "CARD" || pm === "MOBILE" ? pm : "CASH"),
           payments: paymentsJson,
           gross_amount: gross,
           discount_amount: discount,
@@ -3937,34 +3975,45 @@ router.get(
         return value;
       };
       const params = { companyId, branchId };
-      const conditions = ["company_id = :companyId", "branch_id = :branchId"];
+      const conditions = ["ds.company_id = :companyId", "ds.branch_id = :branchId"];
       if (terminal) {
-        conditions.push("terminal_code = :terminal");
+        conditions.push("ds.terminal_code = :terminal");
         params.terminal = terminal;
       }
       if (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
-        conditions.push("business_date >= :dateFrom");
+        conditions.push("ds.business_date >= :dateFrom");
         params.dateFrom = dateFrom;
       }
       if (/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
-        conditions.push("business_date <= :dateTo");
+        conditions.push("ds.business_date <= :dateTo");
         params.dateTo = dateTo;
       }
       const rows = await query(
-        `SELECT id, terminal_code, business_date, open_datetime, opening_float,
-                supervisor_name, open_notes, open_denomination_counts,
-                close_datetime, actual_cash, close_notes,
-                close_denomination_counts, next_opening_float, status,
-                created_at, u.username AS created_by_name
-         FROM pos_day_status
-         LEFT JOIN adm_users u ON u.id = created_by
+        `SELECT ds.id, ds.terminal_code, ds.business_date, ds.open_datetime, ds.opening_float,
+                ds.supervisor_name, ds.open_notes, ds.open_denomination_counts,
+                ds.close_datetime, ds.actual_cash, ds.close_notes,
+                ds.close_denomination_counts, ds.next_opening_float, ds.status,
+                ds.created_at, u.username AS created_by_name,
+                COALESCE((
+                  SELECT SUM(s.net_amount)
+                  FROM pos_sales s
+                  LEFT JOIN pos_terminals t ON t.id = s.terminal_id AND t.company_id = s.company_id AND t.branch_id = s.branch_id
+                  WHERE s.company_id = ds.company_id
+                    AND s.branch_id = ds.branch_id
+                    AND t.code = ds.terminal_code
+                    AND DATE(s.sale_datetime) = ds.business_date
+                    AND s.status = 'COMPLETED'
+                ), 0) AS total_sales
+         FROM pos_day_status ds
+         LEFT JOIN adm_users u ON u.id = ds.created_by
          WHERE ${conditions.join(" AND ")}
-         ORDER BY open_datetime DESC`,
+         ORDER BY ds.open_datetime DESC`,
         params,
       );
       const items = rows.map((item) => {
         item.open_denomination_counts = coerceJsonValue(item.open_denomination_counts);
         item.close_denomination_counts = coerceJsonValue(item.close_denomination_counts);
+        item.total_sales = Number(item.total_sales || 0);
         return item;
       });
       res.json({ items });

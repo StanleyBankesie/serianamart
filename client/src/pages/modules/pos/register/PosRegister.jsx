@@ -104,6 +104,20 @@ export default function PosRegister() {
     };
   }
   function sessionSalesTotals(session) {
+    // Use server-computed breakdown when available (provides accurate per-method totals)
+    if (session?.salesBreakdown) {
+      const sb = session.salesBreakdown;
+      const totalCount = Number(sb.cashCount || 0) + Number(sb.cardCount || 0) + Number(sb.mobileCount || 0);
+      const totalAmount = Number(sb.cashAmount || 0) + Number(sb.cardAmount || 0) + Number(sb.mobileAmount || 0);
+      const expectedCashAtClose = session?.status === "Closed" && session?.expectedCash !== null && session?.expectedCash !== undefined
+        ? Number(session.expectedCash || 0) : Number(session?.opening || 0) + Number(sb.cashAmount || 0);
+      const actualCashAtClose = session?.status === "Closed" && session?.actualCash !== null && session?.actualCash !== undefined
+        ? Number(session.actualCash || 0) : session?.actualCash === null || session?.actualCash === undefined ? null : Number(session.actualCash || 0);
+      const cashVarianceAtClose = session?.status === "Closed" && session?.cashVariance !== null && session?.cashVariance !== undefined
+        ? Number(session.cashVariance || 0) : actualCashAtClose === null ? null : actualCashAtClose - expectedCashAtClose;
+      return { diff: sb, totalCount, totalAmount, expectedCashAtClose, actualCashAtClose, cashVarianceAtClose };
+    }
+    // Fallback: compute from start/end summaries (legacy)
     const hasStartSummary = session?.startSummary !== null && session?.startSummary !== undefined;
     const end = session?.endSummary || { cashCount: 0, cashAmount: 0, cardCount: 0, cardAmount: 0, mobileCount: 0, mobileAmount: 0 };
     const d = hasStartSummary ? diffDaySummary(end, session?.startSummary || null) : { cashCount: 0, cashAmount: 0, cardCount: 0, cardAmount: 0, mobileCount: 0, mobileAmount: 0 };
@@ -157,7 +171,15 @@ export default function PosRegister() {
             actualCash,
             cashVariance,
             closeNotes: item.close_notes || "",
-            sales: 0,
+            sales: Number(item.total_sales || 0),
+            salesBreakdown: {
+              cashAmount: Number(item.cash_amount || 0),
+              cashCount: Number(item.cash_count || 0),
+              cardAmount: Number(item.card_amount || 0),
+              cardCount: Number(item.card_count || 0),
+              mobileAmount: Number(item.mobile_amount || 0),
+              mobileCount: Number(item.mobile_count || 0),
+            },
           };
         });
         setSessionHistory(mapped);
@@ -236,7 +258,13 @@ export default function PosRegister() {
             time,
             customer: String(it.customer_name || ""),
             phone: "",
-            payment: String(it.payment_method || "").toLowerCase(),
+            payment: (() => {
+              const pmts = it.payments;
+              if (Array.isArray(pmts) && pmts.length > 1) {
+                return pmts.map((p) => String(p.method || "").toLowerCase()).join("+");
+              }
+              return String(it.payment_method || "").toLowerCase();
+            })(),
             status: String(it.payment_status || "").toLowerCase(),
             items: [],
             total_amount: Number(it.total_amount || 0),

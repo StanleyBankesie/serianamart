@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "api/client";
 import { printDocument, downloadDocumentPdf } from "@/utils/pdfUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
@@ -18,6 +18,7 @@ import {
 
 export default function PurchaseOrdersLocalList() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [exceptionalAllowed, setExceptionalAllowed] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -116,7 +117,7 @@ export default function PurchaseOrdersLocalList() {
           window.Notification?.permission === "granted",
         icon,
         onClick: () => {
-          window.location.assign(link);
+          navigate(link);
         },
       });
     } catch {}

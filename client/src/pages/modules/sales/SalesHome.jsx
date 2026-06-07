@@ -14,7 +14,11 @@ import InvoiceForm from "./invoices/InvoiceForm.jsx";
 import DeliveryList from "./delivery/DeliveryList.jsx";
 import DeliveryForm from "./delivery/DeliveryForm.jsx";
 import PriceSetup from "./price-setup/PriceSetup.jsx";
+import CampaignHub from "./discount-schemes/CampaignHub.jsx";
 import DiscountSchemeList from "./discount-schemes/DiscountSchemeList.jsx";
+import CampaignForm from "./discount-schemes/CampaignForm.jsx";
+import BogoCampaignList from "./discount-schemes/BogoCampaignList.jsx";
+import BogoCampaignForm from "./discount-schemes/BogoCampaignForm.jsx";
 import CustomerCreditList from "./customer-credit/CustomerCreditList.jsx";
 import CustomerCreditForm from "./customer-credit/CustomerCreditForm.jsx";
 import CustomerList from "./customers/CustomerList.jsx";
@@ -331,9 +335,9 @@ const SalesModuleHome = () => {
           actions: [],
         },
         {
-          title: "Discount Schemes",
+          title: "Promotional Campaigns",
           path: "/sales/discount-schemes",
-          description: "Configure discount rules and promotions",
+          description: "Discount campaigns, BOGO offers, and promotions",
           icon: "🏷️",
           actions: [],
         },
@@ -591,7 +595,13 @@ export default function SalesHome() {
       <Route path="delivery/new" element={<DeliveryForm />} />
       <Route path="delivery/:id" element={<DeliveryForm />} />
       <Route path="/price-setup" element={<PriceSetup />} />
-      <Route path="/discount-schemes" element={<DiscountSchemeList />} />
+      <Route path="/discount-schemes" element={<CampaignHub />} />
+      <Route path="/discount-schemes/discount" element={<DiscountSchemeList />} />
+      <Route path="/discount-schemes/discount/new" element={<CampaignForm />} />
+      <Route path="/discount-schemes/discount/:id" element={<CampaignForm />} />
+      <Route path="/discount-schemes/bogo" element={<BogoCampaignList />} />
+      <Route path="/discount-schemes/bogo/new" element={<BogoCampaignForm />} />
+      <Route path="/discount-schemes/bogo/:id" element={<BogoCampaignForm />} />
       <Route path="/setup" element={<SalesSetupPage />} />
       <Route path="/customer-credit" element={<CustomerCreditList />} />
       <Route path="/customer-credit/:id" element={<CustomerCreditForm />} />
@@ -847,7 +857,7 @@ export const salesFeatures = [
   },
   {
     module_key: "sales",
-    label: "Discount Schemes",
+    label: "Promotional Campaigns",
     path: "/sales/discount-schemes",
     type: "feature",
   },

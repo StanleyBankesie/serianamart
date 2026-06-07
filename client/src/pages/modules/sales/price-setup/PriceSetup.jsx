@@ -7,6 +7,7 @@ import "./PriceSetup.css";
 
 export default function PriceSetup() {
   const [activeTab, setActiveTab] = useState("standard");
+  const [sellingView, setSellingView] = useState("picker");
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState([]);
   const [products, setProducts] = useState([]);
@@ -18,12 +19,29 @@ export default function PriceSetup() {
   const [selectedItem, setSelectedItem] = useState(null);
   const fileInputRef = React.useRef(null);
 
+  // Customer price type selector
+  const [showPriceTypeSelector, setShowPriceTypeSelector] = useState(false);
+
+  // Bulk price % state
+  const [itemGroups, setItemGroups] = useState([]);
+  const [customerModalSubType, setCustomerModalSubType] = useState("single");
+  const [bulkCustomerId, setBulkCustomerId] = useState("");
+  const [bulkGroupId, setBulkGroupId] = useState("");
+  const [bulkPriceTypeId, setBulkPriceTypeId] = useState("");
+  const [bulkPercentage, setBulkPercentage] = useState("");
+  const [bulkOperator, setBulkOperator] = useState("+");
+  const [bulkSelectedItems, setBulkSelectedItems] = useState([]);
+  const [bulkFilteredItems, setBulkFilteredItems] = useState([]);
+  const [bulkSelectAll, setBulkSelectAll] = useState(false);
+
   // Filter states
   const [filters, setFilters] = useState({
     product: "",
     customer: "",
     category: "",
   });
+
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
 
   // Form states
   const [formData, setFormData] = useState({});
@@ -68,15 +86,39 @@ export default function PriceSetup() {
     if (section === "cost") loadCostData();
   }, [section]);
 
+  // Filter products by selected group for bulk tool
+  useEffect(() => {
+    const groupId = Number(bulkGroupId);
+    if (groupId) {
+      setBulkFilteredItems(
+        products.filter((p) => Number(p.item_group_id) === groupId),
+      );
+    } else {
+      setBulkFilteredItems([]);
+    }
+    setBulkSelectedItems([]);
+    setBulkSelectAll(false);
+  }, [bulkGroupId, products]);
+
+  // Sync bulkSelectAll
+  useEffect(() => {
+    if (bulkSelectAll && bulkFilteredItems.length) {
+      setBulkSelectedItems(bulkFilteredItems.map((p) => p.id));
+    } else if (!bulkSelectAll) {
+      setBulkSelectedItems([]);
+    }
+  }, [bulkSelectAll, bulkFilteredItems]);
+
   const loadInitialData = async () => {
     try {
       console.log("Loading initial data...");
-      const [productsRes, customersRes, priceTypesRes, currenciesRes] =
+      const [productsRes, customersRes, priceTypesRes, currenciesRes, groupsRes] =
         await Promise.all([
           api.get("/inventory/items"),
           api.get("/sales/customers", { params: { active: "true" } }),
           api.get("/sales/price-types"),
           api.get("/finance/currencies"),
+          api.get("/inventory/item-groups"),
         ]);
 
       console.log("Products loaded:", productsRes.data);
@@ -90,6 +132,7 @@ export default function PriceSetup() {
       setPriceTypes(ptItems);
       const currItems = currenciesRes.data.items || [];
       setCurrencies(currItems);
+      setItemGroups(groupsRes.data.items || []);
     } catch (err) {
       console.error("Error loading initial data:", err);
     }
@@ -131,6 +174,54 @@ export default function PriceSetup() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSort = (key) => {
+    setSortConfig((prev) => ({
+      key,
+      direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
+    }));
+  };
+
+  const getSortedData = (items) => {
+    if (!sortConfig.key) return items;
+    const sorted = [...items];
+    sorted.sort((a, b) => {
+      let aVal, bVal;
+      if (sortConfig.key === "product") {
+        const aProd = products.find((p) => p.id === a.product_id);
+        const bProd = products.find((p) => p.id === b.product_id);
+        aVal = (aProd ? aProd.item_name : "").toLowerCase();
+        bVal = (bProd ? bProd.item_name : "").toLowerCase();
+      } else if (sortConfig.key === "customer") {
+        const aCust = customers.find((c) => c.id === a.customer_id);
+        const bCust = customers.find((c) => c.id === b.customer_id);
+        aVal = (aCust ? aCust.customer_name : "").toLowerCase();
+        bVal = (bCust ? bCust.customer_name : "").toLowerCase();
+      } else if (sortConfig.key === "price_type") {
+        const apt = priceTypes.find((pt) => pt.id === a.price_type_id);
+        const bpt = priceTypes.find((pt) => pt.id === b.price_type_id);
+        aVal = (apt ? apt.name : "").toLowerCase();
+        bVal = (bpt ? bpt.name : "").toLowerCase();
+      } else if (sortConfig.key === "currency") {
+        const ac = currencies.find((c) => c.id === a.currency_id);
+        const bc = currencies.find((c) => c.id === b.currency_id);
+        aVal = (ac ? ac.code : "").toLowerCase();
+        bVal = (bc ? bc.code : "").toLowerCase();
+      } else {
+        aVal = a[sortConfig.key];
+        bVal = b[sortConfig.key];
+      }
+      if (aVal == null) aVal = "";
+      if (bVal == null) bVal = "";
+      if (typeof aVal === "string") {
+        return sortConfig.direction === "asc"
+          ? aVal.localeCompare(bVal)
+          : bVal.localeCompare(aVal);
+      }
+      return sortConfig.direction === "asc" ? aVal - bVal : bVal - aVal;
+    });
+    return sorted;
   };
 
   const handleDownloadTemplate = () => {
@@ -408,6 +499,15 @@ export default function PriceSetup() {
   const handleOpenModal = (type, item = null) => {
     setModalType(type);
     setSelectedItem(item);
+    setCustomerModalSubType("single");
+    setBulkCustomerId("");
+    setBulkGroupId("");
+    setBulkPriceTypeId("");
+    setBulkPercentage("");
+    setBulkOperator("+");
+    setBulkSelectedItems([]);
+    setBulkFilteredItems([]);
+    setBulkSelectAll(false);
     const today = new Date().toISOString().split("T")[0];
     const retailPt = priceTypes.find(
       (pt) =>
@@ -422,6 +522,7 @@ export default function PriceSetup() {
       currency_id: ghsCurr ? ghsCurr.id : "",
       effective_date: today,
       effective_from: today,
+      effective_to: "",
     };
     setFormData(item ? { ...item } : defaults);
     setProductQuery("");
@@ -433,6 +534,14 @@ export default function PriceSetup() {
     setSelectedItem(null);
     setFormData({});
     setProductQuery("");
+    setBulkCustomerId("");
+    setBulkGroupId("");
+    setBulkPriceTypeId("");
+    setBulkPercentage("");
+    setBulkOperator("+");
+    setBulkSelectedItems([]);
+    setBulkFilteredItems([]);
+    setBulkSelectAll(false);
   };
 
   const handleSave = async () => {
@@ -574,23 +683,64 @@ export default function PriceSetup() {
     }
   };
 
-  const renderStandardPrices = () => (
+  const handleBulkApply = async () => {
+    const customerId = Number(bulkCustomerId);
+    const priceTypeId = Number(bulkPriceTypeId);
+    const pct = Number(bulkPercentage);
+    if (!customerId) return alert("Select a customer");
+    if (!bulkSelectedItems.length) return alert("Select at least one item");
+    if (!pct || pct <= 0) return alert("Enter a valid percentage");
+    try {
+      await api.post("/sales/prices/customer/bulk-percentage", {
+        customer_id: customerId,
+        price_type_id: priceTypeId || null,
+        item_ids: bulkSelectedItems,
+        percentage: pct,
+        operator: bulkOperator,
+      });
+      alert("Bulk prices applied successfully");
+      setBulkSelectedItems([]);
+      setBulkSelectAll(false);
+      loadTabData();
+    } catch (err) {
+      console.error("Bulk apply failed", err);
+      alert("Failed: " + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const renderStandardPrices = (tableData) => (
     <div className="table-container">
       <table>
         <thead>
           <tr>
-            <th>Product</th>
-            <th>Cost Price</th>
-            <th>Selling Price</th>
-            <th>Margin %</th>
-            <th>Effective Date</th>
-            <th>Price Type</th>
-            <th>UOM</th>
-            <th>Currency</th>
+            <th className="sortable" onClick={() => handleSort("product")}>
+              Product {sortConfig.key === "product" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
+            <th className="sortable" onClick={() => handleSort("cost_price")}>
+              Cost Price {sortConfig.key === "cost_price" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
+            <th className="sortable" onClick={() => handleSort("selling_price")}>
+              Selling Price {sortConfig.key === "selling_price" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
+            <th className="sortable" onClick={() => handleSort("margin_percent")}>
+              Margin % {sortConfig.key === "margin_percent" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
+            <th className="sortable" onClick={() => handleSort("effective_date")}>
+              Effective Date {sortConfig.key === "effective_date" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
+            <th className="sortable" onClick={() => handleSort("price_type")}>
+              Price Type {sortConfig.key === "price_type" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
+            <th className="sortable" onClick={() => handleSort("uom")}>
+              UOM {sortConfig.key === "uom" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
+            <th className="sortable" onClick={() => handleSort("currency")}>
+              Currency {sortConfig.key === "currency" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
           </tr>
         </thead>
         <tbody>
-          {data.map((item, index) => {
+          {tableData.map((item, index) => {
             const product = products.find((p) => p.id === item.product_id);
             const priceType = priceTypes.find(
               (pt) => pt.id === item.price_type_id,
@@ -620,25 +770,39 @@ export default function PriceSetup() {
     </div>
   );
 
-  const renderCustomerPrices = () => (
+  const renderCustomerPrices = (tableData) => (
     <div className="table-container">
       <table>
         <thead>
           <tr>
-            <th>Customer</th>
-            <th>Product</th>
-            <th>Standard Price</th>
-            <th>Customer Price</th>
-            <th>Discount %</th>
-            <th>Min Qty</th>
-            <th>Effective</th>
-            <th>Price Type</th>
-            <th>UOM</th>
-            <th>Currency</th>
+            <th className="sortable" onClick={() => handleSort("customer")}>
+              Customer {sortConfig.key === "customer" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
+            <th className="sortable" onClick={() => handleSort("product")}>
+              Product {sortConfig.key === "product" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
+            <th className="sortable" onClick={() => handleSort("standard_price")}>
+              Standard Price {sortConfig.key === "standard_price" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
+            <th className="sortable" onClick={() => handleSort("customer_price")}>
+              Customer Price {sortConfig.key === "customer_price" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
+            <th className="sortable" onClick={() => handleSort("discount_percent")}>
+              Discount % {sortConfig.key === "discount_percent" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
+            <th className="sortable" onClick={() => handleSort("price_type")}>
+              Price Type {sortConfig.key === "price_type" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
+            <th className="sortable" onClick={() => handleSort("uom")}>
+              UOM {sortConfig.key === "uom" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
+            <th className="sortable" onClick={() => handleSort("currency")}>
+              Currency {sortConfig.key === "currency" ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+            </th>
           </tr>
         </thead>
         <tbody>
-          {data.map((item, index) => {
+          {tableData.map((item, index) => {
             const customer = customers.find((c) => c.id === item.customer_id);
             const product = products.find((p) => p.id === item.product_id);
             const priceType = priceTypes.find(
@@ -652,12 +816,6 @@ export default function PriceSetup() {
                 <td>{Number(item.standard_price).toFixed(2)}</td>
                 <td>{Number(item.customer_price).toFixed(2)}</td>
                 <td>{Number(item.discount_percent).toFixed(2)}%</td>
-                <td>{item.min_quantity}</td>
-                <td>
-                  {item.effective_from
-                    ? new Date(item.effective_from).toLocaleDateString()
-                    : "-"}
-                </td>
                 <td>{priceType ? priceType.name : "-"}</td>
                 <td>{item.uom || "-"}</td>
                 <td>
@@ -704,6 +862,7 @@ export default function PriceSetup() {
   const handleProductChange = (productId) => {
     const product = products.find((p) => p.id == productId);
     if (product) {
+      const today = new Date().toISOString().split("T")[0];
       setFormData((prev) => ({
         ...prev,
         product_id: productId,
@@ -713,8 +872,11 @@ export default function PriceSetup() {
           product.standard_cost ||
           product.purchase_price ||
           0,
+        standard_price: product.selling_price || 0,
         currency_id: product.currency_id,
-        price_type_id: product.price_type_id,
+        price_type_id: product.price_type_id || prev.price_type_id,
+        effective_from: today,
+        effective_to: "",
       }));
     } else {
       setFormData((prev) => ({
@@ -931,151 +1093,136 @@ export default function PriceSetup() {
         </div>
       );
     } else if (modalType === "customer") {
-      return (
-        <div className="form-grid">
-          <div className="form-group">
-            <label className="required">Customer</label>
-            <select
-              value={formData.customer_id || ""}
-              onChange={(e) =>
-                setFormData({ ...formData, customer_id: e.target.value })
-              }
-            >
-              <option value="">Select Customer</option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.customer_name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="required">Product</label>
-            <div className="relative">
-              <input
-                id="price-setup-product-search-customer"
-                autoComplete="off"
-                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-brand"
-                placeholder="Type to search products"
-                value={productQuery}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setProductQuery(val);
-                  if (!val && formData.product_id) {
-                    setFormData((prev) => ({
-                      ...prev,
-                      product_id: "",
-                    }));
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    const query = productQuery.trim();
-                    const results = query
-                      ? filterByPrefix(products, {
-                          query,
-                          searchFields: ["item_code", "item_name", "barcode"],
-                        })
-                      : [];
-                    if (!query || !results.length) return;
-                    handleProductChange(results[0].id);
-                    const prod = products.find((p) => p.id === results[0].id);
-                    setProductQuery(prod ? prod.item_name : "");
-                  }
-                }}
-              />
-              {(() => {
-                const query = productQuery.trim();
-                const results = query
-                  ? filterByPrefix(products, {
-                      query,
-                      searchFields: ["item_code", "item_name", "barcode"],
-                    })
-                  : [];
-                return results.length
-                  ? (() => {
-                      const el = document.getElementById(
-                        "price-setup-product-search-customer",
-                      );
-                      const r = el
-                        ? el.getBoundingClientRect()
-                        : { bottom: 0, left: 0, width: 0 };
-                      return (
-                        <div
-                          className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
-                          style={{
-                            position: "fixed",
-                            top: `${r.bottom + 4}px`,
-                            left: `${r.left}px`,
-                            width: `${r.width}px`,
-                            zIndex: 9999,
-                          }}
-                        >
-                          {results.map((o) => (
-                            <button
-                              type="button"
-                              key={o.id}
-                              className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
-                              onClick={() => {
-                                handleProductChange(o.id);
-                                const prod = products.find(
-                                  (p) => p.id === o.id,
-                                );
-                                setProductQuery(prod ? prod.item_name : "");
-                              }}
-                            >
-                              {o.item_name}
-                            </button>
-                          ))}
-                        </div>
-                      );
-                    })()
-                  : null;
-              })()}
+      if (customerModalSubType === "single") {
+        const selectedProduct = formData.product_id
+          ? products.find((p) => p.id == formData.product_id)
+          : null;
+        return (
+          <div className="form-grid">
+            <div className="form-group">
+              <label className="required">Customer</label>
+              <select
+                value={formData.customer_id || ""}
+                onChange={(e) =>
+                  setFormData({ ...formData, customer_id: e.target.value })
+                }
+              >
+                <option value="">Select Customer</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.customer_name}
+                  </option>
+                ))}
+              </select>
             </div>
-          </div>
-          <div className="form-group">
-            <label>Price Type</label>
-            <select
-              value={formData.price_type_id || ""}
-              onChange={(e) =>
-                setFormData({ ...formData, price_type_id: e.target.value })
-              }
-            >
-              <option value="">Select Price Type</option>
-              {priceTypes.map((pt) => (
-                <option key={pt.id} value={pt.id}>
-                  {pt.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>UOM</label>
-            <input
-              type="text"
-              value={formData.uom || ""}
-              onChange={(e) =>
-                setFormData({ ...formData, uom: e.target.value })
-              }
-            />
-          </div>
-          <div className="form-group">
-            <label>Currency</label>
-            <select
-              value={formData.currency_id || ""}
-              onChange={(e) =>
-                setFormData({ ...formData, currency_id: e.target.value })
-              }
-            >
-              <option value="">Select Currency</option>
-              {currencies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code} - {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
+            <div className="form-group">
+              <label className="required">Product</label>
+              <div className="relative">
+                <input
+                  id="price-setup-product-search-customer"
+                  autoComplete="off"
+                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-brand"
+                  placeholder="Type to search products"
+                  value={productQuery}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setProductQuery(val);
+                    if (!val && formData.product_id) {
+                      setFormData((prev) => ({
+                        ...prev,
+                        product_id: "",
+                      }));
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const query = productQuery.trim();
+                      const results = query
+                        ? filterByPrefix(products, {
+                            query,
+                            searchFields: ["item_code", "item_name", "barcode"],
+                          })
+                        : [];
+                      if (!query || !results.length) return;
+                      handleProductChange(results[0].id);
+                      const prod = products.find((p) => p.id === results[0].id);
+                      setProductQuery(prod ? prod.item_name : "");
+                    }
+                  }}
+                />
+                {(() => {
+                  const query = productQuery.trim();
+                  const results = query
+                    ? filterByPrefix(products, {
+                        query,
+                        searchFields: ["item_code", "item_name", "barcode"],
+                      })
+                    : [];
+                  return results.length
+                    ? (() => {
+                        const el = document.getElementById(
+                          "price-setup-product-search-customer",
+                        );
+                        const r = el
+                          ? el.getBoundingClientRect()
+                          : { bottom: 0, left: 0, width: 0 };
+                        return (
+                          <div
+                            className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
+                            style={{
+                              position: "fixed",
+                              top: `${r.bottom + 4}px`,
+                              left: `${r.left}px`,
+                              width: `${r.width}px`,
+                              zIndex: 9999,
+                            }}
+                          >
+                            {results.map((o) => (
+                              <button
+                                type="button"
+                                key={o.id}
+                                className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                                onClick={() => {
+                                  handleProductChange(o.id);
+                                  const prod = products.find(
+                                    (p) => p.id === o.id,
+                                  );
+                                  setProductQuery(prod ? prod.item_name : "");
+                                }}
+                              >
+                                {o.item_name}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()
+                    : null;
+                })()}
+              </div>
+              {selectedProduct && (
+                <div className="mt-2 text-xs text-gray-500 space-y-0.5">
+                  <div>Code: <span className="font-medium">{selectedProduct.item_code}</span></div>
+                  <div>Selling Price: <span className="font-medium">GHS {Number(selectedProduct.selling_price || 0).toFixed(2)}</span></div>
+                  <div>UOM: <span className="font-medium">{selectedProduct.uom || selectedProduct.default_uom || "-"}</span></div>
+                </div>
+              )}
+            </div>
+            <div className="form-group">
+              <label>Price Type</label>
+              <select
+                value={formData.price_type_id || ""}
+                onChange={(e) =>
+                  setFormData({ ...formData, price_type_id: e.target.value })
+                }
+              >
+                <option value="">Select Price Type</option>
+                {priceTypes.map((pt) => (
+                  <option key={pt.id} value={pt.id}>
+                    {pt.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           <div className="form-group">
             <label className="required">Customer Price</label>
             <input
@@ -1083,30 +1230,6 @@ export default function PriceSetup() {
               value={formData.customer_price || ""}
               onChange={(e) =>
                 setFormData({ ...formData, customer_price: e.target.value })
-              }
-            />
-          </div>
-          <div className="form-group">
-            <label>Min Quantity</label>
-            <input
-              type="number"
-              value={formData.min_quantity || ""}
-              onChange={(e) =>
-                setFormData({ ...formData, min_quantity: e.target.value })
-              }
-            />
-          </div>
-          <div className="form-group">
-            <label>Effective From</label>
-            <input
-              type="date"
-              value={
-                formData.effective_from
-                  ? formData.effective_from.split("T")[0]
-                  : ""
-              }
-              onChange={(e) =>
-                setFormData({ ...formData, effective_from: e.target.value })
               }
             />
           </div>
@@ -1124,6 +1247,141 @@ export default function PriceSetup() {
           </div>
         </div>
       );
+      } else {
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              <div className="form-group">
+                <label className="required">Customer</label>
+                <select
+                  value={bulkCustomerId}
+                  onChange={(e) => setBulkCustomerId(e.target.value)}
+                >
+                  <option value="">Select Customer</option>
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.customer_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Item Group</label>
+                <select
+                  value={bulkGroupId}
+                  onChange={(e) => setBulkGroupId(e.target.value)}
+                >
+                  <option value="">All Groups</option>
+                  {itemGroups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.group_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Price Type</label>
+                <select
+                  value={bulkPriceTypeId}
+                  onChange={(e) => setBulkPriceTypeId(e.target.value)}
+                >
+                  <option value="">Select Price Type</option>
+                  {priceTypes.map((pt) => (
+                    <option key={pt.id} value={pt.id}>
+                      {pt.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="required">Percentage</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={bulkPercentage}
+                    onChange={(e) => setBulkPercentage(e.target.value)}
+                    className="flex-1"
+                    placeholder="e.g. 10"
+                  />
+                  <span className="text-sm text-gray-500 self-center">%</span>
+                  <select
+                    value={bulkOperator}
+                    onChange={(e) => setBulkOperator(e.target.value)}
+                    className="w-16"
+                  >
+                    <option value="+">+</option>
+                    <option value="-">-</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            {bulkFilteredItems.length > 0 && (
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  <label className="text-sm font-medium text-gray-700">
+                    Select Items
+                  </label>
+                  <label className="flex items-center gap-1.5 text-sm text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={bulkSelectAll}
+                      onChange={(e) => setBulkSelectAll(e.target.checked)}
+                    />
+                    Select All ({bulkFilteredItems.length} items)
+                  </label>
+                  <span className="text-xs text-gray-400">
+                    {bulkSelectedItems.length} selected
+                  </span>
+                </div>
+                <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+                  {bulkFilteredItems.map((item) => (
+                    <label
+                      key={item.id}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={bulkSelectedItems.includes(item.id)}
+                        onChange={() => {
+                          setBulkSelectedItems((prev) =>
+                            prev.includes(item.id)
+                              ? prev.filter((id) => id !== item.id)
+                              : [...prev, item.id],
+                          );
+                          setBulkSelectAll(false);
+                        }}
+                      />
+                      <span>{item.item_name}</span>
+                      <span className="text-gray-400 text-xs ml-auto">
+                        {item.item_code} | GHS {Number(item.selling_price || 0).toFixed(2)}
+                        {bulkPercentage && (
+                          <span className="ml-2 font-semibold text-gray-700">
+                            → GHS{" "}
+                            {(() => {
+                              const sp = Number(item.selling_price || 0);
+                              const pct = Number(bulkPercentage || 0);
+                              const adj = sp * (pct / 100);
+                              const np = bulkOperator === "-" ? sp - adj : sp + adj;
+                              return np.toFixed(2);
+                            })()}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!bulkGroupId && (
+              <p className="text-xs text-gray-400 italic">
+                Select an Item Group to view and select items
+              </p>
+            )}
+          </div>
+        );
+      }
     }
   };
 
@@ -1256,7 +1514,7 @@ export default function PriceSetup() {
               <button
                 onClick={() => {
                   setSection("selling");
-                  loadTabData();
+                  setSellingView("picker");
                 }}
                 className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 text-left"
               >
@@ -1335,16 +1593,28 @@ export default function PriceSetup() {
         <div className="price-setup-header">
           <h1>
             <span>{section === "selling" ? "💰" : "📊"}</span>
-            {section === "selling" ? "Selling Price Setup" : "Cost Price Setup"}
+            {section === "selling"
+              ? sellingView === "picker"
+                ? "Selling Price Setup"
+                : sellingView === "standard"
+                  ? "Standard Prices"
+                  : "Customer Specific Prices"
+              : "Cost Price Setup"}
           </h1>
           <div className="header-actions">
             <button
               className="btn btn-secondary"
-              onClick={() => setSection("selector")}
+              onClick={() => {
+                if (section === "selling" && sellingView !== "picker") {
+                  setSellingView("picker");
+                } else {
+                  setSection("selector");
+                }
+              }}
             >
               ← Back
             </button>
-            {section === "selling" ? (
+            {section === "selling" && sellingView !== "picker" ? (
               <>
                 <button
                   className="btn btn-secondary"
@@ -1360,12 +1630,16 @@ export default function PriceSetup() {
                 </button>
                 <button
                   className="btn btn-primary"
-                  onClick={() => handleOpenModal(activeTab)}
+                  onClick={() =>
+                    activeTab === "customer"
+                      ? setShowPriceTypeSelector(true)
+                      : handleOpenModal(activeTab)
+                  }
                 >
                   ➕ New Price
                 </button>
               </>
-            ) : (
+            ) : section === "cost" ? (
               <>
                 <button
                   className="btn btn-secondary"
@@ -1386,38 +1660,110 @@ export default function PriceSetup() {
                   ➕ New Cost
                 </button>
               </>
-            )}
+            ) : null}
           </div>
         </div>
       )}
 
-      {section === "selling" && (
+      {section === "selling" && sellingView === "picker" && (
         <div className="content">
-          <div className="tabs">
-            <button
-              className={`tab ${activeTab === "standard" ? "active" : ""}`}
-              onClick={() => setActiveTab("standard")}
-            >
-              💵 Standard Prices
-            </button>
-            <button
-              className={`tab ${activeTab === "customer" ? "active" : ""}`}
-              onClick={() => setActiveTab("customer")}
-            >
-              👥 Customer Specific Prices
-            </button>
+          <div className="p-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <button
+                onClick={() => {
+                  setActiveTab("standard");
+                  setSellingView("standard");
+                }}
+                className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 text-left"
+              >
+                <div className="h-1.5 w-full bg-gradient-to-r from-amber-500 to-amber-500" />
+                <div className="p-6 flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-3xl">💵</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full bg-slate-100 text-slate-500">
+                      Standard
+                    </span>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-800 group-hover:text-amber-600 transition-colors">
+                      Standard Prices
+                    </h2>
+                    <p className="text-sm text-slate-500 mt-1 leading-relaxed">
+                      View and manage standard selling prices for all products
+                    </p>
+                  </div>
+                  <div className="mt-auto pt-2 flex items-center gap-1.5 text-sm font-semibold text-amber-600">
+                    Open
+                    <svg
+                      className="w-4 h-4 group-hover:translate-x-1 transition-transform"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </div>
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab("customer");
+                  setSellingView("customer");
+                }}
+                className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 text-left"
+              >
+                <div className="h-1.5 w-full bg-gradient-to-r from-purple-500 to-purple-500" />
+                <div className="p-6 flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-3xl">👥</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full bg-slate-100 text-slate-500">
+                      Customer
+                    </span>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-800 group-hover:text-purple-600 transition-colors">
+                      Customer Specific Prices
+                    </h2>
+                    <p className="text-sm text-slate-500 mt-1 leading-relaxed">
+                      Set and manage customer-specific prices and discounts
+                    </p>
+                  </div>
+                  <div className="mt-auto pt-2 flex items-center gap-1.5 text-sm font-semibold text-purple-600">
+                    Open
+                    <svg
+                      className="w-4 h-4 group-hover:translate-x-1 transition-transform"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </div>
+              </button>
+            </div>
           </div>
+        </div>
+      )}
 
-          {activeTab === "standard" && (
+      {section === "selling" && sellingView !== "picker" && (
+        <div className="content">
+          {sellingView === "standard" && (
             <div className="tab-content active">
               <div className="filter-section">
                 <div className="filter-grid">
                   <div className="form-group">
                     <label>Search Product</label>
-                    <input type="text" placeholder="Search by code or name" />
-                  </div>
-                  <div className="form-group">
-                    <button className="btn btn-primary">🔍 Search</button>
+                    <input
+                      type="text"
+                      placeholder="Search by code or name"
+                      value={filters.product}
+                      onChange={(e) =>
+                        setFilters({ ...filters, product: e.target.value })
+                      }
+                    />
                   </div>
                 </div>
               </div>
@@ -1427,13 +1773,25 @@ export default function PriceSetup() {
                 <div className="text-center py-8 text-gray-500">
                   No standard prices found. Click "New Price" to add one.
                 </div>
-              ) : (
-                renderStandardPrices()
-              )}
+              ) : (() => {
+                const filteredData = filters.product
+                  ? data.filter((item) => {
+                      const prod = products.find((p) => p.id === item.product_id);
+                      if (!prod) return false;
+                      const q = filters.product.toLowerCase();
+                      return (
+                        prod.item_name?.toLowerCase().includes(q) ||
+                        prod.item_code?.toLowerCase().includes(q) ||
+                        prod.barcode?.toLowerCase().includes(q)
+                      );
+                    })
+                  : data;
+                return renderStandardPrices(getSortedData(filteredData));
+              })()}
             </div>
           )}
 
-          {activeTab === "customer" && (
+          {sellingView === "customer" && (
             <div className="tab-content active">
               <div className="filter-section">
                 <div className="filter-grid">
@@ -1455,6 +1813,7 @@ export default function PriceSetup() {
                   </div>
                 </div>
               </div>
+
               {loading ? (
                 <div className="text-center py-8 text-gray-500">Loading...</div>
               ) : data.length === 0 ? (
@@ -1462,7 +1821,7 @@ export default function PriceSetup() {
                   No customer prices found. Click "New Price" to add one.
                 </div>
               ) : (
-                renderCustomerPrices()
+                renderCustomerPrices(getSortedData(data))
               )}
             </div>
           )}
@@ -1485,7 +1844,7 @@ export default function PriceSetup() {
 
       {modalOpen && (
         <div className="price-modal-overlay">
-          <div className="price-modal-content">
+          <div className={`price-modal-content ${modalType === "customer" ? "wide" : ""}`}>
             <div className="modal-header">
               <h2>
                 {modalType === "standard" && "💰 Standard Price Setup"}
@@ -1500,8 +1859,133 @@ export default function PriceSetup() {
               <button className="btn btn-secondary" onClick={handleCloseModal}>
                 Cancel
               </button>
-              <button className="btn btn-primary" onClick={handleSave}>
-                Save
+              {modalType === "customer" && customerModalSubType === "bulk" ? (
+                <button
+                  className="btn btn-primary"
+                  onClick={handleBulkApply}
+                  disabled={!bulkCustomerId || !bulkSelectedItems.length}
+                >
+                  Apply
+                </button>
+              ) : (
+                <button className="btn btn-primary" onClick={handleSave}>
+                  Save
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPriceTypeSelector && (
+        <div className="price-modal-overlay">
+          <div className="price-modal-content" style={{ maxWidth: "500px" }}>
+            <div className="modal-header">
+              <h2>👥 Customer Price Setup</h2>
+              <button
+                className="close-btn"
+                onClick={() => setShowPriceTypeSelector(false)}
+              >
+                &times;
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="text-sm text-slate-500 mb-6">
+                Choose how you want to set prices for this customer
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button
+                  onClick={() => {
+                    setShowPriceTypeSelector(false);
+                    handleOpenModal("customer");
+                  }}
+                  className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 text-left"
+                >
+                  <div className="h-1.5 w-full bg-gradient-to-r from-amber-500 to-amber-500" />
+                  <div className="p-5 flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-2xl">💰</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full bg-slate-100 text-slate-500">
+                        Amount
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-slate-800 group-hover:text-amber-600 transition-colors">
+                        Amount
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                        Set a specific price for a single item
+                      </p>
+                    </div>
+                    <div className="mt-auto pt-1 flex items-center gap-1 text-sm font-semibold text-amber-600">
+                      Open
+                      <svg
+                        className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    setShowPriceTypeSelector(false);
+                    setCustomerModalSubType("bulk");
+                    setModalType("customer");
+                    setBulkCustomerId("");
+                    setBulkGroupId("");
+                    setBulkPriceTypeId("");
+                    setBulkPercentage("");
+                    setBulkOperator("+");
+                    setBulkSelectedItems([]);
+                    setBulkFilteredItems([]);
+                    setBulkSelectAll(false);
+                    setModalOpen(true);
+                  }}
+                  className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 text-left"
+                >
+                  <div className="h-1.5 w-full bg-gradient-to-r from-purple-500 to-purple-500" />
+                  <div className="p-5 flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-2xl">📊</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full bg-slate-100 text-slate-500">
+                        Percentage
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-slate-800 group-hover:text-purple-600 transition-colors">
+                        Percentage
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                        Apply a +/- percentage to multiple items at once
+                      </p>
+                    </div>
+                    <div className="mt-auto pt-1 flex items-center gap-1 text-sm font-semibold text-purple-600">
+                      Open
+                      <svg
+                        className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowPriceTypeSelector(false)}
+              >
+                Cancel
               </button>
             </div>
           </div>

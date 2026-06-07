@@ -259,7 +259,13 @@ export default function PosInvoiceList() {
       const paymentMatch =
         paymentMethod === "ALL"
           ? true
-          : String(it.payment_method || "").toUpperCase() === paymentMethod;
+          : (() => {
+              const pmts = it.payments;
+              if (Array.isArray(pmts) && pmts.length > 1) {
+                return pmts.some((p) => String(p.method || "").toUpperCase() === paymentMethod);
+              }
+              return String(it.payment_method || "").toUpperCase() === paymentMethod;
+            })();
       const d = String(it.sale_date || "").slice(0, 10);
       const fromOk = fromDate ? d >= fromDate : true;
       const toOk = toDate ? d <= toDate : true;
@@ -603,11 +609,15 @@ export default function PosInvoiceList() {
       const discount = Number(sale?.discount_amount || 0);
       const tax = Number(sale?.tax_amount || 0);
       const total = Number(sale?.net_after_returns ?? sale?.net_amount ?? sale?.total_amount ?? (gross - discount + tax));
+      const payments = sale?.payments;
+      const paymentQr = Array.isArray(payments) && payments.length > 1
+        ? payments.map((p) => `${p.method || ""}:${Number(p.amount || 0).toFixed(2)}`).join(",")
+        : String(sale?.payment_method || "");
       const qrData = JSON.stringify({
         receipt_no: sale?.sale_no || "",
         date: sale?.sale_date || "",
         company: String(settings.companyName || ""),
-        payment: String(sale?.payment_method || ""),
+        payment: paymentQr,
         items,
         subtotal: gross - discount,
         discount,
@@ -1001,6 +1011,7 @@ export default function PosInvoiceList() {
                 <th>Date</th>
                 <th>Customer</th>
                 <th className="text-right">Amount</th>
+                <th>Payment Method</th>
                 <th>Status</th>
                 <th>Created By</th>
                 <th>Created At</th>
@@ -1010,11 +1021,11 @@ export default function PosInvoiceList() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="8">Loading...</td>
+                  <td colSpan="9">Loading...</td>
                 </tr>
               ) : !filtered.length ? (
                 <tr>
-                  <td colSpan="8">
+                  <td colSpan="9">
                     <div className="text-center text-slate-600 py-6">
                       No invoices found
                     </div>
@@ -1034,6 +1045,24 @@ export default function PosInvoiceList() {
                     <td>{String(it.customer_name || "-")}</td>
                     <td className="text-right">
                       {`GH₵ ${Number(it.net_after_returns ?? it.total_amount ?? 0).toFixed(2)}`}
+                    </td>
+                    <td className="text-sm">
+                      {(() => {
+                        const pmts = it.payments;
+                        if (Array.isArray(pmts) && pmts.length > 1) {
+                          return pmts.map((p) => {
+                            const t = String(p.method || "").toUpperCase();
+                            const name = t === "CASH" ? "Cash" : t === "CARD" ? "Card" : t === "MOBILE" ? "Mobile Money" : t === "BANK" ? "Bank" : t;
+                            return `${name} (GH₵${Number(p.amount || 0).toFixed(2)})`;
+                          }).join(" + ");
+                        }
+                        const m = String(it.payment_method || "").toUpperCase();
+                        if (m === "CASH") return "Cash";
+                        if (m === "CARD") return "Card";
+                        if (m === "MOBILE") return "Mobile Money";
+                        if (m === "BANK") return "Bank";
+                        return m || "-";
+                      })()}
                     </td>
                     <td>
                       <span

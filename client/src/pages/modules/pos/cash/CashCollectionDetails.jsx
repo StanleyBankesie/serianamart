@@ -247,18 +247,19 @@ export default function CashCollectionDetails() {
   const paymentModeTotals = useMemo(() => {
     const map = {};
     for (const it of filtered) {
-      const amount = Number(it.net_after_returns ?? it.total_amount ?? 0);
       const isPaid = String(it.payment_status || "") === "PAID";
       const paymentsRaw = it.payments;
-      let paymentMethods = [];
+      let payments = [];
       if (Array.isArray(paymentsRaw) && paymentsRaw.length > 0) {
-        // Use the stored payments array for split payment breakdown
-        paymentMethods = paymentsRaw.map((p) => String(p.method || "CASH").toUpperCase());
+        payments = paymentsRaw.map((p) => ({
+          method: String(p.method || "CASH").toUpperCase(),
+          amount: Number(p.amount || 0),
+        }));
       } else {
-        paymentMethods = [String(it.payment_method || "CASH").toUpperCase()];
+        const total = Number(it.net_after_returns ?? it.total_amount ?? 0);
+        payments = [{ method: String(it.payment_method || "CASH").toUpperCase(), amount: total }];
       }
-      // Count each payment method in the split
-      paymentMethods.forEach((method, idx) => {
+      payments.forEach(({ method, amount }) => {
         const m = method || "UNKNOWN";
         if (!map[m]) {
           map[m] = {
@@ -268,13 +269,10 @@ export default function CashCollectionDetails() {
             collectedAmount: 0,
           };
         }
-        // Only count invoice once (first method gets the invoice count)
-        if (idx === 0) map[m].invoices += 1;
-        // Split the amount evenly across payment methods
-        const splitAmount = amount / paymentMethods.length;
-        map[m].totalAmount += splitAmount;
+        map[m].invoices += 1;
+        map[m].totalAmount += amount;
         if (isPaid) {
-          map[m].collectedAmount += splitAmount;
+          map[m].collectedAmount += amount;
         }
       });
     }
@@ -333,6 +331,17 @@ export default function CashCollectionDetails() {
     const when = sale && sale.sale_date ? new Date(sale.sale_date) : new Date();
     const dateStr = when.toLocaleString();
     const method = (function () {
+      const payments = sale?.payments;
+      if (Array.isArray(payments) && payments.length > 1) {
+        return payments.map((p) => {
+          const t = String(p.method || "").toUpperCase();
+          if (t === "CASH") return `Cash (GH₵ ${Number(p.amount || 0).toFixed(2)})`;
+          if (t === "CARD") return `Card (GH₵ ${Number(p.amount || 0).toFixed(2)})`;
+          if (t === "MOBILE") return `Mobile Money (GH₵ ${Number(p.amount || 0).toFixed(2)})`;
+          if (t === "BANK") return `Bank (GH₵ ${Number(p.amount || 0).toFixed(2)})`;
+          return `Other (GH₵ ${Number(p.amount || 0).toFixed(2)})`;
+        }).join(" + ");
+      }
       const t = String(sale?.payment_method || "").toUpperCase();
       if (t === "CASH") return "Cash";
       if (t === "CARD") return "Card";
@@ -447,11 +456,15 @@ export default function CashCollectionDetails() {
       const discount = Number(sale?.discount_amount || 0);
       const tax = Number(sale?.tax_amount || 0);
       const total = Number(sale?.net_after_returns ?? sale?.net_amount ?? sale?.total_amount ?? (gross - discount + tax));
+      const payments = sale?.payments;
+      const paymentQr = Array.isArray(payments) && payments.length > 1
+        ? payments.map((p) => `${p.method || ""}:${Number(p.amount || 0).toFixed(2)}`).join(",")
+        : String(sale?.payment_method || "");
       const qrData = JSON.stringify({
         receipt_no: sale?.sale_no || "",
         date: sale?.sale_date || "",
         company: String(settings.companyName || ""),
-        payment: String(sale?.payment_method || ""),
+        payment: paymentQr,
         items,
         subtotal: gross - discount,
         discount,
@@ -575,6 +588,17 @@ export default function CashCollectionDetails() {
         sale && sale.sale_date ? new Date(sale.sale_date) : new Date();
       const dateStr = when.toLocaleString();
       const method = (function () {
+        const payments = sale?.payments;
+        if (Array.isArray(payments) && payments.length > 1) {
+          return payments.map((p) => {
+            const t = String(p.method || "").toUpperCase();
+            if (t === "CASH") return `Cash (GH₵ ${Number(p.amount || 0).toFixed(2)})`;
+            if (t === "CARD") return `Card (GH₵ ${Number(p.amount || 0).toFixed(2)})`;
+            if (t === "MOBILE") return `Mobile Money (GH₵ ${Number(p.amount || 0).toFixed(2)})`;
+            if (t === "BANK") return `Bank (GH₵ ${Number(p.amount || 0).toFixed(2)})`;
+            return `Other (GH₵ ${Number(p.amount || 0).toFixed(2)})`;
+          }).join(" + ");
+        }
         const t = String(sale?.payment_method || "").toUpperCase();
         if (t === "CASH") return "Cash";
         if (t === "CARD") return "Card";

@@ -265,6 +265,18 @@ tbody tr:hover {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 
+.price-modal-content.wide {
+  max-width: 1400px;
+}
+
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+th.sortable:hover {
+  background-color: #1a5276;
+}
+
 .price-modal-content::-webkit-scrollbar {
   display: none;
 }

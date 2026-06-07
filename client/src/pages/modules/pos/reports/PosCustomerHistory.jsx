@@ -456,7 +456,17 @@ export default function PosCustomerHistory() {
                     Payment Method
                   </p>
                   <p className="font-semibold text-slate-900">
-                    {selectedTransaction.payment_method || "-"}
+                    {(() => {
+                      const pmts = selectedTransaction.payments;
+                      if (Array.isArray(pmts) && pmts.length > 1) {
+                        return pmts.map((p) => {
+                          const m = String(p.method || "").replace(/^./, (c) => c.toUpperCase());
+                          return `${m} (GH₵ ${Number(p.amount || 0).toFixed(2)})`;
+                        }).join(" + ");
+                      }
+                      const m = String(selectedTransaction.payment_method || "").replace(/^./, (c) => c.toUpperCase());
+                      return m || "-";
+                    })()}
                   </p>
                 </div>
               </div>

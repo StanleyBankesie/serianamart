@@ -89,6 +89,7 @@ export default function PosSalesEntry() {
   const [paymentModesError, setPaymentModesError] = useState("");
   const [selectedPaymentModeId, setSelectedPaymentModeId] = useState("");
   const [additionalPaymentModeIds, setAdditionalPaymentModeIds] = useState([]);
+  const [splitPrimaryAmount, setSplitPrimaryAmount] = useState(0);
   const [showSplitPaymentModal, setShowSplitPaymentModal] = useState(false);
   const [taxRatePercent, setTaxRatePercent] = useState(12.5);
   const [taxType, setTaxType] = useState("Exclusive");
@@ -119,6 +120,7 @@ export default function PosSalesEntry() {
     logoUrl: defaultLogo,
   });
   const [generalSettings, setGeneralSettings] = useState({ allowDiscounts: true });
+  const [bogoCampaigns, setBogoCampaigns] = useState([]);
   useEffect(() => {
     try {
       const raw = localStorage.getItem("pos_general_settings");
@@ -649,6 +651,18 @@ export default function PosSalesEntry() {
       mounted = false;
     };
   }, [terminalWarehouseId]);
+
+  useEffect(() => {
+    let mounted = true;
+    api
+      .get("/sales/bogo-campaigns/active")
+      .then((res) => {
+        if (!mounted) return;
+        setBogoCampaigns(Array.isArray(res.data?.items) ? res.data.items : []);
+      })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -1187,7 +1201,7 @@ export default function PosSalesEntry() {
     }
   }, [dayOpen]);
 
-  async function checkout() {
+  async function checkout(overrideAdditionalModeId = null) {
     if (!cart.length || saving) return;
     if (!dayExists) {
       alert(
@@ -1231,18 +1245,55 @@ export default function PosSalesEntry() {
         price: Number(it.price || 0),
         discount: Number(it.discount || 0),
       }));
+      // BOGO: add free items from active campaigns
+      let consumedBogo = [];
+      if (Array.isArray(bogoCampaigns) && bogoCampaigns.length) {
+        for (const campaign of bogoCampaigns) {
+          const rows = Array.isArray(campaign.rows) ? campaign.rows : [];
+          for (const rule of rows) {
+            const purchaseItemId = Number(rule.item_id);
+            const purchaseQtyNeeded = Number(rule.item_qty || 0);
+            const freeItemId = Number(rule.free_item_id);
+            const freeQtyPer = Number(rule.free_qty || 0);
+            if (!purchaseItemId || !freeItemId || !purchaseQtyNeeded || !freeQtyPer) continue;
+            const cartItem = saleCart.find((c) => Number(c.id) === purchaseItemId);
+            if (!cartItem) continue;
+            const cartQty = Number(cartItem.quantity || 0);
+            if (cartQty < purchaseQtyNeeded) continue;
+            const times = Math.floor(cartQty / purchaseQtyNeeded);
+            const totalFreeQty = times * freeQtyPer;
+            const freeProduct = products.find((p) => Number(p.id) === freeItemId);
+            lines.push({
+              item_id: freeItemId,
+              name: freeProduct ? freeProduct.name : "Free Item",
+              quantity: totalFreeQty,
+              price: 0,
+              discount: 0,
+              bogo_qty: true,
+            });
+            consumedBogo.push({ campaignId: campaign.id, qty: cartQty });
+          }
+        }
+      }
       const chosenCustomer =
         customers.find((c) => String(c.id) === String(selectedCustomerId)) ||
         null;
       const method = resolvePaymentMethodForSale(selectedPaymentMode);
       const paymentsData = [];
-      const primaryAmount = Number(amountPaid || 0);
+      const actualPrimaryAmount = additionalPaymentModeIds.length > 0 && splitPrimaryAmount > 0 
+        ? splitPrimaryAmount 
+        : Math.min(Number(tendered || 0), total);
+      const primaryAmount = actualPrimaryAmount;
       paymentsData.push({ payment_mode_id: Number(effectivePaymentModeId), amount: primaryAmount, method });
       const remainingAmount = total - primaryAmount;
-      if (additionalPaymentModeIds.length > 0 && remainingAmount > 0) {
-        const perAdditional = remainingAmount / additionalPaymentModeIds.length;
-        additionalPaymentModeIds.forEach((id) => {
-          const mode = paymentModes.find((pm) => String(pm.id) === id);
+      const effectiveAdditionalIds = [...additionalPaymentModeIds];
+      if (overrideAdditionalModeId && !effectiveAdditionalIds.includes(String(overrideAdditionalModeId))) {
+        effectiveAdditionalIds.push(String(overrideAdditionalModeId));
+      }
+      if (effectiveAdditionalIds.length > 0 && remainingAmount > 0) {
+        const perAdditional = remainingAmount / effectiveAdditionalIds.length;
+        effectiveAdditionalIds.forEach((id) => {
+          const mode = paymentModes.find((pm) => String(pm.id) === String(id));
           const modeMethod = resolvePaymentMethodForSale(mode);
           paymentsData.push({ payment_mode_id: Number(id), amount: perAdditional, method: modeMethod });
         });
@@ -1262,8 +1313,8 @@ export default function PosSalesEntry() {
         subtotal,
         tax_total: tax,
         grand_total: total,
-        amount_paid: additionalPaymentModeIds.length > 0 ? total : tendered,
-        change_due: additionalPaymentModeIds.length > 0 ? 0 : changeDue,
+        amount_paid: effectiveAdditionalIds.length > 0 ? total : tendered,
+        change_due: effectiveAdditionalIds.length > 0 ? 0 : changeDue,
         tax_rate_percent: taxActive ? taxRatePercent : 0,
         tax_type: taxActive ? taxType : "Exclusive",
         tax_code_id: taxActive && taxCodeId ? Number(taxCodeId) : null,
@@ -1330,6 +1381,13 @@ export default function PosSalesEntry() {
       const rcp = String(res.data?.receipt_no || "");
       setReceiptNo(rcp);
       setSaleTimestamp(new Date());
+      // Consume BOGO campaign qty after successful sale
+      if (consumedBogo.length) {
+        for (const cb of consumedBogo) {
+          api.post(`/sales/bogo-campaigns/${cb.campaignId}/consume`, { qty: cb.qty }).catch(() => {});
+        }
+      }
+      toast.success("Sale completed successfully");
       setShowModal(true);
       if (generalSettings.autoPrintReceipt) {
         setTimeout(() => printReceipt(), 500);
@@ -1416,6 +1474,7 @@ export default function PosSalesEntry() {
     setSelectedItems([]);
     setReceiptNo("");
     setAmountPaid("");
+    setSplitPrimaryAmount(0);
     setAdditionalPaymentModeIds([]);
     setSelectedCustomerId("");
     setEntryBarcode("");
@@ -2013,6 +2072,7 @@ export default function PosSalesEntry() {
                       className="px-4 py-2 bg-[#0E3646] text-white font-semibold rounded-lg shadow hover:bg-[#092530] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-[#0E3646]"
                       onClick={() => {
                         setAmountPaid("");
+    setSplitPrimaryAmount(0);
                         const input = document.getElementById("amountPaid");
                         if (input) {
                           // Allow React state to update first, then focus
@@ -2081,17 +2141,25 @@ export default function PosSalesEntry() {
                     step="1"
                     min="0"
                     value={amountPaid}
-                    onChange={(e) => setAmountPaid(e.target.value)}
+                    onChange={(e) => {
+                      setAmountPaid(e.target.value);
+                      if (additionalPaymentModeIds.length > 0) {
+                        setAdditionalPaymentModeIds([]);
+                        setSplitPrimaryAmount(0);
+                      }
+                    }}
                     placeholder="0.00"
                     disabled={false}
                   />
                 </div>
                 <div className="flex justify-between font-bold text-lg mt-2">
-                  <div>{changeDue >= 0 ? "Change" : "Amount Due"}</div>
+                  <div>{additionalPaymentModeIds.length > 0 || changeDue >= 0 ? "Change" : "Amount Due"}</div>
                   <div
-                    className={`font-extrabold whitespace-nowrap ${changeDue >= 0 ? "text-brand-700" : "text-red-600"}`}
+                    className={`font-extrabold whitespace-nowrap ${additionalPaymentModeIds.length > 0 || changeDue >= 0 ? "text-brand-700" : "text-red-600"}`}
                   >
-                    {`GH₵ ${Math.abs(changeDue).toFixed(2)}`}
+                    {additionalPaymentModeIds.length > 0
+                      ? `GH₵ 0.00`
+                      : `GH₵ ${Math.abs(changeDue).toFixed(2)}`}
                   </div>
                 </div>
               </div>
@@ -2151,6 +2219,7 @@ export default function PosSalesEntry() {
                   className="btn-success w-full text-base"
                   onClick={() => {
                     if (tendered < total && !additionalPaymentModeIds.length) {
+                      setSplitPrimaryAmount(tendered);
                       setShowSplitPaymentModal(true);
                     } else {
                       checkout();
@@ -2164,7 +2233,7 @@ export default function PosSalesEntry() {
                     !selectedPaymentModeId
                   }
                 >
-                  {tendered < total
+                  {tendered < total && !additionalPaymentModeIds.length
                     ? `Amount Due: GH₵ ${(total - tendered).toFixed(2)}`
                     : "Complete Sale"}
                 </button>
@@ -2191,19 +2260,25 @@ export default function PosSalesEntry() {
               </div>
               <div className="flex justify-between">
                 <div>Amount Tendered</div>
-                <div className="font-semibold">{`GH₵ ${tendered.toFixed(2)}`}</div>
-              </div>
-              <div className="flex justify-between">
-                <div>{changeDue >= 0 ? "Change" : "Amount Due"}</div>
                 <div className="font-semibold">
-                  {`GH₵ ${Math.abs(changeDue).toFixed(2)}`}
+                  {additionalPaymentModeIds.length > 0 
+                    ? `GH₵ ${total.toFixed(2)}` 
+                    : `GH₵ ${tendered.toFixed(2)}`}
                 </div>
               </div>
               <div className="flex justify-between">
-                <div>Payment Method</div>
+                <div>{additionalPaymentModeIds.length > 0 || changeDue >= 0 ? "Change" : "Amount Due"}</div>
                 <div className="font-semibold">
+                  {additionalPaymentModeIds.length > 0
+                    ? `GH₵ 0.00`
+                    : `GH₵ ${Math.abs(changeDue).toFixed(2)}`}
+                </div>
+              </div>
+              <div className="flex justify-between items-start">
+                <div>Payment Method</div>
+                <div className="font-semibold text-right">
                   {(() => {
-                    const primary =
+                    const primaryName =
                       selectedPaymentMode?.name ||
                       (function () {
                         const t = String(
@@ -2215,14 +2290,28 @@ export default function PosSalesEntry() {
                         if (t === "bank") return "Bank";
                         return "Other";
                       })();
-                    if (!additionalPaymentModeIds.length) return primary;
+                      
+                    if (!additionalPaymentModeIds.length) return primaryName;
+                    
+                    const primaryAmount = additionalPaymentModeIds.length > 0 && splitPrimaryAmount > 0 
+                      ? splitPrimaryAmount 
+                      : Math.min(Number(tendered || 0), total);
+                    const remainingAmount = total - primaryAmount;
+                    const perAdditional = remainingAmount / additionalPaymentModeIds.length;
+                    
                     const additional = additionalPaymentModeIds
                       .map((id) => {
                         const m = paymentModes.find((pm) => String(pm.id) === id);
-                        return m?.name || "";
+                        return m ? `${m.name}: GH₵ ${perAdditional.toFixed(2)}` : "";
                       })
                       .filter(Boolean);
-                    return [primary, ...additional].join(" + ");
+                      
+                    return (
+                      <div className="flex flex-col gap-1">
+                        <div>{primaryName}: GH₵ {primaryAmount.toFixed(2)}</div>
+                        {additional.map((txt, i) => <div key={i}>{txt}</div>)}
+                      </div>
+                    );
                   })()}
                 </div>
               </div>

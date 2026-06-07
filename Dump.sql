@@ -14736,19 +14736,57 @@ CREATE TABLE `sal_discount_schemes` (
   `discount_type` enum('PERCENTAGE','FIXED') COLLATE utf8mb4_unicode_ci NOT NULL,
   `discount_value` decimal(10,2) NOT NULL,
   `min_quantity` decimal(18,3) NOT NULL DEFAULT '0.000',
+  `max_quantity` decimal(18,3) DEFAULT '0.000',
   `effective_from` date NOT NULL,
   `effective_to` date DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_by` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `min_purchase_amount` decimal(18,2) DEFAULT '0.00',
   `max_discount_amount` decimal(18,2) DEFAULT '0.00',
   `description` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_discount_scheme_code` (`company_id`,`scheme_code`),
-  CONSTRAINT `fk_discount_scheme_company` FOREIGN KEY (`company_id`) REFERENCES `adm_companies` (`id`)
+  KEY `fk_discount_scheme_created_by` (`created_by`),
+  CONSTRAINT `fk_discount_scheme_company` FOREIGN KEY (`company_id`) REFERENCES `adm_companies` (`id`),
+  CONSTRAINT `fk_discount_scheme_created_by` FOREIGN KEY (`created_by`) REFERENCES `adm_users` (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 INSERT INTO `sal_discount_schemes` (`id`, `company_id`, `scheme_code`, `scheme_name`, `discount_type`, `discount_value`, `min_quantity`, `effective_from`, `effective_to`, `is_active`, `created_at`, `min_purchase_amount`, `max_discount_amount`, `description`) VALUES
 (1, 1, 'DSC001', 'Christmas Promo', 'PERCENTAGE', '10.00', '0.000', '2026-01-09 00:00:00.000', '2026-01-31 00:00:00.000', 1, '2026-01-09 11:56:17.000', '0.00', '10.00', '');
+DROP TABLE IF EXISTS `sal_bogo_campaigns`;
+CREATE TABLE `sal_bogo_campaigns` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `company_id` bigint unsigned NOT NULL,
+  `campaign_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `campaign_qty` decimal(18,3) NOT NULL DEFAULT '0.000',
+  `used_qty` decimal(18,3) NOT NULL DEFAULT '0.000',
+  `effective_from` date NOT NULL,
+  `effective_to` date DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `fk_bogo_company` (`company_id`),
+  KEY `fk_bogo_created_by` (`created_by`),
+  CONSTRAINT `fk_bogo_company` FOREIGN KEY (`company_id`) REFERENCES `adm_companies` (`id`),
+  CONSTRAINT `fk_bogo_created_by` FOREIGN KEY (`created_by`) REFERENCES `adm_users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `sal_bogo_campaign_items`;
+CREATE TABLE `sal_bogo_campaign_items` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `campaign_id` bigint unsigned NOT NULL,
+  `item_id` bigint unsigned NOT NULL,
+  `item_qty` decimal(18,3) NOT NULL DEFAULT '0.000',
+  `free_item_id` bigint unsigned NOT NULL,
+  `free_qty` decimal(18,3) NOT NULL DEFAULT '0.000',
+  PRIMARY KEY (`id`),
+  KEY `fk_bc_items_campaign` (`campaign_id`),
+  KEY `fk_bc_items_item` (`item_id`),
+  KEY `fk_bc_items_free` (`free_item_id`),
+  CONSTRAINT `fk_bc_items_campaign` FOREIGN KEY (`campaign_id`) REFERENCES `sal_bogo_campaigns` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_bc_items_item` FOREIGN KEY (`item_id`) REFERENCES `inv_items` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_bc_items_free` FOREIGN KEY (`free_item_id`) REFERENCES `inv_items` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 DROP TABLE IF EXISTS `sal_invoice_details`;
 CREATE TABLE `sal_invoice_details` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,

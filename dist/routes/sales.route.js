@@ -5571,6 +5571,130 @@ router.post(
 );
 
 router.post(
+  "/prices/customer/bulk-percentage",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission([
+    "SAL.PRICE.CREATE",
+    "SAL.PRICE.EDIT",
+    "SAL.PRICE.VIEW",
+  ]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const customer_id = Number(req.body?.customer_id);
+      const price_type_id = req.body?.price_type_id
+        ? Number(req.body.price_type_id)
+        : null;
+      const item_ids = Array.isArray(req.body?.item_ids)
+        ? req.body.item_ids.map(Number)
+        : [];
+      const percentage = Number(req.body?.percentage || 0);
+      const operator = req.body?.operator === "-" ? "-" : "+";
+
+      if (!Number.isFinite(customer_id) || customer_id <= 0) {
+        return res
+          .status(400)
+          .json({ message: "customer_id is required" });
+      }
+      if (!item_ids.length) {
+        return res
+          .status(400)
+          .json({ message: "At least one item_id is required" });
+      }
+      if (!percentage || percentage <= 0) {
+        return res
+          .status(400)
+          .json({ message: "A valid percentage > 0 is required" });
+      }
+
+      const items = await query(
+        `SELECT id, selling_price, currency_id, uom
+           FROM inv_items
+          WHERE company_id = :companyId
+            AND id IN (:item_ids)`,
+        { companyId, item_ids },
+      );
+
+      let applied = 0;
+      for (const item of items) {
+        const sellingPrice = Number(item.selling_price || 0);
+        const adjustment = sellingPrice * (percentage / 100);
+        const customerPrice =
+          operator === "-"
+            ? sellingPrice - adjustment
+            : sellingPrice + adjustment;
+
+        const [existing] = await query(
+          `SELECT id FROM sal_customer_prices
+            WHERE company_id = :companyId
+              AND customer_id = :customer_id
+              AND product_id = :product_id
+              AND (price_type_id <=> :price_type_id)
+            LIMIT 1`,
+          {
+            companyId,
+            customer_id,
+            product_id: Number(item.id),
+            price_type_id,
+          },
+        ).catch(() => []);
+
+        const today = new Date().toISOString().slice(0, 10);
+        if (existing?.id) {
+          await query(
+            `UPDATE sal_customer_prices SET
+               customer_price = :customer_price,
+               standard_price = :standard_price,
+               price_type_id = :price_type_id,
+               uom = :uom,
+               currency_id = :currency_id,
+               effective_from = :effective_from,
+               updated_at = CURRENT_TIMESTAMP
+             WHERE id = :id AND company_id = :companyId`,
+            {
+              id: existing.id,
+              companyId,
+              customer_price: Math.round(customerPrice * 100) / 100,
+              standard_price: sellingPrice,
+              price_type_id,
+              uom: item.uom || null,
+              currency_id: item.currency_id || null,
+              effective_from: today,
+            },
+          );
+        } else {
+          await query(
+            `INSERT INTO sal_customer_prices
+              (company_id, branch_id, customer_id, product_id, standard_price, customer_price, price_type_id, uom, currency_id, effective_from)
+             VALUES
+              (:companyId, :branchId, :customer_id, :product_id, :standard_price, :customer_price, :price_type_id, :uom, :currency_id, :effective_from)`,
+            {
+              companyId,
+              branchId,
+              customer_id,
+              product_id: Number(item.id),
+              standard_price: sellingPrice,
+              customer_price: Math.round(customerPrice * 100) / 100,
+              price_type_id,
+              uom: item.uom || null,
+              currency_id: item.currency_id || null,
+              effective_from: today,
+            },
+          );
+        }
+        applied++;
+      }
+
+      res.json({ success: true, applied });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.post(
   "/prices/best-price",
   requireAuth,
   requireCompanyScope,

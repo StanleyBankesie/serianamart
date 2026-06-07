@@ -148,7 +148,11 @@ export default function OpeningBalancesPage() {
       return;
     }
     const url = `/api/finance/opening-balances/template?format=xlsx&fiscalYearId=${selectedFyId}`;
-    window.location.href = url;
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.click();
   }
 
   function onPickFile() {

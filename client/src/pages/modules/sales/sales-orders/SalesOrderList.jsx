@@ -129,7 +129,7 @@ export default function SalesOrderList() {
             window.Notification?.permission === "granted",
           icon,
           onClick: () => {
-            window.location.assign(link);
+            navigate(link);
           },
         });
       } catch {}
@@ -161,7 +161,7 @@ export default function SalesOrderList() {
               window.Notification?.permission === "granted",
             icon,
             onClick: () => {
-              window.location.assign(link);
+              navigate(link);
             },
           });
         } catch {}

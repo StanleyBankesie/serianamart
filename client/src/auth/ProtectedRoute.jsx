@@ -49,6 +49,7 @@ export default function ProtectedRoute({ children }) {
     }
   } else {
     if (location.pathname === "/select-branch") return children;
+    if (!allowedBranches.length) return children;
     if (!allowedBranches.includes(currentBranch)) {
       return <Navigate to="/select-branch" replace />;
     }
