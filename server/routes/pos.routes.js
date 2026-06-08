@@ -1030,19 +1030,12 @@ router.get(
       await ensurePosTables();
       const rows = await query(
         `
-        SELECT 
-          COALESCE(payment_method, 'UNKNOWN') AS method,
-          COUNT(*) AS cnt,
-          COALESCE(SUM(net_amount), 0) AS amt,
-          p.created_at,
-          u.username AS created_by_name
+        SELECT id, payment_method, net_amount, payments
          FROM pos_sales p
-        LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.company_id = :companyId
           AND p.branch_id = :branchId
           AND ${salesDateCond}
           AND p.status = 'COMPLETED'
-        GROUP BY COALESCE(payment_method, 'UNKNOWN')
         `,
         params,
       );
@@ -1072,18 +1065,49 @@ router.get(
         mobileAmount: 0,
       };
       for (const row of rows) {
-        const method = String(row.method || "").toUpperCase();
-        const count = Number(row.cnt || 0);
-        const amount = Number(row.amt || 0);
-        if (method === "CASH") {
-          summary.cashCount += count;
-          summary.cashAmount += amount;
+        const method = String(row.payment_method || "").toUpperCase();
+        if (method === "SPLIT") {
+          let paymentsArr = null;
+          if (row.payments) {
+            if (typeof row.payments === "string") {
+              try { paymentsArr = JSON.parse(row.payments); } catch { paymentsArr = null; }
+            } else if (Buffer.isBuffer(row.payments)) {
+              try { paymentsArr = JSON.parse(row.payments.toString("utf8")); } catch { paymentsArr = null; }
+            } else if (typeof row.payments === "object" && row.payments.type === "Buffer" && Array.isArray(row.payments.data)) {
+              try { paymentsArr = JSON.parse(Buffer.from(row.payments.data).toString("utf8")); } catch { paymentsArr = null; }
+            } else if (Array.isArray(row.payments)) {
+              paymentsArr = row.payments;
+            }
+          }
+          let hasCash = false, hasCard = false, hasMobile = false;
+          if (Array.isArray(paymentsArr)) {
+            for (const pmt of paymentsArr) {
+              const pmtMethod = String(pmt.method || "").toUpperCase();
+              const pmtAmt = Number(pmt.amount || 0);
+              if (pmtMethod === "CASH") {
+                hasCash = true;
+                summary.cashAmount += pmtAmt;
+              } else if (pmtMethod === "CARD") {
+                hasCard = true;
+                summary.cardAmount += pmtAmt;
+              } else if (pmtMethod === "MOBILE") {
+                hasMobile = true;
+                summary.mobileAmount += pmtAmt;
+              }
+            }
+          }
+          if (hasCash) summary.cashCount += 1;
+          if (hasCard) summary.cardCount += 1;
+          if (hasMobile) summary.mobileCount += 1;
+        } else if (method === "CASH") {
+          summary.cashCount += 1;
+          summary.cashAmount += Number(row.net_amount || 0);
         } else if (method === "CARD") {
-          summary.cardCount += count;
-          summary.cardAmount += amount;
+          summary.cardCount += 1;
+          summary.cardAmount += Number(row.net_amount || 0);
         } else if (method === "MOBILE") {
-          summary.mobileCount += count;
-          summary.mobileAmount += amount;
+          summary.mobileCount += 1;
+          summary.mobileAmount += Number(row.net_amount || 0);
         }
       }
       summary.cashAmount = roundTo2(
@@ -4019,30 +4043,63 @@ router.get(
                     AND s.sale_datetime >= ds.open_datetime
                     AND (ds.close_datetime IS NULL OR s.sale_datetime <= ds.close_datetime)
                     AND s.status = 'COMPLETED'
-                ), 0) AS total_sales,
-                COALESCE((
-                  SELECT SUM(CASE WHEN COALESCE(s.payment_method, '') = 'CASH' THEN COALESCE(s.net_amount, 0) ELSE 0 END)
-                  FROM pos_sales s
-                  LEFT JOIN pos_terminals t ON t.id = s.terminal_id AND t.company_id = s.company_id AND t.branch_id = s.branch_id
-                  WHERE s.company_id = ds.company_id
-                    AND s.branch_id = ds.branch_id
-                    AND t.code = ds.terminal_code
-                    AND s.sale_datetime >= ds.open_datetime
-                    AND (ds.close_datetime IS NULL OR s.sale_datetime <= ds.close_datetime)
-                    AND s.status = 'COMPLETED'
-                ), 0) AS cash_amount
+                ), 0) AS total_sales
          FROM pos_day_status ds
          LEFT JOIN adm_users u ON u.id = ds.created_by
          WHERE ${conditions.join(" AND ")}
          ORDER BY ds.open_datetime DESC`,
         params,
       );
-      const items = rows.map((item) => {
+      const items = [];
+      for (const item of rows) {
         item.open_denomination_counts = coerceJsonValue(item.open_denomination_counts);
         item.close_denomination_counts = coerceJsonValue(item.close_denomination_counts);
         item.total_sales = Number(item.total_sales || 0);
-        return item;
-      });
+        // Compute cash_amount from matching sales, handling split payments
+        let cashAmount = 0;
+        try {
+          const saleRows = await query(
+            `SELECT s.payment_method, s.payments, s.net_amount
+             FROM pos_sales s
+             LEFT JOIN pos_terminals t ON t.id = s.terminal_id AND t.company_id = s.company_id AND t.branch_id = s.branch_id
+             WHERE s.company_id = :companyId
+               AND s.branch_id = :branchId
+               AND t.code = :terminalCode
+               AND s.sale_datetime >= :openDatetime
+               AND (:closeDatetime IS NULL OR s.sale_datetime <= :closeDatetime)
+               AND s.status = 'COMPLETED'`,
+            {
+              companyId: item.company_id || companyId,
+              branchId: item.branch_id || branchId,
+              terminalCode: String(item.terminal_code || ""),
+              openDatetime: item.open_datetime,
+              closeDatetime: item.close_datetime || null,
+            },
+          );
+          for (const sale of saleRows) {
+            const payments = sale.payments;
+            if (payments && typeof payments === "string") {
+              try {
+                const parsed = JSON.parse(payments);
+                if (Array.isArray(parsed)) {
+                  for (const pmt of parsed) {
+                    if (String(pmt.method || "").toUpperCase() === "CASH") {
+                      cashAmount += Number(pmt.amount || 0);
+                    }
+                  }
+                  continue;
+                }
+              } catch {}
+            }
+            // Fallback: no payments JSON — use payment_method
+            if (String(sale.payment_method || "").toUpperCase() === "CASH") {
+              cashAmount += Number(sale.net_amount || 0);
+            }
+          }
+        } catch {}
+        item.cash_amount = cashAmount;
+        items.push(item);
+      }
       res.json({ items });
     } catch (err) {
       next(err);

@@ -1017,16 +1017,16 @@ export default function PosDayManagement() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {hasExceptional("POS.EXPECTED_CASH.VIEW") ? (
                   <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                    <div className="text-xs text-slate-600">Total Sales</div>
+                    <div className="text-xs text-slate-600">Total Cash Sales</div>
                     <div className="font-bold">
-                      {fmtCurrency(totals.totalAmount)}
+                      {fmtCurrency(salesData.cash.amount)}
                     </div>
                   </div>
                 ) : null}
                 {hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
                   <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
                     <div className="text-xs text-slate-600">Transactions</div>
-                    <div className="font-semibold">{totals.totalCount}</div>
+                    <div className="font-semibold">{salesData.cash.count}</div>
                   </div>
                 ) : null}
               </div>

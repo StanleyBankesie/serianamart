@@ -148,11 +148,12 @@ export default function PosRegister() {
           const isOpen = String(item.status || "").toUpperCase() === "OPEN";
           const opening = Number(item.opening_float || 0);
           const actualCash = item.actual_cash === null || item.actual_cash === undefined ? null : Number(item.actual_cash || 0);
+          const cashSales = Number(item.cash_amount || 0);
           let expectedCash = null;
           let cashVariance = null;
-          if (!isOpen && actualCash !== null) {
+          if (!isOpen) {
             expectedCash = opening;
-            cashVariance = actualCash - opening;
+            cashVariance = cashSales - opening;
           }
           return {
             dayStatusId: Number(item.id || 0) || null,
@@ -172,8 +173,9 @@ export default function PosRegister() {
             cashVariance,
             closeNotes: item.close_notes || "",
             sales: Number(item.total_sales || 0),
+            cashSales,
             salesBreakdown: {
-              cashAmount: Number(item.cash_amount || 0),
+              cashAmount: cashSales,
               cashCount: Number(item.cash_count || 0),
               cardAmount: Number(item.card_amount || 0),
               cardCount: Number(item.card_count || 0),
@@ -547,6 +549,7 @@ export default function PosRegister() {
                   <th>Start Time</th>
                   <th>End Time</th>
                   <th>Opening Cash</th>
+                  <th>Total Cash Sales</th>
                   <th>Total Sales</th>
                   <th>Cash Variance</th>
                   <th>Status</th>
@@ -556,7 +559,7 @@ export default function PosRegister() {
               <tbody>
                 {!sessionHistory.length ? (
                   <tr>
-                    <td colSpan="10">
+                    <td colSpan="11">
                       <div className="text-center text-slate-600 py-6">
                         No session history found
                       </div>
@@ -571,6 +574,7 @@ export default function PosRegister() {
                       <td className="p-2">{h.start}</td>
                       <td className="p-2">{h.end}</td>
                       <td className="p-2">{fmtCurrency(h.opening)}</td>
+                      <td className="p-2">{fmtCurrency(Number(h.cashSales || 0))}</td>
                       <td className="p-2">{fmtCurrency(Number(h.sales || 0))}</td>
                       <td className="p-2">
                         {h.cashVariance !== null ? (

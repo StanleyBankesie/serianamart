@@ -2099,17 +2099,18 @@ export default function PosSalesEntry() {
             <div className="card-body space-y-3 text-base" ref={cartRef}>
               {/* Selected items list hidden per requirement */}
               <div className="space-y-2">
-                <div className="flex justify-between">
-                  <div>Customer</div>
-                  <div>
-                    {selectedCustomerId
-                      ? String(
-                          customers.find(
-                            (c) => String(c.id) === String(selectedCustomerId),
-                          )?.customer_name || "",
-                        )
-                      : "-"}
-                  </div>
+                <div>
+                  <label className="label">Customer</label>
+                  <FilterableSelect
+                    value={selectedCustomerId}
+                    onChange={setSelectedCustomerId}
+                    options={customers.map((c) => ({
+                      value: String(c.id),
+                      label: String(c.customer_name || c.name || ""),
+                    }))}
+                    placeholder="Select customer"
+                    filterPlaceholder="Search customers..."
+                  />
                 </div>
                 <div className="flex justify-between">
                   <div>Discount</div>
