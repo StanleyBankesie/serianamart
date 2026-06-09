@@ -578,6 +578,15 @@ export default function PosDashboard() {
 
       {error ? <div className="text-sm text-red-600">{error}</div> : null}
 
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="p-4 rounded-lg border border-slate-200 bg-white dark:bg-slate-800 dark:border-slate-700">
+          <div className="text-xs uppercase text-slate-500 mb-1">Daily Sales</div>
+          <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
+            {fmtCurrency(Number(daySummary?.cashAmount || 0) + Number(daySummary?.cardAmount || 0) + Number(daySummary?.mobileAmount || 0))}
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="card shadow-sm border-slate-200/60">
           <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">

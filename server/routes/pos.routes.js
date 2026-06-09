@@ -606,6 +606,20 @@ async function ensurePosTables() {
     await query("ALTER TABLE pos_sales ADD COLUMN payments JSON NULL");
   }
 
+  if (!(await hasColumn("pos_sales", "customer_id"))) {
+    await query("ALTER TABLE pos_sales ADD COLUMN customer_id BIGINT UNSIGNED NULL AFTER customer_name");
+  }
+
+  if (!(await hasColumn("pos_sales", "payment_status"))) {
+    await query("ALTER TABLE pos_sales ADD COLUMN payment_status ENUM('PAID','UNPAID') NULL AFTER customer_id");
+  }
+  if (!(await hasColumn("pos_sales", "paid_amount"))) {
+    await query("ALTER TABLE pos_sales ADD COLUMN paid_amount DECIMAL(18,2) NOT NULL DEFAULT 0.00 AFTER payment_status");
+  }
+  try {
+    await query("UPDATE pos_sales SET paid_amount = net_amount WHERE payment_status = 'PAID' AND (paid_amount IS NULL OR paid_amount = 0)");
+  } catch (e) {}
+
   try {
     const colRows = await query(`
       SELECT COLUMN_TYPE 
@@ -2099,6 +2113,47 @@ router.get(
 );
 
 router.get(
+  "/reports/returns-summary",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      await ensurePosTables();
+      const where = [
+        "r.company_id = :companyId",
+        "r.branch_id = :branchId",
+      ];
+      const params = { companyId, branchId };
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        where.push("DATE(r.return_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)");
+      }
+      const byDay = await query(`
+        SELECT DATE(r.return_datetime) AS day, COUNT(*) AS count, COALESCE(SUM(r.total_refund), 0) AS total
+        FROM pos_returns r
+        WHERE ${where.join(" AND ")}
+        GROUP BY DATE(r.return_datetime)
+        ORDER BY day ASC
+      `, params);
+      const byMethod = await query(`
+        SELECT r.refund_method AS method, COUNT(*) AS count, COALESCE(SUM(r.total_refund), 0) AS total
+        FROM pos_returns r
+        WHERE ${where.join(" AND ")}
+        GROUP BY r.refund_method
+      `, params);
+      res.json({ byDay, byMethod });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
   "/report/top-items",
   requireAuth,
   requireCompanyScope,
@@ -2604,6 +2659,7 @@ router.post(
         payments: reqPayments,
         customer_id,
         customer_name,
+        payment_status,
         lines,
         status,
         tax_rate_percent,
@@ -2751,10 +2807,10 @@ router.post(
           : null;
 
       const [saleResult] = await conn.execute(
-        `INSERT INTO pos_sales 
-         (company_id, branch_id, terminal_id, receipt_no, sale_datetime, customer_name, payment_method, payments, gross_amount, discount_amount, tax_amount, tax_components, net_amount, status, created_by)
-         VALUES 
-         (:companyId, :branchId, :terminal_id, :receipt_no, :sale_datetime, :customer_name, :payment_method, :payments, :gross_amount, :discount_amount, :tax_amount, :tax_components, :net_amount, :status, :created_by)`,
+         `INSERT INTO pos_sales 
+          (company_id, branch_id, terminal_id, receipt_no, sale_datetime, customer_name, customer_id, payment_status, paid_amount, payment_method, payments, gross_amount, discount_amount, tax_amount, tax_components, net_amount, status, created_by)
+          VALUES 
+          (:companyId, :branchId, :terminal_id, :receipt_no, :sale_datetime, :customer_name, :customer_id, :payment_status, :paid_amount, :payment_method, :payments, :gross_amount, :discount_amount, :tax_amount, :tax_components, :net_amount, :status, :created_by)`,
         {
           companyId,
           branchId,
@@ -2762,6 +2818,9 @@ router.post(
           receipt_no,
           sale_datetime,
           customer_name: customer_name || null,
+          customer_id: customer_id || null,
+          payment_status: customer_id && payment_status ? payment_status : null,
+          paid_amount: customer_id && payment_status === "PAID" ? net : 0,
           payment_method: (Array.isArray(reqPayments) && reqPayments.length > 1) ? "SPLIT" : (pm === "CARD" || pm === "MOBILE" ? pm : "CASH"),
           payments: paymentsJson,
           gross_amount: gross,
@@ -5120,7 +5179,8 @@ router.get(
   async (req, res, next) => {
     try {
       const { companyId, branchId } = req.scope;
-      const { customerName, fromDate, toDate } = req.query;
+      await ensurePosTables();
+      const { customerName, customerId, fromDate, toDate } = req.query;
 
       let sql = `
         SELECT 
@@ -5128,6 +5188,9 @@ router.get(
           s.receipt_no,
           s.sale_datetime,
           s.customer_name,
+          s.customer_id,
+          s.payment_status,
+          s.paid_amount,
           s.gross_amount,
           s.discount_amount,
           s.tax_amount,
@@ -5140,7 +5203,10 @@ router.get(
       `;
       const params = { companyId, branchId };
 
-      if (customerName) {
+      if (customerId) {
+        sql += " AND s.customer_id = :customerId";
+        params.customerId = Number(customerId);
+      } else if (customerName) {
         sql += " AND s.customer_name LIKE :customerName";
         params.customerName = `%${customerName}%`;
       }
@@ -5153,7 +5219,7 @@ router.get(
         params.toDate = `${toDate} 23:59:59`;
       }
 
-      sql += " ORDER BY s.sale_datetime DESC LIMIT 200";
+      sql += " ORDER BY s.sale_datetime ASC LIMIT 200";
 
       const sales = await query(sql, params);
 
@@ -5190,6 +5256,42 @@ router.get(
       }));
 
       res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.put(
+  "/sales/:id/payment-status",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const saleId = Number(req.params.id || 0);
+      const { paid_amount } = req.body || {};
+      if (!saleId) {
+        return res.status(400).json({ message: "Invalid sale ID" });
+      }
+      const paidVal = Number(paid_amount);
+      if (isNaN(paidVal) || paidVal < 0) {
+        return res.status(400).json({ message: "paid_amount must be a non-negative number" });
+      }
+      const [existing] = await query(
+        "SELECT id, net_amount FROM pos_sales WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
+        { id: saleId, companyId, branchId },
+      );
+      if (!existing) {
+        return res.status(404).json({ message: "Sale not found" });
+      }
+      const payment_status = paidVal >= Number(existing.net_amount) ? "PAID" : "UNPAID";
+      await query(
+        "UPDATE pos_sales SET paid_amount = :paid_amount, payment_status = :payment_status WHERE id = :id",
+        { paid_amount: paidVal, payment_status, id: saleId },
+      );
+      res.json({ message: "Payment recorded", payment_status, paid_amount: paidVal });
     } catch (err) {
       next(err);
     }

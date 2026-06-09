@@ -20,22 +20,82 @@ function FilterableSelect({
   disabled,
   filterPlaceholder,
 }) {
-  const filtered = Array.isArray(options) ? options : [];
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef(null);
+  const inputRef = useRef(null);
+  const filtered = useMemo(() => {
+    const arr = Array.isArray(options) ? options : [];
+    if (!query) return arr;
+    const q = query.toLowerCase();
+    return arr.filter(
+      (o) =>
+        String(o.label).toLowerCase().includes(q) ||
+        String(o.value).toLowerCase().includes(q),
+    );
+  }, [options, query]);
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+  function handleSelect(val) {
+    onChange(val);
+    setQuery("");
+    setOpen(false);
+    inputRef.current?.blur();
+  }
+  const selectedLabel = useMemo(() => {
+    if (!value) return "";
+    const found = (Array.isArray(options) ? options : []).find(
+      (o) => String(o.value) === String(value),
+    );
+    return found ? found.label : "";
+  }, [value, options]);
   return (
-    <div>
-      <select
-        className="input"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+    <div ref={wrapperRef} className="relative">
+      <input
+        ref={inputRef}
+        type="text"
+        className="input w-full"
+        value={open ? query : selectedLabel}
+        placeholder={placeholder || "Select..."}
         disabled={disabled}
-      >
-        <option value="">{placeholder || "Select..."}</option>
-        {filtered.map((o) => (
-          <option key={String(o.value)} value={String(o.value)}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+        onFocus={() => { setOpen(true); setQuery(""); }}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+      />
+      {open && (
+        <div className="absolute z-50 mt-1 w-full max-h-60 overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+          <div
+            className="px-3 py-2 text-sm text-slate-500 cursor-pointer hover:bg-slate-100"
+            onClick={() => handleSelect("")}
+          >
+            {placeholder || "None"}
+          </div>
+          {filtered.map((o) => (
+            <div
+              key={String(o.value)}
+              className={`px-3 py-2 text-sm cursor-pointer hover:bg-slate-100 ${
+                String(o.value) === String(value)
+                  ? "bg-brand/10 font-semibold"
+                  : ""
+              }`}
+              onClick={() => handleSelect(o.value)}
+            >
+              {o.label}
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <div className="px-3 py-2 text-sm text-slate-400">
+              No customers found
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -106,6 +166,7 @@ export default function PosSalesEntry() {
   const [amountPaid, setAmountPaid] = useState("");
   const [customers, setCustomers] = useState([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
+  const [paymentStatus, setPaymentStatus] = useState("PAID");
   const [companyInfo, setCompanyInfo] = useState({
     name: "",
     address: "",
@@ -1079,6 +1140,7 @@ export default function PosSalesEntry() {
         )
         .filter((p) => Number(p.quantity || 0) > 0);
     });
+    if (barcodeInputRef.current) barcodeInputRef.current.focus();
   }
 
   function updateCartField(id, field, value) {
@@ -1306,6 +1368,7 @@ export default function PosSalesEntry() {
         customer_name: chosenCustomer
           ? String(chosenCustomer.customer_name || chosenCustomer.name || "")
           : null,
+        payment_status: chosenCustomer ? paymentStatus : null,
         lines,
         items: lines,
         status: "COMPLETED",
@@ -1477,6 +1540,7 @@ export default function PosSalesEntry() {
     setSplitPrimaryAmount(0);
     setAdditionalPaymentModeIds([]);
     setSelectedCustomerId("");
+    setPaymentStatus("PAID");
     setEntryBarcode("");
     setEntryQty(1);
     setSaleTimestamp(null);
@@ -1841,6 +1905,52 @@ export default function PosSalesEntry() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <div className="w-48">
+                  <FilterableSelect
+                    value={selectedCustomerId}
+                    onChange={(val) => {
+                      setSelectedCustomerId(val);
+                      if (!val) setPaymentStatus("PAID");
+                      if (barcodeInputRef.current) barcodeInputRef.current.focus();
+                    }}
+                    options={customers.map((c) => ({
+                      value: String(c.id),
+                      label: String(c.customer_name || c.name || ""),
+                    }))}
+                    placeholder="Select customer"
+                    filterPlaceholder="Search customers..."
+                  />
+                </div>
+                {selectedCustomerId && (
+                  <div className="flex items-center gap-3 text-sm">
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="paymentStatus"
+                        value="PAID"
+                        checked={paymentStatus === "PAID"}
+                        onChange={() => {
+                          setPaymentStatus("PAID");
+                          if (barcodeInputRef.current) barcodeInputRef.current.focus();
+                        }}
+                      />
+                      Paid
+                    </label>
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="paymentStatus"
+                        value="UNPAID"
+                        checked={paymentStatus === "UNPAID"}
+                        onChange={() => {
+                          setPaymentStatus("UNPAID");
+                          if (barcodeInputRef.current) barcodeInputRef.current.focus();
+                        }}
+                      />
+                      Unpaid
+                    </label>
+                  </div>
+                )}
                 <Link to="/sales/invoices/new" className="btn btn-primary">
                   Customer Sales
                 </Link>
@@ -2099,19 +2209,6 @@ export default function PosSalesEntry() {
             <div className="card-body space-y-3 text-base" ref={cartRef}>
               {/* Selected items list hidden per requirement */}
               <div className="space-y-2">
-                <div>
-                  <label className="label">Customer</label>
-                  <FilterableSelect
-                    value={selectedCustomerId}
-                    onChange={setSelectedCustomerId}
-                    options={customers.map((c) => ({
-                      value: String(c.id),
-                      label: String(c.customer_name || c.name || ""),
-                    }))}
-                    placeholder="Select customer"
-                    filterPlaceholder="Search customers..."
-                  />
-                </div>
                 <div className="flex justify-between">
                   <div>Discount</div>
                   <div>{`GH₵ ${discountTotal.toFixed(2)}`}</div>
