@@ -35,38 +35,74 @@ function BarChart({
   formatY,
   color = "#3b82f6",
   colors,
+  horizontal,
 }) {
   const max = Math.max(1, ...data.map((d) => Number(d[yKey] || 0)));
+  const palette = Array.isArray(colors) && colors.length ? colors : null;
+
+  if (horizontal) {
+    return (
+      <div className="w-full space-y-3">
+        {data.map((d, idx) => {
+          const barColor = palette ? palette[idx % palette.length] : color;
+          const val = Number(d[yKey] || 0);
+          const pct = (val / max) * 100;
+          return (
+            <div key={idx} className="flex items-center gap-3">
+              <div className="text-xs font-medium text-slate-600 w-28 shrink-0 text-right truncate">
+                {String(d[xKey])}
+              </div>
+              <div className="flex-1 h-5 rounded bg-slate-100 overflow-hidden">
+                <div
+                  className="h-full rounded transition-all"
+                  style={{
+                    width: `${Math.max(2, pct)}%`,
+                    backgroundImage: `linear-gradient(90deg, ${shade(barColor, 0.35)}, ${barColor})`,
+                    boxShadow:
+                      "inset 0 2px 4px rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.15)",
+                  }}
+                  title={`${String(d[xKey])} • ${formatY ? formatY(val) : val.toLocaleString()}`}
+                />
+              </div>
+              <div className="text-xs font-bold text-slate-800 w-24 shrink-0 text-left">
+                {formatY ? formatY(val) : val.toLocaleString()}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   const topPad = 18;
   const bars = data.map((d) => ({
     label: String(d[xKey]),
     value: Number(d[yKey] || 0),
     h: Math.round((Number(d[yKey] || 0) / max) * (height - topPad)),
   }));
-  const palette = Array.isArray(colors) && colors.length ? colors : null;
   return (
     <div className="w-full">
       <div className="flex items-end gap-4 w-full" style={{ height }}>
         {bars.map((b, idx) => {
           const barColor = palette ? palette[idx % palette.length] : color;
           return (
-            <div key={idx} className="flex flex-col items-center">
-              <div className="text-[10px] font-semibold">
+            <div key={idx} className="flex flex-col items-center flex-1 min-w-0">
+              <div className="text-xs font-bold text-slate-800">
                 {formatY
                   ? formatY(b.value)
                   : Number(b.value || 0).toLocaleString()}
               </div>
               <div
-                className="w-8 rounded-t"
+                className="w-full max-w-[48px] rounded"
                 style={{
                   height: `${Math.max(4, b.h)}px`,
                   backgroundImage: `linear-gradient(${shade(barColor, 0.35)}, ${barColor})`,
                   boxShadow:
-                    "inset 0 2px 4px rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.15), 3px -3px 0 rgba(0,0,0,0.08)",
+                    "inset 0 2px 4px rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.15)",
                 }}
                 title={`${b.label} • ${formatY ? formatY(b.value) : b.value.toLocaleString()}`}
               />
-              <div className="text-[10px] mt-1 text-center w-12 truncate">
+              <div className="text-xs font-medium text-slate-600 mt-1 text-center w-full truncate px-1">
                 {b.label}
               </div>
             </div>
@@ -153,6 +189,12 @@ function LineChart({
   );
 }
 
+const PIE_PALETTE = [
+  "#6366f1", "#22c55e", "#ef4444", "#f59e0b",
+  "#06b6d4", "#a855f7", "#0ea5e9", "#84cc16",
+  "#fb7185", "#f97316",
+];
+
 function PieChart({ data, label }) {
   if (!data || data.length === 0) {
     return (
@@ -162,46 +204,38 @@ function PieChart({ data, label }) {
       </div>
     );
   }
+  const total = data.reduce((s, d) => s + Number(d.value || 0), 0);
   return (
     <div className="flex flex-col lg:flex-row items-center lg:items-start gap-6">
-      <div className="w-full max-w-[280px] h-[280px] relative">
-        <ChartPie data={data} donut={data.length > 1} height={280} />
+      <div className="w-full max-w-[260px] h-[260px] relative">
+        <ChartPie data={data} donut={data.length > 1} height={260} />
       </div>
-      <div className="flex-1 w-full pr-2">
-        <div className="text-xs space-y-2">
+      <div className="flex-1 w-full min-w-0">
+        <div className="space-y-1.5">
           {label ? (
-            <div className="font-bold text-slate-700 mb-2 pb-1 border-b border-slate-100">
+            <div className="text-xs font-bold text-slate-700 mb-2 pb-1.5 border-b border-slate-100 uppercase tracking-wider">
               {label}
             </div>
           ) : null}
           {data.map((d, idx) => {
-            const palette = [
-              "#6366f1",
-              "#22c55e",
-              "#ef4444",
-              "#f59e0b",
-              "#06b6d4",
-              "#a855f7",
-              "#0ea5e9",
-              "#84cc16",
-              "#fb7185",
-              "#f97316",
-            ];
-            const color = palette[idx % palette.length];
+            const color = PIE_PALETTE[idx % PIE_PALETTE.length];
+            const val = Number(d.value || 0);
+            const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
             return (
               <div
                 key={idx}
-                className="flex items-center gap-2 p-1 hover:bg-slate-50 rounded transition-colors"
+                className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-slate-50 rounded-md transition-all duration-150 cursor-default"
               >
-                <span
-                  className="inline-block w-3 h-3 rounded-full shadow-sm"
-                  style={{ backgroundColor: color }}
-                />
-                <span className="flex-1 text-slate-600 truncate">
+                <span className="inline-block w-3 h-3 rounded-full ring-1 ring-white/50"
+                      style={{ backgroundColor: color }} />
+                <span className="flex-1 text-xs font-medium text-slate-600 truncate">
                   {d.label}
                 </span>
-                <span className="font-bold text-slate-900">
-                  {Number(d.value || 0).toLocaleString()}
+                <span className="text-xs font-bold text-slate-800">
+                  {val.toLocaleString()}
+                </span>
+                <span className="text-xs font-semibold text-slate-400 min-w-[3.5rem] text-right">
+                  {pct}%
                 </span>
               </div>
             );
@@ -310,6 +344,8 @@ export default function PosDashboard() {
   const [hourlyToday, setHourlyToday] = useState([]);
   const [categoryShare, setCategoryShare] = useState([]);
   const [topItems, setTopItems] = useState([]);
+  const [profitByGroup, setProfitByGroup] = useState([]);
+  const [profitByItem, setProfitByItem] = useState([]);
   const [daysRange, setDaysRange] = useState(30);
   const todayStr = new Date().toISOString().slice(0, 10);
   const [startDate, setStartDate] = useState(todayStr);
@@ -338,6 +374,8 @@ export default function PosDashboard() {
       api.get("/pos/analytics/weekday-current-week"),
       api.get("/pos/analytics/hourly-today", { params: dateParams }),
       api.get("/pos/analytics/category-share", { params: dateParams }),
+      api.get("/pos/analytics/profit-by-group", { params: dateParams }),
+      api.get("/pos/analytics/profit-by-item", { params: dateParams }),
       api.get("/pos/reports/top-items", {
         params: { ...dateParams, limit: 10 },
       }),
@@ -352,6 +390,8 @@ export default function PosDashboard() {
           weekdayRes,
           hourlyRes,
           categoryRes,
+          profitRes,
+          profitItemRes,
           topRes,
         ]) => {
           if (!mounted) return;
@@ -381,6 +421,16 @@ export default function PosDashboard() {
           setCategoryShare(
             Array.isArray(categoryRes.data?.items)
               ? categoryRes.data.items
+              : [],
+          );
+          setProfitByGroup(
+            Array.isArray(profitRes.data?.items)
+              ? profitRes.data.items
+              : [],
+          );
+          setProfitByItem(
+            Array.isArray(profitItemRes.data?.items)
+              ? profitItemRes.data.items
               : [],
           );
           setTopItems(
@@ -786,11 +836,18 @@ export default function PosDashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="card shadow-sm border-slate-200/60">
-          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
-            <div className="font-bold text-slate-800">
-              Sales by Item Category
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60 flex items-center justify-between">
+            <div>
+              <div className="font-bold text-slate-800">
+                Sales by Item Category
+              </div>
+              <div className="text-[11px] text-slate-500">{dateLabel}</div>
             </div>
-            <div className="text-[11px] text-slate-500">{dateLabel}</div>
+            {pieData.length > 0 && (
+              <div className="text-xs font-bold text-slate-700">
+                Total: {fmtCurrency(pieData.reduce((s, d) => s + d.value, 0))}
+              </div>
+            )}
           </div>
           <div className="card-body overflow-x-auto p-4">
             <BarChart
@@ -858,6 +915,45 @@ export default function PosDashboard() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="card shadow-sm border-slate-200/60">
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
+            <div className="font-bold text-slate-800">
+              Top {Math.min(5, profitByGroup.length)} Profitable Groups
+            </div>
+            <div className="text-[11px] text-slate-500">{dateLabel}</div>
+          </div>
+          <div className="card-body overflow-x-auto p-4">
+            <BarChart
+              data={profitByGroup.slice(0, 5)}
+              xKey="item_group"
+              yKey="profit"
+              formatY={fmtCurrency}
+              colors={["#22c55e","#14b8a6","#6366f1","#f59e0b","#ef4444"]}
+              horizontal
+            />
+          </div>
+        </div>
+        <div className="card shadow-sm border-slate-200/60">
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
+            <div className="font-bold text-slate-800">
+              Top {Math.min(5, profitByItem.length)} Profitable Items
+            </div>
+            <div className="text-[11px] text-slate-500">{dateLabel}</div>
+          </div>
+          <div className="card-body overflow-x-auto p-4">
+            <BarChart
+              data={profitByItem.slice(0, 5)}
+              xKey="item"
+              yKey="profit"
+              formatY={fmtCurrency}
+              colors={["#6366f1","#f59e0b","#ef4444","#22c55e","#14b8a6"]}
+              horizontal
+            />
           </div>
         </div>
       </div>

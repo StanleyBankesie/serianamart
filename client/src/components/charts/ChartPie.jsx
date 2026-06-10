@@ -1,6 +1,12 @@
 import React, { useEffect, useRef } from "react";
 import { loadChartJs } from "@/lib/loadChartJs.js";
 
+const PALETTE = [
+  "#6366f1", "#22c55e", "#ef4444", "#f59e0b",
+  "#06b6d4", "#a855f7", "#0ea5e9", "#84cc16",
+  "#fb7185", "#f97316",
+];
+
 export default function ChartPie({ data, donut = false, colors = [], height = 320 }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
@@ -12,21 +18,7 @@ export default function ChartPie({ data, donut = false, colors = [], height = 32
         if (!mounted || !canvasRef.current) return;
         const labels = (data || []).map((d) => String(d.label || ""));
         const values = (data || []).map((d) => Number(d.value || 0));
-        const palette =
-          colors && colors.length
-            ? colors
-            : [
-                "#6366f1",
-                "#22c55e",
-                "#ef4444",
-                "#f59e0b",
-                "#06b6d4",
-                "#a855f7",
-                "#0ea5e9",
-                "#84cc16",
-                "#fb7185",
-                "#f97316",
-              ];
+        const palette = colors.length ? colors : PALETTE;
         if (chartRef.current) {
           chartRef.current.destroy();
           chartRef.current = null;
@@ -40,16 +32,35 @@ export default function ChartPie({ data, donut = false, colors = [], height = 32
               {
                 data: values,
                 backgroundColor: labels.map((_, i) => palette[i % palette.length]),
-                borderWidth: 1,
+                borderColor: "#fff",
+                borderWidth: 2,
+                hoverOffset: 8,
               },
             ],
           },
           options: {
             responsive: true,
             maintainAspectRatio: false,
+            cutout: donut ? "50%" : "0%",
             plugins: {
-              legend: { position: "right" },
-              tooltip: { enabled: true },
+              legend: { display: false },
+              tooltip: {
+                enabled: true,
+                backgroundColor: "#1e293b",
+                titleFont: { size: 13, weight: "600" },
+                bodyFont: { size: 12 },
+                padding: 10,
+                cornerRadius: 8,
+                displayColors: true,
+                callbacks: {
+                  label: function (ctx) {
+                    const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                    const val = Number(ctx.raw || 0);
+                    const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+                    return ` ${ctx.label}: ${val.toLocaleString()} (${pct}%)`;
+                  },
+                },
+              },
             },
           },
         });
@@ -65,7 +76,7 @@ export default function ChartPie({ data, donut = false, colors = [], height = 32
   }, [JSON.stringify(data), donut, colors.join("|")]);
 
   return (
-    <div style={{ height: `${height}px` }}>
+    <div className="flex items-center justify-center" style={{ height: `${height}px` }}>
       <canvas ref={canvasRef} />
     </div>
   );

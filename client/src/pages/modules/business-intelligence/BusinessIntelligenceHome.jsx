@@ -1,10 +1,10 @@
-import React from 'react';
-import { Route, Routes } from 'react-router-dom';
+import React from "react";
+import { Route, Routes } from "react-router-dom";
 
-import DashboardList from './dashboards/DashboardList.jsx';
-import DashboardForm from './dashboards/DashboardForm.jsx';
-import ModuleDashboard from '../../../components/ModuleDashboard.jsx';
-import { api } from '../../../api/client.js';
+import DashboardList from "./dashboards/DashboardList.jsx";
+import DashboardForm from "./dashboards/DashboardForm.jsx";
+import ModuleDashboard from "../../../components/ModuleDashboard.jsx";
+import { api } from "../../../api/client.js";
 
 function fmt(n) {
   if (n == null || Number.isNaN(Number(n))) return "—";
@@ -13,10 +13,38 @@ function fmt(n) {
 
 function BusinessIntelligenceLanding() {
   const [stats, setStats] = React.useState([
-    { rbac_key: 'active-dashboards', value: '—', label: 'Active Dashboards', change: 'Loading…', changeType: 'neutral', path: '/business-intelligence/dashboards' },
-    { rbac_key: 'sales-30d', value: '—', label: 'Sales (30d)', change: 'Loading…', changeType: 'neutral', path: '/business-intelligence/dashboards' },
-    { rbac_key: 'purchase-30d', value: '—', label: 'Purchases (30d)', change: 'Loading…', changeType: 'neutral', path: '/business-intelligence/dashboards' },
-    { rbac_key: 'overview', value: '—', label: 'Items / Employees', change: 'Loading…', changeType: 'neutral', path: '/business-intelligence/dashboards' },
+    {
+      rbac_key: "active-dashboards",
+      value: "—",
+      label: "Active Dashboards",
+      change: "Loading…",
+      changeType: "neutral",
+      path: "/business-intelligence/dashboards",
+    },
+    {
+      rbac_key: "sales-30d",
+      value: "—",
+      label: "Sales (30d)",
+      change: "Loading…",
+      changeType: "neutral",
+      path: "/business-intelligence/dashboards",
+    },
+    {
+      rbac_key: "purchase-30d",
+      value: "—",
+      label: "Purchases (30d)",
+      change: "Loading…",
+      changeType: "neutral",
+      path: "/business-intelligence/dashboards",
+    },
+    {
+      rbac_key: "overview",
+      value: "—",
+      label: "Items / Employees",
+      change: "Loading…",
+      changeType: "neutral",
+      path: "/business-intelligence/dashboards",
+    },
   ]);
 
   React.useEffect(() => {
@@ -24,7 +52,7 @@ function BusinessIntelligenceLanding() {
     let timer;
     async function load() {
       try {
-        const resp = await api.get('/bi/dashboard-stats');
+        const resp = await api.get("/bi/dashboard-stats");
         const d = resp?.data?.data;
         if (d && mounted) {
           setStats((prev) => {
@@ -59,19 +87,27 @@ function BusinessIntelligenceLanding() {
       } catch {}
     }
     load();
-    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
-      clearInterval(timer);
     };
   }, []);
 
   const sections = [
     {
-      title: 'Dashboards & Visualizations Builder',
+      title: "Dashboards & Visualizations Builder",
       features: [
-        { name: 'Dashboard Workspace', path: '/business-intelligence/dashboards', description: 'Interactive dashboard & visualization board', icon: '📊' },
-        { name: 'Create Custom Visualization', path: '/business-intelligence/dashboards/new', description: 'Build self-service dashboards and charts', icon: '➕' },
+        {
+          name: "Dashboard Workspace",
+          path: "/business-intelligence/dashboards",
+          description: "Interactive dashboard & visualization board",
+          icon: "📊",
+        },
+        {
+          name: "Create Custom Visualization",
+          path: "/business-intelligence/dashboards/new",
+          description: "Build self-service dashboards and charts",
+          icon: "➕",
+        },
       ],
     },
   ];
@@ -99,6 +135,16 @@ export default function BusinessIntelligenceHome() {
 }
 
 export const businessIntelligenceFeatures = [
-  { module_key: "business-intelligence", label: "Dashboard Workspace", path: "/business-intelligence/dashboards", type: "dashboard" },
-  { module_key: "business-intelligence", label: "New Dashboard", path: "/business-intelligence/dashboards/new", type: "dashboard" },
+  {
+    module_key: "business-intelligence",
+    label: "Dashboard Workspace",
+    path: "/business-intelligence/dashboards",
+    type: "dashboard",
+  },
+  {
+    module_key: "business-intelligence",
+    label: "New Dashboard",
+    path: "/business-intelligence/dashboards/new",
+    type: "dashboard",
+  },
 ];

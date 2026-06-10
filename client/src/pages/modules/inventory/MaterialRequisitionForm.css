@@ -113,3 +113,17 @@
     transform: rotate(360deg);
   }
 }
+
+@media (max-width: 639px) {
+  .item-card {
+    padding: 10px;
+    font-size: 13px;
+  }
+  .item-list-container {
+    max-height: 250px;
+  }
+  .custom-modal-content {
+    width: 95%;
+    border-radius: 6px;
+  }
+}

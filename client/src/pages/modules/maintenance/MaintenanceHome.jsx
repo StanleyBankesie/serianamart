@@ -91,10 +91,8 @@ function MaintenanceLanding() {
       } catch {}
     }
     load();
-    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
-      clearInterval(timer);
     };
   }, []);
 

@@ -9,7 +9,10 @@ import {
 } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext.jsx";
-import { getLastActivity, getInactivityTimeoutMs } from "../auth/authStorage.js";
+import {
+  getLastActivity,
+  getInactivityTimeoutMs,
+} from "../auth/authStorage.js";
 import { usePermission } from "../auth/PermissionContext.jsx";
 import { useTheme } from "../theme/ThemeContext.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
@@ -259,9 +262,33 @@ export default function AppShell() {
     }
     return false;
   });
+  const sidebarTouchStart = useRef(null);
+  const handleSidebarTouchStart = (e) => {
+    sidebarTouchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+  const handleSidebarTouchEnd = (e) => {
+    if (!sidebarTouchStart.current) return;
+    const dx = e.changedTouches[0].clientX - sidebarTouchStart.current.x;
+    const dy = e.changedTouches[0].clientY - sidebarTouchStart.current.y;
+    sidebarTouchStart.current = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) && dx < 0) {
+      setSidebarOpen(false);
+    }
+  };
+  useEffect(() => {
+    if (sidebarOpen && window.innerWidth < 768) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => { document.body.style.overflow = ""; };
+  }, [sidebarOpen]);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef(null);
-  const [contextModalOpen, setContextModalOpen] = useState(false);
+    const [contextModalOpen, setContextModalOpen] = useState(false);
+  useEffect(() => {
+    if (window.innerWidth < 768) setSidebarOpen(false);
+  }, [location.pathname]);
   const [lowStockPrompted, setLowStockPrompted] = useState(false);
   const [lowStockCount, setLowStockCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -615,11 +642,9 @@ export default function AppShell() {
     if (token && online) {
       checkLowStock();
       loadUnread();
-      pollTimer = setInterval(loadUnread, 60000);
     }
     return () => {
       cancelled = true;
-      if (pollTimer) clearInterval(pollTimer);
     };
   }, [scope?.companyId, scope?.branchId, lowStockPrompted, token, online]);
 
@@ -1348,16 +1373,18 @@ export default function AppShell() {
             type="button"
             aria-label="Close menu"
             onClick={() => setSidebarOpen(false)}
-            className="fixed inset-0 z-40 bg-black/40 md:hidden"
+            className="fixed inset-0 z-40 bg-black/40 md:hidden transition-opacity duration-300 animate-in fade-in"
           />
         )}
 
         <aside
+          onTouchStart={handleSidebarTouchStart}
+          onTouchEnd={handleSidebarTouchEnd}
           className={
-            "border-b md:border-b-0 md:border-r border-slate-800 dark:border-slate-800 p-5 md:sticky md:top-[45px] md:h-[calc(100vh-45px)] bg-brand-950 dark:bg-slate-950 shadow-lg overflow-y-auto no-scrollbar z-40 " +
+            "md:sticky md:top-[45px] md:h-[calc(100vh-45px)] border-b md:border-b-0 md:border-r border-slate-800 dark:border-slate-800 p-5 bg-brand-950 dark:bg-slate-950 shadow-lg overflow-y-auto no-scrollbar z-40 transition-all duration-300 ease-in-out " +
             (sidebarOpen
-              ? "fixed md:static inset-y-0 left-0 w-[280px] top-[45px]"
-              : "hidden")
+              ? "fixed inset-y-0 left-0 w-[280px] top-[45px] translate-x-0 md:static md:translate-x-0"
+              : "fixed inset-y-0 left-0 w-[280px] top-[45px] -translate-x-full md:static md:translate-x-0 md:hidden")
           }
         >
           <nav className="space-y-1 pb-6">

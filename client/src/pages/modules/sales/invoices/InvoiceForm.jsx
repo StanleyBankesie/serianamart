@@ -459,6 +459,17 @@ export default function InvoiceForm() {
       setTaxComponentsByCode((prev) => ({ ...prev, [key]: items }));
     } catch {}
   };
+  const ensureTaxComponentsLoaded = async () => {
+    const uniqueTaxIds = Array.from(
+      new Set(
+        lines.map((i) => i.tax_type).filter((id) => id && id !== "undefined"),
+      ),
+    );
+    const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
+    if (missing.length) {
+      await Promise.all(missing.map((id) => fetchTaxComponentsForCode(id)));
+    }
+  };
   const calcTaxComponentsTotals = () => {
     const sub = lines.reduce((s, i) => s + (i.net || 0), 0);
     const compTotals = {};

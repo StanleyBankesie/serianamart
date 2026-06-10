@@ -92,10 +92,8 @@ function ServiceManagementLanding() {
       } catch {}
     }
     load();
-    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
-      clearInterval(timer);
     };
   }, []);
 
@@ -276,21 +274,36 @@ export default function ServiceManagementHome() {
       />
       <Route path="service-bills" element={<ServiceBillsList />} />
       <Route path="setup" element={<ServiceParametersPage />} />
-      <Route path="visitors-log" element={
-        <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-          {React.createElement(React.lazy(() => import("./visitors-log/VisitorsLogList.jsx")))}
-        </React.Suspense>
-      } />
-      <Route path="visitors-log/new" element={
-        <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-          {React.createElement(React.lazy(() => import("./visitors-log/VisitorLogForm.jsx")))}
-        </React.Suspense>
-      } />
-      <Route path="visitors-log/:id/edit" element={
-        <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-          {React.createElement(React.lazy(() => import("./visitors-log/VisitorLogForm.jsx")))}
-        </React.Suspense>
-      } />
+      <Route
+        path="visitors-log"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(() => import("./visitors-log/VisitorsLogList.jsx")),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="visitors-log/new"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(() => import("./visitors-log/VisitorLogForm.jsx")),
+            )}
+          </React.Suspense>
+        }
+      />
+      <Route
+        path="visitors-log/:id/edit"
+        element={
+          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+            {React.createElement(
+              React.lazy(() => import("./visitors-log/VisitorLogForm.jsx")),
+            )}
+          </React.Suspense>
+        }
+      />
       <Route
         path="reports/service-request-summary"
         element={
@@ -424,9 +437,7 @@ export default function ServiceManagementHome() {
         element={
           <React.Suspense fallback={<div className="p-4">Loading...</div>}>
             {React.createElement(
-              React.lazy(
-                () => import("./reports/VisitorsLogReport.jsx"),
-              ),
+              React.lazy(() => import("./reports/VisitorsLogReport.jsx")),
             )}
           </React.Suspense>
         }

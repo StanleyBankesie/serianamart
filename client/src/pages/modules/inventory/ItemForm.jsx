@@ -473,8 +473,8 @@ export default function ItemForm() {
                         <option
                           key={t.id || t.type_code || t.type_name}
                           value={
-                            t.type_name ||
                             t.type_code ||
+                            t.type_name ||
                             t.code ||
                             t.item_type ||
                             ""

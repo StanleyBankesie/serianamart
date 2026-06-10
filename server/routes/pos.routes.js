@@ -1792,6 +1792,106 @@ router.get(
   },
 );
 router.get(
+  "/analytics/profit-by-group",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      const params = { companyId, branchId };
+      let dateCond = "DATE(p.sale_datetime) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        dateCond = "DATE(p.sale_datetime) BETWEEN :startDate AND :endDate";
+      }
+      const items = await query(
+        `
+        SELECT
+          c.category_name AS item_group,
+          COALESCE(SUM(l.unit_price * l.qty), 0) AS revenue,
+          COALESCE(SUM(i.cost_price * l.qty), 0) AS total_cost,
+          COALESCE(SUM(l.unit_price * l.qty - i.cost_price * l.qty), 0) AS profit
+         FROM pos_sale_lines l
+        JOIN pos_sales p ON p.id = l.sale_id
+        JOIN inv_items i ON i.id = l.item_id AND i.company_id = p.company_id
+        JOIN inv_item_categories c ON c.id = i.category_id AND c.company_id = p.company_id
+         WHERE p.company_id = :companyId
+           AND p.branch_id = :branchId
+           AND p.status = 'COMPLETED'
+           AND ${dateCond}
+        GROUP BY c.category_name
+        ORDER BY profit DESC
+        `,
+        params,
+      );
+      const result = (Array.isArray(items) ? items : []).map((r) => ({
+        ...r,
+        revenue: Number(r.revenue || 0),
+        total_cost: Number(r.total_cost || 0),
+        profit: Number(r.profit || 0),
+        margin_pct: Number(r.revenue) > 0 ? (Number(r.profit) / Number(r.revenue)) * 100 : 0,
+      }));
+      res.json({ items: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.get(
+  "/analytics/profit-by-item",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      const params = { companyId, branchId };
+      let dateCond = "DATE(p.sale_datetime) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
+      if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        dateCond = "DATE(p.sale_datetime) BETWEEN :startDate AND :endDate";
+      }
+      const items = await query(
+        `
+        SELECT
+          COALESCE(l.item_name, i.item_name, 'Unknown') AS item,
+          COALESCE(SUM(l.unit_price * l.qty), 0) AS revenue,
+          COALESCE(SUM(i.cost_price * l.qty), 0) AS total_cost,
+          COALESCE(SUM(l.unit_price * l.qty - i.cost_price * l.qty), 0) AS profit
+         FROM pos_sale_lines l
+        JOIN pos_sales p ON p.id = l.sale_id
+        JOIN inv_items i ON i.id = l.item_id AND i.company_id = p.company_id
+         WHERE p.company_id = :companyId
+           AND p.branch_id = :branchId
+           AND p.status = 'COMPLETED'
+           AND ${dateCond}
+        GROUP BY COALESCE(l.item_name, i.item_name, 'Unknown')
+        ORDER BY profit DESC
+        `,
+        params,
+      );
+      const result = (Array.isArray(items) ? items : []).map((r) => ({
+        ...r,
+        revenue: Number(r.revenue || 0),
+        total_cost: Number(r.total_cost || 0),
+        profit: Number(r.profit || 0),
+        margin_pct: Number(r.revenue) > 0 ? (Number(r.profit) / Number(r.revenue)) * 100 : 0,
+      }));
+      res.json({ items: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
   "/reports/daily-sales",
   requireAuth,
   requireCompanyScope,

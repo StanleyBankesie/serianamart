@@ -69,7 +69,9 @@ export default function SystemLogBookPage() {
       const data = res.data?.items || [];
       setItems(data);
       // Collect unique module names from results
-      const mods = [...new Set(data.map((r) => r.module_name).filter(Boolean))].sort();
+      const mods = [
+        ...new Set(data.map((r) => r.module_name).filter(Boolean)),
+      ].sort();
       setModuleOptions(mods);
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to load report");
@@ -110,10 +112,8 @@ export default function SystemLogBookPage() {
       }
     }
     loadStatus();
-    t = setInterval(loadStatus, 15000);
     return () => {
       cancelled = true;
-      if (t) clearInterval(t);
     };
   }, []);
 
@@ -248,7 +248,9 @@ export default function SystemLogBookPage() {
               >
                 <option value="">All Modules</option>
                 {moduleOptions.map((m) => (
-                  <option key={m} value={m}>{m}</option>
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
                 ))}
               </select>
             </div>

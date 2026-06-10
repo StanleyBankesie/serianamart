@@ -35,9 +35,10 @@
 }
 
 @layer components {
-  /* ERP Button Styles */
+  /* ── ERP Button Styles ─────────────────────────────── */
   .btn-primary {
     @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium text-white bg-brand-600 hover:bg-brand-700 active:bg-brand-800 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed;
+    min-height: 38px;
   }
   .btn-primary:focus-visible {
     @apply outline-none ring-2 ring-brand-500/40 ring-offset-2 ring-offset-white dark:ring-offset-slate-800;
@@ -45,6 +46,7 @@
 
   .btn-secondary {
     @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-600 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed;
+    min-height: 38px;
   }
   .btn-secondary:focus-visible {
     @apply outline-none ring-2 ring-brand-500/30 ring-offset-2 ring-offset-white dark:ring-offset-slate-800;
@@ -52,6 +54,7 @@
 
   .btn-outline {
     @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium text-brand-600 dark:text-brand-400 border border-brand-600 dark:border-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+    min-height: 38px;
   }
   .btn-outline:focus-visible {
     @apply outline-none ring-2 ring-brand-500/40 ring-offset-2 ring-offset-white dark:ring-offset-slate-800;
@@ -60,6 +63,7 @@
   .btn-success {
     @apply inline-flex items-center justify-center font-medium text-white rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
     padding: 0.5rem 1rem;
+    min-height: 38px;
     background-color: var(--success-color);
   }
   .btn-success:hover:not(:disabled) {
@@ -72,7 +76,21 @@
     @apply outline-none ring-2 ring-brand-500/30 ring-offset-2 ring-offset-white dark:ring-offset-slate-800;
   }
 
-  /* ERP Card Styles */
+  /* ── Button size variants ──────────────────────────── */
+  .btn-sm {
+    padding: 0.375rem 0.75rem;
+    min-height: 32px;
+    font-size: 0.8125rem;
+    border-radius: 0.5rem;
+  }
+  .btn-xs {
+    padding: 0.25rem 0.5rem;
+    min-height: 26px;
+    font-size: 0.75rem;
+    border-radius: 0.375rem;
+  }
+
+  /* ── ERP Card Styles ───────────────────────────────── */
   .card {
     @apply rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm;
   }
@@ -85,9 +103,13 @@
     @apply px-6 py-4;
   }
 
-  /* ERP Input Styles */
+  /* ── ERP Input Styles ──────────────────────────────── */
   .input {
     @apply  px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all shadow-sm;
+    min-height: 38px;
+  }
+  select.input {
+    min-height: 38px;
   }
 
   /* Login page input variant */
@@ -106,7 +128,16 @@
     @apply block text-sm font-medium mb-1.5 text-slate-700 dark:text-slate-300;
   }
 
-  /* ERP Table Styles */
+  /* ── Focus ring for all interactive elements ────────── */
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    @apply outline-none ring-2 ring-brand-500/40 ring-offset-2;
+  }
+
+  /* ── ERP Table Styles ──────────────────────────────── */
   .table {
     @apply w-full border-collapse;
   }
@@ -226,7 +257,7 @@
     @apply bg-slate-50;
   }
 
-  /* Approval column — same height/padding as “Forward for approval” */
+  /* Approval column — same height/padding as "Forward for approval" */
   .list-approval-forward-btn {
     @apply w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg text-white transition-colors whitespace-nowrap h-9 disabled:opacity-50 disabled:cursor-not-allowed;
     background-color: #0E3646;
@@ -371,56 +402,363 @@
 }
 
 @layer utilities {
-  @media (max-width: 767px) {
-    .grid-cols-2.md\:grid-cols-4,
-    .grid-cols-2.md\:grid-cols-5,
-    .grid-cols-2.md\:grid-cols-6 {
+  /* ═══════════════════════════════════════════════════════════════
+     MOBILE-FIRST RESPONSIVE OVERRIDES
+     ═══════════════════════════════════════════════════════════════ */
+
+  /* ── Responsive Table Container ─────────────────────────────── */
+  .table-responsive {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .table-responsive .table {
+    min-width: 600px;
+  }
+
+  /* ── Responsive Form Groups ─────────────────────────────────── */
+  .form-group-responsive {
+    display: grid;
+    gap: 1rem;
+  }
+
+  /* ── Stack action button groups vertically on mobile ────────── */
+  .action-group-responsive {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .action-group-responsive > * {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* ── Full-width block button for mobile ─────────────────────── */
+  .btn-block-mobile {
+    width: 100%;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     SMALL SCREENS  (max-width: 639px)
+     ═══════════════════════════════════════════════════════════════ */
+  @media (max-width: 639px) {
+    /* -- All tables auto-scroll on mobile -- */
+    table:not(.no-mobile-scroll) {
+      display: block;
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* -- Ant Design: full-screen modals on mobile -- */
+    .ant-modal-wrap {
+      padding: 0 !important;
+    }
+    .ant-select-dropdown {
+      max-width: calc(100vw - 16px) !important;
+    }
+    .ant-picker-panel-container {
+      max-width: calc(100vw - 16px) !important;
+    }
+
+    /* -- Buttons: full-width stack -- */
+    .btn-primary,
+    .btn-secondary,
+    .btn-outline,
+    .btn-success {
+      width: 100%;
+      justify-content: center;
+    }
+    button.btn-primary,
+    button.btn-secondary,
+    button.btn-outline,
+    button.btn-success,
+    a.btn-primary,
+    a.btn-secondary,
+    a.btn-outline,
+    a.btn-success {
+      width: 100%;
+    }
+
+    /* -- Button groups: stack vertically -- */
+    .flex.gap-2,
+    .flex.gap-3,
+    .flex.gap-4 {
+      flex-wrap: wrap;
+    }
+    .flex.gap-2 > .btn-primary,
+    .flex.gap-2 > .btn-secondary,
+    .flex.gap-2 > .btn-outline,
+    .flex.gap-2 > .btn-success,
+    .flex.gap-3 > .btn-primary,
+    .flex.gap-3 > .btn-secondary,
+    .flex.gap-3 > .btn-outline,
+    .flex.gap-3 > .btn-success,
+    .flex.gap-4 > .btn-primary,
+    .flex.gap-4 > .btn-secondary,
+    .flex.gap-4 > .btn-outline,
+    .flex.gap-4 > .btn-success {
+      flex: 1 1 100%;
+    }
+
+    /* -- Keep icon-only buttons compact -- */
+    button.p-2,
+    button.\!p-2,
+    button:has(> svg:only-child) {
+      width: auto !important;
+      flex: 0 0 auto !important;
+    }
+
+    /* -- Tables: compact -- */
+    .table th {
+      padding: 0.5rem 0.5rem;
+      font-size: 0.65rem;
+    }
+    .table td {
+      padding: 0.5rem 0.5rem;
+      font-size: 0.75rem;
+    }
+    .table td:last-child,
+    .table td:has(> .user-action-buttons),
+    .table td:has(> .ds-action-buttons),
+    .table td:has(> .flex > .btn),
+    .table td:has(> .flex > a),
+    .table td:has(> .btn),
+    .table td:has(> a.btn) {
+      min-width: auto;
+    }
+    .table td:last-child > .flex,
+    .table td:last-child > div.flex,
+    .table td > .user-action-buttons,
+    .table td > .ds-action-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem;
+    }
+    .table td:last-child > .flex > *,
+    .table td > .user-action-buttons > *,
+    .table td > .ds-action-buttons > * {
+      flex: 1 1 auto;
+      min-width: 3.5rem;
+      font-size: 0.7rem;
+      padding: 0.25rem 0.5rem;
+    }
+
+    /* -- Cards: reduced padding -- */
+    .card {
+      width: 100%;
+      margin-left: 0;
+      margin-right: 0;
+      border-radius: 0.75rem;
+    }
+    .card-header {
+      padding: 0.75rem 1rem;
+    }
+    .card-body {
+      padding: 0.75rem 1rem;
+    }
+
+    /* -- Form elements: larger touch targets -- */
+    .input {
+      min-height: 44px;
+      font-size: 16px;
+    }
+    select.input {
+      min-height: 44px;
+      font-size: 16px;
+    }
+    .label {
+      font-size: 0.8125rem;
+    }
+
+    /* -- Badges: compact -- */
+    .badge {
+      font-size: 0.65rem;
+      padding: 0.2rem 0.5rem;
+    }
+
+    /* -- Modal/dialog responsive -- */
+    .ant-modal {
+      max-width: 100vw !important;
+      margin: 0 !important;
+      top: 0 !important;
+    }
+    .ant-modal-content {
+      border-radius: 0 !important;
+      min-height: 100vh;
+    }
+    .ant-modal-header {
+      padding: 1rem;
+    }
+    .ant-modal-body {
+      padding: 1rem;
+    }
+
+    /* -- Typography scale-down -- */
+    h1 { font-size: 1.375rem !important; }
+    h2 { font-size: 1.125rem !important; }
+    h3 { font-size: 1rem !important; }
+    h4 { font-size: 0.9375rem !important; }
+    .text-2xl { font-size: 1.375rem !important; }
+    .text-xl { font-size: 1.125rem !important; }
+    .text-lg { font-size: 1rem !important; }
+    .text-base { font-size: 0.9375rem !important; }
+    .text-sm { font-size: 0.8125rem !important; }
+    .text-xs { font-size: 0.7rem !important; }
+
+    /* -- Sidebar/spacing adjustments -- */
+    .p-6 { padding: 1rem !important; }
+    .p-4 { padding: 0.75rem !important; }
+    .gap-6 { gap: 1rem !important; }
+    .gap-4 { gap: 0.75rem !important; }
+
+    /* -- Grid: force single column -- */
+    .grid.grid-cols-2,
+    .grid.grid-cols-3,
+    .grid.grid-cols-4,
+    .grid.grid-cols-5,
+    .grid.grid-cols-6,
+    div.grid.grid-cols-2,
+    div.grid.grid-cols-3,
+    div.grid.grid-cols-4,
+    div.grid.grid-cols-5,
+    div.grid.grid-cols-6 {
       grid-template-columns: repeat(1, minmax(0, 1fr));
     }
 
-    .card {
-      @apply max-w-none;
-      width: calc(100% + 24px);
-      margin-left: -12px;
-      margin-right: -12px;
+    /* -- Filters/header bars: stack -- */
+    .flex.items-center.gap-2,
+    .flex.items-center.gap-3,
+    .flex.items-center.gap-4,
+    .flex.justify-between.items-center {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .flex.justify-between.items-center > * {
+      width: 100%;
     }
 
-    .card-header {
-      @apply px-4 py-3;
+    /* -- Nav tabs / inline filters: scroll horizontally -- */
+    .flex.space-x-2,
+    .flex.space-x-3,
+    .flex.space-x-4,
+    div:has(> .btn-primary + .btn-secondary):not(.table *) {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      flex-wrap: nowrap;
+      white-space: nowrap;
+      padding-bottom: 0.25rem;
     }
 
-    .card-body {
-      @apply px-4 py-3;
+    /* -- Ensure content never overflows viewport -- */
+    body, #root, .app-content {
+      overflow-x: hidden;
     }
 
-    .fullbleed-sm {
-      @apply max-w-none;
-      width: calc(100% + 24px);
-      margin-left: -12px;
-      margin-right: -12px;
+    /* -- List page action bars: stack -- */
+    .flex.justify-between.items-center.mb-4,
+    .flex.justify-between.items-center.mb-6,
+    .flex.justify-between.items-center.mb-3 {
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .flex.justify-between.items-center.mb-4 > div,
+    .flex.justify-between.items-center.mb-6 > div,
+    .flex.justify-between.items-center.mb-3 > div {
+      width: 100%;
+    }
+
+    /* -- Search/filter inputs in list pages: full width -- */
+    input[type="text"],
+    input[type="search"],
+    input[type="date"],
+    input[type="number"],
+    select,
+    textarea {
+      max-width: 100%;
+    }
+
+    /* -- Tab panels: compact -- */
+    .ant-tabs-nav {
+      margin-bottom: 0.5rem !important;
+    }
+    .ant-tabs-tab {
+      padding: 0.5rem 0.75rem !important;
+      font-size: 0.8125rem !important;
+    }
+
+    /* -- Page title area: compact -- */
+    .page-header {
+      padding: 0.75rem 1rem;
+    }
+    .page-header h1 {
+      font-size: 1.25rem;
+    }
+
+    /* -- Sidebar menu items: larger touch targets -- */
+    nav a, nav button, .sidebar-link {
+      min-height: 44px;
+      padding: 0.625rem 0.75rem;
     }
   }
 
-  @media (min-width: 768px) and (max-width: 1023px) {
-    .md\:grid-cols-4,
-    .md\:grid-cols-5 {
-      grid-template-columns: repeat(1, minmax(0, 1fr));
+  /* ═══════════════════════════════════════════════════════════════
+     MEDIUM SCREENS  (640px – 1023px)
+     ═══════════════════════════════════════════════════════════════ */
+  @media (min-width: 640px) and (max-width: 1023px) {
+    /* -- Keep buttons inline but ensure min touch target -- */
+    .btn-primary,
+    .btn-secondary,
+    .btn-outline,
+    .btn-success {
+      min-height: 40px;
     }
 
-    .md\:grid-cols-6 {
+    /* -- Tables: compact -- */
+    .table th {
+      padding: 0.5rem 0.75rem;
+    }
+    .table td {
+      padding: 0.5rem 0.75rem;
+    }
+
+    /* -- Cards: moderate padding -- */
+    .card-header {
+      padding: 0.75rem 1.25rem;
+    }
+    .card-body {
+      padding: 0.75rem 1.25rem;
+    }
+
+    /* -- Grid: 2 columns for 4+ col grids -- */
+    .grid.grid-cols-4,
+    .grid.grid-cols-5,
+    .grid.grid-cols-6 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .grid.grid-cols-3 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .card {
-      @apply w-full max-w-none;
-    }
+    /* -- Typography: slight scale-down -- */
+    .text-2xl { font-size: 1.5rem !important; }
+    .text-xl { font-size: 1.25rem !important; }
+    h1 { font-size: 1.5rem !important; }
+    h2 { font-size: 1.25rem !important; }
+  }
 
-    .card-header {
-      @apply px-5;
-    }
-
-    .card-body {
-      @apply px-5;
+  /* ═══════════════════════════════════════════════════════════════
+     LARGE SCREENS  (1024px+)
+     ═══════════════════════════════════════════════════════════════ */
+  @media (min-width: 1024px) {
+    /* -- Button groups: prevent stretching -- */
+    .flex.gap-2 > .btn-primary,
+    .flex.gap-2 > .btn-secondary,
+    .flex.gap-2 > .btn-outline,
+    .flex.gap-2 > .btn-success {
+      width: auto;
     }
   }
 }

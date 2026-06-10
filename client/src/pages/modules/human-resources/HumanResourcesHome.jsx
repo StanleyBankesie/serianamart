@@ -132,9 +132,10 @@ function HRDashboard() {
             next[3] = {
               ...next[3],
               value: String(d.payrollStatus ?? "—"),
-              change: d.payrollStatus === "None"
-                ? "No active period"
-                : `Period: ${d.payrollStatus}`,
+              change:
+                d.payrollStatus === "None"
+                  ? "No active period"
+                  : `Period: ${d.payrollStatus}`,
               changeType:
                 d.payrollStatus === "CLOSED"
                   ? "positive"
@@ -148,10 +149,8 @@ function HRDashboard() {
       } catch {}
     }
     load();
-    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
-      clearInterval(timer);
     };
   }, []);
 

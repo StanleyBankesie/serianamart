@@ -73,9 +73,7 @@ export default function FinanceHome() {
             next[2] = {
               ...next[2],
               value: String(d.pendingVouchers ?? "—"),
-              change: d.pendingVouchers > 0
-                ? "Awaiting posting"
-                : "All posted",
+              change: d.pendingVouchers > 0 ? "Awaiting posting" : "All posted",
               changeType: d.pendingVouchers > 0 ? "warning" : "positive",
             };
             next[3] = {
@@ -90,10 +88,8 @@ export default function FinanceHome() {
       } catch {}
     }
     load();
-    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
-      clearInterval(timer);
     };
   }, []);
 

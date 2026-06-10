@@ -47,7 +47,7 @@ function ProductionHomeIndex() {
       change: "Execution",
       icon: "📋",
       path: "/production/work-orders",
-      color: "from-blue-600 to-blue-700"
+      color: "from-blue-600 to-blue-700",
     },
     {
       label: "Open Job Cards",
@@ -55,7 +55,7 @@ function ProductionHomeIndex() {
       change: "Shop Floor",
       icon: "🏷️",
       path: "/production/execution/job-cards",
-      color: "from-indigo-600 to-indigo-700"
+      color: "from-indigo-600 to-indigo-700",
     },
     {
       label: "Pending Requisitions",
@@ -63,7 +63,7 @@ function ProductionHomeIndex() {
       change: "Materials",
       icon: "📝",
       path: "/production/execution/material-requisition",
-      color: "from-amber-600 to-amber-700"
+      color: "from-amber-600 to-amber-700",
     },
     {
       label: "BOM Master Records",
@@ -71,8 +71,8 @@ function ProductionHomeIndex() {
       change: "Masters",
       icon: "📜",
       path: "/production/boms",
-      color: "from-emerald-600 to-emerald-700"
-    }
+      color: "from-emerald-600 to-emerald-700",
+    },
   ]);
 
   useEffect(() => {
@@ -83,11 +83,14 @@ function ProductionHomeIndex() {
         const res = await api.get("/production/dashboard/stats");
         const d = res.data;
         if (mounted) {
-          setStats(prev => {
+          setStats((prev) => {
             const next = [...prev];
             next[0] = { ...next[0], value: String(d.activeOrders ?? "—") };
             next[1] = { ...next[1], value: String(d.jobCards ?? "—") };
-            next[2] = { ...next[2], value: String(d.pendingRequisitions ?? "—") };
+            next[2] = {
+              ...next[2],
+              value: String(d.pendingRequisitions ?? "—"),
+            };
             next[3] = { ...next[3], value: String(d.boms ?? "—") };
             return next;
           });
@@ -95,10 +98,8 @@ function ProductionHomeIndex() {
       } catch {}
     }
     load();
-    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
-      clearInterval(timer);
     };
   }, []);
 
@@ -109,28 +110,32 @@ function ProductionHomeIndex() {
         {
           name: "Bill of Materials (BOM)",
           path: "/production/boms",
-          description: "Define multi-level product recipes, assembly structures, and scrap factors",
+          description:
+            "Define multi-level product recipes, assembly structures, and scrap factors",
           icon: "📜",
         },
         {
           name: "Routing & Operations",
           path: "/production/routings",
-          description: "Standardize process sequences and detailed operation instructions",
+          description:
+            "Standardize process sequences and detailed operation instructions",
           icon: "🔄",
         },
         {
           name: "Work Centers & Machines",
           path: "/production/setup/machines",
-          description: "Register factory assets, production lines, and monitor equipment status",
+          description:
+            "Register factory assets, production lines, and monitor equipment status",
           icon: "⚙️",
         },
         {
           name: "Manufacturing Setup",
           path: "/production/setup",
-          description: "Global manufacturing parameters, processes, and shift configurations",
+          description:
+            "Global manufacturing parameters, processes, and shift configurations",
           icon: "🛠️",
-        }
-      ]
+        },
+      ],
     },
     {
       title: "Planning & Control",
@@ -138,22 +143,25 @@ function ProductionHomeIndex() {
         {
           name: "Work Orders",
           path: "/production/work-orders",
-          description: "Generate and track manufacturing orders through the entire lifecycle",
+          description:
+            "Generate and track manufacturing orders through the entire lifecycle",
           icon: "📋",
         },
         {
           name: "Daily Production Plan",
           path: "/production/planning/daily",
-          description: "Manage daily manufacturing targets and shop floor schedules",
+          description:
+            "Manage daily manufacturing targets and shop floor schedules",
           icon: "📅",
         },
         {
           name: "Production Timeline",
           path: "/production/planning/schedule",
-          description: "Visual scheduling and resource allocation for production runs",
+          description:
+            "Visual scheduling and resource allocation for production runs",
           icon: "⏳",
-        }
-      ]
+        },
+      ],
     },
     {
       title: "Shop Floor Execution",
@@ -161,28 +169,32 @@ function ProductionHomeIndex() {
         {
           name: "Job Cards Execution",
           path: "/production/execution/job-cards",
-          description: "Real-time labor tracking and progress monitoring by work center",
+          description:
+            "Real-time labor tracking and progress monitoring by work center",
           icon: "🏷️",
         },
         {
           name: "Material Requisition",
           path: "/production/execution/material-requisition",
-          description: "Request raw materials from warehouse based on production demand",
+          description:
+            "Request raw materials from warehouse based on production demand",
           icon: "📝",
         },
         {
           name: "Finished Goods Receipt",
           path: "/production/execution/material-receipt",
-          description: "Record production output and move finished items to inventory",
+          description:
+            "Record production output and move finished items to inventory",
           icon: "📥",
         },
         {
           name: "Production Transfers",
           path: "/production/execution/transfer",
-          description: "Internal movement of WIP materials between production zones",
+          description:
+            "Internal movement of WIP materials between production zones",
           icon: "🚚",
-        }
-      ]
+        },
+      ],
     },
     {
       title: "Inventory & Journaling",
@@ -190,22 +202,25 @@ function ProductionHomeIndex() {
         {
           name: "Stock Journal",
           path: "/production/inventory/journal",
-          description: "Adjust stock levels for production waste, scrap, or consumption",
+          description:
+            "Adjust stock levels for production waste, scrap, or consumption",
           icon: "📒",
         },
         {
           name: "Quality Inspections",
           path: "/production/execution/quality",
-          description: "Implement rigorous quality control checks for materials and products",
+          description:
+            "Implement rigorous quality control checks for materials and products",
           icon: "🛡️",
         },
         {
           name: "Inventory Reconciliation",
           path: "/production/inventory/updation",
-          description: "Verify and update production floor physical stock levels",
+          description:
+            "Verify and update production floor physical stock levels",
           icon: "🧮",
-        }
-      ]
+        },
+      ],
     },
     {
       title: "Intelligence & Analytics",
@@ -225,11 +240,12 @@ function ProductionHomeIndex() {
         {
           name: "Variance Reports",
           path: "/production/reports/variance",
-          description: "Track differences between estimated and actual material usage",
+          description:
+            "Track differences between estimated and actual material usage",
           icon: "📉",
-        }
-      ]
-    }
+        },
+      ],
+    },
   ];
 
   return (
@@ -250,9 +266,17 @@ function ProductionPlaceholder({ title }) {
       <div className="w-20 h-20 bg-indigo-50 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-6">
         <span className="text-3xl">🏗️</span>
       </div>
-      <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">{title}</h1>
-      <p className="text-slate-500 dark:text-slate-400 mb-6">This module is currently being initialized. Full industrial-grade features for this section are coming online.</p>
-      <Link to="/production" className="inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all">
+      <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
+        {title}
+      </h1>
+      <p className="text-slate-500 dark:text-slate-400 mb-6">
+        This module is currently being initialized. Full industrial-grade
+        features for this section are coming online.
+      </p>
+      <Link
+        to="/production"
+        className="inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all"
+      >
         Return to Dashboard
       </Link>
     </div>
@@ -263,7 +287,7 @@ export default function ProductionHome() {
   return (
     <Routes>
       <Route index element={<ProductionHomeIndex />} />
-      
+
       {/* Existing Modules */}
       <Route path="boms" element={<BomList />} />
       <Route path="boms/new" element={<BomForm />} />
@@ -276,7 +300,10 @@ export default function ProductionHome() {
       <Route path="planning/daily" element={<DailyPlanList />} />
       <Route path="planning/daily/new" element={<DailyPlanForm />} />
       <Route path="planning/daily/edit/:id" element={<DailyPlanForm />} />
-      <Route path="planning/schedule" element={<ProductionPlaceholder title="Production Schedule" />} />
+      <Route
+        path="planning/schedule"
+        element={<ProductionPlaceholder title="Production Schedule" />}
+      />
       <Route path="routings" element={<RoutingList />} />
       <Route path="routings/new" element={<RoutingForm />} />
       <Route path="routings/edit/:id" element={<RoutingForm />} />
@@ -284,25 +311,55 @@ export default function ProductionHome() {
       {/* New Execution Routes */}
       <Route path="execution/job-cards" element={<JobCardList />} />
       <Route path="execution/job-cards/:id" element={<JobCardExecution />} />
-      <Route path="execution/material-receipt" element={<MaterialReceiptList />} />
-      <Route path="execution/material-receipt/new" element={<MaterialReceiptForm />} />
-      <Route path="execution/material-requisition" element={<MaterialRequisitionList />} />
-      <Route path="execution/material-requisition/new" element={<MaterialRequisitionForm />} />
+      <Route
+        path="execution/material-receipt"
+        element={<MaterialReceiptList />}
+      />
+      <Route
+        path="execution/material-receipt/new"
+        element={<MaterialReceiptForm />}
+      />
+      <Route
+        path="execution/material-requisition"
+        element={<MaterialRequisitionList />}
+      />
+      <Route
+        path="execution/material-requisition/new"
+        element={<MaterialRequisitionForm />}
+      />
       <Route path="execution/transfer" element={<ProductionTransferList />} />
-      <Route path="execution/transfer/new" element={<ProductionTransferForm />} />
-      <Route path="execution/quality" element={<ProductionPlaceholder title="Quality Inspections" />} />
+      <Route
+        path="execution/transfer/new"
+        element={<ProductionTransferForm />}
+      />
+      <Route
+        path="execution/quality"
+        element={<ProductionPlaceholder title="Quality Inspections" />}
+      />
 
       {/* Reports Routes */}
       <Route path="reports" element={<ProductionReports />} />
       <Route path="reports/efficiency" element={<EfficiencyReport />} />
-      <Route path="reports/variance" element={<ProductionPlaceholder title="Material Usage Variance" />} />
-      <Route path="reports/bom-explosion" element={<ProductionPlaceholder title="BOM Explosion Analysis" />} />
-      <Route path="reports/machines" element={<ProductionPlaceholder title="Machine Utilization" />} />
+      <Route
+        path="reports/variance"
+        element={<ProductionPlaceholder title="Material Usage Variance" />}
+      />
+      <Route
+        path="reports/bom-explosion"
+        element={<ProductionPlaceholder title="BOM Explosion Analysis" />}
+      />
+      <Route
+        path="reports/machines"
+        element={<ProductionPlaceholder title="Machine Utilization" />}
+      />
 
       {/* New Inventory & Setup Routes */}
       <Route path="inventory/journal" element={<StockJournalList />} />
       <Route path="inventory/journal/new" element={<StockJournalForm />} />
-      <Route path="inventory/updation" element={<ProductionPlaceholder title="Inventory Updation" />} />
+      <Route
+        path="inventory/updation"
+        element={<ProductionPlaceholder title="Inventory Updation" />}
+      />
       <Route path="setup" element={<ProductionSetup />} />
       <Route path="setup/processes" element={<ProcessList />} />
       <Route path="setup/machines" element={<MachineList />} />
@@ -319,13 +376,13 @@ export const productionFeatures = [
     label: "Work Orders",
     path: "/production/work-orders",
     type: "feature",
-    icon: "📋"
+    icon: "📋",
   },
   {
     module_key: "production",
     label: "Bill of Materials",
     path: "/production/boms",
     type: "feature",
-    icon: "📜"
-  }
+    icon: "📜",
+  },
 ];

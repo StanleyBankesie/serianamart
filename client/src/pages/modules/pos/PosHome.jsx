@@ -157,9 +157,9 @@ function PosLanding() {
           icon: "📈",
         },
         {
-          name: "Customer History",
+          name: "Customer Accounts",
           path: "/pos/customer-history",
-          description: "View customer purchase history by date range",
+          description: "View customer transactions and balances",
           icon: "🕑",
         },
         {
@@ -254,5 +254,5 @@ export const posFeatures = [
   { module_key: "pos", label: "Sync Reconciliation", path: "/pos/reconciliation", type: "feature" },
   { module_key: "pos", label: "POS Reports", path: "/pos/reports", type: "dashboard" },
   { module_key: "pos", label: "Dashboard", path: "/pos/dashboard", type: "dashboard" },
-  { module_key: "pos", label: "Customer History", path: "/pos/customer-history", type: "dashboard" },
+  { module_key: "pos", label: "Customer Accounts", path: "/pos/customer-history", type: "dashboard" },
 ];

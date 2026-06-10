@@ -65,19 +65,37 @@ function ProjectManagementLanding() {
         const d = resp.data;
         if (mounted) {
           setStats((prev) => [
-            { ...prev[0], value: String(d.totalProjects ?? "—"), change: `${d.completedProjects ?? 0} completed`, changeType: "positive" },
-            { ...prev[1], value: String(d.activeTasks ?? "—"), change: `${d.completedTasks ?? 0} done`, changeType: d.activeTasks > 0 ? "warning" : "positive" },
-            { ...prev[2], value: `GHS ${Number(d.totalBudget || 0).toLocaleString()}`, change: `${d.totalExpenses ?? 0} spent`, changeType: "positive" },
-            { ...prev[3], value: `${Number(d.totalLoggedHours || 0).toFixed(1)}h`, change: `${d.totalDays ?? 0} days`, changeType: "positive" },
+            {
+              ...prev[0],
+              value: String(d.totalProjects ?? "—"),
+              change: `${d.completedProjects ?? 0} completed`,
+              changeType: "positive",
+            },
+            {
+              ...prev[1],
+              value: String(d.activeTasks ?? "—"),
+              change: `${d.completedTasks ?? 0} done`,
+              changeType: d.activeTasks > 0 ? "warning" : "positive",
+            },
+            {
+              ...prev[2],
+              value: `GHS ${Number(d.totalBudget || 0).toLocaleString()}`,
+              change: `${d.totalExpenses ?? 0} spent`,
+              changeType: "positive",
+            },
+            {
+              ...prev[3],
+              value: `${Number(d.totalLoggedHours || 0).toFixed(1)}h`,
+              change: `${d.totalDays ?? 0} days`,
+              changeType: "positive",
+            },
           ]);
         }
       } catch {}
     }
     load();
-    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
-      clearInterval(timer);
     };
   }, []);
 
@@ -186,7 +204,10 @@ export default function ProjectManagementHome() {
       <Route path="/projects/new" element={<ProjectForm />} />
       <Route path="/projects/:id/edit" element={<ProjectForm />} />
       <Route path="/projects/:id" element={<ProjectForm />} />
-      <Route path="/projects/:id/dashboard" element={<ProjectDetailDashboard />} />
+      <Route
+        path="/projects/:id/dashboard"
+        element={<ProjectDetailDashboard />}
+      />
 
       <Route path="/tasks" element={<TaskList />} />
       <Route path="/tasks/new" element={<TaskForm />} />
@@ -200,30 +221,104 @@ export default function ProjectManagementHome() {
 
       <Route path="/setup" element={<PMSetup />} />
 
-      <Route path="/material-requisitions" element={<PMMaterialRequisitionList />} />
-      <Route path="/material-requisitions/new" element={<PMMaterialRequisitionForm />} />
-      <Route path="/material-requisitions/:id" element={<PMMaterialRequisitionForm />} />
+      <Route
+        path="/material-requisitions"
+        element={<PMMaterialRequisitionList />}
+      />
+      <Route
+        path="/material-requisitions/new"
+        element={<PMMaterialRequisitionForm />}
+      />
+      <Route
+        path="/material-requisitions/:id"
+        element={<PMMaterialRequisitionForm />}
+      />
 
-      <Route path="/material-utilizations" element={<PMMaterialUtilizationList />} />
-      <Route path="/material-utilizations/new" element={<PMMaterialUtilizationForm />} />
-      <Route path="/material-utilizations/:id" element={<PMMaterialUtilizationForm />} />
+      <Route
+        path="/material-utilizations"
+        element={<PMMaterialUtilizationList />}
+      />
+      <Route
+        path="/material-utilizations/new"
+        element={<PMMaterialUtilizationForm />}
+      />
+      <Route
+        path="/material-utilizations/:id"
+        element={<PMMaterialUtilizationForm />}
+      />
 
       <Route path="/material-receipts" element={<PMMaterialReceiptList />} />
-      <Route path="/material-receipts/new" element={<PMMaterialReceiptForm />} />
-      <Route path="/material-receipts/:id" element={<PMMaterialReceiptForm />} />
+      <Route
+        path="/material-receipts/new"
+        element={<PMMaterialReceiptForm />}
+      />
+      <Route
+        path="/material-receipts/:id"
+        element={<PMMaterialReceiptForm />}
+      />
     </Routes>
   );
 }
 
 export const projectManagementFeatures = [
-  { module_key: "project-management", label: "Projects", path: "/project-management/projects", type: "feature" },
-  { module_key: "project-management", label: "Tasks", path: "/project-management/tasks", type: "feature" },
-  { module_key: "project-management", label: "Timesheets", path: "/project-management/timesheets", type: "feature" },
-  { module_key: "project-management", label: "Expenses", path: "/project-management/expenses", type: "feature" },
-  { module_key: "project-management", label: "Setup", path: "/project-management/setup", type: "feature" },
-  { module_key: "project-management", label: "Material Requisition", path: "/project-management/material-requisitions", type: "feature" },
-  { module_key: "project-management", label: "Material Utilization", path: "/project-management/material-utilizations", type: "feature" },
-  { module_key: "project-management", label: "Materials Receipt", path: "/project-management/material-receipts", type: "feature" },
-  { module_key: "project-management", label: "Project Reports", path: "/project-management/reports", type: "dashboard" },
-  { module_key: "project-management", label: "Project Status Report", path: "/project-management/reports/project-status", type: "dashboard" },
+  {
+    module_key: "project-management",
+    label: "Projects",
+    path: "/project-management/projects",
+    type: "feature",
+  },
+  {
+    module_key: "project-management",
+    label: "Tasks",
+    path: "/project-management/tasks",
+    type: "feature",
+  },
+  {
+    module_key: "project-management",
+    label: "Timesheets",
+    path: "/project-management/timesheets",
+    type: "feature",
+  },
+  {
+    module_key: "project-management",
+    label: "Expenses",
+    path: "/project-management/expenses",
+    type: "feature",
+  },
+  {
+    module_key: "project-management",
+    label: "Setup",
+    path: "/project-management/setup",
+    type: "feature",
+  },
+  {
+    module_key: "project-management",
+    label: "Material Requisition",
+    path: "/project-management/material-requisitions",
+    type: "feature",
+  },
+  {
+    module_key: "project-management",
+    label: "Material Utilization",
+    path: "/project-management/material-utilizations",
+    type: "feature",
+  },
+  {
+    module_key: "project-management",
+    label: "Materials Receipt",
+    path: "/project-management/material-receipts",
+    type: "feature",
+  },
+  {
+    module_key: "project-management",
+    label: "Project Reports",
+    path: "/project-management/reports",
+    type: "dashboard",
+  },
+  {
+    module_key: "project-management",
+    label: "Project Status Report",
+    path: "/project-management/reports/project-status",
+    type: "dashboard",
+  },
 ];

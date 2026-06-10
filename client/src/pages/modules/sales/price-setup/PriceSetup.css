@@ -415,3 +415,95 @@ th.sortable:hover {
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 639px) {
+  .price-setup-header {
+    padding: 16px;
+    gap: 12px;
+  }
+  .price-setup-header h1 {
+    font-size: 18px;
+  }
+  .header-actions {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .header-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .content {
+    padding: 16px;
+  }
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 0;
+  }
+  .tab {
+    padding: 10px 16px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .filter-section {
+    padding: 16px;
+  }
+  .filter-grid,
+  .form-grid {
+    gap: 12px;
+  }
+  .table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .table-container table {
+    min-width: 500px;
+  }
+  th,
+  td {
+    padding: 8px;
+    font-size: 12px;
+  }
+  .price-modal-content {
+    max-width: 100%;
+    border-radius: 0;
+    min-height: 100vh;
+  }
+  .modal-header {
+    padding: 16px;
+    flex-direction: column;
+    gap: 10px;
+    text-align: center;
+  }
+  .modal-header h2 {
+    font-size: 16px;
+  }
+  .modal-body {
+    padding: 16px;
+  }
+  .modal-footer {
+    padding: 16px;
+    flex-direction: column;
+  }
+  .modal-footer .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .price-card {
+    padding: 12px;
+  }
+  .price-title {
+    font-size: 15px;
+  }
+  .price-amount {
+    font-size: 22px;
+  }
+  .section-title {
+    font-size: 14px;
+  }
+}

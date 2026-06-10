@@ -134,9 +134,8 @@ function InventoryHomeIndex() {
             next[3] = {
               ...next[3],
               value: String(d.lowStockItems ?? "—"),
-              change: d.lowStockItems > 0
-                ? "Needs replenishment"
-                : "Stock healthy",
+              change:
+                d.lowStockItems > 0 ? "Needs replenishment" : "Stock healthy",
               changeType: d.lowStockItems > 0 ? "negative" : "positive",
             };
             return next;
@@ -145,10 +144,8 @@ function InventoryHomeIndex() {
       } catch {}
     }
     load();
-    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
-      clearInterval(timer);
     };
   }, []);
 

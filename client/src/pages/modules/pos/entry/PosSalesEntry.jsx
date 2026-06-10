@@ -10,7 +10,11 @@ import { saveLocalSale } from "../../../../offline/posStore.js";
 import { uuid } from "../../../../offline/uuid.js";
 import { toast } from "react-toastify";
 import QRCode from "qrcode";
-import { getPosDatum, cachePosDatum, POS_CACHE_KEYS } from "../../../../offline/offlinePosCache.js";
+import {
+  getPosDatum,
+  cachePosDatum,
+  POS_CACHE_KEYS,
+} from "../../../../offline/offlinePosCache.js";
 
 function FilterableSelect({
   value,
@@ -65,8 +69,14 @@ function FilterableSelect({
         value={open ? query : selectedLabel}
         placeholder={placeholder || "Select..."}
         disabled={disabled}
-        onFocus={() => { setOpen(true); setQuery(""); }}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={() => {
+          setOpen(true);
+          setQuery("");
+        }}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
       />
       {open && (
         <div className="absolute z-50 mt-1 w-full max-h-60 overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg">
@@ -180,8 +190,10 @@ export default function PosSalesEntry() {
     registrationNo: "",
     logoUrl: defaultLogo,
   });
-  const [generalSettings, setGeneralSettings] = useState({ allowDiscounts: true });
-  const [bogoCampaigns, setBogoCampaigns] = useState([]);
+  const [generalSettings, setGeneralSettings] = useState({
+    allowDiscounts: true,
+  });
+  const [purchaseRewardCampaigns, setPurchaseRewardCampaigns] = useState([]);
   useEffect(() => {
     try {
       const raw = localStorage.getItem("pos_general_settings");
@@ -208,7 +220,9 @@ export default function PosSalesEntry() {
     }));
   }, [products]);
   const itemSearchResults = useMemo(() => {
-    const q = String(entryBarcode || "").trim().toLowerCase();
+    const q = String(entryBarcode || "")
+      .trim()
+      .toLowerCase();
     if (!q) return [];
     const exactMatch = products.find((p) => {
       const code = String(p.code || "").toLowerCase();
@@ -217,10 +231,17 @@ export default function PosSalesEntry() {
       return code === q || name === q || barcode === q;
     });
     if (exactMatch) return [];
-    return itemSelectOptions.filter((o) =>
-      String(o.label || "").toLowerCase().includes(q) ||
-      (products.find((p) => String(p.id) === o.value)?.code || "").toLowerCase().includes(q),
-    ).slice(0, 20);
+    return itemSelectOptions
+      .filter(
+        (o) =>
+          String(o.label || "")
+            .toLowerCase()
+            .includes(q) ||
+          (products.find((p) => String(p.id) === o.value)?.code || "")
+            .toLowerCase()
+            .includes(q),
+      )
+      .slice(0, 20);
   }, [entryBarcode, itemSelectOptions, products]);
 
   useEffect(() => {
@@ -243,7 +264,11 @@ export default function PosSalesEntry() {
         // Lightweight request — the /ping endpoint or a HEAD of the API base.
         const ctrl = new AbortController();
         const id = setTimeout(() => ctrl.abort(), 1500);
-        await fetch("/api/ping", { method: "HEAD", signal: ctrl.signal, cache: "no-store" });
+        await fetch("/api/ping", {
+          method: "HEAD",
+          signal: ctrl.signal,
+          cache: "no-store",
+        });
         clearTimeout(id);
         if (lastHeartbeatFailed) {
           lastHeartbeatFailed = false;
@@ -261,7 +286,10 @@ export default function PosSalesEntry() {
       heartbeatTimer = setInterval(heartbeat, 2000);
     }
     function stopHeartbeat() {
-      if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
     }
     function onVisibility() {
       if (document.visibilityState === "visible") startHeartbeat();
@@ -282,7 +310,8 @@ export default function PosSalesEntry() {
     async function resolveTerminalAndDay() {
       setDayLoading(true);
       try {
-        const uid = Number(user?.sub || 0) || Number(user?.id || 0) || undefined;
+        const uid =
+          Number(user?.sub || 0) || Number(user?.id || 0) || undefined;
 
         // Try network first; fall back to IndexedDB-cached data if offline
         let allTerminals = [];
@@ -292,16 +321,25 @@ export default function PosSalesEntry() {
             api.get("/pos/terminals"),
             api.get("/pos/terminal-users"),
           ]);
-          allTerminals = Array.isArray(termsRes.data?.items) ? termsRes.data.items : [];
-          links = Array.isArray(linksRes.data?.items) ? linksRes.data.items : [];
+          allTerminals = Array.isArray(termsRes.data?.items)
+            ? termsRes.data.items
+            : [];
+          links = Array.isArray(linksRes.data?.items)
+            ? linksRes.data.items
+            : [];
           // Cache for offline
           cachePosDatum(POS_CACHE_KEYS.TERMINALS, allTerminals).catch(() => {});
           cachePosDatum(POS_CACHE_KEYS.TERMINAL_USERS, links).catch(() => {});
         } catch {
           // Offline: load terminals/users from IndexedDB
           const cachedTerms = await getPosDatum(POS_CACHE_KEYS.TERMINALS, []);
-          const cachedLinks = await getPosDatum(POS_CACHE_KEYS.TERMINAL_USERS, []);
-          allTerminals = Array.isArray(cachedTerms?.data) ? cachedTerms.data : [];
+          const cachedLinks = await getPosDatum(
+            POS_CACHE_KEYS.TERMINAL_USERS,
+            [],
+          );
+          allTerminals = Array.isArray(cachedTerms?.data)
+            ? cachedTerms.data
+            : [];
           links = Array.isArray(cachedLinks?.data) ? cachedLinks.data : [];
         }
 
@@ -311,9 +349,14 @@ export default function PosSalesEntry() {
             .map((x) => Number(x?.terminal_id))
             .filter((n) => Number.isFinite(n) && n > 0),
         );
-        const assigned = allTerminals.filter((t) => assignedIds.has(Number(t?.id)));
-        const code = (assigned.length ? String(assigned[0]?.code || "") : "") || "";
-        const wId = (assigned.length ? String(assigned[0]?.warehouse_id || "") : "") || "";
+        const assigned = allTerminals.filter((t) =>
+          assignedIds.has(Number(t?.id)),
+        );
+        const code =
+          (assigned.length ? String(assigned[0]?.code || "") : "") || "";
+        const wId =
+          (assigned.length ? String(assigned[0]?.warehouse_id || "") : "") ||
+          "";
         setTerminalCode(code);
         setTerminalWarehouseId(wId);
 
@@ -329,8 +372,14 @@ export default function PosSalesEntry() {
             // sessionStorage: accept only if written <5s ago (from PosDayManagement)
             // localStorage: accept any OPEN status regardless of age
             const isSession = store === sessionStorage;
-            if (status === "OPEN" && (!isSession || recent) && (!code || !t || t === code)) {
-              setDayExists(true); setDayStatus("OPEN"); setDayOpen(true);
+            if (
+              status === "OPEN" &&
+              (!isSession || recent) &&
+              (!code || !t || t === code)
+            ) {
+              setDayExists(true);
+              setDayStatus("OPEN");
+              setDayOpen(true);
               setDayLoading(false);
               if (cancelled) return;
               break;
@@ -346,13 +395,21 @@ export default function PosSalesEntry() {
           const status = String(item?.status || "").toUpperCase();
           const exists = !!item;
           if (!cancelled) {
-            setDayExists(exists); setDayStatus(status); setDayOpen(status === "OPEN");
+            setDayExists(exists);
+            setDayStatus(status);
+            setDayOpen(status === "OPEN");
             // Persist authoritative status to localStorage
             if (exists) {
               try {
-                localStorage.setItem("omni.pos.day", JSON.stringify({
-                  status, terminal: code, terminalCode: code, ts: Date.now(),
-                }));
+                localStorage.setItem(
+                  "omni.pos.day",
+                  JSON.stringify({
+                    status,
+                    terminal: code,
+                    terminalCode: code,
+                    ts: Date.now(),
+                  }),
+                );
               } catch {}
             }
           }
@@ -369,21 +426,30 @@ export default function PosSalesEntry() {
             const data = JSON.parse(raw);
             const t = String(data?.terminal || data?.terminalCode || "");
             const status = String(data?.status || "").toUpperCase();
-            if (status === "OPEN" && (!terminalCode || !t || t === terminalCode)) {
-              setDayExists(true); setDayStatus("OPEN"); setDayOpen(true);
+            if (
+              status === "OPEN" &&
+              (!terminalCode || !t || t === terminalCode)
+            ) {
+              setDayExists(true);
+              setDayStatus("OPEN");
+              setDayOpen(true);
               setDayLoading(false);
               return;
             }
           } catch {}
         }
-        setDayExists(false); setDayStatus(""); setDayOpen(false);
+        setDayExists(false);
+        setDayStatus("");
+        setDayOpen(false);
       } finally {
         if (cancelled) return;
         setDayLoading(false);
       }
     }
     resolveTerminalAndDay();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id, user?.sub]);
 
   useEffect(() => {
@@ -462,16 +528,30 @@ export default function PosSalesEntry() {
         const cached = await getPosDatum(POS_CACHE_KEYS.PAYMENT_MODES, null);
         const cachedModes = Array.isArray(cached?.data) ? cached.data : null;
         if (cachedModes && cachedModes.length > 0) {
-          const active = cachedModes.filter((m) => m && m.is_active !== 0 && m.is_active !== false);
+          const active = cachedModes.filter(
+            (m) => m && m.is_active !== 0 && m.is_active !== false,
+          );
           setPaymentModes(active.length ? active : cachedModes);
           if (!selectedPaymentModeId) {
-            const def = active.find((m) => String(m.type || "").toLowerCase() === "cash") || active[0] || cachedModes[0];
+            const def =
+              active.find(
+                (m) => String(m.type || "").toLowerCase() === "cash",
+              ) ||
+              active[0] ||
+              cachedModes[0];
             if (def?.id) setSelectedPaymentModeId(String(def.id));
           }
         } else {
           // Last resort: built-in Cash mode
-          setPaymentModesError(e?.response?.data?.message || "Failed to load payment modes");
-          const cashMode = { id: 1, name: "Cash", type: "cash", is_active: true };
+          setPaymentModesError(
+            e?.response?.data?.message || "Failed to load payment modes",
+          );
+          const cashMode = {
+            id: 1,
+            name: "Cash",
+            type: "cash",
+            is_active: true,
+          };
           setPaymentModes([cashMode]);
           if (!selectedPaymentModeId) setSelectedPaymentModeId("1");
         }
@@ -489,26 +569,36 @@ export default function PosSalesEntry() {
     let mounted = true;
     async function applyTaxItem(item) {
       if (!item) {
-        setTaxActive(false); setTaxRatePercent(0); setTaxType("Exclusive");
-        setTaxCodeLabel(""); setTaxComponents([]); setTaxCodeId(null);
+        setTaxActive(false);
+        setTaxRatePercent(0);
+        setTaxType("Exclusive");
+        setTaxCodeLabel("");
+        setTaxComponents([]);
+        setTaxCodeId(null);
         return;
       }
       const enabled = item.is_active !== 0 && item.is_active !== false;
       setTaxActive(enabled);
       if (!enabled) {
-        setTaxRatePercent(0); setTaxType("Exclusive"); setTaxCodeLabel("");
-        setTaxComponents([]); setTaxCodeId(null);
+        setTaxRatePercent(0);
+        setTaxType("Exclusive");
+        setTaxCodeLabel("");
+        setTaxComponents([]);
+        setTaxCodeId(null);
         return;
       }
       if (item.tax_type) setTaxType(String(item.tax_type));
       const rate = Number(item.tax_rate_percent ?? 12.5);
       setTaxRatePercent(Number.isFinite(rate) ? rate : 12.5);
-      setTaxCodeLabel(String(item.tax_name || item.tax_code || item.tax_code_id || "").trim());
+      setTaxCodeLabel(
+        String(item.tax_name || item.tax_code || item.tax_code_id || "").trim(),
+      );
       const resolvedCodeId = Number(item.tax_code_id || 0);
       if (resolvedCodeId > 0) {
         setTaxCodeId(resolvedCodeId);
       } else {
-        setTaxComponents([]); setTaxCodeId(null);
+        setTaxComponents([]);
+        setTaxCodeId(null);
       }
     }
     async function loadTaxSettings() {
@@ -522,33 +612,49 @@ export default function PosSalesEntry() {
         const resolvedCodeId = Number(item?.tax_code_id || 0);
         if (resolvedCodeId > 0) {
           try {
-            const compRes = await api.get(`/finance/tax-codes/${resolvedCodeId}/components`);
+            const compRes = await api.get(
+              `/finance/tax-codes/${resolvedCodeId}/components`,
+            );
             if (!mounted) return;
-            const comps = Array.isArray(compRes.data?.items) ? compRes.data.items : [];
+            const comps = Array.isArray(compRes.data?.items)
+              ? compRes.data.items
+              : [];
             setTaxComponents(comps);
             cachePosDatum(POS_CACHE_KEYS.TAX_COMPONENTS, comps).catch(() => {});
           } catch {
             // Try cached components
             const cached = await getPosDatum(POS_CACHE_KEYS.TAX_COMPONENTS, []);
-            if (mounted) setTaxComponents(Array.isArray(cached?.data) ? cached.data : []);
+            if (mounted)
+              setTaxComponents(Array.isArray(cached?.data) ? cached.data : []);
           }
         }
       } catch {
         if (!mounted) return;
         // Offline fallback: load from IndexedDB cache
         const cachedTax = await getPosDatum(POS_CACHE_KEYS.TAX_SETTINGS, null);
-        const cachedComps = await getPosDatum(POS_CACHE_KEYS.TAX_COMPONENTS, []);
+        const cachedComps = await getPosDatum(
+          POS_CACHE_KEYS.TAX_COMPONENTS,
+          [],
+        );
         if (cachedTax?.data) {
           await applyTaxItem(cachedTax.data);
-          setTaxComponents(Array.isArray(cachedComps?.data) ? cachedComps.data : []);
+          setTaxComponents(
+            Array.isArray(cachedComps?.data) ? cachedComps.data : [],
+          );
         } else {
-          setTaxActive(false); setTaxRatePercent(0); setTaxType("Exclusive");
-          setTaxCodeLabel(""); setTaxComponents([]); setTaxCodeId(null);
+          setTaxActive(false);
+          setTaxRatePercent(0);
+          setTaxType("Exclusive");
+          setTaxCodeLabel("");
+          setTaxComponents([]);
+          setTaxCodeId(null);
         }
       }
     }
     loadTaxSettings();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
   const [headerDiscount, setHeaderDiscount] = useState("");
 
@@ -560,7 +666,10 @@ export default function PosSalesEntry() {
         const companyId = meResp.data?.scope?.companyId;
         if (!companyId) {
           if (!mounted) return;
-          setCompanyInfo((prev) => ({ ...prev, logoUrl: prev.logoUrl || defaultLogo }));
+          setCompanyInfo((prev) => ({
+            ...prev,
+            logoUrl: prev.logoUrl || defaultLogo,
+          }));
           return;
         }
         const cResp = await api.get(`/admin/companies/${companyId}`);
@@ -585,7 +694,9 @@ export default function PosSalesEntry() {
         setCompanyInfo((prev) => ({
           ...prev,
           ...nextInfo,
-          logoUrl: nextInfo.hasLogo ? `/api/admin/companies/${companyId}/logo` : prev.logoUrl || defaultLogo,
+          logoUrl: nextInfo.hasLogo
+            ? `/api/admin/companies/${companyId}/logo`
+            : prev.logoUrl || defaultLogo,
         }));
       } catch {
         if (!mounted) return;
@@ -605,17 +716,23 @@ export default function PosSalesEntry() {
             website: d.website || prev.website || "",
             taxId: d.taxId || prev.taxId || "",
             registrationNo: d.registrationNo || prev.registrationNo || "",
-            logoUrl: d.hasLogo && d.companyId
-              ? `/api/admin/companies/${d.companyId}/logo`
-              : prev.logoUrl || defaultLogo,
+            logoUrl:
+              d.hasLogo && d.companyId
+                ? `/api/admin/companies/${d.companyId}/logo`
+                : prev.logoUrl || defaultLogo,
           }));
         } else {
-          setCompanyInfo((prev) => ({ ...prev, logoUrl: prev.logoUrl || defaultLogo }));
+          setCompanyInfo((prev) => ({
+            ...prev,
+            logoUrl: prev.logoUrl || defaultLogo,
+          }));
         }
       }
     }
     fetchCompanyInfo();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -631,7 +748,13 @@ export default function PosSalesEntry() {
         cachePosDatum(POS_CACHE_KEYS.PRICE_TYPES, raw).catch(() => {});
         setPriceTypes(raw);
         if (!entryPriceType && raw.length) {
-          const def = raw.find((pt) => String(pt.name || "").trim().toLowerCase() === "retail") || raw[0];
+          const def =
+            raw.find(
+              (pt) =>
+                String(pt.name || "")
+                  .trim()
+                  .toLowerCase() === "retail",
+            ) || raw[0];
           if (def?.id) setEntryPriceType(String(def.id));
         }
       })
@@ -643,18 +766,28 @@ export default function PosSalesEntry() {
         if (cachedTypes && cachedTypes.length > 0) {
           setPriceTypes(cachedTypes);
           if (!entryPriceType) {
-            const def = cachedTypes.find((pt) => String(pt.name || "").trim().toLowerCase() === "retail") || cachedTypes[0];
+            const def =
+              cachedTypes.find(
+                (pt) =>
+                  String(pt.name || "")
+                    .trim()
+                    .toLowerCase() === "retail",
+              ) || cachedTypes[0];
             if (def?.id) setEntryPriceType(String(def.id));
           }
         } else {
-          setPriceTypesError(e?.response?.data?.message || "Failed to load price types");
+          setPriceTypesError(
+            e?.response?.data?.message || "Failed to load price types",
+          );
         }
       })
       .finally(() => {
         if (!mounted) return;
         setPriceTypesLoading(false);
       });
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [entryPriceType]);
 
   useEffect(() => {
@@ -716,13 +849,15 @@ export default function PosSalesEntry() {
   useEffect(() => {
     let mounted = true;
     api
-      .get("/sales/bogo-campaigns/active")
+      .get("/sales/purchase-reward-campaigns/active")
       .then((res) => {
         if (!mounted) return;
-        setBogoCampaigns(Array.isArray(res.data?.items) ? res.data.items : []);
+        setPurchaseRewardCampaigns(Array.isArray(res.data?.items) ? res.data.items : []);
       })
       .catch(() => {});
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -742,7 +877,9 @@ export default function PosSalesEntry() {
         const cached = await getPosDatum(POS_CACHE_KEYS.CUSTOMERS, []);
         setCustomers(Array.isArray(cached?.data) ? cached.data : []);
       });
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const gross = useMemo(() => {
@@ -845,12 +982,16 @@ export default function PosSalesEntry() {
         ...(selectedCustomerId ? { customer_id: selectedCustomerId } : {}),
       };
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("price-timeout")), 2000)
+        setTimeout(() => reject(new Error("price-timeout")), 2000),
       );
-      const fetchPromise = api.post("/sales/prices/best-price", body, { timeout: 2500 });
+      const fetchPromise = api.post("/sales/prices/best-price", body, {
+        timeout: 2500,
+      });
       const res = await Promise.race([fetchPromise, timeoutPromise]);
       const price = Number(res.data?.price);
-      const resolved = Number.isFinite(price) ? price : Number(fallbackPrice || 0);
+      const resolved = Number.isFinite(price)
+        ? price
+        : Number(fallbackPrice || 0);
       priceCacheRef.current[cacheKey] = resolved;
       return resolved;
     } catch {
@@ -927,7 +1068,9 @@ export default function PosSalesEntry() {
       .then((realPrice) => {
         if (Number.isFinite(realPrice) && realPrice !== unitPrice) {
           setCart((prev) =>
-            prev.map((p) => (p.id === prod.id ? { ...p, price: realPrice } : p)),
+            prev.map((p) =>
+              p.id === prod.id ? { ...p, price: realPrice } : p,
+            ),
           );
         }
       })
@@ -1016,7 +1159,9 @@ export default function PosSalesEntry() {
         .then((realPrice) => {
           if (Number.isFinite(realPrice) && realPrice !== prod.price) {
             setCart((prev) =>
-              prev.map((p) => (p.id === prod.id ? { ...p, price: realPrice } : p)),
+              prev.map((p) =>
+                p.id === prod.id ? { ...p, price: realPrice } : p,
+              ),
             );
           }
         })
@@ -1146,7 +1291,10 @@ export default function PosSalesEntry() {
   function updateCartField(id, field, value) {
     setCart((prev) => {
       // Hard guard: ignore discount updates when user lacks exceptional permission
-      if (field === "discount" && (!canEditDiscount() || generalSettings.allowDiscounts === false)) {
+      if (
+        field === "discount" &&
+        (!canEditDiscount() || generalSettings.allowDiscounts === false)
+      ) {
         return prev;
       }
       if (field === "quantity") {
@@ -1245,11 +1393,13 @@ export default function PosSalesEntry() {
         20,
       );
       const line2 = trimToMax(`TOTAL GHS ${Number(total || 0).toFixed(2)}`, 20);
-      api.post("/pos/vfd/display", {
-        terminal_code: terminalCode,
-        line1,
-        line2,
-      }).catch(() => {});
+      api
+        .post("/pos/vfd/display", {
+          terminal_code: terminalCode,
+          line1,
+          line2,
+        })
+        .catch(() => {});
     }, 300);
     return () => {
       if (vfdDebounceRef.current) clearTimeout(vfdDebounceRef.current);
@@ -1307,33 +1457,39 @@ export default function PosSalesEntry() {
         price: Number(it.price || 0),
         discount: Number(it.discount || 0),
       }));
-      // BOGO: add free items from active campaigns
-      let consumedBogo = [];
-      if (Array.isArray(bogoCampaigns) && bogoCampaigns.length) {
-        for (const campaign of bogoCampaigns) {
+      // Purchase reward: add free items from active campaigns
+      let consumedReward = [];
+      if (Array.isArray(purchaseRewardCampaigns) && purchaseRewardCampaigns.length) {
+        for (const campaign of purchaseRewardCampaigns) {
           const rows = Array.isArray(campaign.rows) ? campaign.rows : [];
           for (const rule of rows) {
-            const purchaseItemId = Number(rule.item_id);
+            const purchaseIds = (rule.item_ids || "").split(",").map(s => Number(s.trim())).filter(n => n > 0);
+            const freeIds = (rule.free_item_ids || "").split(",").map(s => Number(s.trim())).filter(n => n > 0);
             const purchaseQtyNeeded = Number(rule.item_qty || 0);
-            const freeItemId = Number(rule.free_item_id);
             const freeQtyPer = Number(rule.free_qty || 0);
-            if (!purchaseItemId || !freeItemId || !purchaseQtyNeeded || !freeQtyPer) continue;
-            const cartItem = saleCart.find((c) => Number(c.id) === purchaseItemId);
+            if (!purchaseIds.length || !freeIds.length || !purchaseQtyNeeded || !freeQtyPer) continue;
+            const cartItem = saleCart.find(
+              (c) => purchaseIds.includes(Number(c.id)),
+            );
             if (!cartItem) continue;
             const cartQty = Number(cartItem.quantity || 0);
             if (cartQty < purchaseQtyNeeded) continue;
             const times = Math.floor(cartQty / purchaseQtyNeeded);
             const totalFreeQty = times * freeQtyPer;
-            const freeProduct = products.find((p) => Number(p.id) === freeItemId);
-            lines.push({
-              item_id: freeItemId,
-              name: freeProduct ? freeProduct.name : "Free Item",
-              quantity: totalFreeQty,
-              price: 0,
-              discount: 0,
-              bogo_qty: true,
-            });
-            consumedBogo.push({ campaignId: campaign.id, qty: cartQty });
+            for (const freeId of freeIds) {
+              const freeProduct = products.find(
+                (p) => Number(p.id) === freeId,
+              );
+              lines.push({
+                item_id: freeId,
+                name: freeProduct ? freeProduct.name : "Free Item",
+                quantity: totalFreeQty,
+                price: 0,
+                discount: 0,
+                reward_qty: true,
+              });
+            }
+            consumedReward.push({ campaignId: campaign.id, qty: cartQty });
           }
         }
       }
@@ -1342,14 +1498,22 @@ export default function PosSalesEntry() {
         null;
       const method = resolvePaymentMethodForSale(selectedPaymentMode);
       const paymentsData = [];
-      const actualPrimaryAmount = additionalPaymentModeIds.length > 0 && splitPrimaryAmount > 0 
-        ? splitPrimaryAmount 
-        : Math.min(Number(tendered || 0), total);
+      const actualPrimaryAmount =
+        additionalPaymentModeIds.length > 0 && splitPrimaryAmount > 0
+          ? splitPrimaryAmount
+          : Math.min(Number(tendered || 0), total);
       const primaryAmount = actualPrimaryAmount;
-      paymentsData.push({ payment_mode_id: Number(effectivePaymentModeId), amount: primaryAmount, method });
+      paymentsData.push({
+        payment_mode_id: Number(effectivePaymentModeId),
+        amount: primaryAmount,
+        method,
+      });
       const remainingAmount = total - primaryAmount;
       const effectiveAdditionalIds = [...additionalPaymentModeIds];
-      if (overrideAdditionalModeId && !effectiveAdditionalIds.includes(String(overrideAdditionalModeId))) {
+      if (
+        overrideAdditionalModeId &&
+        !effectiveAdditionalIds.includes(String(overrideAdditionalModeId))
+      ) {
         effectiveAdditionalIds.push(String(overrideAdditionalModeId));
       }
       if (effectiveAdditionalIds.length > 0 && remainingAmount > 0) {
@@ -1357,7 +1521,11 @@ export default function PosSalesEntry() {
         effectiveAdditionalIds.forEach((id) => {
           const mode = paymentModes.find((pm) => String(pm.id) === String(id));
           const modeMethod = resolvePaymentMethodForSale(mode);
-          paymentsData.push({ payment_mode_id: Number(id), amount: perAdditional, method: modeMethod });
+          paymentsData.push({
+            payment_mode_id: Number(id),
+            amount: perAdditional,
+            method: modeMethod,
+          });
         });
       }
       payload = {
@@ -1444,10 +1612,14 @@ export default function PosSalesEntry() {
       const rcp = String(res.data?.receipt_no || "");
       setReceiptNo(rcp);
       setSaleTimestamp(new Date());
-      // Consume BOGO campaign qty after successful sale
-      if (consumedBogo.length) {
-        for (const cb of consumedBogo) {
-          api.post(`/sales/bogo-campaigns/${cb.campaignId}/consume`, { qty: cb.qty }).catch(() => {});
+      // Consume purchase reward campaign qty after successful sale
+      if (consumedReward.length) {
+        for (const cb of consumedReward) {
+          api
+            .post(`/sales/purchase-reward-campaigns/${cb.campaignId}/consume`, {
+              qty: cb.qty,
+            })
+            .catch(() => {});
         }
       }
       toast.success("Sale completed successfully");
@@ -1682,7 +1854,11 @@ export default function PosSalesEntry() {
       name: it.name || "",
       qty: Number(it.quantity || 0),
       price: Number(it.price || 0),
-      total: Math.max(0, Number(it.quantity || 0) * Number(it.price || 0) - Number(it.discount || 0)),
+      total: Math.max(
+        0,
+        Number(it.quantity || 0) * Number(it.price || 0) -
+          Number(it.discount || 0),
+      ),
     }));
     const linesHtml = itemsArr
       .map((it) => {
@@ -1715,7 +1891,10 @@ export default function PosSalesEntry() {
           tendered: tendered,
           change: changeDue,
         });
-        const qrDataUrl = await QRCode.toDataURL(qrData, { width: 140, margin: 2 });
+        const qrDataUrl = await QRCode.toDataURL(qrData, {
+          width: 140,
+          margin: 2,
+        });
         qrHtml = `<div class="center" style="margin-top:12px;"><img src="${qrDataUrl}" alt="QR Code" style="width:140px;height:140px;" /></div>`;
       } catch {}
     }
@@ -1911,7 +2090,8 @@ export default function PosSalesEntry() {
                     onChange={(val) => {
                       setSelectedCustomerId(val);
                       if (!val) setPaymentStatus("PAID");
-                      if (barcodeInputRef.current) barcodeInputRef.current.focus();
+                      if (barcodeInputRef.current)
+                        barcodeInputRef.current.focus();
                     }}
                     options={customers.map((c) => ({
                       value: String(c.id),
@@ -1931,7 +2111,8 @@ export default function PosSalesEntry() {
                         checked={paymentStatus === "PAID"}
                         onChange={() => {
                           setPaymentStatus("PAID");
-                          if (barcodeInputRef.current) barcodeInputRef.current.focus();
+                          if (barcodeInputRef.current)
+                            barcodeInputRef.current.focus();
                         }}
                       />
                       Paid
@@ -1944,14 +2125,19 @@ export default function PosSalesEntry() {
                         checked={paymentStatus === "UNPAID"}
                         onChange={() => {
                           setPaymentStatus("UNPAID");
-                          if (barcodeInputRef.current) barcodeInputRef.current.focus();
+                          if (barcodeInputRef.current)
+                            barcodeInputRef.current.focus();
                         }}
                       />
                       Unpaid
                     </label>
                   </div>
                 )}
-                <Link to="/sales/invoices/new" className="btn btn-primary">
+                <Link
+                  to="/sales/invoices/new"
+                  className="btn btn-primary"
+                  hidden
+                >
                   Customer Sales
                 </Link>
                 <Link
@@ -2053,14 +2239,18 @@ export default function PosSalesEntry() {
                   <input
                     name="discount"
                     type="number"
-                    className={`input w-full ${(!canEditDiscount() || generalSettings.allowDiscounts === false) ? "disabled-light-blue" : ""}`}
+                    className={`input w-full ${!canEditDiscount() || generalSettings.allowDiscounts === false ? "disabled-light-blue" : ""}`}
                     min={0}
                     step="0.01"
                     value={headerDiscount}
                     onChange={(e) => {
                       const v = e.target.value;
                       setHeaderDiscount(v);
-                      if (selectedItems.length === 1 && canEditDiscount() && generalSettings.allowDiscounts !== false) {
+                      if (
+                        selectedItems.length === 1 &&
+                        canEditDiscount() &&
+                        generalSettings.allowDiscounts !== false
+                      ) {
                         updateCartField(selectedItems[0].id, "discount", v);
                       }
                     }}
@@ -2137,7 +2327,7 @@ export default function PosSalesEntry() {
                                   <input
                                     name="discount"
                                     type="number"
-                                    className={`input text-right w-24 ${(!canEditDiscount() || generalSettings.allowDiscounts === false) ? "disabled-light-blue" : ""}`}
+                                    className={`input text-right w-24 ${!canEditDiscount() || generalSettings.allowDiscounts === false ? "disabled-light-blue" : ""}`}
                                     min={1}
                                     step={1}
                                     value={discount}
@@ -2182,7 +2372,7 @@ export default function PosSalesEntry() {
                       className="px-4 py-2 bg-[#0E3646] text-white font-semibold rounded-lg shadow hover:bg-[#092530] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-[#0E3646]"
                       onClick={() => {
                         setAmountPaid("");
-    setSplitPrimaryAmount(0);
+                        setSplitPrimaryAmount(0);
                         const input = document.getElementById("amountPaid");
                         if (input) {
                           // Allow React state to update first, then focus
@@ -2251,7 +2441,11 @@ export default function PosSalesEntry() {
                   />
                 </div>
                 <div className="flex justify-between font-bold text-lg mt-2">
-                  <div>{additionalPaymentModeIds.length > 0 || changeDue >= 0 ? "Change" : "Amount Due"}</div>
+                  <div>
+                    {additionalPaymentModeIds.length > 0 || changeDue >= 0
+                      ? "Change"
+                      : "Amount Due"}
+                  </div>
                   <div
                     className={`font-extrabold whitespace-nowrap ${additionalPaymentModeIds.length > 0 || changeDue >= 0 ? "text-brand-700" : "text-red-600"}`}
                   >
@@ -2277,8 +2471,11 @@ export default function PosSalesEntry() {
                   </div>
                 ) : (
                   paymentModes.map((m) => {
-                    const isPrimary = String(selectedPaymentModeId) === String(m.id);
-                    const isAdditional = additionalPaymentModeIds.includes(String(m.id));
+                    const isPrimary =
+                      String(selectedPaymentModeId) === String(m.id);
+                    const isAdditional = additionalPaymentModeIds.includes(
+                      String(m.id),
+                    );
                     return (
                       <button
                         key={m.id}
@@ -2296,7 +2493,9 @@ export default function PosSalesEntry() {
                       >
                         {m.name}
                         {isAdditional && (
-                          <span className="text-xs ml-1 opacity-75">(+split)</span>
+                          <span className="text-xs ml-1 opacity-75">
+                            (+split)
+                          </span>
                         )}
                       </button>
                     );
@@ -2359,13 +2558,17 @@ export default function PosSalesEntry() {
               <div className="flex justify-between">
                 <div>Amount Tendered</div>
                 <div className="font-semibold">
-                  {additionalPaymentModeIds.length > 0 
-                    ? `GH₵ ${total.toFixed(2)}` 
+                  {additionalPaymentModeIds.length > 0
+                    ? `GH₵ ${total.toFixed(2)}`
                     : `GH₵ ${tendered.toFixed(2)}`}
                 </div>
               </div>
               <div className="flex justify-between">
-                <div>{additionalPaymentModeIds.length > 0 || changeDue >= 0 ? "Change" : "Amount Due"}</div>
+                <div>
+                  {additionalPaymentModeIds.length > 0 || changeDue >= 0
+                    ? "Change"
+                    : "Amount Due"}
+                </div>
                 <div className="font-semibold">
                   {additionalPaymentModeIds.length > 0
                     ? `GH₵ 0.00`
@@ -2388,26 +2591,37 @@ export default function PosSalesEntry() {
                         if (t === "bank") return "Bank";
                         return "Other";
                       })();
-                      
+
                     if (!additionalPaymentModeIds.length) return primaryName;
-                    
-                    const primaryAmount = additionalPaymentModeIds.length > 0 && splitPrimaryAmount > 0 
-                      ? splitPrimaryAmount 
-                      : Math.min(Number(tendered || 0), total);
+
+                    const primaryAmount =
+                      additionalPaymentModeIds.length > 0 &&
+                      splitPrimaryAmount > 0
+                        ? splitPrimaryAmount
+                        : Math.min(Number(tendered || 0), total);
                     const remainingAmount = total - primaryAmount;
-                    const perAdditional = remainingAmount / additionalPaymentModeIds.length;
-                    
+                    const perAdditional =
+                      remainingAmount / additionalPaymentModeIds.length;
+
                     const additional = additionalPaymentModeIds
                       .map((id) => {
-                        const m = paymentModes.find((pm) => String(pm.id) === id);
-                        return m ? `${m.name}: GH₵ ${perAdditional.toFixed(2)}` : "";
+                        const m = paymentModes.find(
+                          (pm) => String(pm.id) === id,
+                        );
+                        return m
+                          ? `${m.name}: GH₵ ${perAdditional.toFixed(2)}`
+                          : "";
                       })
                       .filter(Boolean);
-                      
+
                     return (
                       <div className="flex flex-col gap-1">
-                        <div>{primaryName}: GH₵ {primaryAmount.toFixed(2)}</div>
-                        {additional.map((txt, i) => <div key={i}>{txt}</div>)}
+                        <div>
+                          {primaryName}: GH₵ {primaryAmount.toFixed(2)}
+                        </div>
+                        {additional.map((txt, i) => (
+                          <div key={i}>{txt}</div>
+                        ))}
                       </div>
                     );
                   })()}
@@ -2436,7 +2650,9 @@ export default function PosSalesEntry() {
             <div className="text-xl font-extrabold text-red-600 mb-2">
               Amount Due: GH₵ {(total - tendered).toFixed(2)}
             </div>
-            <p className="text-sm text-slate-600 mb-4">Select another payment method</p>
+            <p className="text-sm text-slate-600 mb-4">
+              Select another payment method
+            </p>
             <div className="grid grid-cols-2 gap-2">
               {paymentModes
                 .filter((m) => String(m.id) !== String(selectedPaymentModeId))

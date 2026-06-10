@@ -105,9 +105,8 @@ function AdministrationLanding() {
             next[3] = {
               ...next[3],
               value: String(d.pendingWorkflows ?? "—"),
-              change: d.pendingWorkflows > 0
-                ? "Requires approval"
-                : "All clear",
+              change:
+                d.pendingWorkflows > 0 ? "Requires approval" : "All clear",
               changeType: d.pendingWorkflows > 0 ? "warning" : "positive",
             };
             return next;
@@ -116,10 +115,8 @@ function AdministrationLanding() {
       } catch {}
     }
     load();
-    timer = setInterval(load, 15000);
     return () => {
       mounted = false;
-      clearInterval(timer);
     };
   }, []);
 

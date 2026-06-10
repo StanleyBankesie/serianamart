@@ -355,6 +355,41 @@ export async function consumeStockFIFOTx(conn, params) {
 
     remaining -= consume;
   }
+
+  // If still remaining after consuming all available batches, record negative balance
+  if (remaining > 0) {
+    await conn.execute(
+      `INSERT INTO inv_stock_balances
+        (company_id, branch_id, warehouse_id, item_id, qty, entry_date)
+       VALUES
+        (:companyId, :branchId, :warehouseId, :itemId, :remaining, NOW())`,
+      {
+        companyId,
+        branchId,
+        warehouseId,
+        itemId,
+        remaining: -remaining,
+      },
+    );
+    await conn.execute(
+      `INSERT INTO inv_stock_ledger
+        (company_id, branch_id, warehouse_id, item_id, transaction_type,
+         qty_change, source_ref, created_by)
+       VALUES
+        (:companyId, :branchId, :warehouseId, :itemId, :transactionType,
+         :qtyChange, :sourceRef, :createdBy)`,
+      {
+        companyId,
+        branchId,
+        warehouseId,
+        itemId,
+        transactionType,
+        qtyChange: -remaining,
+        sourceRef,
+        createdBy,
+      },
+    );
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

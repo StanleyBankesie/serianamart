@@ -77,10 +77,8 @@ function PurchaseHomeIndex() {
       }
     }
     load();
-    timer = setInterval(load, 15000);
     return () => {
       cancelled = true;
-      clearInterval(timer);
     };
   }, [token]);
 
@@ -259,9 +257,18 @@ export default function PurchaseHome() {
     <Routes>
       <Route index element={<PurchaseHomeIndex />} />
       <Route path="general-requisitions" element={<GeneralRequisitionList />} />
-      <Route path="general-requisitions/new" element={<GeneralRequisitionForm />} />
-      <Route path="general-requisitions/:id" element={<GeneralRequisitionForm />} />
-      <Route path="general-requisitions/:id/edit" element={<GeneralRequisitionForm />} />
+      <Route
+        path="general-requisitions/new"
+        element={<GeneralRequisitionForm />}
+      />
+      <Route
+        path="general-requisitions/:id"
+        element={<GeneralRequisitionForm />}
+      />
+      <Route
+        path="general-requisitions/:id/edit"
+        element={<GeneralRequisitionForm />}
+      />
       <Route path="rfqs" element={<RequestForQuotationList />} />
       <Route path="rfqs/new" element={<RequestForQuotationForm />} />
       <Route path="rfqs/:id" element={<RequestForQuotationForm />} />

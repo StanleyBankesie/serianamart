@@ -7688,12 +7688,11 @@ router.get("/items/:id", requireAuth, async (req, res, next) => {
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const [item] = await query(
-      `SELECT *,
-          created_at,
+      `SELECT i.*,
           u.username AS created_by_name
-         FROM inv_items
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id LIMIT 1`,
+         FROM inv_items i
+        LEFT JOIN adm_users u ON u.id = i.created_by
+         WHERE i.id = :id LIMIT 1`,
       { id: id || null },
     );
     if (!item) throw httpError(404, "NOT_FOUND", "Item not found");

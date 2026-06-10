@@ -5874,28 +5874,17 @@ router.get(
   async (req, res, next) => {
     try {
       const companyId = req.scope.companyId;
+      try { await ensureDiscountTables(); } catch (_) { /* non-fatal */ }
       const items = await query(
-        `
-        SELECT 
-          id,
-          scheme_code,
-          scheme_name,
-          discount_type,
-          discount_value,
-          effective_from,
-          effective_to,
-          min_quantity,
-          min_purchase_amount,
-          max_discount_amount,
-          description,
-          is_active,
-          created_at,
-          u.username AS created_by_name
-         FROM sal_discount_schemes
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
-        ORDER BY id DESC
-        `,
+        `SELECT d.id, d.scheme_code, d.scheme_name, d.discount_type, d.discount_value,
+                d.effective_from, d.effective_to,
+                d.min_quantity, d.min_purchase_amount, d.max_discount_amount, d.description,
+                d.is_active, d.created_at, d.created_by,
+                u.username AS created_by_name
+           FROM sal_discount_schemes d
+           LEFT JOIN adm_users u ON u.id = d.created_by
+          WHERE d.company_id = :companyId
+          ORDER BY d.id DESC`,
         { companyId },
       ).catch(() => []);
       res.json({ items: Array.isArray(items) ? items : [] });
@@ -5905,7 +5894,133 @@ router.get(
   },
 );
 
-// ===== BOGO CAMPAIGNS =====
+// ===== DISCOUNT SCHEMES CRUD =====
+let _discountTablesEnsured = false;
+
+async function ensureDiscountTables() {
+  if (_discountTablesEnsured) return;
+  await query(`
+    CREATE TABLE IF NOT EXISTS sal_discount_schemes (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      scheme_code VARCHAR(50) NOT NULL,
+      scheme_name VARCHAR(255) NOT NULL,
+      discount_type ENUM('PERCENTAGE','FIXED') NOT NULL,
+      discount_value DECIMAL(10,2) NOT NULL,
+      min_quantity DECIMAL(18,3) NOT NULL DEFAULT '0.000',
+      max_quantity DECIMAL(18,3) DEFAULT '0.000',
+      effective_from DATE NOT NULL,
+      effective_to DATE DEFAULT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT '1',
+      min_purchase_amount DECIMAL(18,2) DEFAULT '0.00',
+      max_discount_amount DECIMAL(18,2) DEFAULT '0.00',
+      description VARCHAR(255) DEFAULT NULL,
+      created_by BIGINT UNSIGNED DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_discount_scheme_code (company_id, scheme_code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS sal_discount_scheme_items (
+      scheme_id BIGINT UNSIGNED NOT NULL,
+      item_id BIGINT UNSIGNED NOT NULL,
+      PRIMARY KEY (scheme_id, item_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  const missingCols = [
+    'max_quantity DECIMAL(18,3) DEFAULT \'0.000\' AFTER min_quantity',
+    'min_purchase_amount DECIMAL(18,2) DEFAULT \'0.00\' AFTER max_quantity',
+    'max_discount_amount DECIMAL(18,2) DEFAULT \'0.00\' AFTER min_purchase_amount',
+    'description VARCHAR(255) DEFAULT NULL AFTER max_discount_amount',
+  ];
+  for (const col of missingCols) {
+    try { await query(`ALTER TABLE sal_discount_schemes ADD COLUMN ${col}`); }
+    catch (e) { /* column already exists or added */ }
+  }
+  _discountTablesEnsured = true;
+}
+
+// ===== PURCHASE REWARD CAMPAIGNS =====
+let _purchaseRewardTablesEnsured = false;
+
+async function ensurePurchaseRewardTables() {
+  if (_purchaseRewardTablesEnsured) return;
+  await query(`
+    CREATE TABLE IF NOT EXISTS sal_purchase_reward_campaigns (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      campaign_name VARCHAR(255) NOT NULL,
+      campaign_qty DECIMAL(18,3) NOT NULL DEFAULT '0.000',
+      used_qty DECIMAL(18,3) NOT NULL DEFAULT '0.000',
+      effective_from DATE NOT NULL,
+      effective_to DATE DEFAULT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT '1',
+      created_by BIGINT UNSIGNED DEFAULT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_pr_company (company_id),
+      KEY idx_pr_created_by (created_by),
+      KEY idx_pr_active (company_id, is_active, effective_from, effective_to)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS sal_purchase_reward_campaign_items (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      campaign_id BIGINT UNSIGNED NOT NULL,
+      item_ids VARCHAR(500) NOT NULL,
+      free_item_ids VARCHAR(500) NOT NULL,
+      item_qty DECIMAL(18,3) NOT NULL DEFAULT '0.000',
+      free_qty DECIMAL(18,3) NOT NULL DEFAULT '0.000',
+      PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  _purchaseRewardTablesEnsured = true;
+  // Ensure columns exist (from later migrations)
+  const missingCols = [
+    'used_qty DECIMAL(18,3) NOT NULL DEFAULT \'0.000\' AFTER campaign_qty',
+  ];
+  for (const col of missingCols) {
+    try { await query(`ALTER TABLE sal_purchase_reward_campaigns ADD COLUMN ${col}`); }
+    catch (e) { /* column already exists or added */ }
+  }
+  const missingItemCols = [
+    'item_ids VARCHAR(500) NOT NULL DEFAULT \'\' AFTER campaign_id',
+    'item_qty DECIMAL(18,3) NOT NULL DEFAULT \'0.000\' AFTER item_ids',
+    'free_item_ids VARCHAR(500) NOT NULL DEFAULT \'\' AFTER item_qty',
+    'free_qty DECIMAL(18,3) NOT NULL DEFAULT \'0.000\' AFTER free_item_ids',
+  ];
+  for (const col of missingItemCols) {
+    try { await query(`ALTER TABLE sal_purchase_reward_campaign_items ADD COLUMN ${col}`); }
+    catch (e) { /* column already exists or added */ }
+  }
+}
+
+router.get(
+  "/purchase-reward-campaigns",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      try { await ensurePurchaseRewardTables(); } catch (_) { /* non-fatal */ }
+      const items = await query(
+        `SELECT c.*,            u.username AS created_by_name
+           FROM sal_purchase_reward_campaigns c
+           LEFT JOIN adm_users u ON u.id = c.created_by
+          WHERE c.company_id = :companyId
+          ORDER BY c.id DESC`,
+        { companyId },
+      ).catch(() => []);
+      res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// ===== BOGO CAMPAIGNS (DEPRECATED) =====
 let _bogoTablesEnsured = false;
 
 async function ensureBogoTables() {

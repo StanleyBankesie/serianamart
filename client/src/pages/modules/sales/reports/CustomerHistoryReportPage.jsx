@@ -234,7 +234,7 @@ export default function CustomerHistoryReportPage() {
       <div className="card">
         <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-bold dark:text-brand-300">Customer History</h1>
+            <h1 className="text-2xl font-bold dark:text-brand-300">Customer Accounts</h1>
             <p className="text-sm mt-1">Complete sales transaction history including returns</p>
           </div>
           <div className="flex gap-2">

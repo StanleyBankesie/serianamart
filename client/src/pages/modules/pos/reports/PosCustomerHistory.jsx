@@ -186,11 +186,11 @@ export default function PosCustomerHistory() {
           >
             ← Back to POS
           </Link>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
-            Customer Purchase History
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            View historical POS transactions by customer and date range
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
+              Customer Accounts
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">
+              View customer transactions and balances
           </p>
         </div>
       </div>
@@ -220,7 +220,6 @@ export default function PosCustomerHistory() {
                   <option value="">All Customers / Walk-in</option>
                   {customers.map((c) => (
                     <option key={c.id} value={String(c.id)}>
-                      {c.customer_code ? `${c.customer_code} - ` : ""}
                       {c.customer_name}
                     </option>
                   ))}

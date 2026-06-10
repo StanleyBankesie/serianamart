@@ -17,8 +17,8 @@ import PriceSetup from "./price-setup/PriceSetup.jsx";
 import CampaignHub from "./discount-schemes/CampaignHub.jsx";
 import DiscountSchemeList from "./discount-schemes/DiscountSchemeList.jsx";
 import CampaignForm from "./discount-schemes/CampaignForm.jsx";
-import BogoCampaignList from "./discount-schemes/BogoCampaignList.jsx";
-import BogoCampaignForm from "./discount-schemes/BogoCampaignForm.jsx";
+import PurchaseRewardCampaignList from "./discount-schemes/PurchaseRewardCampaignList.jsx";
+import PurchaseRewardCampaignForm from "./discount-schemes/PurchaseRewardCampaignForm.jsx";
 import CustomerCreditList from "./customer-credit/CustomerCreditList.jsx";
 import CustomerCreditForm from "./customer-credit/CustomerCreditForm.jsx";
 import CustomerList from "./customers/CustomerList.jsx";
@@ -337,7 +337,7 @@ const SalesModuleHome = () => {
         {
           title: "Promotional Campaigns",
           path: "/sales/discount-schemes",
-          description: "Discount campaigns, BOGO offers, and promotions",
+          description: "Discount campaigns, purchase reward schemes, and promotions",
           icon: "🏷️",
           actions: [],
         },
@@ -538,7 +538,7 @@ const SalesModuleHome = () => {
           icon: "🗂️",
         },
         {
-          title: "Customer History",
+          title: "Customer Accounts",
           path: "/sales/reports/customer-history",
           description:
             "Complete customer transaction history including returns",
@@ -599,9 +599,9 @@ export default function SalesHome() {
       <Route path="/discount-schemes/discount" element={<DiscountSchemeList />} />
       <Route path="/discount-schemes/discount/new" element={<CampaignForm />} />
       <Route path="/discount-schemes/discount/:id" element={<CampaignForm />} />
-      <Route path="/discount-schemes/bogo" element={<BogoCampaignList />} />
-      <Route path="/discount-schemes/bogo/new" element={<BogoCampaignForm />} />
-      <Route path="/discount-schemes/bogo/:id" element={<BogoCampaignForm />} />
+      <Route path="/discount-schemes/purchase-reward" element={<PurchaseRewardCampaignList />} />
+      <Route path="/discount-schemes/purchase-reward/new" element={<PurchaseRewardCampaignForm />} />
+      <Route path="/discount-schemes/purchase-reward/:id" element={<PurchaseRewardCampaignForm />} />
       <Route path="/setup" element={<SalesSetupPage />} />
       <Route path="/customer-credit" element={<CustomerCreditList />} />
       <Route path="/customer-credit/:id" element={<CustomerCreditForm />} />

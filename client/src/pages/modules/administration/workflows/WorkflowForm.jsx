@@ -94,11 +94,10 @@ const WorkflowForm = () => {
 
   useEffect(() => {
     fetchTransactionDocTypes();
-    const intId = setInterval(fetchTransactionDocTypes, 20000);
     if (isEdit) {
       fetchWorkflow();
     }
-    return () => clearInterval(intId);
+    return () => {};
   }, [id]);
 
   const fetchUsers = async () => {

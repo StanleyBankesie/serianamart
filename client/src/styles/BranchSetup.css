@@ -314,5 +314,94 @@
 }
 
 .branch-close-btn:hover {
-    background: rgba(255,255,255,0.3);
+  background: rgba(255,255,255,0.3);
+}
+
+@media (max-width: 639px) {
+  .branch-setup-container {
+    border-radius: 0;
+  }
+  .branch-header {
+    padding: 16px;
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+  }
+  .branch-header h1 {
+    font-size: 20px;
+  }
+  .header-actions {
+    flex-wrap: wrap;
+  }
+  .header-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .branch-content {
+    padding: 16px;
+  }
+  .branch-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .branch-tab {
+    padding: 10px 16px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .search-bar {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .search-input {
+    width: 100%;
+  }
+  .branch-stats {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .branch-stat-card {
+    padding: 16px;
+  }
+  .branch-stat-card .value {
+    font-size: 22px;
+  }
+  .table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .table-container table {
+    min-width: 500px;
+  }
+  .branch-table th,
+  .branch-table td {
+    padding: 10px;
+    font-size: 12px;
+  }
+  .branch-modal {
+    width: 95%;
+    border-radius: 10px;
+  }
+  .branch-modal-header {
+    padding: 16px;
+    flex-direction: column;
+    gap: 10px;
+    text-align: center;
+  }
+  .branch-modal-body {
+    padding: 16px;
+  }
+  .branch-modal-footer {
+    padding: 16px;
+    flex-direction: column;
+  }
+  .branch-modal-footer .btn {
+    width: 100%;
+    justify-content: center;
+  }
 }
