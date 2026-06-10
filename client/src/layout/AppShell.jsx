@@ -1066,7 +1066,7 @@ export default function AppShell() {
       <SocialFeedNotification />
 
       <header className="flex justify-between items-center px-6 py-1 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-sm z-50 sticky top-0">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-nowrap">
           <button
             type="button"
             aria-label="Open menu"
@@ -1090,7 +1090,7 @@ export default function AppShell() {
             />
           </Link>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-nowrap">
           {/* <div className="badge bg-brand-100 dark:bg-brand-900/50 text-brand-800 dark:text-brand-200 border border-brand-300 dark:border-brand-700">
             Role-based + Branch-based
           </div> */}
@@ -1115,7 +1115,8 @@ export default function AppShell() {
               onClick={() => setProfileOpen((v) => !v)}
               className="inline-flex items-center gap-2 px-3 py-1 rounded-lg text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800 transition-colors"
             >
-              <span className="text-sm font-semibold">User Profile</span>
+              <svg className="w-5 h-5 sm:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+              <span className="hidden sm:inline text-sm font-semibold">User Profile</span>
               <span aria-hidden="true">▾</span>
             </button>
 
