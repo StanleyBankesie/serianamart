@@ -796,18 +796,18 @@ export default function HomePage() {
                 Welcome back, {fullName}!
               </h1>
               {profileData?.role_name && (
-                <p className="mt-1 text-brand-200 text-sm font-medium">
+                <p className="hidden sm:block mt-1 text-brand-200 text-sm font-medium">
                   {profileData.role_name}
                 </p>
               )}
               {(user?.companyName || user?.branchName) && (
-                <p className="mt-1 text-brand-200 text-sm">
+                <p className="hidden sm:block mt-1 text-brand-200 text-sm">
                   {[user?.companyName, user?.branchName]
                     .filter(Boolean)
                     .join(" — ")}
                 </p>
               )}
-              <p className="mt-2 text-brand-100 text-lg max-w-2xl">
+              <p className="hidden sm:block mt-2 text-brand-100 text-lg max-w-2xl">
                 Here's an overview of your business performance and pending
                 tasks today.
               </p>
