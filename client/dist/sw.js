@@ -21,7 +21,7 @@ if (!DEV_MODE) {
         "/apple-touch-icon.png",
         "/OMNISUITE_ICON_CLEAR.png",
       ,
-        "/assets/index-BxGGEB2C.js"
+        "/assets/index-Bitz1vBi.js"
 ]);
       // NOTE: Do NOT call self.skipWaiting() here.
       // skipWaiting causes the new SW to immediately take over ALL open tabs

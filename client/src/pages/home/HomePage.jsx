@@ -1253,6 +1253,9 @@ export default function HomePage() {
                       type="button"
                       className={`rounded-lg px-4 py-3 text-left text-white shadow-erp-sm hover:shadow-erp-md transition bg-gradient-to-r ${colors[idx]} h-20 w-full flex flex-col justify-center`}
                       title={`Show ${label} reports and dashboards`}
+                      onClick={() =>
+                        setActiveModule((curr) => (curr === mk ? null : mk))
+                      }
                     >
                       <div className="text-sm font-semibold truncate">
                         {label}
@@ -1328,7 +1331,7 @@ export default function HomePage() {
                             },
                           );
                           return (
-                            <div className="absolute left-full top-0 ml-2 z-50 w-56 max-h-80 overflow-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md shadow-2xl p-1 transition-all duration-200 scale-100 opacity-80">
+                            <div className="absolute left-0 top-full mt-2 sm:left-full sm:top-0 sm:ml-2 z-50 w-56 max-h-80 overflow-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md shadow-2xl p-1 transition-all duration-200 scale-100 opacity-80">
                               {entries.map((e) => (
                                 <button
                                   key={e.path || e.label}

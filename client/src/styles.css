@@ -720,6 +720,29 @@
       min-height: 44px;
       padding: 0.625rem 0.75rem;
     }
+
+    /* -- Homepage hero: edge-to-edge on mobile -- */
+    .min-h-screen.p-2.md\:p-3 {
+      padding-left: 0 !important;
+      padding-right: 0 !important;
+    }
+    .max-w-7xl.mx-auto.space-y-4 {
+      max-width: none !important;
+    }
+    .rounded-2xl.bg-gradient-to-r.from-brand-900 {
+      border-radius: 0 !important;
+      padding: 1.25rem 1rem !important;
+    }
+    .rounded-2xl.bg-gradient-to-r.from-brand-900 .w-24.h-24 {
+      width: 3.5rem;
+      height: 3.5rem;
+    }
+    .rounded-2xl.bg-gradient-to-r.from-brand-900 .text-3xl {
+      font-size: 1.25rem !important;
+    }
+    .rounded-2xl.bg-gradient-to-r.from-brand-900 .text-lg {
+      font-size: 0.9rem !important;
+    }
   }
 
   /* ═══════════════════════════════════════════════════════════════
