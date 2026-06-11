@@ -21,7 +21,7 @@ async function ensurePosTables() {
       company_id BIGINT UNSIGNED NOT NULL,
       branch_id BIGINT UNSIGNED NOT NULL,
       name VARCHAR(100) NOT NULL,
-      type ENUM('cash','card','mobile','bank','other') NOT NULL,
+      type ENUM('cash','card','mobile','bank','other','credit') NOT NULL,
       account VARCHAR(100) NULL,
       require_reference TINYINT(1) NOT NULL DEFAULT 0,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
@@ -31,6 +31,10 @@ async function ensurePosTables() {
       KEY idx_pos_payment_modes_company (company_id),
       KEY idx_pos_payment_modes_branch (branch_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await query(`
+    ALTER TABLE pos_payment_modes
+    MODIFY COLUMN type ENUM('cash','card','mobile','bank','other','credit') NOT NULL
   `);
   if (!(await hasColumn("pos_payment_modes", "is_active"))) {
     await query(

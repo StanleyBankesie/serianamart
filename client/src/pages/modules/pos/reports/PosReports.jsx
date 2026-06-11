@@ -17,6 +17,7 @@ export default function PosReports() {
   const [profitByItem, setProfitByItem] = useState([]);
   const [topItemsShowAll, setTopItemsShowAll] = useState(false);
   const [profitByItemShowAll, setProfitByItemShowAll] = useState(false);
+  const [profitGroupShowAll, setProfitGroupShowAll] = useState(false);
 
   useEffect(() => {
     const today = new Date();
@@ -409,7 +410,7 @@ export default function PosReports() {
                   </tr>
                 </thead>
                 <tbody>
-                  {profitByGroup.map((g, idx) => (
+                  {(profitGroupShowAll ? profitByGroup : profitByGroup.slice(0, 10)).map((g, idx) => (
                     <tr key={idx}>
                       <td>{String(g.item_group || "Uncategorized")}</td>
                       <td className="text-right">{fmtCurrency(g.revenue)}</td>
@@ -452,6 +453,14 @@ export default function PosReports() {
                 </tbody>
               </table>
             </div>
+            {profitByGroup.length > 10 && (
+              <button
+                onClick={() => setProfitGroupShowAll((v) => !v)}
+                className="mt-3 text-sm text-brand hover:text-brand-600 font-medium"
+              >
+                {profitGroupShowAll ? "Show Less" : `Show More (${profitByGroup.length - 10} more)`}
+              </button>
+            )}
           </div>
         </div>
 

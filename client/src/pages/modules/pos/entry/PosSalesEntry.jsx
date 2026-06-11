@@ -161,6 +161,10 @@ export default function PosSalesEntry() {
   const [additionalPaymentModeIds, setAdditionalPaymentModeIds] = useState([]);
   const [splitPrimaryAmount, setSplitPrimaryAmount] = useState(0);
   const [showSplitPaymentModal, setShowSplitPaymentModal] = useState(false);
+  const [showCreditCustomerModal, setShowCreditCustomerModal] = useState(false);
+  const [creditStep, setCreditStep] = useState(1);
+  const [creditPendingModeId, setCreditPendingModeId] = useState("");
+  const [showCreditPaymentModal, setShowCreditPaymentModal] = useState(false);
   const [taxRatePercent, setTaxRatePercent] = useState(12.5);
   const [taxType, setTaxType] = useState("Exclusive");
   const [taxCodeLabel, setTaxCodeLabel] = useState("");
@@ -954,6 +958,7 @@ export default function PosSalesEntry() {
     if (t === "cash") return "CASH";
     if (t === "card" || t === "bank") return "CARD";
     if (t === "mobile") return "MOBILE";
+    if (t === "credit") return "CREDIT";
     return "CASH";
   }
 
@@ -1713,21 +1718,12 @@ export default function PosSalesEntry() {
     setAdditionalPaymentModeIds([]);
     setSelectedCustomerId("");
     setPaymentStatus("PAID");
-    setEntryBarcode("");
-    setEntryQty(1);
-    setSaleTimestamp(null);
-    if (Array.isArray(paymentModes) && paymentModes.length) {
-      const cashMode =
-        paymentModes.find(
-          (m) =>
-            String(m.type || "")
-              .trim()
-              .toLowerCase() === "cash",
-        ) || paymentModes[0];
-      if (cashMode?.id) {
-        setSelectedPaymentModeId(String(cashMode.id));
-      }
-    }
+    setSplitPrimaryAmount(0);
+    setAdditionalPaymentModeIds([]);
+    setCreditPendingModeId("");
+    setShowCreditCustomerModal(false);
+    setCreditStep(1);
+    setShowCreditPaymentModal(false);
     if (barcodeInputRef.current) {
       try {
         barcodeInputRef.current.focus();
@@ -2486,6 +2482,11 @@ export default function PosSalesEntry() {
                             : "btn-secondary"
                         }`}
                         onClick={() => {
+                          if (["credit","on account","account"].some(s => String(m.name || "").toLowerCase().includes(s))) {
+                            setCreditPendingModeId(String(m.id));
+                            setShowCreditCustomerModal(true);
+                            return;
+                          }
                           setSelectedPaymentModeId(String(m.id));
                           setAdditionalPaymentModeIds([]);
                         }}
@@ -2515,7 +2516,12 @@ export default function PosSalesEntry() {
                   type="button"
                   className="btn-success w-full text-base"
                   onClick={() => {
-                    if (tendered < total && !additionalPaymentModeIds.length) {
+                    const isCredit = selectedPaymentMode && ["credit","on account","account"].some(s => String(selectedPaymentMode.name || "").toLowerCase().includes(s));
+                    if (isCredit && paymentStatus === "PAID") {
+                      setShowCreditPaymentModal(true);
+                    } else if (isCredit && paymentStatus === "UNPAID") {
+                      checkout();
+                    } else if (tendered < total && !additionalPaymentModeIds.length) {
                       setSplitPrimaryAmount(tendered);
                       setShowSplitPaymentModal(true);
                     } else {
@@ -2527,7 +2533,8 @@ export default function PosSalesEntry() {
                     saving ||
                     paymentModesLoading ||
                     !paymentModes.length ||
-                    !selectedPaymentModeId
+                    !selectedPaymentModeId ||
+                    (selectedPaymentMode && ["credit","on account","account"].some(s => String(selectedPaymentMode.name || "").toLowerCase().includes(s)) && !selectedCustomerId)
                   }
                 >
                   {tendered < total && !additionalPaymentModeIds.length
@@ -2678,6 +2685,130 @@ export default function PosSalesEntry() {
               type="button"
               className="btn btn-secondary w-full mt-4"
               onClick={() => setShowSplitPaymentModal(false)}
+            >
+              Back
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showCreditCustomerModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm mx-4">
+            {creditStep === 1 ? (
+              <>
+                <div className="text-lg font-bold text-brand-700 mb-2">
+                  Customer Required
+                </div>
+                <p className="text-sm text-slate-600 mb-4">
+                  This is an on-account sale. Select a customer to continue.
+                </p>
+                <FilterableSelect
+                  value={selectedCustomerId}
+                  onChange={(val) => {
+                    setSelectedCustomerId(val);
+                    if (val) setCreditStep(2);
+                  }}
+                  options={customers.map((c) => ({
+                    value: String(c.id),
+                    label: String(c.customer_name || c.name || ""),
+                  }))}
+                  placeholder="Search customers..."
+                  filterPlaceholder="Search customers..."
+                />
+                <button
+                  type="button"
+                  className="btn btn-secondary w-full mt-4"
+                  onClick={() => {
+                    setShowCreditCustomerModal(false);
+                    setCreditPendingModeId("");
+                    setCreditStep(1);
+                  }}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="text-lg font-bold text-brand-700 mb-2">
+                  Payment Status
+                </div>
+                <p className="text-sm text-slate-600 mb-4">
+                  Set the payment status for this sale.
+                </p>
+                <label className="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 mb-2">
+                  <input
+                    type="radio"
+                    name="creditPaymentStatus"
+                    value="PAID"
+                    checked={paymentStatus === "PAID"}
+                    onChange={() => setPaymentStatus("PAID")}
+                  />
+                  <span className="font-medium">Paid</span>
+                </label>
+                <label className="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 mb-4">
+                  <input
+                    type="radio"
+                    name="creditPaymentStatus"
+                    value="UNPAID"
+                    checked={paymentStatus === "UNPAID"}
+                    onChange={() => setPaymentStatus("UNPAID")}
+                  />
+                  <span className="font-medium">Unpaid</span>
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-primary w-full"
+                  onClick={() => {
+                    setShowCreditCustomerModal(false);
+                    setCreditStep(1);
+                    if (paymentStatus === "PAID") {
+                      setSelectedPaymentModeId(creditPendingModeId);
+                      setAdditionalPaymentModeIds([]);
+                      setShowCreditPaymentModal(true);
+                    } else {
+                      setSelectedPaymentModeId(creditPendingModeId);
+                      setAdditionalPaymentModeIds([]);
+                    }
+                  }}
+                >
+                  Continue
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showCreditPaymentModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm mx-4">
+            <div className="text-lg font-bold text-brand-700 mb-2">
+              Select Payment Method
+            </div>
+            <p className="text-sm text-slate-600 mb-4">
+              Choose the payment method for this credit sale.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {paymentModes.filter((m) => !["credit","on account","account"].some(s => String(m.name || "").toLowerCase().includes(s))).map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className="btn btn-secondary text-base"
+                  onClick={() => {
+                    setSelectedPaymentModeId(String(m.id));
+                    setAdditionalPaymentModeIds([]);
+                    setShowCreditPaymentModal(false);
+                  }}
+                >
+                  {m.name}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary w-full mt-4"
+              onClick={() => setShowCreditPaymentModal(false)}
             >
               Back
             </button>

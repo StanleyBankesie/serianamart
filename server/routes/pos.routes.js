@@ -512,39 +512,11 @@ async function ensurePosTables() {
       KEY idx_pos_terminal_branch (branch_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
-  if (!(await hasColumn("pos_terminals", "warehouse"))) {
-    await query(
-      "ALTER TABLE pos_terminals ADD COLUMN warehouse VARCHAR(150) NULL",
-    );
-  }
-  if (!(await hasColumn("pos_terminals", "warehouse_id"))) {
-    await query(
-      "ALTER TABLE pos_terminals ADD COLUMN warehouse_id BIGINT UNSIGNED NULL",
-    );
-  }
-  if (!(await hasColumn("pos_terminals", "counter_no"))) {
-    await query("ALTER TABLE pos_terminals ADD COLUMN counter_no INT NULL");
-  }
-  if (!(await hasColumn("pos_terminals", "ip_address"))) {
-    await query(
-      "ALTER TABLE pos_terminals ADD COLUMN ip_address VARCHAR(50) NULL",
-    );
-  }
-  if (!(await hasColumn("pos_terminals", "enable_vfd"))) {
-    await query(
-      "ALTER TABLE pos_terminals ADD COLUMN enable_vfd TINYINT(1) NOT NULL DEFAULT 0 AFTER ip_address",
-    );
-  }
-  if (!(await hasColumn("pos_terminals", "vfd_type"))) {
-    await query(
-      "ALTER TABLE pos_terminals ADD COLUMN vfd_type VARCHAR(30) NULL DEFAULT 'generic' AFTER enable_vfd",
-    );
-  }
-  if (!(await hasColumn("pos_terminals", "vfd_port"))) {
-    await query(
-      "ALTER TABLE pos_terminals ADD COLUMN vfd_port INT NULL DEFAULT 9100 AFTER vfd_type",
-    );
-  }
+
+  await query(`
+    ALTER TABLE pos_payment_modes
+    MODIFY COLUMN type ENUM('cash','card','mobile','bank','other','credit') NOT NULL
+  `);
 
   await query(`
     CREATE TABLE IF NOT EXISTS pos_terminal_users (
@@ -574,7 +546,7 @@ async function ensurePosTables() {
       receipt_no VARCHAR(50) NOT NULL,
       sale_datetime DATETIME NOT NULL,
       customer_name VARCHAR(150) NULL,
-      payment_method ENUM('CASH','CARD','MOBILE','SPLIT') NOT NULL DEFAULT 'CASH',
+      payment_method ENUM('CASH','CARD','MOBILE','SPLIT','CREDIT') NOT NULL DEFAULT 'CASH',
       gross_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
       discount_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
       tax_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
@@ -629,8 +601,8 @@ async function ensurePosTables() {
         AND COLUMN_NAME = 'payment_method'
     `);
     const colType = colRows?.[0]?.COLUMN_TYPE || '';
-    if (colType && !colType.includes("'SPLIT'")) {
-      await query("ALTER TABLE pos_sales MODIFY payment_method ENUM('CASH','CARD','MOBILE','SPLIT') NOT NULL DEFAULT 'CASH'");
+    if (colType && (!colType.includes("'SPLIT'") || !colType.includes("'CREDIT'"))) {
+      await query("ALTER TABLE pos_sales MODIFY payment_method ENUM('CASH','CARD','MOBILE','SPLIT','CREDIT') NOT NULL DEFAULT 'CASH'");
     }
   } catch (e) {}
 
@@ -764,7 +736,7 @@ async function ensurePosTables() {
       company_id BIGINT UNSIGNED NOT NULL,
       branch_id BIGINT UNSIGNED NOT NULL,
       name VARCHAR(100) NOT NULL,
-      type ENUM('cash','card','mobile','bank','other') NOT NULL,
+      type ENUM('cash','card','mobile','bank','other','credit') NOT NULL,
       account VARCHAR(100) NULL,
       require_reference TINYINT(1) NOT NULL DEFAULT 0,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
@@ -1077,6 +1049,8 @@ router.get(
         cardAmount: 0,
         mobileCount: 0,
         mobileAmount: 0,
+        creditCount: 0,
+        creditAmount: 0,
       };
       for (const row of rows) {
         const method = String(row.payment_method || "").toUpperCase();
@@ -1122,6 +1096,9 @@ router.get(
         } else if (method === "MOBILE") {
           summary.mobileCount += 1;
           summary.mobileAmount += Number(row.net_amount || 0);
+        } else if (method === "CREDIT") {
+          summary.creditCount += 1;
+          summary.creditAmount += Number(row.net_amount || 0);
         }
       }
       summary.cashAmount = roundTo2(
@@ -1132,6 +1109,9 @@ router.get(
       );
       summary.mobileAmount = roundTo2(
         summary.mobileAmount - (returnsByMethod.get("MOBILE") || 0),
+      );
+      summary.creditAmount = roundTo2(
+        summary.creditAmount - (returnsByMethod.get("CREDIT") || 0),
       );
       res.json({ summary });
     } catch (err) {
@@ -1252,11 +1232,12 @@ router.get(
       await ensurePosTables();
       const items = await query(
         `
-        SELECT 
+          SELECT 
           COALESCE(t.code, 'UNKNOWN') AS terminal,
           SUM(CASE WHEN COALESCE(p.payment_method, '')='CASH' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS cash_total,
           SUM(CASE WHEN COALESCE(p.payment_method, '')='CARD' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS card_total,
           SUM(CASE WHEN COALESCE(p.payment_method, '')='MOBILE' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS mobile_total,
+          SUM(CASE WHEN COALESCE(p.payment_method, '')='CREDIT' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS credit_total,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
@@ -1274,11 +1255,12 @@ router.get(
       );
       const returnRows = await query(
         `
-        SELECT 
+          SELECT 
           COALESCE(t.code, 'UNKNOWN') AS terminal,
           SUM(CASE WHEN r.refund_method='CASH' THEN r.total_refund ELSE 0 END) AS cash_return,
           SUM(CASE WHEN r.refund_method='CARD' THEN r.total_refund ELSE 0 END) AS card_return,
-          SUM(CASE WHEN r.refund_method='MOBILE' THEN r.total_refund ELSE 0 END) AS mobile_return
+          SUM(CASE WHEN r.refund_method='MOBILE' THEN r.total_refund ELSE 0 END) AS mobile_return,
+          SUM(CASE WHEN r.refund_method='CREDIT' THEN r.total_refund ELSE 0 END) AS credit_return
          FROM pos_returns r
          JOIN pos_sales p
            ON p.id = r.sale_id
@@ -1300,6 +1282,7 @@ router.get(
             cash: Number(r.cash_return || 0),
             card: Number(r.card_return || 0),
             mobile: Number(r.mobile_return || 0),
+            credit: Number(r.credit_return || 0),
           },
         ]),
       );
@@ -1309,12 +1292,14 @@ router.get(
           cash: 0,
           card: 0,
           mobile: 0,
+          credit: 0,
         };
         return {
           ...it,
           cash_total: roundTo2(Number(it.cash_total || 0) - ret.cash),
           card_total: roundTo2(Number(it.card_total || 0) - ret.card),
           mobile_total: roundTo2(Number(it.mobile_total || 0) - ret.mobile),
+          credit_total: roundTo2(Number(it.credit_total || 0) - ret.credit),
         };
       });
       res.json({ items: adjusted });
@@ -2921,7 +2906,7 @@ router.post(
           customer_id: customer_id || null,
           payment_status: customer_id && payment_status ? payment_status : null,
           paid_amount: customer_id && payment_status === "PAID" ? net : 0,
-          payment_method: (Array.isArray(reqPayments) && reqPayments.length > 1) ? "SPLIT" : (pm === "CARD" || pm === "MOBILE" ? pm : "CASH"),
+          payment_method: (Array.isArray(reqPayments) && reqPayments.length > 1) ? "SPLIT" : (pm === "CARD" || pm === "MOBILE" || pm === "CREDIT" ? pm : "CASH"),
           payments: paymentsJson,
           gross_amount: gross,
           discount_amount: discount,
@@ -3305,6 +3290,7 @@ router.post(
            SUM(CASE WHEN COALESCE(payment_method, '')='CASH' THEN COALESCE(net_amount, 0) ELSE 0 END) AS cash_total,
            SUM(CASE WHEN COALESCE(payment_method, '')='CARD' THEN COALESCE(net_amount, 0) ELSE 0 END) AS card_total,
            SUM(CASE WHEN COALESCE(payment_method, '')='MOBILE' THEN COALESCE(net_amount, 0) ELSE 0 END) AS mobile_total,
+           SUM(CASE WHEN COALESCE(payment_method, '')='CREDIT' THEN COALESCE(net_amount, 0) ELSE 0 END) AS credit_total,
            SUM(tax_amount) AS tax_total,
            SUM(discount_amount) AS discount_total,
            SUM(net_amount) AS net_total
@@ -3320,6 +3306,7 @@ router.post(
            SUM(CASE WHEN refund_method='CASH' THEN total_refund ELSE 0 END) AS cash_return,
            SUM(CASE WHEN refund_method='CARD' THEN total_refund ELSE 0 END) AS card_return,
            SUM(CASE WHEN refund_method='MOBILE' THEN total_refund ELSE 0 END) AS mobile_return,
+           SUM(CASE WHEN refund_method='CREDIT' THEN total_refund ELSE 0 END) AS credit_return,
            SUM(total_refund) AS return_total
          FROM pos_returns
          WHERE company_id = :companyId
@@ -3335,6 +3322,9 @@ router.post(
       );
       const mobileTotal = roundTo2(
         (aggRows?.mobile_total || 0) - (retRows?.mobile_return || 0),
+      );
+      const creditTotal = roundTo2(
+        (aggRows?.credit_total || 0) - (retRows?.credit_return || 0),
       );
       const rawNetTotal = roundTo2(aggRows?.net_total || 0);
       const rawTaxTotal = roundTo2(aggRows?.tax_total || 0);
@@ -3759,6 +3749,7 @@ router.post(
              SUM(CASE WHEN COALESCE(p.payment_method, '')='CASH' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS cash_total,
              SUM(CASE WHEN COALESCE(p.payment_method, '')='CARD' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS card_total,
              SUM(CASE WHEN COALESCE(p.payment_method, '')='MOBILE' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS mobile_total,
+             SUM(CASE WHEN COALESCE(p.payment_method, '')='CREDIT' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS credit_total,
              SUM(p.tax_amount) AS tax_total,
              SUM(p.discount_amount) AS discount_total,
              SUM(p.net_amount) AS net_total
@@ -3781,6 +3772,7 @@ router.post(
              SUM(CASE WHEN r.refund_method='CASH' THEN r.total_refund ELSE 0 END) AS cash_return,
              SUM(CASE WHEN r.refund_method='CARD' THEN r.total_refund ELSE 0 END) AS card_return,
              SUM(CASE WHEN r.refund_method='MOBILE' THEN r.total_refund ELSE 0 END) AS mobile_return,
+             SUM(CASE WHEN r.refund_method='CREDIT' THEN r.total_refund ELSE 0 END) AS credit_return,
              SUM(r.total_refund) AS return_total
            FROM pos_returns r
            JOIN pos_sales ps ON ps.id = r.sale_id
@@ -3800,6 +3792,9 @@ router.post(
         );
         mobileTotal = roundTo2(
           (aggRows?.mobile_total || 0) - (retRows?.mobile_return || 0),
+        );
+        const creditTotal = roundTo2(
+          (aggRows?.credit_total || 0) - (retRows?.credit_return || 0),
         );
         const rawNetTotal = roundTo2(aggRows?.net_total || 0);
         const rawTaxTotal = roundTo2(aggRows?.tax_total || 0);

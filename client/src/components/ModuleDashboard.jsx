@@ -408,8 +408,8 @@ const ModuleDashboard = ({
                   return (
                     <div
                       key={index}
-                      className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(178,110,23,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(178,110,23,0.5)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#b26e17] text-white"
-                      onClick={() => handleNavigate(stat.path)}
+                      className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(178,110,23,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(178,110,23,0.5)] active:scale-[0.98] transition-all duration-300 ease-out group bg-[#b26e17] text-white"
+
                     >
                       <div className="flex flex-col h-full justify-between">
                         <div className="flex justify-end min-h-[22px]">
@@ -439,8 +439,8 @@ const ModuleDashboard = ({
                   return (
                     <div
                       key={index}
-                      className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(36,82,109,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(36,82,109,0.5)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#24526d] text-white"
-                      onClick={() => handleNavigate(stat.path)}
+                      className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(36,82,109,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(36,82,109,0.5)] active:scale-[0.98] transition-all duration-300 ease-out group bg-[#24526d] text-white"
+
                     >
                       <div className="flex flex-col h-full justify-between">
                         <div className="flex justify-end min-h-[22px]">
@@ -470,8 +470,8 @@ const ModuleDashboard = ({
                   return (
                     <div
                       key={index}
-                      className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(24,117,92,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(24,117,92,0.5)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#18755c] text-white"
-                      onClick={() => handleNavigate(stat.path)}
+                      className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(24,117,92,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(24,117,92,0.5)] active:scale-[0.98] transition-all duration-300 ease-out group bg-[#18755c] text-white"
+
                     >
                       <div className="flex flex-col h-full justify-between">
                         <div className="flex justify-end min-h-[22px]">
@@ -501,8 +501,8 @@ const ModuleDashboard = ({
                   return (
                     <div
                       key={index}
-                      className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(0,0,0,0.2)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.5)] border border-white/5 hover:border-white/15 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.4)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#1d1f22] bg-[radial-gradient(#ffffff06_1px,transparent_1px)] [background-size:8px_8px] text-white"
-                      onClick={() => handleNavigate(stat.path)}
+                      className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(0,0,0,0.2)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.5)] border border-white/5 hover:border-white/15 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.4)] active:scale-[0.98] transition-all duration-300 ease-out group bg-[#1d1f22] bg-[radial-gradient(#ffffff06_1px,transparent_1px)] [background-size:8px_8px] text-white"
+
                     >
                       <div className="flex flex-col h-full justify-between">
                         <div className="flex justify-end min-h-[22px]">
@@ -609,7 +609,7 @@ const ModuleDashboard = ({
                     return (
                       <div
                         key={itemIndex}
-                        className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700/50 hover:border-brand-300/80 dark:hover:border-brand-600/80 hover:-translate-y-1.5 hover:shadow-[0_15px_35px_rgba(14,54,70,0.06)] dark:hover:shadow-[0_15px_35px_rgba(0,0,0,0.25)] transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] cursor-pointer group relative overflow-hidden"
+                        className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700/50 hover:border-brand-300/80 dark:hover:border-brand-600/80 hover:-translate-y-1.5 hover:shadow-[0_15px_35px_rgba(14,54,70,0.06)] dark:hover:shadow-[0_15px_35px_rgba(0,0,0,0.25)] transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] group relative overflow-hidden"
                         onClick={() => handleNavigate(item.path)}
                       >
                         <div className="flex items-start gap-4">

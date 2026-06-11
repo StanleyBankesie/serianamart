@@ -81,12 +81,12 @@ function BarChart({
     h: Math.round((Number(d[yKey] || 0) / max) * (height - topPad)),
   }));
   return (
-    <div className="w-full">
-      <div className="flex items-end gap-4 w-full" style={{ height }}>
+    <div className="w-full overflow-x-auto">
+      <div className="flex items-end gap-4" style={{ height, minWidth: `${Math.max(bars.length * 72, 200)}px` }}>
         {bars.map((b, idx) => {
           const barColor = palette ? palette[idx % palette.length] : color;
           return (
-            <div key={idx} className="flex flex-col items-center flex-1 min-w-0">
+            <div key={idx} className="flex flex-col items-center w-14 shrink-0">
               <div className="text-xs font-bold text-slate-800">
                 {formatY
                   ? formatY(b.value)
@@ -461,20 +461,23 @@ export default function PosDashboard() {
       { method: "Cash", amount: Number(s.cashAmount || 0) },
       { method: "Card", amount: Number(s.cardAmount || 0) },
       { method: "Mobile", amount: Number(s.mobileAmount || 0) },
+      { method: "Credit", amount: Number(s.creditAmount || 0) },
     ];
   }, [daySummary]);
 
   const terminalPieData = useMemo(() => {
-    let cash = 0, card = 0, mobile = 0;
+    let cash = 0, card = 0, mobile = 0, credit = 0;
     for (const row of terminalMethod) {
       cash += Number(row.cash_total || 0);
       card += Number(row.card_total || 0);
       mobile += Number(row.mobile_total || 0);
+      credit += Number(row.credit_total || 0);
     }
     return [
       { label: "Cash", value: cash },
       { label: "Card", value: card },
       { label: "Mobile", value: mobile },
+      { label: "Credit", value: credit },
     ].filter((d) => d.value > 0);
   }, [terminalMethod]);
 
@@ -836,28 +839,20 @@ export default function PosDashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="card shadow-sm border-slate-200/60">
-          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60 flex items-center justify-between">
-            <div>
-              <div className="font-bold text-slate-800">
-                Sales by Item Category
-              </div>
-              <div className="text-[11px] text-slate-500">{dateLabel}</div>
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
+            <div className="font-bold text-slate-800">
+              Profitable Groups
             </div>
-            {pieData.length > 0 && (
-              <div className="text-xs font-bold text-slate-700">
-                Total: {fmtCurrency(pieData.reduce((s, d) => s + d.value, 0))}
-              </div>
-            )}
+            <div className="text-[11px] text-slate-500">{dateLabel}</div>
           </div>
           <div className="card-body overflow-x-auto p-4">
             <BarChart
-              data={pieData}
-              xKey="label"
-              yKey="value"
-              xLabel="Category"
-              yLabel="Sales (GH₵)"
+              data={profitByGroup}
+              xKey="item_group"
+              yKey="profit"
               formatY={fmtCurrency}
-              colors={["#14b8a6","#f43f5e","#8b5cf6","#eab308","#0ea5e9","#ec4899","#84cc16","#f97316"]}
+              colors={["#22c55e","#14b8a6","#6366f1","#f59e0b","#ef4444"]}
+              horizontal
             />
           </div>
         </div>
@@ -921,20 +916,28 @@ export default function PosDashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="card shadow-sm border-slate-200/60">
-          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
-            <div className="font-bold text-slate-800">
-              Top {Math.min(5, profitByGroup.length)} Profitable Groups
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60 flex items-center justify-between">
+            <div>
+              <div className="font-bold text-slate-800">
+                Sales by Item Category
+              </div>
+              <div className="text-[11px] text-slate-500">{dateLabel}</div>
             </div>
-            <div className="text-[11px] text-slate-500">{dateLabel}</div>
+            {pieData.length > 0 && (
+              <div className="text-xs font-bold text-slate-700">
+                Total: {fmtCurrency(pieData.reduce((s, d) => s + d.value, 0))}
+              </div>
+            )}
           </div>
           <div className="card-body overflow-x-auto p-4">
             <BarChart
-              data={profitByGroup.slice(0, 5)}
-              xKey="item_group"
-              yKey="profit"
+              data={pieData}
+              xKey="label"
+              yKey="value"
+              xLabel="Category"
+              yLabel="Sales (GH₵)"
               formatY={fmtCurrency}
-              colors={["#22c55e","#14b8a6","#6366f1","#f59e0b","#ef4444"]}
-              horizontal
+              colors={["#14b8a6","#f43f5e","#8b5cf6","#eab308","#0ea5e9","#ec4899","#84cc16","#f97316"]}
             />
           </div>
         </div>

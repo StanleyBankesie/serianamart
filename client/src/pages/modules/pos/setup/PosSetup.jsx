@@ -1517,6 +1517,7 @@ function PaymentMethodsTab() {
                     <option value="card">Card</option>
                     <option value="mobile">Mobile Money</option>
                     <option value="bank">Bank Transfer</option>
+                    <option value="credit">Credit</option>
                     <option value="other">Other</option>
                   </select>
                 </div>

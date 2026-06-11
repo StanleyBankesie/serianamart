@@ -561,22 +561,10 @@ export default function PosPostToFinance() {
         if (!paymentModeByType.has(t)) paymentModeByType.set(t, pm);
       }
 
-      const methodOrder = ["CASH", "CARD", "MOBILE"];
-      const methods = Array.from(paymentTotals.keys()).sort((a, b) => {
-        const ai = methodOrder.indexOf(a);
-        const bi = methodOrder.indexOf(b);
-        if (ai === -1 && bi === -1) return a.localeCompare(b);
-        if (ai === -1) return 1;
-        if (bi === -1) return -1;
-        return ai - bi;
-      });
-
-      for (const method of methods) {
-        const amt = roundTo2(paymentTotals.get(method) || 0);
+      for (const [method, amt] of paymentTotals.entries()) {
         if (Math.abs(amt) < 0.01) continue;
-        const needType =
-          method === "CARD" ? "card" : method === "MOBILE" ? "mobile" : "cash";
-        const pm = paymentModeByType.get(needType);
+        const pmKey = String(method).toLowerCase();
+        const pm = paymentModeByType.get(pmKey);
         const payLabel = accountLabelFromAccountRef(
           accounts,
           accountsById,

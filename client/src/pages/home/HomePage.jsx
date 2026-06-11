@@ -212,6 +212,9 @@ export default function HomePage() {
       pos: "/pos/dashboard",
       inventory: "/inventory/dashboard",
       "business-intelligence": "/business-intelligence/analytics",
+      production: "/production/dashboard",
+      maintenance: "/maintenance/dashboard",
+      "project-management": "/project-management/dashboard",
     }),
     [],
   );
@@ -842,8 +845,8 @@ export default function HomePage() {
               return (
                 <div
                   key={index}
-                  onClick={() => navigate(metric.path)}
-                  className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(178,110,23,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(178,110,23,0.5)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#b26e17] text-white"
+
+                  className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(178,110,23,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(178,110,23,0.5)] active:scale-[0.98] transition-all duration-300 ease-out group bg-[#b26e17] text-white"
                 >
                   <div className="flex flex-col h-full justify-between">
                     <div className="flex justify-end min-h-[22px]">
@@ -873,8 +876,8 @@ export default function HomePage() {
               return (
                 <div
                   key={index}
-                  onClick={() => navigate(metric.path)}
-                  className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(36,82,109,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(36,82,109,0.5)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#24526d] text-white"
+
+                  className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(36,82,109,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(36,82,109,0.5)] active:scale-[0.98] transition-all duration-300 ease-out group bg-[#24526d] text-white"
                 >
                   <div className="flex flex-col h-full justify-between">
                     <div className="flex justify-end min-h-[22px]">
@@ -912,8 +915,8 @@ export default function HomePage() {
               return (
                 <div
                   key={index}
-                  onClick={() => navigate(metric.path)}
-                  className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(24,117,92,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(24,117,92,0.5)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#18755c] text-white"
+
+                  className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(24,117,92,0.3)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.4)] border border-white/10 hover:border-white/20 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(24,117,92,0.5)] active:scale-[0.98] transition-all duration-300 ease-out group bg-[#18755c] text-white"
                 >
                   <div className="flex flex-col h-full justify-between">
                     <div className="flex justify-end min-h-[22px]">
@@ -951,8 +954,8 @@ export default function HomePage() {
               return (
                 <div
                   key={index}
-                  onClick={() => navigate(metric.path)}
-                  className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(0,0,0,0.2)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.5)] border border-white/5 hover:border-white/15 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.4)] active:scale-[0.98] transition-all duration-300 ease-out cursor-pointer group bg-[#1d1f22] bg-[radial-gradient(#ffffff06_1px,transparent_1px)] [background-size:8px_8px] text-white"
+
+                  className="relative overflow-hidden rounded-[24px] p-6 shadow-[0_15px_30px_-5px_rgba(0,0,0,0.2)] dark:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.5)] border border-white/5 hover:border-white/15 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.4)] active:scale-[0.98] transition-all duration-300 ease-out group bg-[#1d1f22] bg-[radial-gradient(#ffffff06_1px,transparent_1px)] [background-size:8px_8px] text-white"
                 >
                   <div className="flex flex-col h-full justify-between">
                     <div className="flex justify-end min-h-[22px]">
@@ -1320,14 +1323,29 @@ export default function HomePage() {
                             if (!p) return;
                             if (!byPath.has(p)) byPath.set(p, e);
                           });
+                          const hiddenPaths = new Set([
+                            "/administration/reports",
+                            "/administration/system-overview",
+                            "/administration/user-activity",
+                            "/sales/reports",
+                            "/sales/revenue-analytics",
+                            "/sales/sales-overview",
+                            "/sales/customer-analytics",
+                            "/purchase/procurement-overview",
+                            "/purchase/supplier-analytics",
+                            "/inventory/inventory-overview",
+                            "/inventory/stock-analytics",
+                            "/finance/financial-overview",
+                            "/finance/cash-flow",
+                            "/finance/budget-analysis",
+                          ]);
                           const entries = Array.from(byPath.values()).filter(
                             (e) => {
                               const p = e?.path || "";
-                              if (!p) return false;
+                              if (!p || hiddenPaths.has(p)) return false;
                               if (canAccessPath(p)) return true;
-                              const parts = p.split("/").filter(Boolean);
-                              const moduleKey = parts[0] || "";
-                              return !!moduleKey && isModuleEnabled(moduleKey);
+                              const dashboards = getModuleDashboards?.(mk) || [];
+                              return dashboards.some((d) => d.path === p);
                             },
                           );
                           return (

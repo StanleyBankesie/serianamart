@@ -258,8 +258,7 @@ export const MODULES_REGISTRY = {
       { key: "setup", label: "POS Setup", type: "feature" },
     ],
     dashboards: [
-      { key: "pos-overview", label: "POS Overview Dashboard", type: "dashboard" },
-      { key: "sales-analytics", label: "Sales Analytics Dashboard", type: "dashboard" },
+      { key: "dashboard", label: "POS Dashboard", type: "dashboard" },
     ]
   },
 

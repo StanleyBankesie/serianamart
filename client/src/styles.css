@@ -722,12 +722,13 @@
     }
 
     /* -- Homepage hero: edge-to-edge on mobile -- */
-    .min-h-screen.p-2.md\:p-3 {
-      padding-left: 0 !important;
-      padding-right: 0 !important;
+    .min-h-screen.p-2.font-sans {
+      padding: 0.5rem 0 !important;
     }
     .max-w-7xl.mx-auto.space-y-4 {
       max-width: none !important;
+      margin-left: 0 !important;
+      margin-right: 0 !important;
     }
     .rounded-2xl.bg-gradient-to-r.from-brand-900 {
       border-radius: 0 !important;
