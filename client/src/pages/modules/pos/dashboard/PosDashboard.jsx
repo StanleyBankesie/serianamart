@@ -42,17 +42,17 @@ function BarChart({
 
   if (horizontal) {
     return (
-      <div className="w-full space-y-3">
+      <div className="w-full space-y-2">
         {data.map((d, idx) => {
           const barColor = palette ? palette[idx % palette.length] : color;
           const val = Number(d[yKey] || 0);
           const pct = (val / max) * 100;
           return (
-            <div key={idx} className="flex items-center gap-3">
-              <div className="text-xs font-medium text-slate-600 w-28 shrink-0 text-right truncate">
-                {String(d[xKey])}
+            <div key={idx} className="flex items-center gap-2">
+              <div className="text-xs font-bold text-slate-800 w-24 shrink-0 text-right">
+                {formatY ? formatY(val) : val.toLocaleString()}
               </div>
-              <div className="flex-1 h-5 rounded bg-slate-100 overflow-hidden">
+              <div className="flex-1 h-6 rounded bg-slate-100 overflow-hidden">
                 <div
                   className="h-full rounded transition-all"
                   style={{
@@ -64,8 +64,8 @@ function BarChart({
                   title={`${String(d[xKey])} • ${formatY ? formatY(val) : val.toLocaleString()}`}
                 />
               </div>
-              <div className="text-xs font-bold text-slate-800 w-24 shrink-0 text-left">
-                {formatY ? formatY(val) : val.toLocaleString()}
+              <div className="text-xs font-medium text-slate-600 shrink-0 text-left truncate max-w-[140px]">
+                {String(d[xKey])}
               </div>
             </div>
           );
@@ -74,7 +74,7 @@ function BarChart({
     );
   }
 
-  const topPad = 18;
+  const topPad = 28;
   const bars = data.map((d) => ({
     label: String(d[xKey]),
     value: Number(d[yKey] || 0),
@@ -87,21 +87,22 @@ function BarChart({
           const barColor = palette ? palette[idx % palette.length] : color;
           return (
             <div key={idx} className="flex flex-col items-center w-14 shrink-0">
-              <div className="text-xs font-bold text-slate-800">
-                {formatY
-                  ? formatY(b.value)
-                  : Number(b.value || 0).toLocaleString()}
-              </div>
               <div
-                className="w-full max-w-[48px] rounded"
+                className="w-full max-w-[48px] rounded relative flex items-end justify-center"
                 style={{
-                  height: `${Math.max(4, b.h)}px`,
+                  height: `${Math.max(28, b.h)}px`,
                   backgroundImage: `linear-gradient(${shade(barColor, 0.35)}, ${barColor})`,
                   boxShadow:
                     "inset 0 2px 4px rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.15)",
                 }}
                 title={`${b.label} • ${formatY ? formatY(b.value) : b.value.toLocaleString()}`}
-              />
+              >
+                <span className="text-[11px] font-bold text-white leading-none pb-1 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" style={{ textShadow: "0 1px 2px rgba(0,0,0,0.6)" }}>
+                  {formatY
+                    ? formatY(b.value)
+                    : Number(b.value || 0).toLocaleString()}
+                </span>
+              </div>
               <div className="text-xs font-medium text-slate-600 mt-1 text-center w-full truncate px-1">
                 {b.label}
               </div>
@@ -346,6 +347,8 @@ export default function PosDashboard() {
   const [topItems, setTopItems] = useState([]);
   const [profitByGroup, setProfitByGroup] = useState([]);
   const [profitByItem, setProfitByItem] = useState([]);
+  const [topItemsRange, setTopItemsRange] = useState(7);
+  const [topItemsPage, setTopItemsPage] = useState(1);
   const [daysRange, setDaysRange] = useState(30);
   const todayStr = new Date().toISOString().slice(0, 10);
   const [startDate, setStartDate] = useState(todayStr);
@@ -464,6 +467,15 @@ export default function PosDashboard() {
       { method: "Credit", amount: Number(s.creditAmount || 0) },
     ];
   }, [daySummary]);
+
+  const topItemsTotalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(topItems.length / topItemsRange));
+  }, [topItems, topItemsRange]);
+
+  const paginatedTopItems = useMemo(() => {
+    const start = (topItemsPage - 1) * topItemsRange;
+    return topItems.slice(start, start + topItemsRange);
+  }, [topItems, topItemsPage, topItemsRange]);
 
   const terminalPieData = useMemo(() => {
     let cash = 0, card = 0, mobile = 0, credit = 0;
@@ -839,20 +851,29 @@ export default function PosDashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="card shadow-sm border-slate-200/60">
-          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
-            <div className="font-bold text-slate-800">
-              Profitable Groups
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60 flex items-center justify-between">
+            <div>
+              <div className="font-bold text-slate-800">
+                Sales by Item Category
+              </div>
+              <div className="text-[11px] text-slate-500">{dateLabel}</div>
             </div>
-            <div className="text-[11px] text-slate-500">{dateLabel}</div>
+            {pieData.length > 0 && (
+              <div className="text-xs font-bold text-slate-700">
+                Total: {fmtCurrency(pieData.reduce((s, d) => s + d.value, 0))}
+              </div>
+            )}
           </div>
-          <div className="card-body overflow-x-auto p-4">
+          <div className="card-body overflow-x-auto p-4" style={{ height: 350 }}>
             <BarChart
-              data={profitByGroup}
-              xKey="item_group"
-              yKey="profit"
+              data={pieData}
+              xKey="label"
+              yKey="value"
+              xLabel="Category"
+              yLabel="Sales (GH₵)"
               formatY={fmtCurrency}
-              colors={["#22c55e","#14b8a6","#6366f1","#f59e0b","#ef4444"]}
-              horizontal
+              colors={["#14b8a6","#f43f5e","#8b5cf6","#eab308","#0ea5e9","#ec4899","#84cc16","#f97316"]}
+              height={300}
             />
           </div>
         </div>
@@ -863,36 +884,48 @@ export default function PosDashboard() {
               Best performers by quantity ({dateLabel})
             </div>
           </div>
-          <div className="card-body overflow-x-auto p-0">
-            <div className="overflow-x-auto">
+          <div className="card-body p-0" style={{ height: 380 }}>
+            <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+              <span className="text-xs text-slate-500">Top</span>
+              <select
+                className="input text-xs py-1 px-2 w-20"
+                value={String(topItemsRange)}
+                onChange={(e) => { setTopItemsRange(Number(e.target.value)); setTopItemsPage(1); }}
+              >
+                {[5, 7, 10, 15, 20, 25, 50].map((n) => (
+                  <option key={n} value={String(n)}>{n}</option>
+                ))}
+              </select>
+            </div>
+            <div className="overflow-y-auto" style={{ height: 290 }}>
               <table className="table table-compact w-full">
                 <thead className="bg-slate-50 sticky top-0 z-10">
                   <tr>
-                    <th className="text-left py-3 px-4 text-xs font-bold text-slate-600">
+                    <th className="text-left py-2 px-3 text-xs font-bold text-slate-600 w-2/3">
                       Item
                     </th>
-                    <th className="text-right py-3 px-4 text-xs font-bold text-slate-600">
+                    <th className="text-right py-2 px-3 text-xs font-bold text-slate-600 w-[60px]">
                       Qty
                     </th>
-                    <th className="text-right py-3 px-4 text-xs font-bold text-slate-600 w-32">
+                    <th className="text-right py-2 px-3 text-xs font-bold text-slate-600 w-28">
                       Amount
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {topItems.length > 0 ? (
-                    topItems.map((t, idx) => (
+                  {paginatedTopItems.length > 0 ? (
+                    paginatedTopItems.map((t, idx) => (
                       <tr
                         key={idx}
                         className="hover:bg-slate-50/50 transition-colors"
                       >
-                        <td className="py-3 px-4 text-sm text-slate-700 font-medium">
+                        <td className="py-1.5 px-3 text-sm text-slate-700 font-medium truncate max-w-0">
                           {String(t.item || "")}
                         </td>
-                        <td className="text-right py-3 px-4 text-sm font-bold text-brand">
+                        <td className="text-right py-1.5 px-3 text-sm font-bold text-brand">
                           {Number(t.qty || 0).toLocaleString()}
                         </td>
-                        <td className="text-right py-3 px-4 text-sm font-semibold text-slate-600">
+                        <td className="text-right py-1.5 px-3 text-sm font-semibold text-slate-600">
                           {fmtCurrency(t.amount)}
                         </td>
                       </tr>
@@ -910,53 +943,68 @@ export default function PosDashboard() {
                 </tbody>
               </table>
             </div>
+            <div className="flex items-center justify-between px-4 py-2 border-t border-slate-100">
+              <div className="text-xs text-slate-500">
+                Page {topItemsPage} of {topItemsTotalPages}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="btn btn-xs btn-secondary"
+                  disabled={topItemsPage <= 1}
+                  onClick={() => setTopItemsPage((p) => Math.max(1, p - 1))}
+                >
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-xs btn-secondary"
+                  disabled={topItemsPage >= topItemsTotalPages}
+                  onClick={() => setTopItemsPage((p) => p + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="card shadow-sm border-slate-200/60">
-          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60 flex items-center justify-between">
-            <div>
-              <div className="font-bold text-slate-800">
-                Sales by Item Category
-              </div>
-              <div className="text-[11px] text-slate-500">{dateLabel}</div>
-            </div>
-            {pieData.length > 0 && (
-              <div className="text-xs font-bold text-slate-700">
-                Total: {fmtCurrency(pieData.reduce((s, d) => s + d.value, 0))}
-              </div>
-            )}
+          <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
+            <div className="font-bold text-slate-800">Profitable Groups</div>
+            <div className="text-[11px] text-slate-500">{dateLabel}</div>
           </div>
-          <div className="card-body overflow-x-auto p-4">
-            <BarChart
-              data={pieData}
-              xKey="label"
-              yKey="value"
-              xLabel="Category"
-              yLabel="Sales (GH₵)"
-              formatY={fmtCurrency}
-              colors={["#14b8a6","#f43f5e","#8b5cf6","#eab308","#0ea5e9","#ec4899","#84cc16","#f97316"]}
-            />
+          <div className="card-body p-0">
+            <div className="overflow-y-auto p-4" style={{ maxHeight: 340 }}>
+              <BarChart
+                data={profitByGroup}
+                xKey="item_group"
+                yKey="profit"
+                formatY={fmtCurrency}
+                colors={["#22c55e","#14b8a6","#6366f1","#f59e0b","#ef4444"]}
+                horizontal
+              />
+            </div>
           </div>
         </div>
         <div className="card shadow-sm border-slate-200/60">
           <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
-            <div className="font-bold text-slate-800">
-              Top {Math.min(5, profitByItem.length)} Profitable Items
-            </div>
+            <div className="font-bold text-slate-800">Profitable Items</div>
             <div className="text-[11px] text-slate-500">{dateLabel}</div>
           </div>
-          <div className="card-body overflow-x-auto p-4">
-            <BarChart
-              data={profitByItem.slice(0, 5)}
-              xKey="item"
-              yKey="profit"
-              formatY={fmtCurrency}
-              colors={["#6366f1","#f59e0b","#ef4444","#22c55e","#14b8a6"]}
-              horizontal
-            />
+          <div className="card-body p-0">
+            <div className="overflow-y-auto p-4" style={{ maxHeight: 340 }}>
+              <BarChart
+                data={profitByItem}
+                xKey="item"
+                yKey="profit"
+                formatY={fmtCurrency}
+                colors={["#6366f1","#f59e0b","#ef4444","#22c55e","#14b8a6"]}
+                horizontal
+              />
+            </div>
           </div>
         </div>
       </div>

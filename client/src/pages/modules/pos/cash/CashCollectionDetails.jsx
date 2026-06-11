@@ -33,6 +33,13 @@ function FilterableSelect({
   );
 }
 
+function invoiceTotal(it) {
+  return Number(it.gross_amount || 0) + Number(it.tax_amount || 0) - Number(it.discount_amount || 0);
+}
+function isCredit(it) {
+  return String(it.payment_method || "").toUpperCase() === "CREDIT";
+}
+
 export default function CashCollectionDetails() {
   const { canPerformAction } = usePermission();
   const [loading, setLoading] = useState(false);
@@ -176,14 +183,12 @@ export default function CashCollectionDetails() {
   const collectorOptions = useMemo(() => {
     const map = new Map();
     for (const it of items) {
-      const username = String(it.collector_username || "").trim();
-      const fullName = String(it.collector_full_name || "").trim();
-      const key = username || fullName;
+      const key = String(it.created_by_name || "").trim();
       if (!key) continue;
       if (map.has(key)) continue;
       map.set(key, {
         key,
-        label: username || fullName,
+        label: key,
       });
     }
     return Array.from(map.values()).sort((a, b) =>
@@ -211,9 +216,7 @@ export default function CashCollectionDetails() {
       const dateVal = String(it.sale_date || "").slice(0, 10);
       const fromOk = fromDate ? dateVal >= fromDate : true;
       const toOk = toDate ? dateVal <= toDate : true;
-      const coll = String(
-        it.collector_username || it.collector_full_name || "",
-      ).trim();
+      const coll = String(it.created_by_name || "").trim();
       const collectorMatch = collectorKey ? coll === collectorKey : true;
       return statusMatch && fromOk && toOk && collectorMatch;
     });
@@ -224,14 +227,14 @@ export default function CashCollectionDetails() {
   const totals = useMemo(() => {
     const totalAmount = filtered.reduce(
       (sum, it) =>
-        sum + Number(it.net_after_returns ?? it.total_amount ?? 0),
+        sum + (isCredit(it) ? 0 : invoiceTotal(it)),
       0,
     );
     const cashCollected = filtered.reduce(
       (sum, it) =>
         sum +
-        (String(it.payment_status || "") === "PAID"
-          ? Number(it.net_after_returns ?? it.total_amount ?? 0)
+        (String(it.payment_status || "") === "PAID" && !isCredit(it)
+          ? invoiceTotal(it)
           : 0),
       0,
     );
@@ -256,8 +259,7 @@ export default function CashCollectionDetails() {
           amount: Number(p.amount || 0),
         }));
       } else {
-        const total = Number(it.net_after_returns ?? it.total_amount ?? 0);
-        payments = [{ method: String(it.payment_method || "CASH").toUpperCase(), amount: total }];
+        payments = [{ method: String(it.payment_method || "CASH").toUpperCase(), amount: invoiceTotal(it) }];
       }
       payments.forEach(({ method, amount }) => {
         const m = method || "UNKNOWN";
@@ -368,12 +370,7 @@ export default function CashCollectionDetails() {
     const discount = Number(sale?.discount_amount || 0);
     const tax = Number(sale?.tax_amount || 0);
     const subtotal = gross - discount;
-    const total = Number(
-      sale?.net_after_returns ??
-        sale?.net_amount ??
-        sale?.total_amount ??
-        subtotal + tax,
-    );
+    const total = subtotal + tax;
     const html = `
       <!DOCTYPE html>
       <html>
@@ -381,14 +378,14 @@ export default function CashCollectionDetails() {
         <meta charset="utf-8" />
         <title>POS Invoice</title>
         <style>
-          body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 16px 24px; max-width: 480px; margin: 0 auto; overflow-wrap: break-word; }
-          h1 { text-align: center; margin: 0 0 4px; font-size: 18px; }
+          body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 16px 24px; max-width: 480px; margin: 0 auto; overflow-wrap: break-word; font-weight: 600; }
+          h1 { text-align: center; margin: 0 0 4px; font-size: 18px; font-weight: 700; }
           .center { text-align: center; }
-          .muted { font-size: 12px; color: #555; }
-          .row { display: flex; justify-content: space-between; font-size: 13px; margin: 2px 0; }
+          .muted { font-size: 12px; color: #555; font-weight: 500; }
+          .row { display: flex; justify-content: space-between; font-size: 13px; margin: 2px 0; font-weight: 500; }
           table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
           th, td { padding: 4px; border-bottom: 1px solid #eee; }
-          th { text-align: left; }
+          th { text-align: left; font-weight: 700; }
           th.right, td.right { text-align: right; }
           .totals { margin-top: 8px; border-top: 1px solid #000; padding-top: 4px; }
           .footer { margin-top: 10px; text-align: center; font-size: 11px; }
@@ -455,7 +452,7 @@ export default function CashCollectionDetails() {
       const gross = Number(sale?.gross_amount || 0);
       const discount = Number(sale?.discount_amount || 0);
       const tax = Number(sale?.tax_amount || 0);
-      const total = Number(sale?.net_after_returns ?? sale?.net_amount ?? sale?.total_amount ?? (gross - discount + tax));
+      const total = gross - discount + tax;
       const payments = sale?.payments;
       const paymentQr = Array.isArray(payments) && payments.length > 1
         ? payments.map((p) => `${p.method || ""}:${Number(p.amount || 0).toFixed(2)}`).join(",")
@@ -610,12 +607,7 @@ export default function CashCollectionDetails() {
       const discount = Number(sale?.discount_amount || 0);
       const tax = Number(sale?.tax_amount || 0);
       const subtotal = gross - discount;
-      const total = Number(
-        sale?.net_after_returns ??
-          sale?.net_amount ??
-          sale?.total_amount ??
-          subtotal + tax,
-      );
+      const total = subtotal + tax;
       const doc = new jsPDF("p", "mm", "a4");
       let y = 15;
       doc.setFontSize(14);
@@ -938,10 +930,12 @@ export default function CashCollectionDetails() {
                         })()}
                       </td>
                       <td className="p-2 text-right">
-                        {`GH₵ ${Number(it.net_after_returns ?? it.total_amount ?? 0).toFixed(2)}`}
+                        {String(it.payment_method || "").toUpperCase() === "CREDIT"
+                          ? "-"
+                          : `GH₵ ${invoiceTotal(it).toFixed(2)}`}
                       </td>
                       <td className="p-2">
-                        {it.collector_username || it.collector_full_name || "-"}
+                        {it.created_by_name || "-"}
                       </td>
                       <td className="p-2">
                         <span

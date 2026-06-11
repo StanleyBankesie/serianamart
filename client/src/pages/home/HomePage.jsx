@@ -1338,6 +1338,15 @@ export default function HomePage() {
                             "/finance/financial-overview",
                             "/finance/cash-flow",
                             "/finance/budget-analysis",
+                            "/human-resources/hr-overview",
+                            "/human-resources/attendance-dashboard",
+                            "/human-resources/payroll-dashboard",
+                            "/production/production-overview",
+                            "/production/efficiency-analytics",
+                            "/maintenance/maintenance-overview",
+                            "/maintenance/asset-analytics",
+                            "/project-management/project-overview",
+                            "/project-management/resource-utilization",
                           ]);
                           const entries = Array.from(byPath.values()).filter(
                             (e) => {

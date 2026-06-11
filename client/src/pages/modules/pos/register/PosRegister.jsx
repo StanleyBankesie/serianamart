@@ -269,11 +269,11 @@ export default function PosRegister() {
             })(),
             status: String(it.payment_status || "").toLowerCase(),
             items: [],
-            total_amount: Number(it.total_amount || 0),
+            total_amount: Number(it.gross_amount || 0) + Number(it.tax_amount || 0) - Number(it.discount_amount || 0),
             net_after_returns: Number(
               it.net_after_returns !== null && it.net_after_returns !== undefined
                 ? it.net_after_returns
-                : it.total_amount || 0,
+                : Number(it.gross_amount || 0) + Number(it.tax_amount || 0) - Number(it.discount_amount || 0),
             ),
             return_total: Number(it.return_total || 0),
             items_count: Number(it.items_count || 0),

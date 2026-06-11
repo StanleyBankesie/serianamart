@@ -916,8 +916,8 @@ router.get(
       await ensurePosTables();
       const [todaySales] = await query(
         `SELECT 
-           COALESCE(SUM(net_amount), 0) AS total, 
-           COALESCE(AVG(net_amount), 0) AS avg_amt, 
+           COALESCE(SUM(COALESCE(gross_amount,0) + COALESCE(tax_amount,0) - COALESCE(discount_amount,0)), 0) AS total, 
+           COALESCE(AVG(COALESCE(gross_amount,0) + COALESCE(tax_amount,0) - COALESCE(discount_amount,0)), 0) AS avg_amt, 
            COUNT(*) AS count,
           created_at,
           u.username AS created_by_name
@@ -940,8 +940,8 @@ router.get(
       );
       const [monthSales] = await query(
         `SELECT 
-           COALESCE(SUM(net_amount), 0) AS total,
-           COALESCE(AVG(net_amount), 0) AS avg_amt,
+           COALESCE(SUM(COALESCE(gross_amount,0) + COALESCE(tax_amount,0) - COALESCE(discount_amount,0)), 0) AS total,
+           COALESCE(AVG(COALESCE(gross_amount,0) + COALESCE(tax_amount,0) - COALESCE(discount_amount,0)), 0) AS avg_amt,
            COUNT(*) AS count,
           created_at,
           u.username AS created_by_name
@@ -1016,12 +1016,12 @@ router.get(
       await ensurePosTables();
       const rows = await query(
         `
-        SELECT id, payment_method, net_amount, payments
-         FROM pos_sales p
-         WHERE p.company_id = :companyId
-          AND p.branch_id = :branchId
-          AND ${salesDateCond}
-          AND p.status = 'COMPLETED'
+         SELECT id, payment_method, (COALESCE(gross_amount,0) + COALESCE(tax_amount,0) - COALESCE(discount_amount,0)) AS total_amount, payments, gross_amount, discount_amount, tax_amount
+          FROM pos_sales p
+          WHERE p.company_id = :companyId
+           AND p.branch_id = :branchId
+           AND ${salesDateCond}
+           AND p.status = 'COMPLETED'
         `,
         params,
       );
@@ -1067,7 +1067,7 @@ router.get(
               paymentsArr = row.payments;
             }
           }
-          let hasCash = false, hasCard = false, hasMobile = false;
+          let hasCash = false, hasCard = false, hasMobile = false, hasCredit = false;
           if (Array.isArray(paymentsArr)) {
             for (const pmt of paymentsArr) {
               const pmtMethod = String(pmt.method || "").toUpperCase();
@@ -1081,24 +1081,28 @@ router.get(
               } else if (pmtMethod === "MOBILE") {
                 hasMobile = true;
                 summary.mobileAmount += pmtAmt;
+              } else if (pmtMethod === "CREDIT") {
+                hasCredit = true;
+                summary.creditAmount += pmtAmt;
               }
             }
           }
           if (hasCash) summary.cashCount += 1;
           if (hasCard) summary.cardCount += 1;
           if (hasMobile) summary.mobileCount += 1;
+          if (hasCredit) summary.creditCount += 1;
         } else if (method === "CASH") {
           summary.cashCount += 1;
-          summary.cashAmount += Number(row.net_amount || 0);
+          summary.cashAmount += Number(row.total_amount || 0);
         } else if (method === "CARD") {
           summary.cardCount += 1;
-          summary.cardAmount += Number(row.net_amount || 0);
+          summary.cardAmount += Number(row.total_amount || 0);
         } else if (method === "MOBILE") {
           summary.mobileCount += 1;
-          summary.mobileAmount += Number(row.net_amount || 0);
+          summary.mobileAmount += Number(row.total_amount || 0);
         } else if (method === "CREDIT") {
           summary.creditCount += 1;
-          summary.creditAmount += Number(row.net_amount || 0);
+          summary.creditAmount += Number(row.total_amount || 0);
         }
       }
       summary.cashAmount = roundTo2(
@@ -1142,26 +1146,26 @@ router.get(
       await ensurePosTables();
       const items = await query(
         `
-        SELECT 
-          COALESCE(
-            NULLIF(a.username, ''),
-            NULLIF(a.email, ''),
-            CONCAT('User ', a.id)
-          ) AS user_label,
-          COUNT(*) AS count,
-          COALESCE(SUM(p.net_amount), 0) AS total,
-          p.created_at,
-          u.username AS created_by_name
-         FROM pos_sales p
-        LEFT JOIN adm_users a
-          ON a.id = p.created_by AND a.company_id = p.company_id AND a.branch_id = p.branch_id
-        LEFT JOIN adm_users u ON u.id = p.created_by
-         WHERE p.company_id = :companyId
-          AND p.branch_id = :branchId
-          AND ${salesDateCond}
-          AND p.status = 'COMPLETED'
-        GROUP BY user_label
-        ORDER BY total DESC
+          SELECT 
+           COALESCE(
+             NULLIF(a.username, ''),
+             NULLIF(a.email, ''),
+             CONCAT('User ', a.id)
+           ) AS user_label,
+           COUNT(*) AS count,
+           COALESCE(SUM(COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0)), 0) AS total,
+           p.created_at,
+           u.username AS created_by_name
+          FROM pos_sales p
+         LEFT JOIN adm_users a
+           ON a.id = p.created_by AND a.company_id = p.company_id AND a.branch_id = p.branch_id
+         LEFT JOIN adm_users u ON u.id = p.created_by
+          WHERE p.company_id = :companyId
+           AND p.branch_id = :branchId
+           AND ${salesDateCond}
+           AND p.status = 'COMPLETED'
+         GROUP BY user_label
+         ORDER BY total DESC
         `,
         params,
       );
@@ -1233,11 +1237,11 @@ router.get(
       const items = await query(
         `
           SELECT 
-          COALESCE(t.code, 'UNKNOWN') AS terminal,
-          SUM(CASE WHEN COALESCE(p.payment_method, '')='CASH' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS cash_total,
-          SUM(CASE WHEN COALESCE(p.payment_method, '')='CARD' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS card_total,
-          SUM(CASE WHEN COALESCE(p.payment_method, '')='MOBILE' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS mobile_total,
-          SUM(CASE WHEN COALESCE(p.payment_method, '')='CREDIT' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS credit_total,
+           COALESCE(t.code, 'UNKNOWN') AS terminal,
+           SUM(CASE WHEN COALESCE(p.payment_method, '')='CASH' THEN COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0) ELSE 0 END) AS cash_total,
+           SUM(CASE WHEN COALESCE(p.payment_method, '')='CARD' THEN COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0) ELSE 0 END) AS card_total,
+           SUM(CASE WHEN COALESCE(p.payment_method, '')='MOBILE' THEN COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0) ELSE 0 END) AS mobile_total,
+           SUM(CASE WHEN COALESCE(p.payment_method, '')='CREDIT' THEN COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0) ELSE 0 END) AS credit_total,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
@@ -1338,7 +1342,7 @@ router.get(
         SELECT 
           DATE(p.sale_datetime) AS date,
           COUNT(*) AS count,
-          COALESCE(SUM(p.net_amount), 0) AS total,
+          COALESCE(SUM(COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0)), 0) AS total,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
@@ -1421,7 +1425,7 @@ router.get(
               AND r.branch_id = p.branch_id)) AS net_after_returns,
           (SELECT COUNT(*) FROM pos_sale_lines l WHERE l.sale_id = p.id) AS items_count,
           (SELECT COALESCE(SUM(l.returned_qty), 0) > 0 FROM pos_sale_lines l WHERE l.sale_id = p.id) AS has_returns,
-          CASE WHEN p.status = 'COMPLETED' THEN 'PAID' ELSE 'UNPAID' END AS payment_status,
+          CASE WHEN p.payment_status IS NOT NULL THEN p.payment_status WHEN p.status = 'COMPLETED' THEN 'PAID' ELSE 'UNPAID' END AS payment_status,
           COALESCE(t.code, '') AS terminal_code,
           COALESCE(t.warehouse, '') AS warehouse
         FROM pos_sales p
@@ -1550,7 +1554,7 @@ router.get(
         `
         SELECT 
           DATE_FORMAT(p.sale_datetime, '%Y-%m') AS ym,
-          COALESCE(SUM(p.net_amount), 0) AS total,
+          COALESCE(SUM(COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0)), 0) AS total,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
@@ -1619,7 +1623,7 @@ router.get(
         `
         SELECT 
           DAYOFWEEK(p.sale_datetime) AS dow, 
-          COALESCE(SUM(p.net_amount), 0) AS total,
+          COALESCE(SUM(COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0)), 0) AS total,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
@@ -1688,7 +1692,7 @@ router.get(
         `
         SELECT 
           HOUR(p.sale_datetime) AS hr,
-          COALESCE(SUM(p.net_amount), 0) AS total,
+          COALESCE(SUM(COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0)), 0) AS total,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
@@ -1912,7 +1916,7 @@ router.get(
           COALESCE(SUM(p.gross_amount), 0) AS gross,
           COALESCE(SUM(p.discount_amount), 0) AS discount,
           COALESCE(SUM(p.tax_amount), 0) AS tax,
-          COALESCE(SUM(p.net_amount), 0) AS net,
+          COALESCE(SUM(COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0)), 0) AS net,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
@@ -2008,7 +2012,7 @@ router.get(
         SELECT 
           COALESCE(p.payment_method, 'UNKNOWN') AS method,
           COUNT(*) AS count,
-          COALESCE(SUM(p.net_amount), 0) AS total,
+          COALESCE(SUM(COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0)), 0) AS total,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
@@ -2091,7 +2095,7 @@ router.get(
         SELECT 
           COALESCE(p.payment_method, 'UNKNOWN') AS method,
           COUNT(*) AS count,
-          COALESCE(SUM(p.net_amount), 0) AS total,
+          COALESCE(SUM(COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0)), 0) AS total,
           p.created_at,
           u.username AS created_by_name
          FROM pos_sales p
@@ -2372,12 +2376,15 @@ router.get(
            gross_amount,
            discount_amount,
            tax_amount,
+           net_amount,
            net_amount AS total_amount,
-           CASE status 
-             WHEN 'COMPLETED' THEN 'PAID' 
-             WHEN 'DRAFT' THEN 'PENDING' 
-             ELSE status 
-           END AS payment_status,
+           COALESCE(ps.payment_status,
+             CASE status 
+               WHEN 'COMPLETED' THEN 'PAID' 
+               WHEN 'DRAFT' THEN 'PENDING' 
+               ELSE status 
+             END
+           ) AS payment_status,
            payment_method,
            payments,
            (SELECT COALESCE(SUM(l.returned_qty), 0) > 0 FROM pos_sale_lines l WHERE l.sale_id = ps.id) AS has_returns,
@@ -2421,11 +2428,11 @@ router.get(
            tax_amount,
            tax_components,
            net_amount,
-           (SELECT COALESCE(SUM(r.total_refund), 0)
-              FROM pos_returns r
-             WHERE r.sale_id = pos_sales.id
-               AND r.company_id = pos_sales.company_id
-               AND r.branch_id = pos_sales.branch_id) AS return_total,
+            (SELECT COALESCE(SUM(r.total_refund), 0)
+               FROM pos_returns r
+              WHERE r.sale_id = pos_sales.id
+                AND r.company_id = pos_sales.company_id
+                AND r.branch_id = pos_sales.branch_id) AS return_total,
            (net_amount - (SELECT COALESCE(SUM(r.total_refund), 0)
               FROM pos_returns r
              WHERE r.sale_id = pos_sales.id
@@ -2851,7 +2858,7 @@ router.post(
 
       const pm = String(payment_method || "CASH").toUpperCase();
       const st = String(status || "COMPLETED").toUpperCase();
-      const finalStatus = st === "DRAFT" ? "DRAFT" : "COMPLETED";
+      const finalStatus = pm === "CREDIT" ? "COMPLETED" : st === "DRAFT" ? "DRAFT" : "COMPLETED";
 
       let terminalIdValue = null;
       let terminalWarehouseId = null;
@@ -3287,13 +3294,13 @@ router.post(
       }
       const [aggRows] = await conn.execute(
         `SELECT
-           SUM(CASE WHEN COALESCE(payment_method, '')='CASH' THEN COALESCE(net_amount, 0) ELSE 0 END) AS cash_total,
-           SUM(CASE WHEN COALESCE(payment_method, '')='CARD' THEN COALESCE(net_amount, 0) ELSE 0 END) AS card_total,
-           SUM(CASE WHEN COALESCE(payment_method, '')='MOBILE' THEN COALESCE(net_amount, 0) ELSE 0 END) AS mobile_total,
-           SUM(CASE WHEN COALESCE(payment_method, '')='CREDIT' THEN COALESCE(net_amount, 0) ELSE 0 END) AS credit_total,
+           SUM(CASE WHEN COALESCE(payment_method, '')='CASH' THEN (COALESCE(gross_amount,0) + COALESCE(tax_amount,0) - COALESCE(discount_amount,0)) ELSE 0 END) AS cash_total,
+           SUM(CASE WHEN COALESCE(payment_method, '')='CARD' THEN (COALESCE(gross_amount,0) + COALESCE(tax_amount,0) - COALESCE(discount_amount,0)) ELSE 0 END) AS card_total,
+           SUM(CASE WHEN COALESCE(payment_method, '')='MOBILE' THEN (COALESCE(gross_amount,0) + COALESCE(tax_amount,0) - COALESCE(discount_amount,0)) ELSE 0 END) AS mobile_total,
+           SUM(CASE WHEN COALESCE(payment_method, '')='CREDIT' THEN (COALESCE(gross_amount,0) + COALESCE(tax_amount,0) - COALESCE(discount_amount,0)) ELSE 0 END) AS credit_total,
            SUM(tax_amount) AS tax_total,
            SUM(discount_amount) AS discount_total,
-           SUM(net_amount) AS net_total
+           SUM(COALESCE(gross_amount,0) + COALESCE(tax_amount,0) - COALESCE(discount_amount,0)) AS net_total
          FROM pos_sales
          WHERE company_id = :companyId
            AND branch_id = :branchId
@@ -3746,13 +3753,13 @@ router.post(
       if (!useCustomLines) {
         const [aggRows] = await conn.execute(
           `SELECT
-             SUM(CASE WHEN COALESCE(p.payment_method, '')='CASH' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS cash_total,
-             SUM(CASE WHEN COALESCE(p.payment_method, '')='CARD' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS card_total,
-             SUM(CASE WHEN COALESCE(p.payment_method, '')='MOBILE' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS mobile_total,
-             SUM(CASE WHEN COALESCE(p.payment_method, '')='CREDIT' THEN COALESCE(p.net_amount, 0) ELSE 0 END) AS credit_total,
+             SUM(CASE WHEN COALESCE(p.payment_method, '')='CASH' THEN (COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0)) ELSE 0 END) AS cash_total,
+             SUM(CASE WHEN COALESCE(p.payment_method, '')='CARD' THEN (COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0)) ELSE 0 END) AS card_total,
+             SUM(CASE WHEN COALESCE(p.payment_method, '')='MOBILE' THEN (COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0)) ELSE 0 END) AS mobile_total,
+             SUM(CASE WHEN COALESCE(p.payment_method, '')='CREDIT' THEN (COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0)) ELSE 0 END) AS credit_total,
              SUM(p.tax_amount) AS tax_total,
              SUM(p.discount_amount) AS discount_total,
-             SUM(p.net_amount) AS net_total
+             SUM(COALESCE(p.gross_amount,0) + COALESCE(p.tax_amount,0) - COALESCE(p.discount_amount,0)) AS net_total
            FROM pos_sales p
            LEFT JOIN pos_terminals t
              ON t.id = p.terminal_id AND t.company_id = p.company_id AND t.branch_id = p.branch_id

@@ -10,6 +10,10 @@ function fmt(n) {
   })}`;
 }
 
+function invoiceTotal(it) {
+  return Number(it.gross_amount || 0) + Number(it.tax_amount || 0) - Number(it.discount_amount || 0);
+}
+
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -128,7 +132,7 @@ export default function PosCustomerHistory() {
     let running = 0;
     items.forEach((it) => {
       const p = String(it.payment_status || "").toUpperCase() === "PAID";
-      const inv = Number(it.net_amount || 0);
+      const inv = invoiceTotal(it);
       const paidAmt = Number(it.paid_amount || 0);
       running += inv - Math.max(paidAmt, p ? inv : 0);
     });
@@ -137,7 +141,7 @@ export default function PosCustomerHistory() {
       gross: items.reduce((s, x) => s + Number(x.gross_amount || 0), 0),
       discount: items.reduce((s, x) => s + Number(x.discount_amount || 0), 0),
       tax: items.reduce((s, x) => s + Number(x.tax_amount || 0), 0),
-      net: items.reduce((s, x) => s + Number(x.net_amount || 0), 0),
+      net: items.reduce((s, x) => s + invoiceTotal(x), 0),
       paidCount: paid.length,
       paidNet: items.reduce((s, x) => s + Number(x.paid_amount || 0), 0),
       unpaidCount: unpaid.length,
@@ -341,7 +345,7 @@ export default function PosCustomerHistory() {
                     let running = 0;
                     const withBalance = items.map((it) => {
                     const isPaid = String(it.payment_status || "").toUpperCase() === "PAID";
-                    const invoiceAmt = Number(it.net_amount || 0);
+                    const invoiceAmt = invoiceTotal(it);
                     const paidAmt = Number(it.paid_amount || 0);
                     const effectivePayment = Math.max(paidAmt, isPaid ? invoiceAmt : 0);
                     running += invoiceAmt - effectivePayment;
@@ -630,9 +634,20 @@ export default function PosCustomerHistory() {
                   </div>
 
                   <div className="text-right border-t border-slate-300 pt-2">
-                    <p className="font-semibold text-slate-900">Net Amount:</p>
+                    <p className="font-semibold text-slate-900">Total Amount:</p>
                   </div>
                   <div className="border-t border-slate-300 pt-2 font-bold text-lg text-green-700">
+                    {fmt(
+                      Number(selectedTransaction.gross_amount || 0) +
+                      Number(selectedTransaction.tax_amount || 0) -
+                      Number(selectedTransaction.discount_amount || 0)
+                    )}
+                  </div>
+
+                  <div className="text-right">
+                    <p className="text-slate-600">Net Amount:</p>
+                  </div>
+                  <div className="font-semibold text-slate-900">
                     {fmt(selectedTransaction.net_amount)}
                   </div>
                 </div>

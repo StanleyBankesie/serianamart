@@ -18,18 +18,15 @@ export default function PosReports() {
   const [topItemsShowAll, setTopItemsShowAll] = useState(false);
   const [profitByItemShowAll, setProfitByItemShowAll] = useState(false);
   const [profitGroupShowAll, setProfitGroupShowAll] = useState(false);
+  const [categoryShowAll, setCategoryShowAll] = useState(false);
 
   useEffect(() => {
     const today = new Date();
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, "0");
     const dd = String(today.getDate()).padStart(2, "0");
+    setStartDate(`${yyyy}-${mm}-${dd}`);
     setEndDate(`${yyyy}-${mm}-${dd}`);
-    const lastWeek = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
-    const lyyyy = lastWeek.getFullYear();
-    const lmm = String(lastWeek.getMonth() + 1).padStart(2, "0");
-    const ldd = String(lastWeek.getDate()).padStart(2, "0");
-    setStartDate(`${lyyyy}-${lmm}-${ldd}`);
   }, []);
 
   useEffect(() => {
@@ -152,10 +149,10 @@ export default function PosReports() {
                   <tr>
                     <th>Date</th>
                     <th className="text-right">Orders</th>
-                    <th className="text-right">Gross</th>
+                    <th className="text-right">Net</th>
                     <th className="text-right">Discount</th>
                     <th className="text-right">Tax</th>
-                    <th className="text-right">Net</th>
+                    <th className="text-right whitespace-nowrap">Total Amount</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -209,6 +206,256 @@ export default function PosReports() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="card">
+          <div className="card-header bg-slate-50 rounded-t-lg">
+            <div className="font-semibold">Sales by Category</div>
+            <div className="text-xs text-slate-500">Revenue and performance by item category</div>
+          </div>
+          <div className="card-body">
+            <div className="overflow-auto">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th className="text-right">Total Sales</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(categoryShowAll ? categoryShare : categoryShare.slice(0, 5)).map((c, idx) => (
+                    <tr key={idx}>
+                      <td>{String(c.category || "Uncategorized")}</td>
+                      <td className="text-right font-semibold">
+                        {fmtCurrency(c.total)}
+                      </td>
+                    </tr>
+                  ))}
+                  {categoryShare.length > 0 && (
+                    <tr className="bg-slate-50 font-bold">
+                      <td>Total</td>
+                      <td className="text-right">
+                        {fmtCurrency(
+                          categoryShare.reduce((sum, c) => sum + Number(c.total || 0), 0)
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  {!categoryShare.length && (
+                    <tr>
+                      <td colSpan={2} className="text-center text-slate-500">
+                        No category data
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {categoryShare.length > 5 && (
+              <button
+                onClick={() => setCategoryShowAll((v) => !v)}
+                className="mt-3 text-sm text-brand hover:text-brand-600 font-medium"
+              >
+                {categoryShowAll ? "Show Less" : `Show More (${categoryShare.length - 5} more)`}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-header bg-slate-50 rounded-t-lg">
+            <div className="font-semibold">Top Selling by Quantity</div>
+            <div className="text-xs text-slate-500">Best performers</div>
+          </div>
+          <div className="card-body">
+            <div className="overflow-auto">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th className="text-right">Qty</th>
+                    <th className="text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(topItemsShowAll ? topItems : topItems.slice(0, 5)).map((t, idx) => (
+                    <tr key={idx}>
+                      <td>{String(t.item || "")}</td>
+                      <td className="text-right">
+                        {Number(t.qty || 0).toLocaleString()}
+                      </td>
+                      <td className="text-right font-semibold">
+                        {fmtCurrency(t.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                  {!topItems.length && (
+                    <tr>
+                      <td colSpan={3} className="text-center text-slate-500">
+                        No items found
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {topItems.length > 5 && (
+              <button
+                onClick={() => setTopItemsShowAll((v) => !v)}
+                className="mt-3 text-sm text-brand hover:text-brand-600 font-medium"
+              >
+                {topItemsShowAll ? "Show Less" : `Show More (${topItems.length - 5} more)`}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="card">
+          <div className="card-header bg-slate-50 rounded-t-lg">
+            <div className="font-semibold">Profit Margin by Item Group</div>
+            <div className="text-xs text-slate-500">Cost vs revenue performance by item group</div>
+          </div>
+          <div className="card-body">
+            <div className="overflow-auto">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Item Group</th>
+                    <th className="text-right">Revenue</th>
+                    <th className="text-right">Cost</th>
+                    <th className="text-right">Profit</th>
+                    <th className="text-right">Margin %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(profitGroupShowAll ? profitByGroup : profitByGroup.slice(0, 5)).map((g, idx) => (
+                    <tr key={idx}>
+                      <td>{String(g.item_group || "Uncategorized")}</td>
+                      <td className="text-right">{fmtCurrency(g.revenue)}</td>
+                      <td className="text-right">{fmtCurrency(g.total_cost)}</td>
+                      <td className="text-right font-semibold">{fmtCurrency(g.profit)}</td>
+                      <td className="text-right font-bold">
+                        <span className={Number(g.margin_pct) >= 0 ? "text-green-600" : "text-red-600"}>
+                          {Number(g.margin_pct).toFixed(1)}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {profitByGroup.length > 0 && (
+                    <tr className="bg-slate-50 font-bold">
+                      <td>Total</td>
+                      <td className="text-right">{fmtCurrency(profitByGroup.reduce((s, g) => s + Number(g.revenue || 0), 0))}</td>
+                      <td className="text-right">{fmtCurrency(profitByGroup.reduce((s, g) => s + Number(g.total_cost || 0), 0))}</td>
+                      <td className="text-right">{fmtCurrency(profitByGroup.reduce((s, g) => s + Number(g.profit || 0), 0))}</td>
+                      <td className="text-right">
+                        {(() => {
+                          const totalRev = profitByGroup.reduce((s, g) => s + Number(g.revenue || 0), 0);
+                          const totalCost = profitByGroup.reduce((s, g) => s + Number(g.total_cost || 0), 0);
+                          const overallMargin = totalRev > 0 ? ((totalRev - totalCost) / totalRev) * 100 : 0;
+                          return (
+                            <span className={overallMargin >= 0 ? "text-green-600" : "text-red-600"}>
+                              {overallMargin.toFixed(1)}%
+                            </span>
+                          );
+                        })()}
+                      </td>
+                    </tr>
+                  )}
+                  {!profitByGroup.length && (
+                    <tr>
+                      <td colSpan={5} className="text-center text-slate-500">
+                        No profit data found
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {profitByGroup.length > 5 && (
+              <button
+                onClick={() => setProfitGroupShowAll((v) => !v)}
+                className="mt-3 text-sm text-brand hover:text-brand-600 font-medium"
+              >
+                {profitGroupShowAll ? "Show Less" : `Show More (${profitByGroup.length - 5} more)`}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-header bg-slate-50 rounded-t-lg">
+            <div className="font-semibold">Profit Margin by Individual Item</div>
+            <div className="text-xs text-slate-500">Cost vs revenue per item</div>
+          </div>
+          <div className="card-body">
+            <div className="overflow-auto">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th className="text-right">Revenue</th>
+                    <th className="text-right">Cost</th>
+                    <th className="text-right">Profit</th>
+                    <th className="text-right">Margin %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(profitByItemShowAll ? profitByItem : profitByItem.slice(0, 5)).map((g, idx) => (
+                    <tr key={idx}>
+                      <td>{String(g.item || "Unknown")}</td>
+                      <td className="text-right">{fmtCurrency(g.revenue)}</td>
+                      <td className="text-right">{fmtCurrency(g.total_cost)}</td>
+                      <td className="text-right font-semibold">{fmtCurrency(g.profit)}</td>
+                      <td className="text-right font-bold">
+                        <span className={Number(g.margin_pct) >= 0 ? "text-green-600" : "text-red-600"}>
+                          {Number(g.margin_pct).toFixed(1)}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {profitByItem.length > 0 && (
+                    <tr className="bg-slate-50 font-bold">
+                      <td>Total</td>
+                      <td className="text-right">{fmtCurrency(profitByItem.reduce((s, g) => s + Number(g.revenue || 0), 0))}</td>
+                      <td className="text-right">{fmtCurrency(profitByItem.reduce((s, g) => s + Number(g.total_cost || 0), 0))}</td>
+                      <td className="text-right">{fmtCurrency(profitByItem.reduce((s, g) => s + Number(g.profit || 0), 0))}</td>
+                      <td className="text-right">
+                        {(() => {
+                          const totalRev = profitByItem.reduce((s, g) => s + Number(g.revenue || 0), 0);
+                          const totalCost = profitByItem.reduce((s, g) => s + Number(g.total_cost || 0), 0);
+                          const overallMargin = totalRev > 0 ? ((totalRev - totalCost) / totalRev) * 100 : 0;
+                          return (
+                            <span className={overallMargin >= 0 ? "text-green-600" : "text-red-600"}>
+                              {overallMargin.toFixed(1)}%
+                            </span>
+                          );
+                        })()}
+                      </td>
+                    </tr>
+                  )}
+                  {!profitByItem.length && (
+                    <tr>
+                      <td colSpan={5} className="text-center text-slate-500">
+                        No profit data found
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {profitByItem.length > 5 && (
+              <button
+                onClick={() => setProfitByItemShowAll((v) => !v)}
+                className="mt-3 text-sm text-brand hover:text-brand-600 font-medium"
+              >
+                {profitByItemShowAll ? "Show Less" : `Show More (${profitByItem.length - 5} more)`}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -291,248 +538,6 @@ export default function PosReports() {
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="card">
-          <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Sales by Category</div>
-            <div className="text-xs text-slate-500">Revenue and performance by item category</div>
-          </div>
-          <div className="card-body">
-            <div className="overflow-auto">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Category</th>
-                    <th className="text-right">Total Sales</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {categoryShare.map((c, idx) => (
-                    <tr key={idx}>
-                      <td>{String(c.category || "Uncategorized")}</td>
-                      <td className="text-right font-semibold">
-                        {fmtCurrency(c.total)}
-                      </td>
-                    </tr>
-                  ))}
-                  {categoryShare.length > 0 && (
-                    <tr className="bg-slate-50 font-bold">
-                      <td>Total</td>
-                      <td className="text-right">
-                        {fmtCurrency(
-                          categoryShare.reduce((sum, c) => sum + Number(c.total || 0), 0)
-                        )}
-                      </td>
-                    </tr>
-                  )}
-                  {!categoryShare.length && (
-                    <tr>
-                      <td colSpan={2} className="text-center text-slate-500">
-                        No category data
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Top Selling by Quantity</div>
-            <div className="text-xs text-slate-500">Best performers</div>
-          </div>
-          <div className="card-body">
-            <div className="overflow-auto">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th className="text-right">Qty</th>
-                    <th className="text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(topItemsShowAll ? topItems : topItems.slice(0, 5)).map((t, idx) => (
-                    <tr key={idx}>
-                      <td>{String(t.item || "")}</td>
-                      <td className="text-right">
-                        {Number(t.qty || 0).toLocaleString()}
-                      </td>
-                      <td className="text-right font-semibold">
-                        {fmtCurrency(t.amount)}
-                      </td>
-                    </tr>
-                  ))}
-                  {!topItems.length && (
-                    <tr>
-                      <td colSpan={3} className="text-center text-slate-500">
-                        No items found
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {topItems.length > 5 && (
-              <button
-                onClick={() => setTopItemsShowAll((v) => !v)}
-                className="mt-3 text-sm text-brand hover:text-brand-600 font-medium"
-              >
-                {topItemsShowAll ? "Show Less" : `Show More (${topItems.length - 5} more)`}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="card">
-          <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Profit Margin by Item Group</div>
-            <div className="text-xs text-slate-500">Cost vs revenue performance by item group</div>
-          </div>
-          <div className="card-body">
-            <div className="overflow-auto">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Item Group</th>
-                    <th className="text-right">Revenue</th>
-                    <th className="text-right">Cost</th>
-                    <th className="text-right">Profit</th>
-                    <th className="text-right">Margin %</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(profitGroupShowAll ? profitByGroup : profitByGroup.slice(0, 10)).map((g, idx) => (
-                    <tr key={idx}>
-                      <td>{String(g.item_group || "Uncategorized")}</td>
-                      <td className="text-right">{fmtCurrency(g.revenue)}</td>
-                      <td className="text-right">{fmtCurrency(g.total_cost)}</td>
-                      <td className="text-right font-semibold">{fmtCurrency(g.profit)}</td>
-                      <td className="text-right font-bold">
-                        <span className={Number(g.margin_pct) >= 0 ? "text-green-600" : "text-red-600"}>
-                          {Number(g.margin_pct).toFixed(1)}%
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                  {profitByGroup.length > 0 && (
-                    <tr className="bg-slate-50 font-bold">
-                      <td>Total</td>
-                      <td className="text-right">{fmtCurrency(profitByGroup.reduce((s, g) => s + Number(g.revenue || 0), 0))}</td>
-                      <td className="text-right">{fmtCurrency(profitByGroup.reduce((s, g) => s + Number(g.total_cost || 0), 0))}</td>
-                      <td className="text-right">{fmtCurrency(profitByGroup.reduce((s, g) => s + Number(g.profit || 0), 0))}</td>
-                      <td className="text-right">
-                        {(() => {
-                          const totalRev = profitByGroup.reduce((s, g) => s + Number(g.revenue || 0), 0);
-                          const totalCost = profitByGroup.reduce((s, g) => s + Number(g.total_cost || 0), 0);
-                          const overallMargin = totalRev > 0 ? ((totalRev - totalCost) / totalRev) * 100 : 0;
-                          return (
-                            <span className={overallMargin >= 0 ? "text-green-600" : "text-red-600"}>
-                              {overallMargin.toFixed(1)}%
-                            </span>
-                          );
-                        })()}
-                      </td>
-                    </tr>
-                  )}
-                  {!profitByGroup.length && (
-                    <tr>
-                      <td colSpan={5} className="text-center text-slate-500">
-                        No profit data found
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {profitByGroup.length > 10 && (
-              <button
-                onClick={() => setProfitGroupShowAll((v) => !v)}
-                className="mt-3 text-sm text-brand hover:text-brand-600 font-medium"
-              >
-                {profitGroupShowAll ? "Show Less" : `Show More (${profitByGroup.length - 10} more)`}
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">Profit Margin by Individual Item</div>
-            <div className="text-xs text-slate-500">Cost vs revenue per item</div>
-          </div>
-          <div className="card-body">
-            <div className="overflow-auto">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th className="text-right">Revenue</th>
-                    <th className="text-right">Cost</th>
-                    <th className="text-right">Profit</th>
-                    <th className="text-right">Margin %</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(profitByItemShowAll ? profitByItem : profitByItem.slice(0, 5)).map((g, idx) => (
-                    <tr key={idx}>
-                      <td>{String(g.item || "Unknown")}</td>
-                      <td className="text-right">{fmtCurrency(g.revenue)}</td>
-                      <td className="text-right">{fmtCurrency(g.total_cost)}</td>
-                      <td className="text-right font-semibold">{fmtCurrency(g.profit)}</td>
-                      <td className="text-right font-bold">
-                        <span className={Number(g.margin_pct) >= 0 ? "text-green-600" : "text-red-600"}>
-                          {Number(g.margin_pct).toFixed(1)}%
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                  {profitByItem.length > 0 && (
-                    <tr className="bg-slate-50 font-bold">
-                      <td>Total</td>
-                      <td className="text-right">{fmtCurrency(profitByItem.reduce((s, g) => s + Number(g.revenue || 0), 0))}</td>
-                      <td className="text-right">{fmtCurrency(profitByItem.reduce((s, g) => s + Number(g.total_cost || 0), 0))}</td>
-                      <td className="text-right">{fmtCurrency(profitByItem.reduce((s, g) => s + Number(g.profit || 0), 0))}</td>
-                      <td className="text-right">
-                        {(() => {
-                          const totalRev = profitByItem.reduce((s, g) => s + Number(g.revenue || 0), 0);
-                          const totalCost = profitByItem.reduce((s, g) => s + Number(g.total_cost || 0), 0);
-                          const overallMargin = totalRev > 0 ? ((totalRev - totalCost) / totalRev) * 100 : 0;
-                          return (
-                            <span className={overallMargin >= 0 ? "text-green-600" : "text-red-600"}>
-                              {overallMargin.toFixed(1)}%
-                            </span>
-                          );
-                        })()}
-                      </td>
-                    </tr>
-                  )}
-                  {!profitByItem.length && (
-                    <tr>
-                      <td colSpan={5} className="text-center text-slate-500">
-                        No profit data found
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {profitByItem.length > 5 && (
-              <button
-                onClick={() => setProfitByItemShowAll((v) => !v)}
-                className="mt-3 text-sm text-brand hover:text-brand-600 font-medium"
-              >
-                {profitByItemShowAll ? "Show Less" : `Show More (${profitByItem.length - 5} more)`}
-              </button>
-            )}
           </div>
         </div>
       </div>

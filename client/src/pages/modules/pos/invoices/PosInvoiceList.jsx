@@ -20,6 +20,10 @@ function escapeHtml(v) {
     .replace(/'/g, "&#39;");
 }
 
+function invoiceTotal(it) {
+  return Number(it.gross_amount || 0) + Number(it.tax_amount || 0) - Number(it.discount_amount || 0);
+}
+
 // Removed legacy template parsing and wrapper utilities
 
 function toAbsoluteUrl(url) {
@@ -282,14 +286,14 @@ export default function PosInvoiceList() {
   const totals = useMemo(() => {
     const count = filtered.length;
     const totalAmount = filtered.reduce(
-      (sum, it) => sum + Number(it.net_after_returns ?? it.total_amount ?? 0),
+      (sum, it) => sum + invoiceTotal(it),
       0,
     );
     const paid = filtered.reduce(
       (sum, it) =>
         sum +
         (String(it.payment_status || "") === "PAID"
-          ? Number(it.net_after_returns ?? it.total_amount ?? 0)
+          ? invoiceTotal(it)
           : 0),
       0,
     );
@@ -305,7 +309,7 @@ export default function PosInvoiceList() {
         .replace("T", " ")
         .slice(0, 16),
       it.customer_id ? `#${it.customer_id}` : "-",
-      Number(it.net_after_returns ?? it.total_amount ?? 0).toFixed(2),
+      invoiceTotal(it).toFixed(2),
       String(it.payment_status || ""),
     ]);
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -374,12 +378,7 @@ export default function PosInvoiceList() {
     const discountAmt = Number(sale?.discount_amount || 0);
     const tax = Number(sale?.tax_amount || 0);
     const subtotal = gross - discountAmt;
-    const total = Number(
-      sale?.net_after_returns ??
-        sale?.net_amount ??
-        sale?.total_amount ??
-        subtotal + tax,
-    );
+    const total = subtotal + tax;
 
     const itemsArr = (Array.isArray(details) ? details : []).map((d) => {
       const qty = Number(d.qty || 0);
@@ -518,12 +517,7 @@ export default function PosInvoiceList() {
     const discount = Number(sale?.discount_amount || 0);
     const tax = Number(sale?.tax_amount || 0);
     const subtotal = gross - discount;
-    const total = Number(
-      sale?.net_after_returns ??
-        sale?.net_amount ??
-        sale?.total_amount ??
-        subtotal + tax,
-    );
+    const total = subtotal + tax;
     const html = `
       <!DOCTYPE html>
       <html>
@@ -531,14 +525,14 @@ export default function PosInvoiceList() {
         <meta charset="utf-8" />
         <title>POS Invoice</title>
         <style>
-          body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 16px 24px; max-width: 480px; margin: 0 auto; overflow-wrap: break-word; }
-          h1 { text-align: center; margin: 0 0 4px; font-size: 18px; }
+          body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 16px 24px; max-width: 480px; margin: 0 auto; overflow-wrap: break-word; font-weight: 600; }
+          h1 { text-align: center; margin: 0 0 4px; font-size: 18px; font-weight: 700; }
           .center { text-align: center; }
-          .muted { font-size: 12px; color: #555; }
-          .row { display: flex; justify-content: space-between; font-size: 13px; margin: 2px 0; }
+          .muted { font-size: 12px; color: #555; font-weight: 500; }
+          .row { display: flex; justify-content: space-between; font-size: 13px; margin: 2px 0; font-weight: 500; }
           table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
           th, td { padding: 4px; border-bottom: 1px solid #eee; }
-          th { text-align: left; }
+          th { text-align: left; font-weight: 700; }
           th.right, td.right { text-align: right; }
           .totals { margin-top: 8px; border-top: 1px solid #000; padding-top: 4px; }
           .footer { margin-top: 10px; text-align: center; font-size: 11px; white-space: pre-wrap; }
@@ -608,7 +602,7 @@ export default function PosInvoiceList() {
       const gross = Number(sale?.gross_amount || 0);
       const discount = Number(sale?.discount_amount || 0);
       const tax = Number(sale?.tax_amount || 0);
-      const total = Number(sale?.net_after_returns ?? sale?.net_amount ?? sale?.total_amount ?? (gross - discount + tax));
+      const total = gross - discount + tax;
       const payments = sale?.payments;
       const paymentQr = Array.isArray(payments) && payments.length > 1
         ? payments.map((p) => `${p.method || ""}:${Number(p.amount || 0).toFixed(2)}`).join(",")
@@ -766,12 +760,7 @@ export default function PosInvoiceList() {
       const discount = Number(sale?.discount_amount || 0);
       const tax = Number(sale?.tax_amount || 0);
       const subtotal = gross - discount;
-      const total = Number(
-        sale?.net_after_returns ??
-          sale?.net_amount ??
-          sale?.total_amount ??
-          subtotal + tax,
-      );
+      const total = subtotal + tax;
       const doc = new jsPDF("p", "mm", "a4");
       let y = 15;
       doc.setFontSize(14);
@@ -1044,7 +1033,7 @@ export default function PosInvoiceList() {
                     </td>
                     <td>{String(it.customer_name || "-")}</td>
                     <td className="text-right">
-                      {`GH₵ ${Number(it.net_after_returns ?? it.total_amount ?? 0).toFixed(2)}`}
+                      {`GH₵ ${invoiceTotal(it).toFixed(2)}`}
                     </td>
                     <td className="text-sm">
                       {(() => {
