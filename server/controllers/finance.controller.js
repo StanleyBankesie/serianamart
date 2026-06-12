@@ -525,6 +525,18 @@ async function ensureTaxComponentAccountTx(
   conn,
   { companyId, taxDetailId, componentName, isPurchase },
 ) {
+  if (taxDetailId) {
+    try {
+      const [tdRows] = await conn.execute(
+        "SELECT account_id FROM fin_tax_details WHERE id = :taxDetailId LIMIT 1",
+        { taxDetailId }
+      );
+      if (tdRows && tdRows[0] && tdRows[0].account_id) {
+        return Number(tdRows[0].account_id);
+      }
+    } catch (err) {}
+  }
+
   const safeName = String(componentName || "").trim();
   if (!safeName) return 0;
 
@@ -1994,9 +2006,9 @@ export const createVoucher = async (req, res, next) => {
           const line = purchaseVoucherPostingLines[i];
           await txQuery(
             `INSERT INTO fin_voucher_lines
-               (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no, cheque_number, cheque_date, payment_method)
+               (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no, cheque_number, cheque_date, payment_method)
              VALUES
-               (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod)`,
+               (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod)`,
             {
               companyId,
               voucherId: purchaseVoucherId,
@@ -2005,6 +2017,7 @@ export const createVoucher = async (req, res, next) => {
               description: line.description || null,
               debit: Number(line.debit || 0),
               credit: Number(line.credit || 0),
+              taxCodeId: Number(line.taxCodeId || line.tax_code_id || 0) || null,
               referenceNo: line.referenceNo || null,
               chequeNumber: line.chequeNumber || null,
               chequeDate: line.chequeDate || null,
@@ -2062,9 +2075,9 @@ export const createVoucher = async (req, res, next) => {
           const line = postingLines[i];
           await txQuery(
             `INSERT INTO fin_voucher_lines
-               (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no, cheque_number, cheque_date, payment_method)
+               (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no, cheque_number, cheque_date, payment_method)
              VALUES
-               (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod)`,
+               (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod)`,
             {
               companyId,
               voucherId: salesVoucherId,
@@ -2073,6 +2086,7 @@ export const createVoucher = async (req, res, next) => {
               description: line.description || null,
               debit: Number(line.debit || 0),
               credit: Number(line.credit || 0),
+              taxCodeId: Number(line.taxCodeId || line.tax_code_id || 0) || null,
               referenceNo: line.referenceNo || null,
               chequeNumber: line.chequeNumber || null,
               chequeDate: line.chequeDate || null,

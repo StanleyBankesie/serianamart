@@ -1422,17 +1422,20 @@ async function ensurePurchaseTaxComponentAccountTx(
   conn,
   { companyId, taxDetailId, componentName },
 ) {
+  if (taxDetailId) {
+    try {
+      const [tdRows] = await conn.execute(
+        "SELECT account_id FROM fin_tax_details WHERE id = :taxDetailId LIMIT 1",
+        { taxDetailId }
+      );
+      if (tdRows && tdRows[0] && tdRows[0].account_id) {
+        return Number(tdRows[0].account_id);
+      }
+    } catch (err) {}
+  }
+
   const safeName = String(componentName || "").trim();
   if (!safeName) return 0;
-
-  // First check if the tax detail ALREADY has an account_id
-  const [detRows] = await conn.execute(
-    "SELECT account_id FROM fin_tax_details WHERE id = :taxDetailId",
-    { taxDetailId },
-  );
-  if (detRows && detRows[0] && detRows[0].account_id) {
-    return Number(detRows[0].account_id);
-  }
 
   // Create or resolve an account
   const groupId = await ensureGroupIdTx(conn, {

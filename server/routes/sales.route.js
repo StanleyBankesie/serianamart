@@ -1077,6 +1077,18 @@ async function ensureTaxComponentAccountTx(
   conn,
   { companyId, taxDetailId, componentName },
 ) {
+  if (taxDetailId) {
+    try {
+      const [tdRows] = await conn.execute(
+        "SELECT account_id FROM fin_tax_details WHERE id = :taxDetailId LIMIT 1",
+        { taxDetailId }
+      );
+      if (tdRows && tdRows[0] && tdRows[0].account_id) {
+        return Number(tdRows[0].account_id);
+      }
+    } catch (err) {}
+  }
+
   const safeName = String(componentName || "").trim();
   if (!safeName) return 0;
   const groupId = await ensureGroupIdTx(conn, {
