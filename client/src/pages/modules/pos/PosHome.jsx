@@ -18,6 +18,7 @@ import { useAuth } from "../../../auth/AuthContext.jsx";
 import useOfflineQueue from "../../../offline/useOfflineQueue.js";
 import { preloadPosData } from "../../../offline/posPreloader.js";
 import PosReconciliation from "./PosReconciliation.jsx";
+import PosOnHold from "./PosOnHold.jsx";
 
 function PosLanding() {
   const [overview, setOverview] = useState(null);
@@ -128,6 +129,12 @@ function PosLanding() {
           description: "Transactions listing and details",
           icon: "📒",
         },
+        {
+          name: "On-Hold Sales",
+          path: "/pos/holds",
+          description: "Complete held (draft) sales",
+          icon: "⏸️",
+        },
       ],
     },
     {
@@ -235,6 +242,7 @@ export default function PosHome() {
 
       <Route path="/reports" element={<PosReports />} />
       <Route path="/customer-history" element={<PosCustomerHistory />} />
+      <Route path="/holds" element={<PosOnHold />} />
       <Route path="/setup" element={<PosSetup />} />
       <Route path="/dashboard" element={<PosDashboard />} />
       <Route path="/reconciliation" element={<PosReconciliation />} />
@@ -250,6 +258,7 @@ export const posFeatures = [
   { module_key: "pos", label: "Post to Finance", path: "/pos/post-to-finance", type: "feature" },
   { module_key: "pos", label: "POS Returns", path: "/pos/returns", type: "feature" },
   { module_key: "pos", label: "POS Register", path: "/pos/register", type: "feature" },
+  { module_key: "pos", label: "On-Hold Sales", path: "/pos/holds", type: "feature" },
   { module_key: "pos", label: "POS Setup", path: "/pos/setup", type: "feature" },
   { module_key: "pos", label: "Sync Reconciliation", path: "/pos/reconciliation", type: "feature" },
   { module_key: "pos", label: "POS Reports", path: "/pos/reports", type: "dashboard" },

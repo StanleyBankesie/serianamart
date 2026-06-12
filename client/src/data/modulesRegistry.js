@@ -254,6 +254,7 @@ export const MODULES_REGISTRY = {
       { key: "reports", label: "POS Reports", type: "feature" },
       { key: "dashboard", label: "POS Dashboard", type: "feature" },
       { key: "customer-history", label: "Customer Accounts", type: "feature" },
+      { key: "on-hold", label: "On-Hold Sales", type: "feature", path: "/pos/holds" },
       { key: "reconciliation", label: "Sync Reconciliation", type: "feature" },
       { key: "setup", label: "POS Setup", type: "feature" },
     ],

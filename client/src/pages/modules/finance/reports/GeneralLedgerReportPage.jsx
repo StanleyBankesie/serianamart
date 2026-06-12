@@ -218,8 +218,8 @@ export default function GeneralLedgerReportPage() {
 
       <div className="card">
         <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
-            <div className="md:col-span-2">
+          <div className="flex flex-wrap items-end gap-6 mb-6">
+            <div className="flex-1 min-w-[250px]">
               <label className="label">Account</label>
               <input
                 className="input"
@@ -258,7 +258,7 @@ export default function GeneralLedgerReportPage() {
                 ))}
               </datalist>
             </div>
-            <div>
+            <div className="w-48">
               <label className="label">Account Group</label>
               <select
                 className="input"
@@ -273,7 +273,7 @@ export default function GeneralLedgerReportPage() {
                 ))}
               </select>
             </div>
-            <div>
+            <div className="w-40">
               <label className="label">From</label>
               <input
                 className="input"
@@ -282,7 +282,7 @@ export default function GeneralLedgerReportPage() {
                 onChange={(e) => setFrom(e.target.value)}
               />
             </div>
-            <div>
+            <div className="w-40">
               <label className="label">To</label>
               <input
                 className="input"
@@ -291,7 +291,7 @@ export default function GeneralLedgerReportPage() {
                 onChange={(e) => setTo(e.target.value)}
               />
             </div>
-            <div className="flex items-end gap-2">
+            <div className="flex items-end gap-3 shrink-0 ml-auto">
               {/* <button
                 type="button"
                 className="btn-success"
@@ -305,7 +305,7 @@ export default function GeneralLedgerReportPage() {
               </button> */}
               <button
                 type="button"
-                className="btn-secondary px-3"
+                className="btn-secondary px-4 whitespace-nowrap"
                 onClick={() => {
                   const rows = Array.isArray(items) ? items : [];
                   if (!rows.length) return;
@@ -321,7 +321,7 @@ export default function GeneralLedgerReportPage() {
               </button>
               <button
                 type="button"
-                className="btn-primary"
+                className="btn-primary px-4 whitespace-nowrap"
                 onClick={() => {
                   const rows = Array.isArray(items) ? items : [];
                   if (!rows.length) return;
@@ -375,7 +375,7 @@ export default function GeneralLedgerReportPage() {
               </button>
               <button
                 type="button"
-                className="btn-primary"
+                className="btn-primary px-4 whitespace-nowrap"
                 onClick={() => window.print()}
               >
                 Print

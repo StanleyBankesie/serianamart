@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Trash2 } from "lucide-react";
 import api from "../../../../api/client.js";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
@@ -1350,6 +1350,51 @@ export default function PosSalesEntry() {
     lastVfdItemRef.current = null;
   }
 
+  async function handleHold() {
+    if (!cart.length || saving) return;
+    setSaving(true);
+    try {
+      const saleCart = cart;
+      const lines = saleCart.map((it) => ({
+        item_id: it.id,
+        name: it.name,
+        quantity: Number(it.quantity || 0),
+        price: Number(it.price || 0),
+        discount: Number(it.discount || 0),
+      }));
+      const payload = {
+        payment_method: "CASH",
+        payment_mode_id: selectedPaymentModeId || "",
+        payments: [],
+        customer_id: null,
+        customer_name: null,
+        payment_status: null,
+        lines,
+        items: lines,
+        status: "DRAFT",
+        terminal: terminalCode || "",
+        subtotal,
+        tax_total: tax,
+        grand_total: total,
+        amount_paid: 0,
+        change_due: 0,
+        tax_rate_percent: taxActive ? taxRatePercent : 0,
+        tax_type: taxActive ? taxType : "Exclusive",
+        tax_code_id: taxActive && taxCodeId ? Number(taxCodeId) : null,
+        tax_components: [],
+      };
+      await api.post("/pos/sales", payload, {
+        headers: { "x-skip-offline-queue": "1" },
+      });
+      clearCart();
+      toast.success("Sale placed on hold");
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to hold sale");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   useEffect(() => {
     if (barcodeDebounceRef.current) {
       clearTimeout(barcodeDebounceRef.current);
@@ -1377,6 +1422,60 @@ export default function PosSalesEntry() {
       }
     };
   }, [entryBarcode, products]);
+
+  const [searchParams] = useSearchParams();
+  const resumeId = searchParams.get("resume");
+  const resumeLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!resumeId || resumeLoadedRef.current) return;
+    resumeLoadedRef.current = true;
+    (async () => {
+      try {
+        const res = await api.get(`/pos/holds/${resumeId}`);
+        const sale = res.data?.sale;
+        if (!sale || !Array.isArray(sale.lines)) return;
+        const cartItems = sale.lines
+          .filter((l) => Number(l.item_id))
+          .map((l) => ({
+            id: Number(l.item_id),
+            name: l.item_name || "Item",
+            quantity: Number(l.qty || 0),
+            price: Number(l.unit_price || 0),
+            discount: 0,
+          }));
+        if (cartItems.length) {
+          setCart(cartItems);
+          const selItems = sale.lines
+            .filter((l) => Number(l.item_id))
+            .map((l) => ({
+              id: Number(l.item_id),
+              name: l.item_name || "Item",
+              code: "",
+              price: Number(l.unit_price || 0),
+              quantity: Number(l.qty || 0),
+              discount: 0,
+            }));
+          setSelectedItems(selItems);
+          if (sale.customer_id) {
+            setSelectedCustomerId(String(sale.customer_id));
+          }
+          if (sale.payment_status) {
+            setPaymentStatus(sale.payment_status);
+          }
+          if (sale.paid_amount) {
+            setAmountPaid(String(sale.paid_amount));
+          }
+          if (sale.discount_amount) {
+            setHeaderDiscount(String(sale.discount_amount));
+          }
+          toast.success("On-hold sale loaded — review and complete");
+        }
+      } catch (err) {
+        toast.error("Failed to load on-hold sale");
+      }
+    })();
+  }, [resumeId]);
 
   useEffect(() => {
     setSelectedItems((prev) =>
@@ -2509,11 +2608,11 @@ export default function PosSalesEntry() {
               <div className="space-y-2">
                 <button
                   type="button"
-                  className="btn-success w-full text-base"
-                  onClick={clearCart}
-                  disabled={false}
+                  className="bg-amber-500 hover:bg-amber-600 text-white w-full text-base px-4 py-2 rounded-lg font-semibold transition-colors disabled:opacity-50"
+                  onClick={handleHold}
+                  disabled={!cart.length || saving}
                 >
-                  Clear Cart
+                  Hold
                 </button>
                 <button
                   type="button"
@@ -2544,6 +2643,12 @@ export default function PosSalesEntry() {
                     ? `Amount Due: GH₵ ${(total - tendered).toFixed(2)}`
                     : "Complete Sale"}
                 </button>
+                <Link
+                  to="/pos/holds"
+                  className="block text-center text-xs text-brand hover:text-brand-600 dark:text-brand-400 underline mt-1"
+                >
+                  On-Hold Sales
+                </Link>
               </div>
             </div>
           </div>

@@ -107,7 +107,7 @@ export default function PosCustomerHistory() {
       setSearched(true);
     } catch (err) {
       setError(
-        err?.response?.data?.message || "Failed to load customer history",
+        err?.response?.data?.message || "Failed to load customer account",
       );
     } finally {
       setLoading(false);
@@ -375,7 +375,7 @@ export default function PosCustomerHistory() {
                     <th style={{ width: "16%" }}>Receipt No</th>
                     <th style={{ width: "22%" }}>Date &amp; Time</th>
                     <th className="text-right" style={{ width: "18%" }}>Invoice Amount</th>
-                    <th className="text-right text-green-700" style={{ width: "22%" }}>Payment</th>
+                    <th className="text-right" style={{ width: "22%" }}>Payment</th>
                     <th className="text-right text-red-700" style={{ width: "22%" }}>Balance</th>
                   </tr>
                 </thead>

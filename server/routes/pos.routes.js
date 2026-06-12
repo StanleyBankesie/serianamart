@@ -1435,6 +1435,7 @@ router.get(
          AND t.branch_id = p.branch_id
         WHERE p.company_id = :companyId
           AND p.branch_id = :branchId
+          AND p.status = 'COMPLETED'
       `;
       const params = { companyId, branchId };
       if (date) {
@@ -2392,7 +2393,7 @@ router.get(
           u.username AS created_by_name
          FROM pos_sales ps
         LEFT JOIN adm_users u ON u.id = ps.created_by
-         WHERE ps.company_id = :companyId AND ps.branch_id = :branchId${terminalFilterSql}
+          WHERE ps.company_id = :companyId AND ps.branch_id = :branchId AND ps.status = 'COMPLETED'${terminalFilterSql}
          ORDER BY ps.sale_datetime DESC
          LIMIT ${limit}`,
         finalParams,
@@ -2594,7 +2595,7 @@ router.post(
       // Get original sale to find terminal for warehouse
       const [saleRow] = await query(
         `SELECT id, terminal_id, receipt_no, sale_datetime
-         FROM pos_sales WHERE id = :saleId AND company_id = :companyId AND branch_id = :branchId`,
+          FROM pos_sales WHERE id = :saleId AND company_id = :companyId AND branch_id = :branchId AND status = 'COMPLETED'`,
         { saleId, companyId, branchId },
       );
       if (!saleRow) throw httpError(404, "NOT_FOUND", "Sale not found");
@@ -2886,7 +2887,7 @@ router.post(
         );
       }
 
-      if (!terminalWarehouseId) {
+      if (!terminalWarehouseId && finalStatus !== "DRAFT") {
         throw httpError(
           400,
           "VALIDATION_ERROR",
@@ -4403,7 +4404,8 @@ router.put(
           u.username AS created_by_name
          FROM pos_terminals
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
+          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId AND status = 'COMPLETED'
+          LIMIT 1`,
         { id, companyId, branchId },
       );
       if (!existing) throw httpError(404, "NOT_FOUND", "Terminal not found");
@@ -5577,7 +5579,7 @@ router.put(
       }
 
       const [existing] = await query(
-        "SELECT id, net_amount, customer_name, receipt_no FROM pos_sales WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
+        "SELECT id, net_amount, customer_name, receipt_no FROM pos_sales WHERE id = :id AND company_id = :companyId AND branch_id = :branchId AND status = 'COMPLETED'",
         { id: saleId, companyId, branchId },
       );
       if (!existing) {
@@ -5684,6 +5686,167 @@ router.put(
       }
 
       res.json({ message: "Payment recorded", payment_status, paid_amount: paidVal });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/holds",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensurePosTables();
+      const sales = await query(
+        `SELECT s.id, s.status, s.receipt_no, s.sale_datetime, s.customer_name, s.customer_id,
+                s.gross_amount, s.discount_amount, s.tax_amount, s.net_amount,
+                (COALESCE(s.gross_amount,0) - COALESCE(s.discount_amount,0) + COALESCE(s.tax_amount,0)) AS total_amount,
+                s.payment_status, s.paid_amount, s.terminal_id
+         FROM pos_sales s
+         WHERE s.company_id = :companyId
+           AND s.branch_id = :branchId
+           AND s.status = 'DRAFT'
+         ORDER BY s.sale_datetime DESC
+         LIMIT 200`,
+        { companyId, branchId },
+      );
+      if (!sales.length) return res.json({ items: [] });
+
+      const saleIds = sales.map((s) => s.id);
+      const placeholders = saleIds.map((_, i) => `:id${i}`).join(",");
+      const lineParams = {};
+      saleIds.forEach((id, i) => { lineParams[`id${i}`] = id; });
+
+      const lines = await query(
+        `SELECT sale_id, item_name, qty, item_id, unit_price, line_total
+         FROM pos_sale_lines
+         WHERE sale_id IN (${placeholders})`,
+        lineParams,
+      );
+      const linesBySaleId = {};
+      lines.forEach((l) => {
+        if (!linesBySaleId[l.sale_id]) linesBySaleId[l.sale_id] = [];
+        linesBySaleId[l.sale_id].push(l);
+      });
+      const items = sales.map((s) => ({
+        ...s,
+        lines: linesBySaleId[s.id] || [],
+      }));
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.put(
+  "/holds/:id/unhold",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId } = req.scope;
+      const saleId = Number(req.params.id || 0);
+      if (!saleId) throw httpError(400, "VALIDATION_ERROR", "Invalid sale ID");
+
+      const [sale] = await conn.execute(
+        `SELECT s.id, s.status, s.receipt_no, s.terminal_id,
+                s.customer_id, s.customer_name, s.gross_amount, s.discount_amount,
+                s.tax_amount, s.tax_components, s.net_amount,
+                s.payment_status, s.paid_amount, s.sale_datetime,
+                COALESCE(t.code, '') AS terminal_code
+         FROM pos_sales s
+         LEFT JOIN pos_terminals t ON t.id = s.terminal_id AND t.company_id = s.company_id AND t.branch_id = s.branch_id
+         WHERE s.id = :id AND s.company_id = :companyId AND s.branch_id = :branchId AND s.status = 'DRAFT'
+         LIMIT 1`,
+        { id: saleId, companyId, branchId },
+      );
+      if (!sale) throw httpError(404, "NOT_FOUND", "Sale not found or already completed");
+
+      const [saleLines] = await conn.execute(
+        `SELECT id, item_id, item_name, qty, unit_price, line_total
+         FROM pos_sale_lines WHERE sale_id = :saleId`,
+        { saleId },
+      );
+
+      res.json({
+        sale: {
+          ...sale,
+          lines: saleLines,
+        },
+      });
+    } catch (err) {
+      next(err);
+    } finally {
+      conn.release();
+    }
+  },
+);
+
+router.get(
+  "/holds/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const saleId = Number(req.params.id || 0);
+      if (!saleId) throw httpError(400, "VALIDATION_ERROR", "Invalid sale ID");
+
+      const [sale] = await query(
+        `SELECT s.id, s.status, s.receipt_no, s.terminal_id,
+                s.customer_id, s.customer_name, s.gross_amount, s.discount_amount,
+                s.tax_amount, s.tax_components, s.net_amount,
+                s.payment_status, s.paid_amount, s.sale_datetime,
+                COALESCE(t.code, '') AS terminal_code
+         FROM pos_sales s
+         LEFT JOIN pos_terminals t ON t.id = s.terminal_id AND t.company_id = s.company_id AND t.branch_id = s.branch_id
+         WHERE s.id = :id AND s.company_id = :companyId AND s.branch_id = :branchId AND s.status = 'DRAFT'
+         LIMIT 1`,
+        { id: saleId, companyId, branchId },
+      );
+      if (!sale) throw httpError(404, "NOT_FOUND", "Sale not found or already completed");
+
+      const lines = await query(
+        `SELECT id, item_id, item_name, qty, unit_price, line_total
+         FROM pos_sale_lines WHERE sale_id = :saleId`,
+        { saleId },
+      );
+
+      res.json({ sale: { ...sale, lines } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.put(
+  "/holds/:id/cancel",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const saleId = Number(req.params.id || 0);
+      if (!saleId) throw httpError(400, "VALIDATION_ERROR", "Invalid sale ID");
+
+      const [sale] = await query(
+        `SELECT id, status FROM pos_sales WHERE id = :id AND company_id = :companyId AND branch_id = :branchId AND status = 'DRAFT'
+         LIMIT 1`,
+        { id: saleId, companyId, branchId },
+      );
+      if (!sale) throw httpError(404, "NOT_FOUND", "Sale not found or already completed");
+
+      await query(`UPDATE pos_sales SET status = 'VOID' WHERE id = :id`, { id: saleId });
+      res.json({ message: "Sale cancelled successfully", id: saleId });
     } catch (err) {
       next(err);
     }
