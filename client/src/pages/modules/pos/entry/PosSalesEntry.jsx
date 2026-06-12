@@ -153,6 +153,7 @@ export default function PosSalesEntry() {
       prevPriceTypeRef.current = entryPriceType;
     }
   }, [entryPriceType]);
+
   const [saleTimestamp, setSaleTimestamp] = useState(null);
   const [paymentModes, setPaymentModes] = useState([]);
   const [paymentModesLoading, setPaymentModesLoading] = useState(false);
@@ -1453,8 +1454,10 @@ export default function PosSalesEntry() {
       }
       if (!effectivePaymentModeId) {
         alert("Please configure a POS payment mode before completing a sale.");
+        setSaving(false);
         return;
       }
+
       const lines = saleCart.map((it) => ({
         item_id: it.id,
         name: it.name,

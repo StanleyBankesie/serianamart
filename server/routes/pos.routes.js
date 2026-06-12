@@ -5364,6 +5364,199 @@ router.get(
   },
 );
 
+
+router.post(
+  "/payment-modes",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const { name, type, account, requireReference, active } = req.body || {};
+      const trimmedName = String(name || "").trim();
+      const trimmedType = String(type || "").trim();
+      if (!trimmedName || !trimmedType) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "name and type are required for payment mode",
+        );
+      }
+      await ensurePosTables();
+      const result = await query(
+        `INSERT INTO pos_payment_modes
+           (company_id, branch_id, name, type, account, require_reference, is_active)
+         VALUES
+           (:companyId, :branchId, :name, :type, :account, :require_reference, :is_active)`,
+        {
+          companyId,
+          branchId,
+          name: trimmedName,
+          type: trimmedType,
+          account: account || null,
+          require_reference: requireReference ? 1 : 0,
+          is_active: active ? 1 : 0,
+        },
+      );
+      res.status(201).json({ id: result.insertId });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.put(
+  "/payment-modes/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const { name, type, account, requireReference, active } = req.body || {};
+      const trimmedName = String(name || "").trim();
+      const trimmedType = String(type || "").trim();
+      if (!trimmedName || !trimmedType) {
+        throw httpError(
+          400,
+          "VALIDATION_ERROR",
+          "name and type are required for payment mode",
+        );
+      }
+      await ensurePosTables();
+      const [existing] = await query(
+        `SELECT id,
+          created_at,
+          u.username AS created_by_name
+         FROM pos_payment_modes
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+         LIMIT 1`,
+        { id, companyId, branchId },
+      );
+      if (!existing) {
+        throw httpError(404, "NOT_FOUND", "Payment mode not found");
+      }
+      await query(
+        `UPDATE pos_payment_modes
+         SET name = :name,
+             type = :type,
+             account = :account,
+             require_reference = :require_reference,
+             is_active = :is_active
+         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        {
+          id,
+          companyId,
+          branchId,
+          name: trimmedName,
+          type: trimmedType,
+          account: account || null,
+          require_reference: requireReference ? 1 : 0,
+          is_active: active ? 1 : 0,
+        },
+      );
+      res.json({ id });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/customer-history",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId } = req.scope;
+      await ensurePosTables();
+      const { customerName, customerId, fromDate, toDate } = req.query;
+
+      let sql = `
+        SELECT 
+          s.id,
+          s.receipt_no,
+          s.sale_datetime,
+          s.customer_name,
+          s.customer_id,
+          s.payment_status,
+          s.paid_amount,
+          s.gross_amount,
+          s.discount_amount,
+          s.tax_amount,
+          s.net_amount,
+          s.status
+        FROM pos_sales s
+        WHERE s.company_id = :companyId
+          AND s.branch_id = :branchId
+          AND s.status = 'COMPLETED'
+      `;
+      const params = { companyId, branchId };
+
+      if (customerId) {
+        sql += " AND s.customer_id = :customerId";
+        params.customerId = Number(customerId);
+      } else if (customerName) {
+        sql += " AND s.customer_name LIKE :customerName";
+        params.customerName = `%${customerName}%`;
+      }
+      if (fromDate) {
+        sql += " AND s.sale_datetime >= :fromDate";
+        params.fromDate = `${fromDate} 00:00:00`;
+      }
+      if (toDate) {
+        sql += " AND s.sale_datetime <= :toDate";
+        params.toDate = `${toDate} 23:59:59`;
+      }
+
+      sql += " ORDER BY s.sale_datetime ASC LIMIT 200";
+
+      const sales = await query(sql, params);
+
+      if (!sales.length) {
+        return res.json({ items: [] });
+      }
+
+      const saleIds = sales.map((s) => s.id);
+      const placeholders = saleIds.map((_, i) => `:id${i}`).join(",");
+      const lineParams = {};
+      saleIds.forEach((id, i) => {
+        lineParams[`id${i}`] = id;
+      });
+
+      const lines = await query(
+        `SELECT sale_id, item_name, qty, unit_price, line_total,
+          created_at,
+          u.username AS created_by_name
+         FROM pos_sale_lines
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE sale_id IN (${placeholders})`,
+        lineParams,
+      );
+
+      const linesBySaleId = {};
+      lines.forEach((l) => {
+        if (!linesBySaleId[l.sale_id]) linesBySaleId[l.sale_id] = [];
+        linesBySaleId[l.sale_id].push(l);
+      });
+
+      const items = sales.map((s) => ({
+        ...s,
+        lines: linesBySaleId[s.id] || [],
+      }));
+
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 router.put(
   "/sales/:id/payment-status",
   requireAuth,
@@ -5373,7 +5566,8 @@ router.put(
     try {
       const { companyId, branchId } = req.scope;
       const saleId = Number(req.params.id || 0);
-      const { paid_amount } = req.body || {};
+      const { paid_amount, payment_method_id } = req.body || {};
+
       if (!saleId) {
         return res.status(400).json({ message: "Invalid sale ID" });
       }
@@ -5381,18 +5575,114 @@ router.put(
       if (isNaN(paidVal) || paidVal < 0) {
         return res.status(400).json({ message: "paid_amount must be a non-negative number" });
       }
+
       const [existing] = await query(
-        "SELECT id, net_amount FROM pos_sales WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
+        "SELECT id, net_amount, customer_name, receipt_no FROM pos_sales WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
         { id: saleId, companyId, branchId },
       );
       if (!existing) {
         return res.status(404).json({ message: "Sale not found" });
       }
+
       const payment_status = paidVal >= Number(existing.net_amount) ? "PAID" : "UNPAID";
-      await query(
-        "UPDATE pos_sales SET paid_amount = :paid_amount, payment_status = :payment_status WHERE id = :id",
-        { paid_amount: paidVal, payment_status, id: saleId },
-      );
+
+      if (payment_method_id) {
+        const conn = await pool.getConnection();
+        try {
+          await conn.beginTransaction();
+
+          const [modeRows] = await conn.execute(
+            "SELECT id, type, account, name FROM pos_payment_modes WHERE company_id = :companyId AND branch_id = :branchId AND id = :pmid LIMIT 1",
+            { companyId, branchId, pmid: payment_method_id }
+          );
+          const selectedMode = modeRows?.[0];
+
+          const [creditModeRows] = await conn.execute(
+            "SELECT id, type, account, name FROM pos_payment_modes WHERE company_id = :companyId AND branch_id = :branchId AND type = 'credit' LIMIT 1",
+            { companyId, branchId }
+          );
+          const creditMode = creditModeRows?.[0];
+
+          if (selectedMode && creditMode && paidVal > 0) {
+            const debitAccountId = await resolveFinAccountId(conn, { companyId, accountRef: selectedMode.account });
+            const creditAccountId = await resolveFinAccountId(conn, { companyId, accountRef: creditMode.account });
+
+            if (debitAccountId && creditAccountId) {
+              const jvTypeId = await ensureJournalVoucherTypeIdTx(conn, { companyId });
+              const jvNo = await nextVoucherNoTx(conn, { companyId, voucherTypeId: jvTypeId });
+              const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
+              const todayYmd = new Date().toISOString().slice(0, 10);
+              const userId = req.user?.id ?? req.user?.sub ?? null;
+
+              const [insV] = await conn.execute(
+                `INSERT INTO fin_vouchers
+                  (company_id, branch_id, fiscal_year_id, voucher_no, voucher_date, voucher_type_id, status, created_by)
+                 VALUES
+                  (:companyId, :branchId, :fiscalYearId, :voucherNo, :voucherDate, :voucherTypeId, 'POSTED', :userId)`,
+                {
+                  companyId,
+                  branchId,
+                  fiscalYearId,
+                  voucherNo: jvNo,
+                  voucherDate: todayYmd,
+                  voucherTypeId: jvTypeId,
+                  userId,
+                }
+              );
+              const voucherId = insV.insertId;
+
+              const customerLabel = String(existing.customer_name || "Walk-in Customer").trim();
+              const description = `Payment received from ${customerLabel} for POS sale`;
+
+              await conn.execute(
+                `INSERT INTO fin_voucher_lines
+                  (company_id, voucher_id, line_no, account_id, description, debit, credit)
+                 VALUES
+                  (:companyId, :voucherId, 1, :accountId, :desc, :amt, 0)`,
+                {
+                  companyId,
+                  voucherId,
+                  accountId: debitAccountId,
+                  desc: description,
+                  amt: paidVal,
+                }
+              );
+
+              await conn.execute(
+                `INSERT INTO fin_voucher_lines
+                  (company_id, voucher_id, line_no, account_id, description, debit, credit)
+                 VALUES
+                  (:companyId, :voucherId, 2, :accountId, :desc, 0, :amt)`,
+                {
+                  companyId,
+                  voucherId,
+                  accountId: creditAccountId,
+                  desc: description,
+                  amt: paidVal,
+                }
+              );
+            }
+          }
+
+          await conn.execute(
+            "UPDATE pos_sales SET paid_amount = :paid_amount, payment_status = :payment_status WHERE id = :id",
+            { paid_amount: paidVal, payment_status, id: saleId }
+          );
+
+          await conn.commit();
+        } catch (e) {
+          await conn.rollback();
+          throw e;
+        } finally {
+          conn.release();
+        }
+      } else {
+        await query(
+          "UPDATE pos_sales SET paid_amount = :paid_amount, payment_status = :payment_status WHERE id = :id",
+          { paid_amount: paidVal, payment_status, id: saleId },
+        );
+      }
+
       res.json({ message: "Payment recorded", payment_status, paid_amount: paidVal });
     } catch (err) {
       next(err);

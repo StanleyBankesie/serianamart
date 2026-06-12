@@ -43,6 +43,11 @@ export default function PosCustomerHistory() {
   const [modalLoading, setModalLoading] = useState(false);
   const [payingId, setPayingId] = useState(null);
   const [editValues, setEditValues] = useState({});
+  const [paymentModes, setPaymentModes] = useState([]);
+  const [paymentModesLoading, setPaymentModesLoading] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedPaymentMode, setSelectedPaymentMode] = useState("");
+  const [pendingPaymentInfo, setPendingPaymentInfo] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -60,6 +65,22 @@ export default function PosCustomerHistory() {
       .finally(() => {
         if (mounted) setCustomersLoading(false);
       });
+
+    setPaymentModesLoading(true);
+    api
+      .get("/pos/payment-modes")
+      .then((res) => {
+        if (mounted) {
+          setPaymentModes(Array.isArray(res.data?.items) ? res.data.items : []);
+        }
+      })
+      .catch(() => {
+        if (mounted) setPaymentModes([]);
+      })
+      .finally(() => {
+        if (mounted) setPaymentModesLoading(false);
+      });
+
     return () => {
       mounted = false;
     };
@@ -150,17 +171,32 @@ export default function PosCustomerHistory() {
     };
   }, [items]);
 
-  async function handleSavePayment(saleId) {
+  function openPaymentModal(saleId) {
     const val = editValues[saleId];
     if (val === undefined || val === "") return;
     const paid_amount = Number(val);
-    if (isNaN(paid_amount) || paid_amount < 0) {
-      toast.error("Payment amount must be a non-negative number");
+    if (isNaN(paid_amount) || paid_amount <= 0) {
+      toast.error("Payment amount must be a positive number");
       return;
     }
+    setPendingPaymentInfo({ saleId, paid_amount });
+    setSelectedPaymentMode("");
+    setShowPaymentModal(true);
+  }
+
+  async function handleSavePayment() {
+    if (!pendingPaymentInfo) return;
+    if (!selectedPaymentMode) {
+      toast.error("Please select a payment method");
+      return;
+    }
+    const { saleId, paid_amount } = pendingPaymentInfo;
     setPayingId(saleId);
     try {
-      const res = await api.put(`/pos/sales/${saleId}/payment-status`, { paid_amount });
+      const res = await api.put(`/pos/sales/${saleId}/payment-status`, { 
+        paid_amount,
+        payment_method_id: selectedPaymentMode 
+      });
       const { payment_status } = res.data;
       setItems((prev) =>
         prev.map((it) =>
@@ -172,6 +208,9 @@ export default function PosCustomerHistory() {
         delete next[saleId];
         return next;
       });
+      setShowPaymentModal(false);
+      setPendingPaymentInfo(null);
+      toast.success("Payment recorded successfully");
     } catch (err) {
       toast.error(err?.response?.data?.message || "Failed to record payment");
     } finally {
@@ -329,15 +368,15 @@ export default function PosCustomerHistory() {
                 No transactions found for the selected criteria.
               </div>
             ) : (
-              <table className="table w-full">
+              <table className="table w-full" style={{ tableLayout: "fixed" }}>
                 <thead>
                   <tr>
                     <th className="w-6"></th>
-                    <th>Receipt No</th>
-                    <th>Date &amp; Time</th>
-                    <th className="text-right">Invoice Amount</th>
-                    <th className="text-right text-green-700">Payment</th>
-                    <th className="text-right text-red-700">Balance</th>
+                    <th style={{ width: "16%" }}>Receipt No</th>
+                    <th style={{ width: "22%" }}>Date &amp; Time</th>
+                    <th className="text-right" style={{ width: "18%" }}>Invoice Amount</th>
+                    <th className="text-right text-green-700" style={{ width: "22%" }}>Payment</th>
+                    <th className="text-right text-red-700" style={{ width: "22%" }}>Balance</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -387,11 +426,11 @@ export default function PosCustomerHistory() {
                         <td className="text-right font-semibold">
                           {fmt(invoiceAmt)}
                         </td>
-                        <td className="text-right font-semibold text-green-700"
+                        <td className="text-right font-semibold"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          {isPaid ? (
-                            fmt(paidAmt)
+                          {isPaid || paidAmt > 0 ? (
+                            <span className="text-blue-600">{fmt(paidAmt)}</span>
                           ) : (
                             <span className="inline-flex items-center gap-1">
                               <input
@@ -409,7 +448,7 @@ export default function PosCustomerHistory() {
                                 }
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") {
-                                    handleSavePayment(it.id);
+                                    openPaymentModal(it.id);
                                   }
                                 }}
                                 disabled={payingId === it.id}
@@ -418,7 +457,7 @@ export default function PosCustomerHistory() {
                                 type="button"
                                 disabled={payingId === it.id}
                                 className="px-1.5 py-0.5 text-xs rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
-                                onClick={() => handleSavePayment(it.id)}
+                                onClick={() => openPaymentModal(it.id)}
                               >
                                 {payingId === it.id ? "..." : "Pay"}
                               </button>
@@ -660,6 +699,75 @@ export default function PosCustomerHistory() {
                 onClick={() => setShowModal(false)}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Method Modal */}
+      {showPaymentModal && pendingPaymentInfo && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-sm overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-slate-200">
+              <h2 className="text-lg font-semibold text-slate-900">
+                Select Payment Method
+              </h2>
+              <button
+                type="button"
+                className="text-slate-500 hover:text-slate-700 text-2xl leading-none"
+                onClick={() => {
+                  setShowPaymentModal(false);
+                  setPendingPaymentInfo(null);
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-4">
+              <p className="mb-4 text-sm text-slate-600">
+                You are about to record a payment of{" "}
+                <span className="font-bold text-green-700">
+                  {fmt(pendingPaymentInfo.paid_amount)}
+                </span>
+                .
+              </p>
+              <label className="label">Payment Method</label>
+              <select
+                className="input"
+                value={selectedPaymentMode}
+                onChange={(e) => setSelectedPaymentMode(e.target.value)}
+                disabled={paymentModesLoading || payingId}
+              >
+                <option value="">-- Select Method --</option>
+                {paymentModes
+                  .filter((m) => String(m.type || "").toLowerCase() !== "credit" && !!m.is_active)
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="flex gap-2 p-4 border-t border-slate-200 bg-slate-50">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  setShowPaymentModal(false);
+                  setPendingPaymentInfo(null);
+                }}
+                disabled={!!payingId}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary ml-auto"
+                onClick={handleSavePayment}
+                disabled={!!payingId || !selectedPaymentMode}
+              >
+                {payingId ? "Saving..." : "Submit Payment"}
               </button>
             </div>
           </div>
