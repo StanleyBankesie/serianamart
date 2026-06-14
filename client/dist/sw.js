@@ -9,28 +9,28 @@ const DEV_MODE =
 
 if (!DEV_MODE) {
   self.addEventListener("install", (event) => {
-  event.waitUntil(
-    (async () => {
-      const cache = await caches.open(ASSET_CACHE);
-      await cache.addAll([
-        "/",
-        "/index.html",
-        "/manifest.webmanifest",
-        "/pwa-192x192.png",
-        "/pwa-512x512.png",
-        "/apple-touch-icon.png",
-        "/OMNISUITE_ICON_CLEAR.png",
-      ,
-        "/assets/index-CkoGYF58.js"
+    event.waitUntil(
+      (async () => {
+        const cache = await caches.open(ASSET_CACHE);
+        await cache.addAll([
+          "/",
+          "/index.html",
+          "/manifest.webmanifest",
+          "/pwa-192x192.png",
+          "/pwa-512x512.png",
+          "/apple-touch-icon.png",
+          "/OMNISUITE_ICON_CLEAR.png",
+        ,
+        "/assets/index-CTPeTwHi.js"
 ]);
-      // NOTE: Do NOT call self.skipWaiting() here.
-      // skipWaiting causes the new SW to immediately take over ALL open tabs
-      // mid-session, which restarts their fetch lifecycles and looks like a
-      // random page reload or logout. The new SW will activate naturally once
-      // all tabs are closed and re-opened.
-    })(),
-  );
-});
+        // NOTE: Do NOT call self.skipWaiting() here.
+        // skipWaiting causes the new SW to immediately take over ALL open tabs
+        // mid-session, which restarts their fetch lifecycles and looks like a
+        // random page reload or logout. The new SW will activate naturally once
+        // all tabs are closed and re-opened.
+      })(),
+    );
+  });
 }
 
 self.addEventListener("activate", (event) => {
@@ -44,22 +44,11 @@ self.addEventListener("activate", (event) => {
             .map((k) => caches.delete(k)),
         );
       } catch {}
-      // Use clients.claim() only to take control of pages that don't yet have
-      // a service worker controller (e.g. first load). This does NOT force-reload
-      // pages that are already open and actively controlled — avoiding the
-      // unintended app restart that occurs during POS/cashier sessions.
-      try {
-        // Only claim windows that have NO controller yet (first install).
-        // Do NOT claim already-controlled clients — doing so can disrupt active
-        // sessions by forcing re-evaluation of all pending fetches.
-        const allClients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-        const uncontrolled = allClients.filter(c => !c.controller);
-        if (uncontrolled.length > 0) {
-          await self.clients.claim();
-        }
-      } catch {
-        // Ignore — if we can't read clients, don't claim anything.
-      }
+      // Do NOT call clients.claim() here.
+      // Even a "conditional" claim still takes over every open tab in scope,
+      // which can interrupt active POS sessions and look like a page reload.
+      // Let currently open tabs remain on their existing controller until the
+      // user naturally reloads or reopens the app.
     })(),
   );
 });
@@ -119,8 +108,7 @@ async function staleWhileRevalidate(cacheName, request) {
         if (canCache) {
           try {
             await cache.put(request, resp.clone());
-          } catch (e) {
-          }
+          } catch (e) {}
         }
       }
       return resp;
@@ -151,49 +139,49 @@ async function cacheFirstWithNetworkFallback(cacheName, request) {
 
 if (!DEV_MODE) {
   self.addEventListener("fetch", (event) => {
-  const req = event.request;
-  const url = new URL(req.url);
+    const req = event.request;
+    const url = new URL(req.url);
 
-  if (url.origin !== self.location.origin) return;
+    if (url.origin !== self.location.origin) return;
 
-  if (req.mode === "navigate") {
-    event.respondWith(
-      (async () => {
-        try {
-          const resp = await fetch(req);
-          const cache = await caches.open(ASSET_CACHE);
-          if (resp && resp.ok) {
-            try {
-              await cache.put("/index.html", resp.clone());
-            } catch (e) {}
+    if (req.mode === "navigate") {
+      event.respondWith(
+        (async () => {
+          try {
+            const resp = await fetch(req);
+            const cache = await caches.open(ASSET_CACHE);
+            if (resp && resp.ok) {
+              try {
+                await cache.put("/index.html", resp.clone());
+              } catch (e) {}
+            }
+            return resp;
+          } catch {
+            const cached = await caches.match("/index.html");
+            return cached || Response.error();
           }
-          return resp;
-        } catch {
-          const cached = await caches.match("/index.html");
-          return cached || Response.error();
-        }
-      })(),
-    );
-    return;
-  }
+        })(),
+      );
+      return;
+    }
 
-  const dest = req.destination;
-  if (dest === "script" && url.pathname.startsWith("/assets/")) {
-    event.respondWith(cacheFirstWithNetworkFallback(ASSET_CACHE, req));
-    return;
-  }
-  if (dest === "style" || dest === "image" || dest === "font") {
-    event.respondWith(cacheFirstWithNetworkFallback(ASSET_CACHE, req));
-    return;
-  }
+    const dest = req.destination;
+    if (dest === "script" && url.pathname.startsWith("/assets/")) {
+      event.respondWith(cacheFirstWithNetworkFallback(ASSET_CACHE, req));
+      return;
+    }
+    if (dest === "style" || dest === "image" || dest === "font") {
+      event.respondWith(cacheFirstWithNetworkFallback(ASSET_CACHE, req));
+      return;
+    }
 
-  // Never cache auth-related API requests — always go to network.
-  if (isAuthRequest(url)) return;
+    // Never cache auth-related API requests — always go to network.
+    if (isAuthRequest(url)) return;
 
-  if (isApiRequest(url) && req.method === "GET") {
-    event.respondWith(staleWhileRevalidate(API_CACHE, req));
-    return;
-  }
+    if (isApiRequest(url) && req.method === "GET") {
+      event.respondWith(staleWhileRevalidate(API_CACHE, req));
+      return;
+    }
   });
 }
 
