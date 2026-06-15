@@ -265,23 +265,47 @@ export default function ItemForm() {
     };
   }, [id, isNew]);
 
+  function getUploadedImageUrl(data) {
+    return (
+      data?.url ||
+      data?.secure_url ||
+      data?.data?.url ||
+      data?.data?.secure_url ||
+      data?.item?.url ||
+      data?.item?.secure_url ||
+      ""
+    );
+  }
+
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     const uploadData = new FormData();
     uploadData.append("file", file);
+    uploadData.append("folder", "inventory_items");
 
     setUploading(true);
     try {
-      const res = await api.post("/upload", uploadData);
-      setFormData((prev) => ({ ...prev, image_url: res.data.url }));
+      const res = await api.post("/upload", uploadData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const uploadedUrl = getUploadedImageUrl(res?.data);
+      if (!uploadedUrl) {
+        throw new Error("Upload completed without an image URL");
+      }
+      setFormData((prev) => ({ ...prev, image_url: uploadedUrl }));
       toast.success("Image uploaded successfully");
     } catch (err) {
       console.error(err);
-      toast.error("Failed to upload image");
+      toast.error(
+        err?.response?.data?.message ||
+          err?.message ||
+          "Failed to upload image",
+      );
     } finally {
       setUploading(false);
+      if (e?.target) e.target.value = "";
     }
   };
 
@@ -299,6 +323,7 @@ export default function ItemForm() {
         cost_price: Number(formData.cost_price) || 0,
         selling_price: Number(formData.selling_price) || 0,
         currency_id: formData.currency_id || null,
+        image_url: formData.image_url || null,
         is_active: Boolean(formData.is_active),
         item_type: formData.item_type || null,
         category_id: formData.category_id || null,

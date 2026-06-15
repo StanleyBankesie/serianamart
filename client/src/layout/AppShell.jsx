@@ -37,7 +37,7 @@ import RoleSetup from "../pages/admin/RoleSetup.jsx";
 import UserPermissions from "../pages/admin/UserPermissions.jsx";
 import SocialFeedNotification from "../components/CompanyFeed/SocialFeedNotification.jsx";
 import DashboardPermissions from "../pages/admin/DashboardPermissions.jsx";
-import addNotification from "react-push-notification";
+import addNotification from "../utils/addNotification.js";
 
 import logoDark from "../assets/resources/OMNISUITE_WHITE_LOGO.png";
 import logoLight from "../assets/resources/OMNISUITE_LOGO_FILL.png";

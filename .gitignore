@@ -6,3 +6,4 @@ server.env
 server.env.production
 server.env.local
 uploads/
+client/node_modules

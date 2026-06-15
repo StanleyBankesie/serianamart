@@ -1077,18 +1077,6 @@ async function ensureTaxComponentAccountTx(
   conn,
   { companyId, taxDetailId, componentName },
 ) {
-  if (taxDetailId) {
-    try {
-      const [tdRows] = await conn.execute(
-        "SELECT account_id FROM fin_tax_details WHERE id = :taxDetailId LIMIT 1",
-        { taxDetailId }
-      );
-      if (tdRows && tdRows[0] && tdRows[0].account_id) {
-        return Number(tdRows[0].account_id);
-      }
-    } catch (err) {}
-  }
-
   const safeName = String(componentName || "").trim();
   if (!safeName) return 0;
   const groupId = await ensureGroupIdTx(conn, {
@@ -3359,7 +3347,6 @@ router.get(
           d.total_amount,
           d.net_amount,
           d.tax_amount,
-          d.tax_type AS tax_id,
           d.uom,
           it.item_code,
           it.item_name,
@@ -3464,7 +3451,14 @@ router.post(
         const uom = String(it?.uom || "PCS").trim();
         if (!Number.isFinite(item_id) || qty <= 0) continue;
         // Campaign price override
-        const prResult = await resolveBestPrice(companyId, branchId, item_id, orderCustomerId, orderPriceTypeId, qty).catch(() => null);
+        const prResult = await resolveBestPrice(
+          companyId,
+          branchId,
+          item_id,
+          orderCustomerId,
+          orderPriceTypeId,
+          qty,
+        ).catch(() => null);
         if (prResult && prResult.campaignApplied) {
           unit_price = prResult.price;
         }
@@ -3490,7 +3484,10 @@ router.post(
       }
       // Auto-apply Purchase reward campaigns
       if (items.length) {
-        const purchaseRewardFreeItems = await calculatePurchaseRewardFreeItems(companyId, items);
+        const purchaseRewardFreeItems = await calculatePurchaseRewardFreeItems(
+          companyId,
+          items,
+        );
         for (const bf of purchaseRewardFreeItems) {
           await query(
             `INSERT INTO sal_order_details (order_id, item_id, qty, unit_price, discount_percent, total_amount, net_amount, tax_amount, uom)
@@ -3508,8 +3505,9 @@ router.post(
             },
           );
           // Consume campaign usage
-          await query(`UPDATE sal_purchase_reward_campaigns SET used_qty = used_qty + :qty WHERE id = :id AND company_id = :companyId`,
-            { qty: bf.quantity, id: bf.campaign_id, companyId }
+          await query(
+            `UPDATE sal_purchase_reward_campaigns SET used_qty = used_qty + :qty WHERE id = :id AND company_id = :companyId`,
+            { qty: bf.quantity, id: bf.campaign_id, companyId },
           ).catch(() => {});
         }
       }
@@ -3647,7 +3645,14 @@ router.put(
         const tax_amount = Number(it?.tax_amount || 0);
         const uom = String(it?.uom || "PCS").trim();
         if (!Number.isFinite(item_id) || qty <= 0) continue;
-        const prResult = await resolveBestPrice(companyId, branchId, item_id, Number(body.customer_id), orderPriceTypeId, qty).catch(() => null);
+        const prResult = await resolveBestPrice(
+          companyId,
+          branchId,
+          item_id,
+          Number(body.customer_id),
+          orderPriceTypeId,
+          qty,
+        ).catch(() => null);
         if (prResult && prResult.campaignApplied) {
           unit_price = prResult.price;
         }
@@ -3672,15 +3677,19 @@ router.put(
         );
       }
       if (items.length) {
-        const purchaseRewardFreeItems = await calculatePurchaseRewardFreeItems(companyId, items);
+        const purchaseRewardFreeItems = await calculatePurchaseRewardFreeItems(
+          companyId,
+          items,
+        );
         for (const bf of purchaseRewardFreeItems) {
           await query(
             `INSERT INTO sal_order_details (order_id, item_id, qty, unit_price, discount_percent, total_amount, net_amount, tax_amount, uom)
              VALUES (:order_id, :item_id, :qty, 0, 0, 0, 0, 0, :uom)`,
             { order_id: id, item_id: bf.item_id, qty: bf.quantity, uom: "PCS" },
           );
-          await query(`UPDATE sal_purchase_reward_campaigns SET used_qty = used_qty + :qty WHERE id = :id AND company_id = :companyId`,
-            { qty: bf.quantity, id: bf.campaign_id, companyId }
+          await query(
+            `UPDATE sal_purchase_reward_campaigns SET used_qty = used_qty + :qty WHERE id = :id AND company_id = :companyId`,
+            { qty: bf.quantity, id: bf.campaign_id, companyId },
           ).catch(() => {});
         }
       }
@@ -4140,10 +4149,7 @@ router.get(
           d.discount_percent,
           d.total_amount,
           d.net_amount,
-          d.tax_amount,
-          d.tax_type AS tax_id,
           d.uom,
-          d.remarks,
           it.item_code,
           it.item_name,
           d.created_at,
@@ -4794,7 +4800,14 @@ router.post(
       const invoiceItemList = [];
       for (const l of details) {
         let unitPrice = Number(l.unit_price || 0);
-        const prResult = await resolveBestPrice(companyId, branchId, Number(l.item_id), invoiceCustomerId, invoicePriceTypeId, Number(l.qty || l.quantity || 0)).catch(() => null);
+        const prResult = await resolveBestPrice(
+          companyId,
+          branchId,
+          Number(l.item_id),
+          invoiceCustomerId,
+          invoicePriceTypeId,
+          Number(l.qty || l.quantity || 0),
+        ).catch(() => null);
         if (prResult && prResult.campaignApplied) {
           unitPrice = prResult.price;
         }
@@ -4817,20 +4830,27 @@ router.post(
             remarks: l.remarks || null,
           },
         );
-        invoiceItemList.push({ item_id: l.item_id, quantity: l.qty || l.quantity || 0 });
+        invoiceItemList.push({
+          item_id: l.item_id,
+          quantity: l.qty || l.quantity || 0,
+        });
         lineNo++;
       }
       // Auto-apply Purchase reward campaigns
       if (invoiceItemList.length) {
-        const purchaseRewardFreeItems = await calculatePurchaseRewardFreeItems(companyId, invoiceItemList);
+        const purchaseRewardFreeItems = await calculatePurchaseRewardFreeItems(
+          companyId,
+          invoiceItemList,
+        );
         for (const bf of purchaseRewardFreeItems) {
           await conn.execute(
             `INSERT INTO sal_invoice_details (invoice_id, item_id, quantity, unit_price, discount_percent, total_amount, net_amount, tax_amount, tax_type, uom, remarks)
              VALUES (:invoiceId, :itemId, :quantity, 0, 0, 0, 0, 0, NULL, 'PCS', 'Purchase reward')`,
             { invoiceId, itemId: bf.item_id, quantity: bf.quantity },
           );
-          await query(`UPDATE sal_purchase_reward_campaigns SET used_qty = used_qty + :qty WHERE id = :id AND company_id = :companyId`,
-            { qty: bf.quantity, id: bf.campaign_id, companyId }
+          await query(
+            `UPDATE sal_purchase_reward_campaigns SET used_qty = used_qty + :qty WHERE id = :id AND company_id = :companyId`,
+            { qty: bf.quantity, id: bf.campaign_id, companyId },
           ).catch(() => {});
         }
       }
@@ -5008,7 +5028,14 @@ router.put(
       const putInvoiceCustomerId = Number(customer_id || 0);
       for (const l of details) {
         let unitPrice = Number(l.unit_price || 0);
-        const prResult = await resolveBestPrice(companyId, branchId, Number(l.item_id), putInvoiceCustomerId, putInvoicePriceTypeId, Number(l.qty || l.quantity || 0)).catch(() => null);
+        const prResult = await resolveBestPrice(
+          companyId,
+          branchId,
+          Number(l.item_id),
+          putInvoiceCustomerId,
+          putInvoicePriceTypeId,
+          Number(l.qty || l.quantity || 0),
+        ).catch(() => null);
         if (prResult && prResult.campaignApplied) {
           unitPrice = prResult.price;
         }
@@ -5034,15 +5061,19 @@ router.put(
       }
       // Auto-apply Purchase reward campaigns
       if (details && details.length) {
-        const purchaseRewardFreeItems = await calculatePurchaseRewardFreeItems(companyId, details);
+        const purchaseRewardFreeItems = await calculatePurchaseRewardFreeItems(
+          companyId,
+          details,
+        );
         for (const bf of purchaseRewardFreeItems) {
           await conn.execute(
             `INSERT INTO sal_invoice_details (invoice_id, item_id, quantity, unit_price, discount_percent, total_amount, net_amount, tax_amount, tax_type, uom, remarks)
              VALUES (:invoiceId, :itemId, :quantity, 0, 0, 0, 0, 0, NULL, 'PCS', 'Purchase reward')`,
             { invoiceId: id, itemId: bf.item_id, quantity: bf.quantity },
           );
-          await query(`UPDATE sal_purchase_reward_campaigns SET used_qty = used_qty + :qty WHERE id = :id AND company_id = :companyId`,
-            { qty: bf.quantity, id: bf.campaign_id, companyId }
+          await query(
+            `UPDATE sal_purchase_reward_campaigns SET used_qty = used_qty + :qty WHERE id = :id AND company_id = :companyId`,
+            { qty: bf.quantity, id: bf.campaign_id, companyId },
           ).catch(() => {});
         }
       }
@@ -5816,9 +5847,7 @@ router.post(
       const operator = req.body?.operator === "-" ? "-" : "+";
 
       if (!Number.isFinite(customer_id) || customer_id <= 0) {
-        return res
-          .status(400)
-          .json({ message: "customer_id is required" });
+        return res.status(400).json({ message: "customer_id is required" });
       }
       if (!item_ids.length) {
         return res
@@ -5950,8 +5979,18 @@ router.post(
       }
 
       const customerId = Number(req.body?.customer_id);
-      const result = await resolveBestPrice(companyId, branchId, productId, customerId, priceTypeId, qtyParam);
-      return res.json({ price: result.price, campaign_applied: result.campaignApplied });
+      const result = await resolveBestPrice(
+        companyId,
+        branchId,
+        productId,
+        customerId,
+        priceTypeId,
+        qtyParam,
+      );
+      return res.json({
+        price: result.price,
+        campaign_applied: result.campaignApplied,
+      });
     } catch (e) {
       next(e);
     }
@@ -5968,21 +6007,40 @@ router.get(
   async (req, res, next) => {
     try {
       const companyId = req.scope.companyId;
-      try { await ensureDiscountTables(); } catch (_) {}
+      console.log(
+        `[GET /discount-schemes] companyId=${companyId}, userId=${req.user?.id}, user.companyIds=${JSON.stringify(req.user?.companyIds)}`,
+      );
+      await ensureDiscountTables();
       const items = await query(
-        `SELECT d.id, d.scheme_code, d.scheme_name, d.discount_type, d.discount_value,
-                d.effective_from, d.effective_to,
-                d.min_quantity, d.min_purchase_amount, d.max_discount_amount, d.description,
-                d.is_active, d.created_at, d.created_by,
-                u.username AS created_by_name
-           FROM sal_discount_schemes d
-           LEFT JOIN adm_users u ON u.id = d.created_by
-          WHERE d.company_id = :companyId
-          ORDER BY d.id DESC`,
+        `
+        SELECT 
+          id,
+          scheme_code,
+          scheme_name,
+          discount_type,
+          discount_value,
+          effective_from,
+          effective_to,
+          min_quantity,
+          min_purchase_amount,
+          max_discount_amount,
+          description,
+          is_active,
+          created_at,
+          u.full_name AS created_by_name
+         FROM sal_discount_schemes
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE company_id = :companyId
+        ORDER BY id DESC
+        `,
         { companyId },
-      ).catch(() => []);
+      );
+      console.log(
+        `[GET /discount-schemes] Found ${items?.length || 0} items for companyId=${companyId}`,
+      );
       res.json({ items: Array.isArray(items) ? items : [] });
     } catch (e) {
+      console.error(`[GET /discount-schemes] Error: ${e.message}`, e);
       next(e);
     }
   },
@@ -6024,14 +6082,17 @@ async function ensureDiscountTables() {
   `);
   // Ensure columns added in later migrations exist on older tables
   const missingCols = [
-    'max_quantity DECIMAL(18,3) DEFAULT \'0.000\' AFTER min_quantity',
-    'min_purchase_amount DECIMAL(18,2) DEFAULT \'0.00\' AFTER max_quantity',
-    'max_discount_amount DECIMAL(18,2) DEFAULT \'0.00\' AFTER min_purchase_amount',
-    'description VARCHAR(255) DEFAULT NULL AFTER max_discount_amount',
+    "max_quantity DECIMAL(18,3) DEFAULT '0.000' AFTER min_quantity",
+    "min_purchase_amount DECIMAL(18,2) DEFAULT '0.00' AFTER max_quantity",
+    "max_discount_amount DECIMAL(18,2) DEFAULT '0.00' AFTER min_purchase_amount",
+    "description VARCHAR(255) DEFAULT NULL AFTER max_discount_amount",
   ];
   for (const col of missingCols) {
-    try { await query(`ALTER TABLE sal_discount_schemes ADD COLUMN ${col}`); }
-    catch (e) { /* column already exists or added */ }
+    try {
+      await query(`ALTER TABLE sal_discount_schemes ADD COLUMN ${col}`);
+    } catch (e) {
+      /* column already exists or added */
+    }
   }
   _discountTablesEnsured = true;
 }
@@ -6060,7 +6121,9 @@ router.get(
       ).catch(() => []);
       scheme.items = items || [];
       res.json(scheme);
-    } catch (e) { next(e); }
+    } catch (e) {
+      next(e);
+    }
   },
 );
 
@@ -6072,21 +6135,60 @@ router.post(
   async (req, res, next) => {
     try {
       const companyId = req.scope.companyId;
+      console.log(
+        `[POST /discount-schemes/discount] Creating with companyId=${companyId}, userId=${req.user?.id}`,
+      );
+      await ensureDiscountTables();
       const userId = req.user?.id || null;
-      const { scheme_code, scheme_name, discount_type, discount_value, effective_from, effective_to, min_quantity, max_quantity, description, is_active, itemIds } = req.body;
+      const {
+        scheme_code,
+        scheme_name,
+        discount_type,
+        discount_value,
+        effective_from,
+        effective_to,
+        min_quantity,
+        max_quantity,
+        description,
+        is_active,
+        itemIds,
+      } = req.body;
       const result = await query(
         `INSERT INTO sal_discount_schemes (company_id, scheme_code, scheme_name, discount_type, discount_value, effective_from, effective_to, min_quantity, max_quantity, description, is_active, created_by)
          VALUES (:companyId, :scheme_code, :scheme_name, :discount_type, :discount_value, :effective_from, :effective_to, :min_quantity, :max_quantity, :description, :is_active, :created_by)`,
-        { companyId, scheme_code, scheme_name, discount_type, discount_value, effective_from, effective_to: effective_to || null, min_quantity: min_quantity || 0, max_quantity: max_quantity || null, description: description || null, is_active: is_active ?? 1, created_by: userId },
+        {
+          companyId,
+          scheme_code,
+          scheme_name,
+          discount_type,
+          discount_value,
+          effective_from,
+          effective_to: effective_to || null,
+          min_quantity: min_quantity || 0,
+          max_quantity: max_quantity || null,
+          description,
+          is_active: is_active ?? 1,
+          created_by: userId,
+        },
       );
       const schemeId = result?.insertId || 0;
+      console.log(
+        `[POST /discount-schemes/discount] Inserted schemeId=${schemeId} with companyId=${companyId}`,
+      );
       if (Array.isArray(itemIds) && itemIds.length) {
-        const values = itemIds.map(iid => `(${Number(schemeId)},${Number(iid)})`).join(",");
-        await query(`INSERT INTO sal_discount_scheme_items (scheme_id, item_id) VALUES ${values}`).catch(() => {});
+        const values = itemIds
+          .map((iid) => `(${Number(schemeId)},${Number(iid)})`)
+          .join(",");
+        await query(
+          `INSERT INTO sal_discount_scheme_items (scheme_id, item_id) VALUES ${values}`,
+        ).catch(() => {});
       }
-      res.status(201).json({ id: schemeId, message: "Discount campaign created" });
+      res
+        .status(201)
+        .json({ id: schemeId, message: "Discount campaign created" });
     } catch (e) {
-      res.status(500).json({ error: e.message, code: e.code });
+      console.error(`[POST /discount-schemes/discount] Error: ${e.message}`, e);
+      next(e);
     }
   },
 );
@@ -6101,18 +6203,52 @@ router.put(
       const companyId = req.scope.companyId;
       await ensureDiscountTables();
       const { id } = req.params;
-      const { scheme_code, scheme_name, discount_type, discount_value, effective_from, effective_to, min_quantity, max_quantity, description, is_active, itemIds } = req.body;
+      const {
+        scheme_code,
+        scheme_name,
+        discount_type,
+        discount_value,
+        effective_from,
+        effective_to,
+        min_quantity,
+        max_quantity,
+        description,
+        is_active,
+        itemIds,
+      } = req.body;
       await query(
         `UPDATE sal_discount_schemes SET scheme_code = :scheme_code, scheme_name = :scheme_name, discount_type = :discount_type, discount_value = :discount_value, effective_from = :effective_from, effective_to = :effective_to, min_quantity = :min_quantity, max_quantity = :max_quantity, description = :description, is_active = :is_active WHERE id = :id AND company_id = :companyId`,
-        { scheme_code, scheme_name, discount_type, discount_value, effective_from, effective_to: effective_to || null, min_quantity: min_quantity || 0, max_quantity: max_quantity || null, description, is_active: is_active ?? 1, id, companyId },
+        {
+          scheme_code,
+          scheme_name,
+          discount_type,
+          discount_value,
+          effective_from,
+          effective_to: effective_to || null,
+          min_quantity: min_quantity || 0,
+          max_quantity: max_quantity || null,
+          description,
+          is_active: is_active ?? 1,
+          id,
+          companyId,
+        },
       );
-      await query(`DELETE FROM sal_discount_scheme_items WHERE scheme_id = :id`, { id });
+      await query(
+        `DELETE FROM sal_discount_scheme_items WHERE scheme_id = :id`,
+        { id },
+      );
       if (Array.isArray(itemIds) && itemIds.length) {
-        const values = itemIds.map(iid => `(${Number(id)},${Number(iid)})`).join(",");
-        await query(`INSERT INTO sal_discount_scheme_items (scheme_id, item_id) VALUES ${values}`).catch(() => {});
+        const values = itemIds
+          .map((iid) => `(${Number(id)},${Number(iid)})`)
+          .join(",");
+        await query(
+          `INSERT INTO sal_discount_scheme_items (scheme_id, item_id) VALUES ${values}`,
+        ).catch(() => {});
       }
       res.json({ message: "Discount campaign updated" });
-    } catch (e) { next(e); }
+    } catch (e) {
+      next(e);
+    }
   },
 );
 
@@ -6126,15 +6262,30 @@ router.delete(
       const companyId = req.scope.companyId;
       await ensureDiscountTables();
       const { id } = req.params;
-      await query(`DELETE FROM sal_discount_scheme_items WHERE scheme_id = :id`, { id });
-      await query(`DELETE FROM sal_discount_schemes WHERE id = :id AND company_id = :companyId`, { id, companyId });
+      await query(
+        `DELETE FROM sal_discount_scheme_items WHERE scheme_id = :id`,
+        { id },
+      );
+      await query(
+        `DELETE FROM sal_discount_schemes WHERE id = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
       res.json({ message: "Deleted" });
-    } catch (e) { next(e); }
+    } catch (e) {
+      next(e);
+    }
   },
 );
 
 // ===== PRICING HELPER (shared by best-price, orders & invoices) =====
-async function resolveBestPrice(companyId, branchId, productId, customerId, priceTypeId, quantity) {
+async function resolveBestPrice(
+  companyId,
+  branchId,
+  productId,
+  customerId,
+  priceTypeId,
+  quantity,
+) {
   let basePrice = null;
 
   // Cascade 1: customer price (with price_type_id)
@@ -6148,7 +6299,8 @@ async function resolveBestPrice(companyId, branchId, productId, customerId, pric
        ORDER BY id DESC LIMIT 1`,
       { companyId, productId, customerId, priceTypeId },
     ).catch(() => []);
-    if (cpRow && cpRow.customer_price != null) basePrice = Number(cpRow.customer_price);
+    if (cpRow && cpRow.customer_price != null)
+      basePrice = Number(cpRow.customer_price);
   }
 
   // Cascade 2: customer price (without price_type_id)
@@ -6162,7 +6314,8 @@ async function resolveBestPrice(companyId, branchId, productId, customerId, pric
        ORDER BY id DESC LIMIT 1`,
       { companyId, productId, customerId },
     ).catch(() => []);
-    if (cpRow2 && cpRow2.customer_price != null) basePrice = Number(cpRow2.customer_price);
+    if (cpRow2 && cpRow2.customer_price != null)
+      basePrice = Number(cpRow2.customer_price);
   }
 
   // Cascade 3: standard price by price_type (or any)
@@ -6182,7 +6335,8 @@ async function resolveBestPrice(companyId, branchId, productId, customerId, pric
       ).catch(() => []);
       priceRow = row || null;
     }
-    if (priceRow && priceRow.selling_price != null) basePrice = Number(priceRow.selling_price);
+    if (priceRow && priceRow.selling_price != null)
+      basePrice = Number(priceRow.selling_price);
   }
 
   // Cascade 4: fallback to item selling_price
@@ -6213,9 +6367,11 @@ async function resolveBestPrice(companyId, branchId, productId, customerId, pric
     { companyId, productId },
   ).catch(() => []);
   if (campaign) {
-    const canApply = effectiveQty == null ||
+    const canApply =
+      effectiveQty == null ||
       (Number(campaign.min_quantity || 0) <= effectiveQty &&
-       (!campaign.max_quantity || Number(campaign.max_quantity) >= effectiveQty));
+        (!campaign.max_quantity ||
+          Number(campaign.max_quantity) >= effectiveQty));
     if (canApply) {
       let discountAmt = 0;
       if (campaign.discount_type === "PERCENTAGE") {
@@ -6223,8 +6379,14 @@ async function resolveBestPrice(companyId, branchId, productId, customerId, pric
       } else {
         discountAmt = Number(campaign.discount_value);
       }
-      if (campaign.max_discount_amount != null && Number(campaign.max_discount_amount) > 0) {
-        discountAmt = Math.min(discountAmt, Number(campaign.max_discount_amount));
+      if (
+        campaign.max_discount_amount != null &&
+        Number(campaign.max_discount_amount) > 0
+      ) {
+        discountAmt = Math.min(
+          discountAmt,
+          Number(campaign.max_discount_amount),
+        );
       }
       basePrice = Math.max(0, basePrice - discountAmt);
       campaignApplied = true;
@@ -6235,14 +6397,6 @@ async function resolveBestPrice(companyId, branchId, productId, customerId, pric
 }
 
 // ===== PURCHASE REWARD HELPER (shared by orders & invoices) =====
-function parseItemIds(str) {
-  if (!str || typeof str !== "string") return [];
-  return str
-    .split(",")
-    .map((s) => parseInt(s.trim(), 10))
-    .filter((n) => !isNaN(n) && n > 0);
-}
-
 async function calculatePurchaseRewardFreeItems(companyId, items) {
   await ensurePurchaseRewardTables();
   const campaigns = await query(
@@ -6267,8 +6421,8 @@ async function calculatePurchaseRewardFreeItems(companyId, items) {
       const purchaseIds = parseItemIds(rule.item_ids);
       const freeIds = parseItemIds(rule.free_item_ids);
       if (!purchaseIds.length || !freeIds.length) continue;
-      const cartItem = items.find(
-        (it) => purchaseIds.includes(Number(it.item_id))
+      const cartItem = items.find((it) =>
+        purchaseIds.includes(Number(it.item_id)),
       );
       if (!cartItem) continue;
       const cartQty = Number(cartItem.quantity || cartItem.qty || 0);
@@ -6279,7 +6433,7 @@ async function calculatePurchaseRewardFreeItems(companyId, items) {
       if (freeQtyEach <= 0) continue;
       for (const fid of freeIds) {
         const existingIdx = freeItems.findIndex(
-          (f) => Number(f.item_id) === fid && f.campaign_id === campaign.id
+          (f) => Number(f.item_id) === fid && f.campaign_id === campaign.id,
         );
         if (existingIdx >= 0) {
           freeItems[existingIdx].quantity += freeQtyEach;
@@ -6338,23 +6492,14 @@ async function ensurePurchaseRewardTables() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   _purchaseRewardTablesEnsured = true;
-  // Ensure columns exist (from later migrations)
-  const missingCols = [
-    'used_qty DECIMAL(18,3) NOT NULL DEFAULT \'0.000\' AFTER campaign_qty',
-  ];
-  for (const col of missingCols) {
-    try { await query(`ALTER TABLE sal_purchase_reward_campaigns ADD COLUMN ${col}`); }
-    catch (e) { /* column already exists or added */ }
-  }
-  const missingItemCols = [
-    'item_ids VARCHAR(500) NOT NULL DEFAULT \'\' AFTER campaign_id',
-    'item_qty DECIMAL(18,3) NOT NULL DEFAULT \'0.000\' AFTER item_ids',
-    'free_item_ids VARCHAR(500) NOT NULL DEFAULT \'\' AFTER item_qty',
-    'free_qty DECIMAL(18,3) NOT NULL DEFAULT \'0.000\' AFTER free_item_ids',
-  ];
-  for (const col of missingItemCols) {
-    try { await query(`ALTER TABLE sal_purchase_reward_campaign_items ADD COLUMN ${col}`); }
-    catch (e) { /* column already exists or added */ }
+  try {
+    await query(`
+      ALTER TABLE sal_purchase_reward_campaigns
+      ADD COLUMN used_qty DECIMAL(18,3) NOT NULL DEFAULT '0.000'
+      AFTER campaign_qty
+    `);
+  } catch (e) {
+    if (e.code !== "ER_DUP_FIELDNAME") throw e;
   }
 }
 router.get(
@@ -6399,17 +6544,26 @@ router.get(
   async (req, res, next) => {
     try {
       const companyId = req.scope.companyId;
-      try { await ensurePurchaseRewardTables(); } catch (_) { /* non-fatal */ }
+      console.log(
+        `[GET /purchase-reward-campaigns] companyId=${companyId}, userId=${req.user?.id}, user.companyIds=${JSON.stringify(req.user?.companyIds)}`,
+      );
+      await ensurePurchaseRewardTables();
       const items = await query(
-        `SELECT c.*,            u.username AS created_by_name
-           FROM sal_purchase_reward_campaigns c
-           LEFT JOIN adm_users u ON u.id = c.created_by
-          WHERE c.company_id = :companyId
-          ORDER BY c.id DESC`,
+        `
+        SELECT c.*, u.username AS created_by_name
+         FROM sal_purchase_reward_campaigns c
+        LEFT JOIN adm_users u ON u.id = c.created_by
+         WHERE c.company_id = :companyId
+         ORDER BY c.id DESC
+        `,
         { companyId },
-      ).catch(() => []);
+      );
+      console.log(
+        `[GET /purchase-reward-campaigns] Found ${items?.length || 0} items for companyId=${companyId}`,
+      );
       res.json({ items: Array.isArray(items) ? items : [] });
     } catch (e) {
+      console.error(`[GET /purchase-reward-campaigns] Error: ${e.message}`, e);
       next(e);
     }
   },
@@ -6429,7 +6583,8 @@ router.get(
         `SELECT * FROM sal_purchase_reward_campaigns WHERE id = :id AND company_id = :companyId`,
         { id, companyId },
       );
-      if (!rows || !rows.length) return res.status(404).json({ message: "Not found" });
+      if (!rows || !rows.length)
+        return res.status(404).json({ message: "Not found" });
       const campaign = rows[0];
       const items = await query(
         `SELECT * FROM sal_purchase_reward_campaign_items WHERE campaign_id = :id ORDER BY id`,
@@ -6451,15 +6606,36 @@ router.post(
   async (req, res, next) => {
     try {
       const companyId = req.scope.companyId;
-      try { await ensurePurchaseRewardTables(); } catch (_) {}
+      console.log(
+        `[POST /purchase-reward-campaigns] Creating with companyId=${companyId}, userId=${req.user?.id}`,
+      );
+      await ensurePurchaseRewardTables();
       const userId = req.user?.id || null;
-      const { campaign_name, campaign_qty, effective_from, effective_to, is_active, rows } = req.body;
+      const {
+        campaign_name,
+        campaign_qty,
+        effective_from,
+        effective_to,
+        is_active,
+        rows,
+      } = req.body;
       const result = await query(
         `INSERT INTO sal_purchase_reward_campaigns (company_id, campaign_name, campaign_qty, effective_from, effective_to, is_active, created_by)
          VALUES (:companyId, :campaign_name, :campaign_qty, :effective_from, :effective_to, :is_active, :created_by)`,
-        { companyId, campaign_name, campaign_qty: campaign_qty || 0, effective_from, effective_to: effective_to || null, is_active: is_active ?? 1, created_by: userId },
+        {
+          companyId,
+          campaign_name,
+          campaign_qty: campaign_qty || 0,
+          effective_from,
+          effective_to,
+          is_active: is_active ?? 1,
+          created_by: userId,
+        },
       );
       const campaignId = result?.insertId || 0;
+      console.log(
+        `[POST /purchase-reward-campaigns] Inserted campaignId=${campaignId} with companyId=${companyId}`,
+      );
       if (Array.isArray(rows) && rows.length) {
         for (const row of rows) {
           const ids = row.item_ids || row.item_id || "";
@@ -6468,15 +6644,23 @@ router.post(
             await query(
               `INSERT INTO sal_purchase_reward_campaign_items (campaign_id, item_ids, item_qty, free_item_ids, free_qty)
                VALUES (:campaign_id, :item_ids, :item_qty, :free_item_ids, :free_qty)`,
-              { campaign_id: campaignId, item_ids: String(ids).trim(), item_qty: row.item_qty || 0, free_item_ids: String(fids).trim(), free_qty: row.free_qty || 0 },
+              {
+                campaign_id: campaignId,
+                item_ids: String(ids).trim(),
+                item_qty: row.item_qty || 0,
+                free_item_ids: String(fids).trim(),
+                free_qty: row.free_qty || 0,
+              },
             );
           }
         }
       }
-      res.status(201).json({ id: campaignId, message: "Purchase reward campaign created" });
+      res
+        .status(201)
+        .json({ id: campaignId, message: "Purchase reward campaign created" });
     } catch (e) {
-      console.error("[POST purchase-reward] Error:", e.message, e.code, e.sql);
-      res.status(500).json({ error: e.message, code: e.code, sql: e.sql });
+      console.error(`[POST /purchase-reward-campaigns] Error: ${e.message}`, e);
+      next(e);
     }
   },
 );
@@ -6491,12 +6675,30 @@ router.put(
       const companyId = req.scope.companyId;
       await ensurePurchaseRewardTables();
       const { id } = req.params;
-      const { campaign_name, campaign_qty, effective_from, effective_to, is_active, rows } = req.body;
+      const {
+        campaign_name,
+        campaign_qty,
+        effective_from,
+        effective_to,
+        is_active,
+        rows,
+      } = req.body;
       await query(
         `UPDATE sal_purchase_reward_campaigns SET campaign_name = :campaign_name, campaign_qty = :campaign_qty, effective_from = :effective_from, effective_to = :effective_to, is_active = :is_active WHERE id = :id AND company_id = :companyId`,
-        { campaign_name, campaign_qty: campaign_qty || 0, effective_from, effective_to, is_active: is_active ?? 1, id, companyId },
+        {
+          campaign_name,
+          campaign_qty: campaign_qty || 0,
+          effective_from,
+          effective_to,
+          is_active: is_active ?? 1,
+          id,
+          companyId,
+        },
       );
-      await query(`DELETE FROM sal_purchase_reward_campaign_items WHERE campaign_id = :id`, { id });
+      await query(
+        `DELETE FROM sal_purchase_reward_campaign_items WHERE campaign_id = :id`,
+        { id },
+      );
       if (Array.isArray(rows) && rows.length) {
         for (const row of rows) {
           const ids = row.item_ids || row.item_id || "";
@@ -6505,7 +6707,13 @@ router.put(
             await query(
               `INSERT INTO sal_purchase_reward_campaign_items (campaign_id, item_ids, item_qty, free_item_ids, free_qty)
                VALUES (:campaign_id, :item_ids, :item_qty, :free_item_ids, :free_qty)`,
-              { campaign_id: id, item_ids: String(ids).trim(), item_qty: row.item_qty || 0, free_item_ids: String(fids).trim(), free_qty: row.free_qty || 0 },
+              {
+                campaign_id: id,
+                item_ids: String(ids).trim(),
+                item_qty: row.item_qty || 0,
+                free_item_ids: String(fids).trim(),
+                free_qty: row.free_qty || 0,
+              },
             );
           }
         }
@@ -6527,8 +6735,14 @@ router.delete(
       const companyId = req.scope.companyId;
       await ensurePurchaseRewardTables();
       const { id } = req.params;
-      await query(`DELETE FROM sal_purchase_reward_campaign_items WHERE campaign_id = :id`, { id });
-      await query(`DELETE FROM sal_purchase_reward_campaigns WHERE id = :id AND company_id = :companyId`, { id, companyId });
+      await query(
+        `DELETE FROM sal_purchase_reward_campaign_items WHERE campaign_id = :id`,
+        { id },
+      );
+      await query(
+        `DELETE FROM sal_purchase_reward_campaigns WHERE id = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
       res.json({ message: "Deleted" });
     } catch (e) {
       next(e);
@@ -6552,12 +6766,17 @@ router.post(
         `SELECT campaign_qty, used_qty FROM sal_purchase_reward_campaigns WHERE id = :id AND company_id = :companyId`,
         { id, companyId },
       );
-      if (!rows || !rows.length) return res.status(404).json({ message: "Not found" });
+      if (!rows || !rows.length)
+        return res.status(404).json({ message: "Not found" });
       const campaign = rows[0];
       const used = Number(campaign.used_qty || 0) + Number(qty || 0);
       const total = Number(campaign.campaign_qty || 0);
-      if (used > total) return res.status(400).json({ message: "Campaign qty exhausted" });
-      await query(`UPDATE sal_purchase_reward_campaigns SET used_qty = :used WHERE id = :id`, { used, id });
+      if (used > total)
+        return res.status(400).json({ message: "Campaign qty exhausted" });
+      await query(
+        `UPDATE sal_purchase_reward_campaigns SET used_qty = :used WHERE id = :id`,
+        { used, id },
+      );
       res.json({ used_qty: used, remaining: total - used });
     } catch (e) {
       next(e);
@@ -8655,5 +8874,3 @@ router.get(
 export default router;
 
 export { createSalesReturnCreditNoteTx, createCreditNoteForReturnApprovalTx };
-
-

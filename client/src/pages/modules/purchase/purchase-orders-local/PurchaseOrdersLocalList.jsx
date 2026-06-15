@@ -8,7 +8,7 @@ import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.
 import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
-import addNotification from "react-push-notification";
+import addNotification from "../../../../utils/addNotification.js";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 import {
   ListPrintIconButton,

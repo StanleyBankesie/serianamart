@@ -46,12 +46,14 @@ export default function PriceSetup() {
   // Form states
   const [formData, setFormData] = useState({});
   const [productQuery, setProductQuery] = useState("");
+  const [showProductResults, setShowProductResults] = useState(false);
   const [section, setSection] = useState("selector");
   const [costData, setCostData] = useState([]);
   const [costLoading, setCostLoading] = useState(false);
   const [costModalOpen, setCostModalOpen] = useState(false);
   const [costFormData, setCostFormData] = useState({});
   const [costProductQuery, setCostProductQuery] = useState("");
+  const [showCostProductResults, setShowCostProductResults] = useState(false);
   const costFileInputRef = React.useRef(null);
 
   useEffect(() => {
@@ -526,6 +528,7 @@ export default function PriceSetup() {
     };
     setFormData(item ? { ...item } : defaults);
     setProductQuery("");
+    setShowProductResults(false);
     setModalOpen(true);
   };
 
@@ -534,6 +537,7 @@ export default function PriceSetup() {
     setSelectedItem(null);
     setFormData({});
     setProductQuery("");
+    setShowProductResults(false);
     setBulkCustomerId("");
     setBulkGroupId("");
     setBulkPriceTypeId("");
@@ -640,6 +644,7 @@ export default function PriceSetup() {
   const handleOpenCostModal = () => {
     setCostFormData({ cost_price: "" });
     setCostProductQuery("");
+    setShowCostProductResults(false);
     setCostModalOpen(true);
   };
 
@@ -647,11 +652,13 @@ export default function PriceSetup() {
     setCostModalOpen(false);
     setCostFormData({});
     setCostProductQuery("");
+    setShowCostProductResults(false);
   };
 
   const handleCostProductSelect = (productId) => {
     const product = products.find((p) => p.id == productId);
     setCostProductQuery(product ? product.item_name : "");
+    setShowCostProductResults(false);
     setCostFormData((prev) => ({
       ...prev,
       item_id: productId,
@@ -861,6 +868,7 @@ export default function PriceSetup() {
 
   const handleProductChange = (productId) => {
     const product = products.find((p) => p.id == productId);
+    setShowProductResults(false);
     if (product) {
       const today = new Date().toISOString().split("T")[0];
       setFormData((prev) => ({
@@ -902,6 +910,7 @@ export default function PriceSetup() {
                 onChange={(e) => {
                   const val = e.target.value;
                   setProductQuery(val);
+                  setShowProductResults(true);
                   if (!val && formData.product_id) {
                     setFormData((prev) => ({
                       ...prev,
@@ -909,6 +918,7 @@ export default function PriceSetup() {
                     }));
                   }
                 }}
+                onFocus={() => setShowProductResults(true)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     const query = productQuery.trim();
@@ -922,6 +932,7 @@ export default function PriceSetup() {
                     handleProductChange(results[0].id);
                     const prod = products.find((p) => p.id === results[0].id);
                     setProductQuery(prod ? prod.item_name : "");
+                    setShowProductResults(false);
                   }
                 }}
               />
@@ -933,7 +944,7 @@ export default function PriceSetup() {
                       searchFields: ["item_code", "item_name", "barcode"],
                     })
                   : [];
-                return results.length
+                return showProductResults && results.length
                   ? (() => {
                       const el = document.getElementById(
                         "price-setup-product-search-standard",
@@ -963,6 +974,7 @@ export default function PriceSetup() {
                                   (p) => p.id === o.id,
                                 );
                                 setProductQuery(prod ? prod.item_name : "");
+                                setShowProductResults(false);
                               }}
                             >
                               {o.item_name}
@@ -1127,6 +1139,7 @@ export default function PriceSetup() {
                   onChange={(e) => {
                     const val = e.target.value;
                     setProductQuery(val);
+                    setShowProductResults(true);
                     if (!val && formData.product_id) {
                       setFormData((prev) => ({
                         ...prev,
@@ -1134,6 +1147,7 @@ export default function PriceSetup() {
                       }));
                     }
                   }}
+                  onFocus={() => setShowProductResults(true)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       const query = productQuery.trim();
@@ -1147,6 +1161,7 @@ export default function PriceSetup() {
                       handleProductChange(results[0].id);
                       const prod = products.find((p) => p.id === results[0].id);
                       setProductQuery(prod ? prod.item_name : "");
+                      setShowProductResults(false);
                     }
                   }}
                 />
@@ -1158,7 +1173,7 @@ export default function PriceSetup() {
                         searchFields: ["item_code", "item_name", "barcode"],
                       })
                     : [];
-                  return results.length
+                  return showProductResults && results.length
                     ? (() => {
                         const el = document.getElementById(
                           "price-setup-product-search-customer",
@@ -1188,6 +1203,7 @@ export default function PriceSetup() {
                                     (p) => p.id === o.id,
                                   );
                                   setProductQuery(prod ? prod.item_name : "");
+                                  setShowProductResults(false);
                                 }}
                               >
                                 {o.item_name}
@@ -1398,6 +1414,7 @@ export default function PriceSetup() {
             onChange={(e) => {
               const val = e.target.value;
               setCostProductQuery(val);
+              setShowCostProductResults(true);
               if (!val && costFormData.item_id) {
                 setCostFormData((prev) => ({
                   ...prev,
@@ -1406,6 +1423,7 @@ export default function PriceSetup() {
                 }));
               }
             }}
+            onFocus={() => setShowCostProductResults(true)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 const query = costProductQuery.trim();
@@ -1428,7 +1446,7 @@ export default function PriceSetup() {
                   searchFields: ["item_code", "item_name", "barcode"],
                 })
               : [];
-            return results.length ? (
+            return showCostProductResults && results.length ? (
               <div
                 className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
                 style={{ position: "fixed", zIndex: 9999, minWidth: "280px" }}

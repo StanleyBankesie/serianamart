@@ -935,6 +935,33 @@ export default function PosSalesEntry() {
   const vfdDebounceRef = useRef(null);
   const lastVfdItemRef = useRef(null);
 
+  function focusBarcodeField() {
+    const input = barcodeInputRef.current;
+    if (!input) return;
+    const run = () => {
+      try {
+        input.focus();
+      } catch {}
+    };
+    if (
+      typeof window !== "undefined" &&
+      typeof window.requestAnimationFrame === "function"
+    ) {
+      window.requestAnimationFrame(run);
+      return;
+    }
+    setTimeout(run, 0);
+  }
+
+  function getDefaultPaymentModeId() {
+    const activeModes = Array.isArray(paymentModes) ? paymentModes : [];
+    const defaultMode =
+      activeModes.find(
+        (m) => String(m.type || "").trim().toLowerCase() === "cash",
+      ) || activeModes[0];
+    return defaultMode?.id ? String(defaultMode.id) : "";
+  }
+
   function toAsciiPrintable(input) {
     return String(input || "").replace(/[^\x20-\x7E]/g, "");
   }
@@ -1811,7 +1838,9 @@ export default function PosSalesEntry() {
   }
 
   function newSale() {
+    const defaultPaymentModeId = getDefaultPaymentModeId();
     setShowModal(false);
+    setShowSplitPaymentModal(false);
     setCart([]);
     setSelectedItems([]);
     setReceiptNo("");
@@ -1826,11 +1855,8 @@ export default function PosSalesEntry() {
     setShowCreditCustomerModal(false);
     setCreditStep(1);
     setShowCreditPaymentModal(false);
-    if (barcodeInputRef.current) {
-      try {
-        barcodeInputRef.current.focus();
-      } catch {}
-    }
+    setSelectedPaymentModeId(defaultPaymentModeId);
+    focusBarcodeField();
   }
 
   async function loadReceiptSettings() {
@@ -2591,6 +2617,7 @@ export default function PosSalesEntry() {
                           }
                           setSelectedPaymentModeId(String(m.id));
                           setAdditionalPaymentModeIds([]);
+                          focusBarcodeField();
                         }}
                         disabled={false}
                       >
@@ -2647,7 +2674,7 @@ export default function PosSalesEntry() {
                   to="/pos/holds"
                   className="block text-center text-xs text-brand hover:text-brand-600 dark:text-brand-400 underline mt-1"
                 >
-                  On-Hold Sales
+                  Un-Hold Sales
                 </Link>
               </div>
             </div>
@@ -2783,6 +2810,7 @@ export default function PosSalesEntry() {
                       });
                       setAmountPaid(String(total.toFixed(2)));
                       setShowSplitPaymentModal(false);
+                      focusBarcodeField();
                     }}
                   >
                     {m.name}
@@ -2877,6 +2905,7 @@ export default function PosSalesEntry() {
                     } else {
                       setSelectedPaymentModeId(creditPendingModeId);
                       setAdditionalPaymentModeIds([]);
+                      focusBarcodeField();
                     }
                   }}
                 >
@@ -2907,6 +2936,7 @@ export default function PosSalesEntry() {
                     setSelectedPaymentModeId(String(m.id));
                     setAdditionalPaymentModeIds([]);
                     setShowCreditPaymentModal(false);
+                    focusBarcodeField();
                   }}
                 >
                   {m.name}
