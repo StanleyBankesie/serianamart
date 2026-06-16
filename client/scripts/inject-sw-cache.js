@@ -4,6 +4,26 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dist = resolve(__dirname, "..", "dist");
+const root = resolve(__dirname, "..");
+const publicSwPath = resolve(root, "public", "sw.js");
+
+// Read the original public/sw.js to get the base pre-cache entries
+const publicSw = readFileSync(publicSwPath, "utf-8");
+const baseAddAllRe = /cache\.addAll\s*\(\s*\[([\s\S]*?)\]\s*\)/;
+const baseMatch = publicSw.match(baseAddAllRe);
+const baseEntries = [];
+if (baseMatch) {
+  const raw = baseMatch[1];
+  const lines = raw.split("\n").map((s) => s.trim()).filter(Boolean);
+  for (const line of lines) {
+    try {
+      const v = JSON.parse(line);
+      if (typeof v === "string" && !v.startsWith("/assets/")) {
+        baseEntries.push(v);
+      }
+    } catch {}
+  }
+}
 
 // Read the built index.html and extract asset URLs
 const html = readFileSync(resolve(dist, "index.html"), "utf-8");
@@ -27,48 +47,26 @@ if (!assetUrls.length) {
   process.exit(0);
 }
 
-// Read sw.js and inject into cache.addAll([...])
+assetUrls.sort();
+
+const indent = "        ";
+const allEntries = [...baseEntries, ...assetUrls];
+const entriesStr = allEntries
+  .map((url) => `${indent}"${url}"`)
+  .join(",\n");
+
+// Read dist/sw.js and replace cache.addAll entirely
 const swPath = resolve(dist, "sw.js");
 let sw = readFileSync(swPath, "utf-8");
 
-const addAllRe = /(cache\.addAll\s*\(\s*\[)([^\]]*)(\]\s*\))/s;
+const addAllRe = /(cache\.addAll\s*\(\s*\[)[\s\S]*?(\]\s*\))/;
 const match = sw.match(addAllRe);
 if (!match) {
   console.log("inject-sw-cache: could not find cache.addAll([...]) in sw.js");
   process.exit(0);
 }
 
-const existingEntries = match[2]
-  .split("\n")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
-const existingPaths = new Set(
-  existingEntries.map((e) => {
-    try {
-      return JSON.parse(e);
-    } catch {
-      return null;
-    }
-  }).filter(Boolean),
-);
-
-const newEntries = assetUrls.filter((url) => !existingPaths.has(url));
-if (!newEntries.length) {
-  console.log("inject-sw-cache: all assets already in pre-cache list");
-  process.exit(0);
-}
-
-const indent = "        ";
-const entriesStr = newEntries
-  .sort()
-  .map((url) => `${indent}"${url}"`)
-  .join(",\n");
-
-sw = sw.replace(
-  addAllRe,
-  `$1$2,\n${entriesStr}\n$3`,
-);
+sw = sw.replace(addAllRe, `$1\n${entriesStr}\n$2`);
 
 writeFileSync(swPath, sw, "utf-8");
-console.log(`inject-sw-cache: added ${newEntries.length} assets to sw.js pre-cache`);
+console.log(`inject-sw-cache: rebuilt cache.addAll with ${allEntries.length} entries (${assetUrls.length} assets)`);
