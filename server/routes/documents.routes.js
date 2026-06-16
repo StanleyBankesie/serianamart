@@ -354,140 +354,7 @@ function docTypeSynonymsLower(type) {
   );
 }
 
-function getDefaultSampleTemplate(type) {
-  const canonical = canonicalDocumentType(type);
-  const head = `<style>
-    * { box-sizing: border-box; font-family: Arial, sans-serif; }
-    .doc { max-width: 800px; margin: 0 auto; padding: 12px; }
-    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-    .logo { height: 60px; object-fit: contain; }
-    .company { text-align: right; font-size: 12px; }
-    .company .name { font-weight: bold; font-size: 18px; }
-    .titlebar { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 12px 0; }
-    .line { flex: 1; border-top: 2px solid #000; }
-    .title { font-weight: bold; }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
-  </style>`;
-  const header = `
-    <div class="header">
-      <img class="logo" src="{{company.logo}}" alt="Logo"/>
-      <div class="company">
-        <div class="name">{{company.name}}</div>
-        <div>{{company.address}}</div>
-        <div>{{company.address2}}</div>
-        <div>{{company.phone}} • {{company.email}} • {{company.website}}</div>
-      </div>
-    </div>
-  `;
-  const title = (t) =>
-    `<div class="titlebar"><div class="line"></div><div class="title">${t}</div><div class="line"></div></div>`;
-  if (canonical === "sales-order") {
-    return `${head}<div class="doc">${header}${title("* Sales Order *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each sales_order.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td>{{quantity}}</td><td>{{price}}</td><td>{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  if (canonical === "invoice") {
-    return `${head}<div class="doc">${header}${title("* Sales Invoice *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each invoice.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td>{{quantity}}</td><td>{{price}}</td><td>{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  if (canonical === "delivery-note") {
-    return `${head}<div class="doc">${header}${title("* Delivery Note *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Ordered</th><th>Delivered</th></tr></thead><tbody>{{#each delivery.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td>{{qty_ordered}}</td><td>{{qty_delivered}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  if (canonical === "quotation") {
-    return `${head}<div class="doc">${header}${title("* Quotation *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each quotation.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td>{{quantity}}</td><td>{{price}}</td><td>{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  if (canonical === "payment-voucher") {
-    return `${head}<div class="doc">${header}${title("* Payment Voucher *")}<table><thead><tr><th>#</th><th>Account</th><th>Description</th><th>Debit</th><th>Credit</th></tr></thead><tbody>{{#each payment_voucher.items}}<tr><td>{{inc @index}}</td><td>{{account_name}}</td><td>{{description}}</td><td>{{debit}}</td><td>{{credit}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  if (canonical === "salary-slip") {
-    return `${head}<div class="doc">${header}${title("* Salary Slip *")}<table><thead><tr><th>Description</th><th>Amount</th></tr></thead><tbody>{{#each payslip.rows}}<tr><td>{{earning_label}}</td><td>{{salary_slip_amount earning_amount}}</td></tr>{{/each}}</tbody></table><div style="margin-top:8px;display:flex;gap:12px"><div><strong>Total Earnings:</strong> {{salary_slip_amount salary_slip.total_earnings}}</div><div><strong>Total Deductions:</strong> {{salary_slip_amount salary_slip.total_deductions}}</div></div></div>`;
-  }
-  if (canonical === "purchase-order") {
-    return `${head}<div class="doc">${header}${title("* Purchase Order *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each purchase_order.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{quantity}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  if (canonical === "direct-purchase") {
-    return `${head}<div class="doc">${header}${title("* Direct Purchase *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each direct_purchase.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{quantity}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  if (canonical === "purchase-bill") {
-    return `${head}<div class="doc">${header}${title("* Purchase Bill *")}
-    <div style="margin-bottom: 12px; font-size: 12px; display: flex; justify-content: space-between;">
-      <div>
-        <div><strong>Supplier:</strong> {{supplier.name}}</div>
-        <div>{{supplier.address}}</div>
-        <div>{{supplier.phone}}</div>
-        <div>{{supplier.email}}</div>
-      </div>
-      <div style="text-align: right;">
-        <div><strong>Bill No:</strong> {{purchase_bill.number}}</div>
-        <div><strong>Date:</strong> {{purchase_bill.date}}</div>
-        <div><strong>Status:</strong> {{purchase_bill.status}}</div>
-      </div>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Code</th>
-          <th>Description</th>
-          <th class="num">Qty</th>
-          <th>UOM</th>
-          <th class="num">Price</th>
-          <th class="num">Disc%</th>
-          <th class="num">Tax</th>
-          <th class="num">Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        {{#each purchase_bill.items}}
-        <tr>
-          <td>{{inc @index}}</td>
-          <td>{{code}}</td>
-          <td>{{name}}</td>
-          <td class="num">{{quantity}}</td>
-          <td>{{uom}}</td>
-          <td class="num">{{price}}</td>
-          <td class="num">{{discount}}%</td>
-          <td class="num">{{tax}}</td>
-          <td class="num">{{amount}}</td>
-        </tr>
-        {{/each}}
-      </tbody>
-    </table>
-    <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
-      <div style="width: 250px; font-size: 12px;">
-        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0;">
-          <span>Sub Total:</span>
-          <span>{{purchase_bill.sub_total}}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0;">
-          <span>Total Discount:</span>
-          <span>{{purchase_bill.discount_total}}</span>
-        </div>
-        {{#each purchase_bill.tax_summary}}
-        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0;">
-          <span>{{name}} ({{rate}}%):</span>
-          <span>{{amount}}</span>
-        </div>
-        {{/each}}
-        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0;">
-          <span>Freight Charges:</span>
-          <span>{{purchase_bill.freight_charges}}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0;">
-          <span>Other Charges:</span>
-          <span>{{purchase_bill.other_charges}}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; padding: 4px 0; border-top: 1px solid #000;">
-          <span>Grand Total:</span>
-          <span>{{purchase_bill.total}}</span>
-        </div>
-      </div>
-    </div>
-    </div>`;
-  }
-  if (canonical === "grn") {
-    return `${head}<div class="doc">${header}${title("* Goods Receipt Note *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Ordered</th><th>Received</th><th>Accepted</th><th>UOM</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each grn.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{ordered}}</td><td class="num">{{received}}</td><td class="num">{{accepted}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  return `${head}<div class="doc">${header}${title("* Document *")}</div>`;
-}
+
 
 // Browser singleton for PDF rendering
 let _browser = null;
@@ -1027,6 +894,9 @@ async function loadPreviewData(type, companyId, branchId) {
         ],
       },
     };
+  }
+  if (canonicalDocumentType(type) === "general-template") {
+    return { company: company || {} };
   }
   throw httpError(400, "VALIDATION_ERROR", "Unsupported type");
 }
@@ -3793,8 +3663,7 @@ router.post(
         if (Array.isArray(items) && items.length) tplObj = items[0];
       }
 
-      // If strict name requested and still not found, return blank
-      if (!tplObj && strictName) {
+      if (!tplObj) {
         const fmt = String(
           req.query.format || req.body?.format || "html",
         ).toLowerCase();
@@ -3805,9 +3674,7 @@ router.post(
             page = await browser.newPage();
             await page.setContent(
               "<!DOCTYPE html><html><head></head><body></body></html>",
-              {
-                waitUntil: "domcontentloaded",
-              },
+              { waitUntil: "domcontentloaded" },
             );
             const pdf = await page.pdf({
               printBackground: true,
@@ -3815,14 +3682,8 @@ router.post(
               margin: { top: "0", bottom: "0", left: "0", right: "0" },
             });
             res.setHeader("Content-Type", "application/pdf");
-            res.setHeader(
-              "Content-Length",
-              Buffer.byteLength(Buffer.from(pdf)),
-            );
-            res.setHeader(
-              "Content-Disposition",
-              `attachment; filename="${canonical}-preview.pdf"`,
-            );
+            res.setHeader("Content-Length", Buffer.byteLength(Buffer.from(pdf)));
+            res.setHeader("Content-Disposition", `attachment; filename="${canonical}-preview.pdf"`);
             res.send(Buffer.from(pdf));
             return;
           } finally {
@@ -3858,6 +3719,9 @@ router.post(
 
       if (data && data.company) {
         const logoDefault = `/api/admin/companies/${companyId}/logo`;
+        const embeddedLogo = tplObj.header_logo_url
+          ? null
+          : await getCompanyLogoDataUri(companyId);
         const merged = {
           ...data.company,
           name:
@@ -3883,7 +3747,9 @@ router.post(
             tplObj.header_website ||
             generalTpl?.header_website ||
             data.company.website,
-          logo: absolutize(
+          logo:
+            embeddedLogo ||
+            absolutize(
             tplObj.header_logo_url ||
               generalTpl?.header_logo_url ||
               logoDefault,
@@ -3906,17 +3772,7 @@ router.post(
         const tmpl = Handlebars.compile(String(tplObj.html_content || ""));
         html = tmpl(data);
       } catch (e) {
-        try {
-          const fallback = getDefaultSampleTemplate(type);
-          const tmpl2 = Handlebars.compile(String(fallback || ""));
-          html = tmpl2(data);
-        } catch {
-          html = `<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif}</style></head><body>
-          <h3>${String(type).toUpperCase()} Document Preview</h3>
-          <p>Error: ${e.message}</p>
-          <pre>${JSON.stringify(data, null, 2)}</pre>
-          </body></html>`;
-        }
+        throw e;
       }
 
       // Do not alter UI formatting; keep template HTML as-is
@@ -3962,34 +3818,7 @@ router.post(
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
     } catch (err) {
-      const format = String(
-        req.query.format || req.body?.format || "",
-      ).toLowerCase();
-      if (format === "pdf") return next(err);
-      try {
-        const type = String(req.params.type || "").trim();
-        const { companyId } = req.scope || {};
-        const fallback = getDefaultSampleTemplate(type);
-        const data = {
-          company: {
-            name: "",
-            address: "",
-            address2: "",
-            phone: "",
-            email: "",
-            logo: `/api/admin/companies/${companyId}/logo`,
-          },
-        };
-        const html = Handlebars.compile(String(fallback || ""))(data);
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.status(200).send(html);
-      } catch {
-        res
-          .status(200)
-          .send(
-            "<html><body><h3>Document Preview</h3><p>Unable to render template; minimal fallback shown.</p></body></html>",
-          );
-      }
+      return next(err);
     }
   },
 );

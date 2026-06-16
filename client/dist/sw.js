@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v5";
+const CACHE_VERSION = "v6";
 const ASSET_CACHE = "omnisuite-assets-" + CACHE_VERSION;
 const API_CACHE = "omnisuite-api-" + CACHE_VERSION;
 const DEV_MODE =
@@ -13,7 +13,7 @@ if (!DEV_MODE) {
       (async () => {
         const cache = await caches.open(ASSET_CACHE);
         await cache.addAll([
-        "/assets/index-BywsMBjh.js"
+        "/assets/index-CBmzxIiy.js"
 ]);
         // NOTE: Do NOT call self.skipWaiting() here.
         // skipWaiting causes the new SW to immediately take over ALL open tabs
