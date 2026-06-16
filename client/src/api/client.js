@@ -44,54 +44,13 @@ function ensureSyncEngine() {
   );
 }
 
+/* ── Token refresh state ─────────────────────────────────────── */
+
 let refreshPromise = null;
-
-function waitForFreshStoredToken(previousToken, timeoutMs = 1200) {
-  if (typeof window === "undefined") return Promise.resolve(null);
-
-  const readFreshToken = () => {
-    const nextToken = readStoredAuth()?.token || null;
-    if (
-      nextToken &&
-      nextToken !== previousToken &&
-      !isTokenExpired(nextToken)
-    ) {
-      return nextToken;
-    }
-    return null;
-  };
-
-  const immediate = readFreshToken();
-  if (immediate) return Promise.resolve(immediate);
-
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (token = null) => {
-      if (settled) return;
-      settled = true;
-      try {
-        window.removeEventListener("omnisuite:auth-changed", onAuthChanged);
-      } catch {}
-      window.clearTimeout(timer);
-      resolve(token);
-    };
-
-    const onAuthChanged = () => {
-      const fresh = readFreshToken();
-      if (fresh) finish(fresh);
-    };
-
-    const timer = window.setTimeout(() => {
-      finish(readFreshToken());
-    }, timeoutMs);
-
-    try {
-      window.addEventListener("omnisuite:auth-changed", onAuthChanged);
-    } catch {
-      finish(null);
-    }
-  });
-}
+let refreshErrorCount = 0;
+const MAX_REFRESH_ERRORS = 3;
+let refreshLastErrorTime = 0;
+const REFRESH_COOLDOWN_MS = 60000;
 
 function normalizeUrl(url) {
   return String(url || "").trim();
@@ -103,20 +62,27 @@ function isUnauthenticatedEndpoint(url) {
     "/register",
     "/login",
     "/auth/logout",
+    "/auth/refresh",
     "/forgot-password/request-otp",
     "/forgot-password/reset",
   ].includes(value);
 }
 
-function redirectToLogin() {
-  if (typeof window === "undefined") return;
-  if (window.location.pathname === "/login") return;
-  window.dispatchEvent(new CustomEvent("omnisuite:auth-expired"));
-}
-
 async function requestTokenRefresh() {
+  // If too many consecutive refresh failures and we're still within the
+  // cooldown window, reject immediately — do not hammer the server.
+  if (refreshErrorCount >= MAX_REFRESH_ERRORS) {
+    const elapsed = Date.now() - refreshLastErrorTime;
+    if (elapsed < REFRESH_COOLDOWN_MS) {
+      console.warn(
+        `[auth] refresh skipped — ${refreshErrorCount} consecutive errors, cooling down for ${Math.round((REFRESH_COOLDOWN_MS - elapsed) / 1000)}s`,
+      );
+      return Promise.reject(new Error("Refresh on cooldown — too many failures"));
+    }
+    refreshErrorCount = 0;
+  }
+
   if (!refreshPromise) {
-    const tokenBeforeRefresh = readStoredAuth()?.token || null;
     refreshPromise = axios({
       baseURL: api.defaults.baseURL,
       url: "/auth/refresh",
@@ -128,12 +94,12 @@ async function requestTokenRefresh() {
       },
     })
       .then((response) => {
+        refreshErrorCount = 0;
         const nextToken =
           response.data?.token || response.data?.accessToken || null;
         if (!nextToken) {
           throw new Error("Refresh endpoint did not return an access token");
         }
-
         const current = readStoredAuth() || {};
         writeStoredAuth({
           ...current,
@@ -142,20 +108,14 @@ async function requestTokenRefresh() {
         });
         setAuthToken(nextToken);
         touchLastActivity();
+        console.debug("[auth] token refreshed successfully");
         return nextToken;
       })
-      .catch(async (error) => {
-        const freshToken = await waitForFreshStoredToken(tokenBeforeRefresh);
-        if (freshToken) {
-          setAuthToken(freshToken);
-          touchLastActivity();
-          return freshToken;
-        }
-        // CRITICAL: Only clear the session on an explicit 401 from the server.
-        // A network timeout, 502, 503, or CORS error should NOT log the user out
-        // mid-session — those are transient infrastructure errors, not auth failures.
-        const isExplicitAuthFailure = error?.response?.status === 401;
-        if (isExplicitAuthFailure) {
+      .catch((error) => {
+        const isHardAuthFailure = error?.response?.status === 401;
+        if (isHardAuthFailure) {
+          refreshErrorCount += 1;
+          refreshLastErrorTime = Date.now();
           clearStoredAuth();
           setAuthToken(null);
         }
@@ -170,10 +130,40 @@ async function requestTokenRefresh() {
 }
 
 api.interceptors.request.use(
+  (config) => {
+    if (!config.baseURL) {
+      config.baseURL = api.defaults.baseURL;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error),
+);
+
+api.interceptors.request.use(
   async (config) => {
     if (!config.baseURL) {
       config.baseURL = api.defaults.baseURL;
     }
+    if (config.url && !isUnauthenticatedEndpoint(config.url)) {
+      const stored = readStoredAuth();
+      const token = stored?.token || null;
+      if (token && isTokenExpired(token)) {
+        try {
+          await requestTokenRefresh();
+        } catch (err) {
+          console.debug("[auth] pre-request refresh failed, continuing with existing token", err?.response?.status || err?.message);
+        }
+      }
+    }
+
+    const freshToken = readStoredAuth()?.token || null;
+    if (freshToken) {
+      ensureSyncEngine();
+      if (config.url && !isUnauthenticatedEndpoint(config.url)) {
+        config.headers.Authorization = `Bearer ${freshToken}`;
+      }
+    }
+
     // Attach a cache key for GET requests
     const method = String(config.method || "get").toLowerCase();
     if (method === "get") {
@@ -197,7 +187,7 @@ api.interceptors.request.use(
         config?.headers?.["x-skip-offline-queue"] === "1" ||
         config?.headers?.["x-skip-offline-queue"] === 1 ||
         config?.headers?.["x-skip-offline-queue"] === true;
-      if (!navigator.onLine && !skipOffline) {
+      if (typeof navigator !== "undefined" && !navigator.onLine && !skipOffline) {
         const queued = await queueMutation({
           method,
           url: config.url,
@@ -212,7 +202,7 @@ api.interceptors.request.use(
         });
       }
     }
-    if (method === "get" && !navigator.onLine && config.__cacheKey) {
+    if (method === "get" && typeof navigator !== "undefined" && !navigator.onLine && config.__cacheKey) {
       const cached = await getCache(config.__cacheKey);
       if (cached && cached.data) {
         return Promise.reject({
@@ -223,21 +213,6 @@ api.interceptors.request.use(
       }
     }
     touchLastActivity();
-    return config;
-  },
-  (error) => Promise.reject(error),
-);
-
-api.interceptors.request.use(
-  (config) => {
-    if (!config.baseURL) {
-      config.baseURL = api.defaults.baseURL;
-    }
-    const token = readStoredAuth()?.token || null;
-    if (token) ensureSyncEngine();
-    if (token && !isUnauthenticatedEndpoint(config.url)) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
     return config;
   },
   (error) => Promise.reject(error),
@@ -307,20 +282,35 @@ api.interceptors.response.use(
       !isUnauthenticatedEndpoint(requestUrl);
 
     if (shouldTryRefresh) {
+      const retryCount = originalRequest.__retryCount || 0;
+      if (retryCount >= 1) {
+        console.warn(`[auth] 401 loop detected for ${requestUrl}, not retrying`);
+        return Promise.reject({
+          message: "Too many 401 retries",
+          response: error.response,
+          config: error.config,
+          isAxiosError: true,
+        });
+      }
+
       return requestTokenRefresh()
         .then((token) => {
+          originalRequest.__retryCount = retryCount + 1;
           originalRequest.__isRetryRequest = true;
           originalRequest.headers = originalRequest.headers || {};
           originalRequest.headers.Authorization = `Bearer ${token}`;
           return api(originalRequest);
         })
         .catch((err) => {
-          // Only redirect to login if the refresh endpoint itself explicitly
-          // returned 401. Network errors (timeout, 502, 503, CORS) must not
-          // kick the user out — they are server-side transient failures.
-          const isHardAuthFailure = err?.response?.status === 401;
-          if (isHardAuthFailure) {
-            redirectToLogin();
+          if (err?.response?.status === 401) {
+            // The refresh endpoint itself returned 401 — the refresh token is
+            // expired or invalid. Signal the app to log out.
+            console.error("[auth] refresh token expired or invalid — redirecting to login");
+            if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+              window.dispatchEvent(new CustomEvent("omnisuite:auth-expired"));
+            }
+          } else {
+            console.debug("[auth] refresh failed (transient), original request not retried", err?.message);
           }
           return Promise.reject({
             message: error.message,

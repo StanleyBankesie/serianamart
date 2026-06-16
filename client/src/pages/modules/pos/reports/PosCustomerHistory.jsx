@@ -2,13 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import api from "../../../../api/client.js";
-
-function fmt(n) {
-  return `GH₵ ${Number(n || 0).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
+import { fetchReportHeaderHtml, renderHtmlToPdf } from "../../../../utils/pdfUtils.js";
 
 function invoiceTotal(it) {
   return Number(it.gross_amount || 0) + Number(it.tax_amount || 0) - Number(it.discount_amount || 0);
@@ -48,6 +42,7 @@ export default function PosCustomerHistory() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedPaymentMode, setSelectedPaymentMode] = useState("");
   const [pendingPaymentInfo, setPendingPaymentInfo] = useState(null);
+  const [currencySymbol, setCurrencySymbol] = useState("GH₵");
 
   useEffect(() => {
     let mounted = true;
@@ -81,10 +76,29 @@ export default function PosCustomerHistory() {
         if (mounted) setPaymentModesLoading(false);
       });
 
+    api
+      .get("/finance/currencies", { params: { active: 1 } })
+      .then((res) => {
+        if (!mounted) return;
+        const list = Array.isArray(res.data?.items) ? res.data.items : [];
+        const base = list.find((c) => String(c.is_base) === "1" || c.is_base === 1 || c.is_base === true);
+        if (base && base.symbol) {
+          setCurrencySymbol(base.symbol);
+        }
+      })
+      .catch(() => {});
+
     return () => {
       mounted = false;
     };
   }, []);
+
+  function fmt(n) {
+    return `${currencySymbol} ${Number(n || 0).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  }
 
   async function handleSearch(e) {
     e.preventDefault();
@@ -215,6 +229,89 @@ export default function PosCustomerHistory() {
       toast.error(err?.response?.data?.message || "Failed to record payment");
     } finally {
       setPayingId(null);
+    }
+  }
+
+  async function handleDownloadPDF() {
+    try {
+      const cName = customerName || "All Customers / Walk-in";
+
+      let running = 0;
+      const rows = items.map((it) => {
+        const isPaid = String(it.payment_status || "").toUpperCase() === "PAID";
+        const invoiceAmt = invoiceTotal(it);
+        const paidAmt = Number(it.paid_amount || 0);
+        const effectivePayment = Math.max(paidAmt, isPaid ? invoiceAmt : 0);
+        running += invoiceAmt - effectivePayment;
+        return { ...it, _invoiceAmt: invoiceAmt, _paidAmt: paidAmt, _balanceAmt: running };
+      });
+
+      const displayRows = rows.slice().reverse();
+
+      const tableRows = displayRows.map((it) => `
+        <tr>
+          <td style="padding:6px 8px;border:1px solid #ddd;font-size:9px;">${String(it.receipt_no || "-")}</td>
+          <td style="padding:6px 8px;border:1px solid #ddd;font-size:9px;">${it.sale_datetime ? String(it.sale_datetime).replace("T", " ").slice(0, 16) : "-"}</td>
+          <td style="padding:6px 8px;border:1px solid #ddd;font-size:9px;text-align:right;">${fmt(it._invoiceAmt)}</td>
+          <td style="padding:6px 8px;border:1px solid #ddd;font-size:9px;text-align:right;">${fmt(it._paidAmt)}</td>
+          <td style="padding:6px 8px;border:1px solid #ddd;font-size:9px;text-align:right;">${fmt(it._balanceAmt)}</td>
+        </tr>
+      `).join("");
+
+      const bodyHtml = `
+        <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto;">
+          <h2 style="text-align:center;color:#1e293b;margin:0 0 6px;">Customer Accounts Report</h2>
+          <p style="text-align:center;color:#64748b;font-size:12px;margin:0 0 16px;">
+            Customer: ${cName} &nbsp;|&nbsp; From: ${fromDate || "N/A"} &nbsp;–&nbsp; To: ${toDate || "N/A"}
+          </p>
+
+          <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+            <tr>
+              <td style="width:25%;padding:10px;border:1px solid #166534;background:#f0fdf4;text-align:center;">
+                <div style="font-size:10px;color:#166534;text-transform:uppercase;margin-bottom:4px;">Payment (${totals.paidCount})</div>
+                <div style="font-size:16px;font-weight:bold;color:#166534;">${fmt(totals.paidNet)}</div>
+              </td>
+              <td style="width:25%;padding:10px;border:1px solid ${totals.balanceIsNegative ? '#166534' : '#991b1b'};background:${totals.balanceIsNegative ? '#f0fdf4' : '#fef2f2'};text-align:center;">
+                <div style="font-size:10px;color:${totals.balanceIsNegative ? '#166534' : '#991b1b'};text-transform:uppercase;margin-bottom:4px;">Balance (${totals.unpaidCount})</div>
+                <div style="font-size:16px;font-weight:bold;color:${totals.balanceIsNegative ? '#166534' : '#991b1b'};">${fmt(totals.overallBalance)}</div>
+              </td>
+              <td style="width:25%;padding:10px;border:1px solid #cbd5e1;background:#fff;text-align:center;">
+                <div style="font-size:10px;color:#64748b;text-transform:uppercase;margin-bottom:4px;">Total Sales</div>
+                <div style="font-size:16px;font-weight:bold;color:#166534;">${fmt(totals.net)}</div>
+              </td>
+              <td style="width:25%;padding:10px;border:1px solid #cbd5e1;background:#fff;text-align:center;">
+                <div style="font-size:10px;color:#64748b;text-transform:uppercase;margin-bottom:4px;">Transactions</div>
+                <div style="font-size:24px;font-weight:bold;color:#1e293b;">${totals.count}</div>
+              </td>
+            </tr>
+          </table>
+
+          <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr style="background:#374151;color:#fff;">
+                <th style="padding:8px;border:1px solid #374151;font-size:10px;text-align:center;">Receipt No</th>
+                <th style="padding:8px;border:1px solid #374151;font-size:10px;text-align:center;">Date &amp; Time</th>
+                <th style="padding:8px;border:1px solid #374151;font-size:10px;text-align:center;">Invoice Amount</th>
+                <th style="padding:8px;border:1px solid #374151;font-size:10px;text-align:center;">Payment</th>
+                <th style="padding:8px;border:1px solid #374151;font-size:10px;text-align:center;">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+        </div>
+      `;
+
+      const headerHtml = await fetchReportHeaderHtml(api);
+      const fullHtml = headerHtml
+        ? `<div style="font-family:Arial,sans-serif;">${headerHtml}${bodyHtml}</div>`
+        : bodyHtml;
+
+      await renderHtmlToPdf(fullHtml, "customer-accounts-report.pdf");
+    } catch (err) {
+      console.error("PDF download failed", err);
+      toast.error("Failed to generate PDF");
     }
   }
 
@@ -361,6 +458,9 @@ export default function PosCustomerHistory() {
             <h2 className="card-title">
               Results{items.length > 0 ? ` (${items.length})` : ""}
             </h2>
+            <button type="button" onClick={handleDownloadPDF} className="btn-primary btn-sm">
+              Download PDF
+            </button>
           </div>
           <div className="card-body overflow-x-auto p-0">
             {items.length === 0 ? (

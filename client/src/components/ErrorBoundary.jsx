@@ -27,14 +27,14 @@ export default class ErrorBoundary extends React.Component {
             The application encountered an unexpected error. Please try refreshing the page.
           </p>
           <button
-            onClick={() => window.location.reload()}
+            onClick={() => this.setState({ hasError: false, error: null })}
             style={{
               padding: "12px 32px", fontSize: "16px", fontWeight: 600,
               color: "#fff", background: "#0d6efd", border: "none",
               borderRadius: "8px", cursor: "pointer"
             }}
           >
-            Refresh Page
+            Try Again
           </button>
           {this.state.error && (
             <details style={{ marginTop: "24px", color: "#999", fontSize: "12px" }}>

@@ -3082,7 +3082,7 @@ router.get(
         const placeholdersG = aliasesLowerG.map((_, i) => `:gt${i}`).join(", ");
         const paramsG = { companyId };
         aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
-        const rows = await query(`SELECT id,
+        const [row] = await query(`SELECT id,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
                   document_type,
           created_at,
@@ -3093,41 +3093,7 @@ router.get(
            LIMIT 1`,
           paramsG,
         ).catch(() => []);
-        if (rows && rows.length) {
-          generalTpl = rows[0];
-        } else {
-          const ins = await query(`INSERT INTO document_templates
-               (company_id, name, document_type, html_content, is_default, created_by,
-                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
-             VALUES
-               (:companyId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
-            {
-              companyId,
-              name: "Default General Template",
-              dt: "general-template",
-              html: getDefaultSampleTemplate("general-template"),
-              createdBy: req.user?.id || null,
-            },
-          ).catch(() => null);
-          if (ins && ins.insertId) {
-            await query(`UPDATE document_templates SET is_default = 0
-               WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id`,
-              { ...paramsG, id: ins.insertId },
-            ).catch(() => null);
-            const [row] = await query(`SELECT id,
-                      header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                      document_type,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId
-               LIMIT 1`,
-              { id: ins.insertId, companyId },
-            ).catch(() => []);
-            if (row) generalTpl = row;
-          }
-        }
+        if (row) generalTpl = row;
       } catch {}
 
       const data = await loadData(type, id, companyId, branchId);
@@ -3591,7 +3557,7 @@ router.post(
         const placeholdersG = aliasesLowerG.map((_, i) => `:gt${i}`).join(", ");
         const paramsG = { companyId };
         aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
-        const rows = await query(`SELECT id,
+        const [row] = await query(`SELECT id,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
                   document_type,
           created_at,
@@ -3602,41 +3568,7 @@ router.post(
            LIMIT 1`,
           paramsG,
         ).catch(() => []);
-        if (rows && rows.length) {
-          generalTpl = rows[0];
-        } else {
-          const ins = await query(`INSERT INTO document_templates
-               (company_id, name, document_type, html_content, is_default, created_by,
-                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
-             VALUES
-               (:companyId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
-            {
-              companyId,
-              name: "Default General Template",
-              dt: "general-template",
-              html: getDefaultSampleTemplate("general-template"),
-              createdBy: req.user?.id || null,
-            },
-          ).catch(() => null);
-          if (ins && ins.insertId) {
-            await query(`UPDATE document_templates SET is_default = 0
-               WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id`,
-              { ...paramsG, id: ins.insertId },
-            ).catch(() => null);
-            const [row] = await query(`SELECT id,
-                      header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                      document_type,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId
-               LIMIT 1`,
-              { id: ins.insertId, companyId },
-            ).catch(() => []);
-            if (row) generalTpl = row;
-          }
-        }
+        if (row) generalTpl = row;
       } catch {}
 
       const data = await loadData(type, id, companyId, branchId);
@@ -3908,7 +3840,7 @@ router.post(
         const placeholdersG = aliasesLowerG.map((_, i) => `:gt${i}`).join(", ");
         const paramsG = { companyId };
         aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
-        const rows = await query(`SELECT id,
+        const [row] = await query(`SELECT id,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
                   document_type,
           created_at,
@@ -3919,41 +3851,7 @@ router.post(
            LIMIT 1`,
           paramsG,
         ).catch(() => []);
-        if (rows && rows.length) {
-          generalTpl = rows[0];
-        } else {
-          const ins = await query(`INSERT INTO document_templates
-               (company_id, name, document_type, html_content, is_default, created_by,
-                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
-             VALUES
-               (:companyId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
-            {
-              companyId,
-              name: "Default General Template",
-              dt: "general-template",
-              html: getDefaultSampleTemplate("general-template"),
-              createdBy: req.user?.id || null,
-            },
-          ).catch(() => null);
-          if (ins && ins.insertId) {
-            await query(`UPDATE document_templates SET is_default = 0
-               WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id`,
-              { ...paramsG, id: ins.insertId },
-            ).catch(() => null);
-            const [row] = await query(`SELECT id,
-                      header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                      document_type,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId
-               LIMIT 1`,
-              { id: ins.insertId, companyId },
-            ).catch(() => []);
-            if (row) generalTpl = row;
-          }
-        }
+        if (row) generalTpl = row;
       } catch {}
 
       const data = await loadPreviewData(type, companyId, branchId);
