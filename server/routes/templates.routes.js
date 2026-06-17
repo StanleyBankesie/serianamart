@@ -198,7 +198,7 @@ router.get(
       }
 
       let items = await query(
-        `SELECT id, name, document_type, is_default, created_at, updated_at,
+        `SELECT id, name, document_type, feature_names, is_default, created_at, updated_at,
           u.username AS created_by_name
          FROM document_templates
           ${whereClause}
@@ -206,6 +206,17 @@ router.get(
          ORDER BY is_default DESC, updated_at DESC`,
         params,
       ).catch(() => []);
+      // Parse feature_names for each item
+      if (Array.isArray(items)) {
+        for (const it of items) {
+          try {
+            const raw = it.feature_names || "[]";
+            it.feature_names = typeof raw === "string" ? JSON.parse(raw) : raw;
+          } catch {
+            it.feature_names = [];
+          }
+        }
+      }
 
       res.json({ items: Array.isArray(items) ? items : [] });
     } catch (err) {
@@ -226,7 +237,7 @@ router.get(
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [item] = await query(
-        `SELECT id, name, document_type, html_content, is_default, created_at, updated_at,
+        `SELECT id, name, document_type, html_content, feature_names, is_default, created_at, updated_at,
                 header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
           u.username AS created_by_name
          FROM document_templates
@@ -236,6 +247,12 @@ router.get(
         { id, companyId, branchId },
       ).catch(() => []);
       if (!item) throw httpError(404, "NOT_FOUND", "Template not found");
+      try {
+        const raw = item.feature_names || "[]";
+        item.feature_names = typeof raw === "string" ? JSON.parse(raw) : raw;
+      } catch {
+        item.feature_names = [];
+      }
       res.json({ item });
     } catch (err) {
       next(err);
@@ -265,6 +282,7 @@ router.post(
         header_phone,
         header_email,
         header_website,
+        feature_names,
       } = req.body || {};
       const n = String(name || "").trim();
       const dt = String(document_type || "").trim();
@@ -280,10 +298,12 @@ router.post(
       const result = await query(
         `INSERT INTO document_templates 
                (company_id, branch_id, name, document_type, html_content, is_default, created_by,
-                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website) 
+                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                feature_names) 
              VALUES 
                (:companyId, :branchId, :n, :dt, :sanitized, :is_default, :userId,
-                :header_logo_url, :header_name, :header_address, :header_address2, :header_phone, :header_email, :header_website)`,
+                :header_logo_url, :header_name, :header_address, :header_address2, :header_phone, :header_email, :header_website,
+                :feature_names)`,
         {
           companyId,
           branchId,
@@ -299,6 +319,9 @@ router.post(
           header_phone: header_phone ? String(header_phone) : null,
           header_email: header_email ? String(header_email) : null,
           header_website: header_website ? String(header_website) : null,
+          feature_names: Array.isArray(feature_names)
+            ? JSON.stringify(feature_names)
+            : "[]",
         },
       );
       if (Number(Boolean(is_default))) {
@@ -339,11 +362,12 @@ router.put(
         header_phone,
         header_email,
         header_website,
+        feature_names,
       } = req.body || {};
       const n = String(name || "").trim();
       const rawHtml = typeof html_content === "string" ? html_content : null;
       const [existing] = await query(
-        `SELECT id, name, html_content, document_type, is_default,
+        `SELECT id, name, html_content, document_type, feature_names, is_default,
           created_at,
           u.username AS created_by_name
          FROM document_templates
@@ -373,7 +397,8 @@ router.put(
                header_address2 = :header_address2,
                header_phone = :header_phone,
                header_email = :header_email,
-               header_website = :header_website
+               header_website = :header_website,
+               feature_names = :feature_names
          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
         {
           id,
@@ -410,6 +435,11 @@ router.put(
             header_website !== undefined
               ? String(header_website || "")
               : existing.header_website || null,
+          feature_names: feature_names !== undefined
+            ? Array.isArray(feature_names)
+              ? JSON.stringify(feature_names)
+              : "[]"
+            : existing.feature_names || "[]",
         },
       );
 

@@ -212,7 +212,7 @@ function canonicalDocumentType(type) {
   if (t === "supplier-quotation" || t === "supplier quotation" || t === "supplier_quotation") {
     return "supplier-quotation";
   }
-  return t || "general-template";
+  return t;
 }
 
 function expandDocumentTypeAliases(type) {
@@ -2873,29 +2873,6 @@ router.get(
         if (Array.isArray(anyItems) && anyItems.length) tplObj = anyItems[0];
       }
 
-      // If no specific template found, fall back to general-template (report header)
-      if (!tplObj) {
-        try {
-          const aliasesFallback = docTypeSynonymsLower("general-template");
-          const placeholdersFb = aliasesFallback.map((_, i) => `:gfb${i}`).join(", ");
-          const paramsFb = { companyId };
-          aliasesFallback.forEach((val, i) => (paramsFb[`gfb${i}`] = val));
-          const [fbRow] = await query(`SELECT id, html_content,
-                    header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                    document_type,
-            created_at,
-            u.username AS created_by_name
-           FROM document_templates
-          LEFT JOIN adm_users u ON u.id = created_by
-           WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersFb})
-             ORDER BY is_default DESC, updated_at DESC
-             LIMIT 1`,
-            paramsFb,
-          ).catch(() => []);
-          if (fbRow) tplObj = fbRow;
-        } catch {}
-      }
-
       // If still no template, return blank
       if (!tplObj) {
         const fmt = String(
@@ -2945,27 +2922,6 @@ router.get(
         );
       } catch {}
 
-      // Load general/header template
-      let generalTpl = null;
-      try {
-        const aliasesLowerG = docTypeSynonymsLower("general-template");
-        const placeholdersG = aliasesLowerG.map((_, i) => `:gt${i}`).join(", ");
-        const paramsG = { companyId };
-        aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
-        const [row] = await query(`SELECT id,
-                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
-           LIMIT 1`,
-          paramsG,
-        ).catch(() => []);
-        if (row) generalTpl = row;
-      } catch {}
-
       const data = await loadData(type, id, companyId, branchId);
 
       // Merge company header fields
@@ -2977,32 +2933,26 @@ router.get(
         const merged = {
           ...data.company,
           name:
-            tplObj.header_name || generalTpl?.header_name || data.company.name,
+            tplObj.header_name || data.company.name,
           address:
             tplObj.header_address ||
-            generalTpl?.header_address ||
             data.company.address,
           address2:
             tplObj.header_address2 ||
-            generalTpl?.header_address2 ||
             data.company.address2,
           phone:
             tplObj.header_phone ||
-            generalTpl?.header_phone ||
             data.company.telephone ||
             data.company.phone,
           email:
             tplObj.header_email ||
-            generalTpl?.header_email ||
             data.company.email,
           website:
             tplObj.header_website ||
-            generalTpl?.header_website ||
             data.company.website,
           logo:
             embeddedLogo ||
             tplObj.header_logo_url ||
-            generalTpl?.header_logo_url ||
             logoDefault,
         };
         data.company = { ...merged, telephone: merged.phone };
@@ -3253,6 +3203,25 @@ router.post(
       const canonical = canonicalDocumentType(type);
       const aliasesLower = docTypeSynonymsLower(type);
 
+      // 0. Priority 0: If feature_name is provided, look for a template linked to that feature
+      const featureName =
+        req.body?.feature_name || req.query?.feature_name || "";
+      if (!tplObj && featureName) {
+        const [featureTpl] = await query(
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type, name
+           FROM document_templates
+           WHERE company_id = :companyId AND feature_names IS NOT NULL
+             AND feature_names != ''
+             AND (feature_names LIKE :fnLike ESCAPE '\\\\')
+           ORDER BY is_default DESC, updated_at DESC
+           LIMIT 1`,
+          { companyId, fnLike: `%"${featureName}"%` },
+        ).catch(() => []);
+        if (featureTpl) tplObj = featureTpl;
+      }
+
       // 1. First priority: Check if there is an active user default template (is_default = 1) for this document type synonym
       if (!tplObj) {
         const placeholders = aliasesLower.map((_, i) => `:dt${i}`).join(", ");
@@ -3350,29 +3319,6 @@ router.post(
         if (Array.isArray(anyItems) && anyItems.length) tplObj = anyItems[0];
       }
 
-      // If no specific template found, fall back to general-template (report header)
-      if (!tplObj) {
-        try {
-          const aliasesFallback = docTypeSynonymsLower("general-template");
-          const placeholdersFb = aliasesFallback.map((_, i) => `:gfb${i}`).join(", ");
-          const paramsFb = { companyId };
-          aliasesFallback.forEach((val, i) => (paramsFb[`gfb${i}`] = val));
-          const [fbRow] = await query(`SELECT id, html_content,
-                    header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                    document_type,
-            created_at,
-            u.username AS created_by_name
-           FROM document_templates
-          LEFT JOIN adm_users u ON u.id = created_by
-           WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersFb})
-             ORDER BY is_default DESC, updated_at DESC
-             LIMIT 1`,
-            paramsFb,
-          ).catch(() => []);
-          if (fbRow) tplObj = fbRow;
-        } catch {}
-      }
-
       // If still no template, return blank
       if (!tplObj) {
         const fmt = String(
@@ -3420,30 +3366,9 @@ router.post(
         );
       } catch {}
 
-      // Load general/header template
-      let generalTpl = null;
-      try {
-        const aliasesLowerG = docTypeSynonymsLower("general-template");
-        const placeholdersG = aliasesLowerG.map((_, i) => `:gt${i}`).join(", ");
-        const paramsG = { companyId };
-        aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
-        const [row] = await query(`SELECT id,
-                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
-           LIMIT 1`,
-          paramsG,
-        ).catch(() => []);
-        if (row) generalTpl = row;
-      } catch {}
-
       const data = await loadData(type, id, companyId, branchId);
 
-      // Merge company header fields (no general template)
+      // Merge company header fields
       if (data && data.company) {
         const origin = `${req.protocol}://${req.get("host")}`;
         const absolutize = (s) => {
@@ -3567,6 +3492,25 @@ router.post(
       const aliasesLower = docTypeSynonymsLower(type);
       let tplObj = null;
       const canonical = canonicalDocumentType(type);
+
+      // 0. Priority 0: If feature_name is provided, look for a template linked to that feature
+      const featureName =
+        req.body?.feature_name || req.query?.feature_name || "";
+      if (!tplObj && featureName) {
+        const [featureTpl] = await query(
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type, name
+           FROM document_templates
+           WHERE company_id = :companyId AND feature_names IS NOT NULL
+             AND feature_names != ''
+             AND (feature_names LIKE :fnLike ESCAPE '\\\\')
+           ORDER BY is_default DESC, updated_at DESC
+           LIMIT 1`,
+          { companyId, fnLike: `%"${featureName}"%` },
+        ).catch(() => []);
+        if (featureTpl) tplObj = featureTpl;
+      }
 
       // 1. First priority: Check if there is an active user default template (is_default = 1) for this document type synonym
       if (!tplObj) {

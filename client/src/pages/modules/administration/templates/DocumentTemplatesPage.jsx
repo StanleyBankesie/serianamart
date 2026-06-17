@@ -333,6 +333,22 @@ const FEATURE_PAGES = [
       {
         "label": "PosInvoiceList",
         "value": "pos-invoice-list"
+      },
+      {
+        "label": "CustomerAccounts",
+        "value": "pos-customer-history"
+      },
+      {
+        "label": "PosReturns",
+        "value": "pos-returns"
+      },
+      {
+        "label": "PosReports",
+        "value": "pos-reports"
+      },
+      {
+        "label": "OnHoldSales",
+        "value": "pos-on-hold"
       }
     ]
   },

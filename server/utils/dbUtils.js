@@ -3067,4 +3067,5 @@ export async function ensureTemplateTables() {
       "ALTER TABLE document_templates ADD COLUMN branch_id BIGINT UNSIGNED NOT NULL DEFAULT 1",
     );
   }
+  await ensureCol("document_templates", "feature_names", "TEXT NULL");
 }

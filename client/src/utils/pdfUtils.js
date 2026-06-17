@@ -74,11 +74,10 @@ export async function renderHtmlToPdf(html, filename = "document.pdf") {
   }
 }
 
-export async function fetchReportHeaderHtml(api) {
-  // Uses the general-template preview as the report header
-  const res = await api.post(`/documents/general-template/preview`, {
-    format: "html",
-  });
+export async function fetchReportHeaderHtml(api, featureName) {
+  const body = { format: "html" };
+  if (featureName) body.feature_name = featureName;
+  const res = await api.post(`/documents/general-template/preview`, body);
   return String(res.data || "");
 }
 
