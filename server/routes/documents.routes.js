@@ -3639,26 +3639,6 @@ router.post(
         return;
       }
 
-      let generalTpl = null;
-      try {
-        const aliasesLowerG = docTypeSynonymsLower("general-template");
-        const placeholdersG = aliasesLowerG.map((_, i) => `:gt${i}`).join(", ");
-        const paramsG = { companyId };
-        aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
-        const [row] = await query(`SELECT id,
-                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
-           LIMIT 1`,
-          paramsG,
-        ).catch(() => []);
-        if (row) generalTpl = row;
-      } catch {}
-
       const data = await loadPreviewData(type, companyId, branchId);
 
       if (data && data.company) {
@@ -3669,33 +3649,27 @@ router.post(
         const merged = {
           ...data.company,
           name:
-            tplObj.header_name || generalTpl?.header_name || data.company.name,
+            tplObj.header_name || data.company.name,
           address:
             tplObj.header_address ||
-            generalTpl?.header_address ||
             data.company.address,
           address2:
             tplObj.header_address2 ||
-            generalTpl?.header_address2 ||
             data.company.address2,
           phone:
             tplObj.header_phone ||
-            generalTpl?.header_phone ||
             data.company.telephone ||
             data.company.phone,
           email:
             tplObj.header_email ||
-            generalTpl?.header_email ||
             data.company.email,
           website:
             tplObj.header_website ||
-            generalTpl?.header_website ||
             data.company.website,
           logo:
             embeddedLogo ||
             absolutize(
             tplObj.header_logo_url ||
-              generalTpl?.header_logo_url ||
               logoDefault,
           ),
         };

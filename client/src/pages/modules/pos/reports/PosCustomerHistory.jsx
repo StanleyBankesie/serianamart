@@ -339,35 +339,6 @@ ${bodyHtml}
         }
       } catch {}
 
-      if (fullHtml === bodyHtml) {
-        const headerHtml = await fetchReportHeaderHtml(api);
-        if (headerHtml) {
-          const headStyles = (headerHtml.match(/<style[^>]*>[\s\S]*?<\/style>/gi) || []).join("\n")
-            .replace(/(?:\.page-wrap|\.doc|html|body)\s*\{[^}]*?(min-)?height\s*:\s*\d+(?:\.\d+)?(?:cm|mm|in|pt|px|vh)[^}]*?\}/gi, (m) =>
-              m.replace(/(min-)?height\s*:\s*\d+(?:\.\d+)?(?:cm|mm|in|pt|px|vh)\s*;?\s*/gi, "")
-                .replace(/overflow\s*:\s*hidden\s*;?\s*/gi, "overflow: visible;")
-                .replace(/,\s*\}/g, "}")
-                .replace(/\{\s*\}/g, "")
-            );
-          const bodyContent = (headerHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i) || [])[1] || headerHtml;
-          fullHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-${headStyles}
-<style>
-@media print {
-  img, svg { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-}
-</style>
-</head>
-<body>
-${bodyContent}
-${bodyHtml}
-</body>
-</html>`;
-        }
       }
 
       await renderHtmlToPdf(fullHtml, "customer-accounts-report.pdf");
