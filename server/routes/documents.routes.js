@@ -4063,7 +4063,7 @@ router.post("/raw-html-to-pdf", requireAuth, async (req, res, next) => {
       });
     } catch (err) {
       console.error("raw-html-to-pdf error:", err);
-      throw httpError(500, "RENDER_ERROR", "Failed to generate PDF from HTML");
+      throw httpError(500, "RENDER_ERROR", `PDF generation failed: ${err.message}`);
     } finally {
       if (page) await page.close().catch(() => {});
     }

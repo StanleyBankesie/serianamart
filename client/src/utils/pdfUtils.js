@@ -64,8 +64,16 @@ export async function renderHtmlToPdf(html, filename = "document.pdf") {
     });
   } catch (err) {
     console.error("PDF generation failed:", err);
+    let msg = err?.message || "Failed to generate PDF";
+    try {
+      if (err?.response?.data instanceof Blob) {
+        const text = await err.response.data.text();
+        const parsed = JSON.parse(text);
+        if (parsed?.message) msg = parsed.message;
+      }
+    } catch {}
     toast.update(toastId, {
-      render: err?.response?.data?.message || err?.message || "Failed to generate PDF",
+      render: msg,
       type: "error",
       isLoading: false,
       autoClose: 4000,
