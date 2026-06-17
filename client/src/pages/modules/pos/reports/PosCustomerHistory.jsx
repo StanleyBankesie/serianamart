@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import api from "../../../../api/client.js";
-import { renderHtmlToPdf } from "../../../../utils/pdfUtils.js";
+
 
 function invoiceTotal(it) {
   return Number(it.gross_amount || 0) + Number(it.tax_amount || 0) - Number(it.discount_amount || 0);
@@ -340,17 +340,32 @@ ${bodyHtml}
       } catch {}
 
       try {
-        await renderHtmlToPdf(fullHtml, "customer-accounts-report.pdf");
-      } catch {
-        const printWin = window.open("", "_blank");
-        if (printWin) {
-          printWin.document.write(fullHtml);
-          printWin.document.close();
-          printWin.focus();
-          setTimeout(() => printWin.print(), 500);
-        } else {
-          toast.error("Popup blocked. Please allow popups for PDF download.");
+        const res = await api.post(
+          "/documents/raw-html-to-pdf",
+          { html: fullHtml },
+          { responseType: "blob" },
+        );
+        const blob = res.data;
+        if (blob && blob.size > 0 && !blob.type?.includes("json")) {
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.setAttribute("download", "customer-accounts-report.pdf");
+          document.body.appendChild(link);
+          link.click();
+          setTimeout(() => { link.remove(); URL.revokeObjectURL(url); }, 200);
+          return;
         }
+      } catch {}
+
+      const printWin = window.open("", "_blank");
+      if (printWin) {
+        printWin.document.write(fullHtml);
+        printWin.document.close();
+        printWin.focus();
+        setTimeout(() => printWin.print(), 500);
+      } else {
+        toast.error("Popup blocked. Please allow popups for PDF download.");
       }
     } catch (err) {
       console.error("PDF download failed", err);
