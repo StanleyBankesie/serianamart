@@ -2,6 +2,8 @@ import React, { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import api from "../../../../api/client.js";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
 
 function invoiceTotal(it) {
@@ -358,14 +360,52 @@ ${bodyHtml}
         }
       } catch {}
 
-      const printWin = window.open("", "_blank");
-      if (printWin) {
-        printWin.document.write(fullHtml);
-        printWin.document.close();
-        printWin.focus();
-        setTimeout(() => printWin.print(), 500);
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "absolute";
+      iframe.style.left = "-9999px";
+      iframe.style.top = "0";
+      iframe.style.width = "210mm";
+      iframe.style.height = "10000px";
+      iframe.style.border = "0";
+      document.body.appendChild(iframe);
+      const docBody = iframe.contentWindow?.document || iframe.contentDocument || null;
+      if (docBody) {
+        docBody.open();
+        docBody.write(fullHtml);
+        docBody.close();
+        await new Promise((r) => setTimeout(r, 1500));
+        try {
+          const bodyEl = docBody.body;
+          bodyEl.style.height = "auto";
+          const canvas = await html2canvas(bodyEl, {
+            scale: 2,
+            useCORS: true,
+            logging: false,
+            backgroundColor: "#ffffff",
+          });
+          const pdf = new jsPDF({ unit: "mm", format: "a4", compress: true });
+          const pdfW = pdf.internal.pageSize.getWidth();
+          const pdfH = pdf.internal.pageSize.getHeight();
+          const pageH = (pdfH * canvas.width) / pdfW;
+          let srcY = 0;
+          let pg = 0;
+          while (srcY < canvas.height) {
+            if (pg > 0) pdf.addPage();
+            const h = Math.min(canvas.height - srcY, pageH);
+            const pc = document.createElement("canvas");
+            pc.width = canvas.width;
+            pc.height = h;
+            pc.getContext("2d").drawImage(canvas, 0, srcY, canvas.width, h, 0, 0, canvas.width, h);
+            pdf.addImage(pc.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, pdfW, (h * pdfW) / canvas.width);
+            srcY += h;
+            pg++;
+          }
+          pdf.save("customer-accounts-report.pdf");
+        } finally {
+          document.body.removeChild(iframe);
+        }
       } else {
-        toast.error("Popup blocked. Please allow popups for PDF download.");
+        document.body.removeChild(iframe);
       }
     } catch (err) {
       console.error("PDF download failed", err);
