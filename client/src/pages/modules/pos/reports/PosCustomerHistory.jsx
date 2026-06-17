@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import api from "../../../../api/client.js";
-import { fetchReportHeaderHtml, renderHtmlToPdf } from "../../../../utils/pdfUtils.js";
+import { renderHtmlToPdf } from "../../../../utils/pdfUtils.js";
 
 function invoiceTotal(it) {
   return Number(it.gross_amount || 0) + Number(it.tax_amount || 0) - Number(it.discount_amount || 0);
@@ -338,8 +338,6 @@ ${bodyHtml}
 </html>`;
         }
       } catch {}
-
-      }
 
       await renderHtmlToPdf(fullHtml, "customer-accounts-report.pdf");
     } catch (err) {
