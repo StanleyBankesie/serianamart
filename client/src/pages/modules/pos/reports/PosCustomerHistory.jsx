@@ -262,7 +262,7 @@ export default function PosCustomerHistory() {
         <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto;">
           <h2 style="text-align:center;color:#1e293b;margin:0 0 6px;">Customer Accounts Report</h2>
           <p style="text-align:center;color:#64748b;font-size:12px;margin:0 0 16px;">
-            Customer: ${cName} &nbsp;|&nbsp; From: ${fromDate || "N/A"} &nbsp;–&nbsp; To: ${toDate || "N/A"}
+            Customer: ${cName} &nbsp;|&nbsp; From: ${fromDate || "N/A"} &nbsp;\u2013&nbsp; To: ${toDate || "N/A"}
           </p>
 
           <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
@@ -339,7 +339,19 @@ ${bodyHtml}
         }
       } catch {}
 
-      await renderHtmlToPdf(fullHtml, "customer-accounts-report.pdf");
+      try {
+        await renderHtmlToPdf(fullHtml, "customer-accounts-report.pdf");
+      } catch {
+        const printWin = window.open("", "_blank");
+        if (printWin) {
+          printWin.document.write(fullHtml);
+          printWin.document.close();
+          printWin.focus();
+          setTimeout(() => printWin.print(), 500);
+        } else {
+          toast.error("Popup blocked. Please allow popups for PDF download.");
+        }
+      }
     } catch (err) {
       console.error("PDF download failed", err);
       toast.error("Failed to generate PDF");
