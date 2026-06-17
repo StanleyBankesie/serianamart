@@ -359,6 +359,33 @@ function docTypeSynonymsLower(type) {
 // Browser singleton for PDF rendering
 let _browser = null;
 
+async function findChromeExecutablePath(puppeteer) {
+  // 1. Environment variable (common in production)
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    const p = process.env.PUPPETEER_EXECUTABLE_PATH;
+    if (existsSync(p)) return p;
+  }
+
+  // 2. Puppeteer-bundled Chromium
+  try {
+    const p = puppeteer.executablePath();
+    if (p && existsSync(p)) return p;
+  } catch {}
+
+  // 3. Common Linux paths
+  const linuxPaths = [
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+  ];
+  for (const p of linuxPaths) {
+    if (existsSync(p)) return p;
+  }
+
+  return undefined;
+}
+
 async function launchBrowser() {
   if (_browser) return _browser;
 
@@ -370,40 +397,11 @@ async function launchBrowser() {
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
+      "--disable-gpu",
     ],
   };
 
-  // Try known executable paths first (Windows)
-  const candidatePaths = [
-    join(
-      "C:",
-      "Users",
-      "stanl",
-      ".cache",
-      "puppeteer",
-      "chrome",
-      "win64-146.0.7680.153",
-      "chrome-win64",
-      "chrome.exe",
-    ),
-    join(
-      process.cwd(),
-      "node_modules",
-      "puppeteer",
-      ".local-chromium",
-      "win64-123456",
-      "chrome-win64",
-      "chrome.exe",
-    ),
-  ];
-
-  let executablePath;
-  for (const p of candidatePaths) {
-    if (existsSync(p)) {
-      executablePath = p;
-      break;
-    }
-  }
+  const executablePath = await findChromeExecutablePath(puppeteer);
 
   try {
     _browser = await puppeteer.launch({ ...launchArgs, executablePath });
