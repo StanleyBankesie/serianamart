@@ -3,8 +3,6 @@ import { Route, Routes } from "react-router-dom";
 
 import AssetList from "./assets/AssetList.jsx";
 import AssetForm from "./assets/AssetForm.jsx";
-import MaintenanceWorkOrderList from "./work-orders/MaintenanceWorkOrderList.jsx";
-import MaintenanceWorkOrderForm from "./work-orders/MaintenanceWorkOrderForm.jsx";
 import PmScheduleList from "./pm-schedules/PmScheduleList.jsx";
 import PmScheduleForm from "./pm-schedules/PmScheduleForm.jsx";
 import MaintenanceReports from "./reports/MaintenanceReports.jsx";
@@ -143,12 +141,6 @@ function MaintenanceLanding() {
           "📝",
         ),
         buildFeature(
-          "Work Orders",
-          "/maintenance/work-orders",
-          "Plan and assign maintenance work orders",
-          "🧾",
-        ),
-        buildFeature(
           "Job Orders",
           "/maintenance/job-orders",
           "Create and track job orders",
@@ -254,10 +246,6 @@ export default function MaintenanceHome() {
       <Route path="/assets/downtime" element={<DowntimeLogList />} />
       <Route path="/assets/downtime/new" element={<DowntimeLogForm />} />
 
-      <Route path="/work-orders" element={<MaintenanceWorkOrderList />} />
-      <Route path="/work-orders/new" element={<MaintenanceWorkOrderForm />} />
-      <Route path="/work-orders/:id" element={<MaintenanceWorkOrderForm />} />
-
       <Route
         path="/maintenance-requests"
         element={<MaintenanceRequestsList />}
@@ -330,12 +318,6 @@ export const maintenanceFeatures = [
     module_key: "maintenance",
     label: "Assets",
     path: "/maintenance/assets",
-    type: "feature",
-  },
-  {
-    module_key: "maintenance",
-    label: "Work Orders",
-    path: "/maintenance/work-orders",
     type: "feature",
   },
   {

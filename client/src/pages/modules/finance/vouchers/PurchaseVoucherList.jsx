@@ -1489,7 +1489,7 @@ export default function PurchaseVoucherList() {
       </div>
       {showForwardModal ? (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-erp w/full max-w-md overflow-hidden">
+          <div className="bg-white rounded-lg shadow-erp w-full max-w-md overflow-hidden">
             <div className="p-4 bg-brand text-white flex justify-between items-center">
               <h2 className="text-lg font-bold">Forward for Approval</h2>
               <button

@@ -331,7 +331,7 @@ export default function MaintenanceRequestForm() {
           <div className="card-header bg-brand text-white rounded-t-lg font-semibold">
             Request Details
           </div>
-          <div className="card-body grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="card-body grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="label">Requisition No</label>
               <input
@@ -451,26 +451,28 @@ export default function MaintenanceRequestForm() {
                 ))}
               </select>
             </div>
-            <div className="md:col-span-2">
-              <label className="label">Description *</label>
-              <textarea
-                className="input"
-                rows={4}
-                value={form.description}
-                onChange={(e) => update("description", e.target.value)}
-                placeholder="Describe the issue or maintenance needed"
-                required
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className="label">Notes</label>
-              <textarea
-                className="input"
-                rows={2}
-                value={form.notes}
-                onChange={(e) => update("notes", e.target.value)}
-                placeholder="Additional notes"
-              />
+            <div className="md:col-span-3 flex gap-3">
+              <div className="flex-1">
+                <label className="label">Description *</label>
+                <textarea
+                  className="input w-96"
+                  rows={6}
+                  value={form.description}
+                  onChange={(e) => update("description", e.target.value)}
+                  placeholder="Describe the issue or maintenance needed"
+                  required
+                />
+              </div>
+              <div className="flex-1">
+                <label className="label">Notes</label>
+                <textarea
+                  className="input w-96"
+                  rows={6}
+                  value={form.notes}
+                  onChange={(e) => update("notes", e.target.value)}
+                  placeholder="Additional notes"
+                />
+              </div>
             </div>
           </div>
         </div>

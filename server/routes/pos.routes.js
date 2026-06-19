@@ -722,6 +722,16 @@ async function ensurePosTables() {
       "ALTER TABLE pos_day_status ADD COLUMN momo_closing_balance DECIMAL(18,2) NULL AFTER momo_opening_balance",
     ).catch(() => {});
   }
+  if (!(await hasColumn("pos_day_status", "momo_opening_main"))) {
+    await query(
+      "ALTER TABLE pos_day_status ADD COLUMN momo_opening_main DECIMAL(18,2) NULL AFTER momo_closing_balance",
+    ).catch(() => {});
+  }
+  if (!(await hasColumn("pos_day_status", "momo_opening_pay"))) {
+    await query(
+      "ALTER TABLE pos_day_status ADD COLUMN momo_opening_pay DECIMAL(18,2) NULL AFTER momo_opening_main",
+    ).catch(() => {});
+  }
 
   await query(`
     CREATE TABLE IF NOT EXISTS pos_sessions (
@@ -3219,6 +3229,11 @@ router.get(
           open_denomination_counts,
           close_datetime,
           actual_cash,
+          actual_momo,
+          momo_opening_balance,
+          momo_closing_balance,
+          momo_opening_main,
+          momo_opening_pay,
           close_notes,
           close_denomination_counts,
           next_opening_float,
@@ -3228,9 +3243,9 @@ router.get(
          FROM pos_day_status
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
-          AND branch_id = :branchId
-          AND business_date = COALESCE(:businessDate, CURDATE())
-          ${terminal ? "AND terminal_code = :terminal" : ""}
+           AND branch_id = :branchId
+           AND business_date = COALESCE(:businessDate, CURDATE())
+           ${terminal ? "AND terminal_code = :terminal" : ""}
         ORDER BY open_datetime DESC
         LIMIT 1
         `,
@@ -3626,6 +3641,8 @@ router.post(
         openingFloat,
         notes,
         denominationCounts,
+        momoOpeningMain,
+        momoOpeningPay,
       } = req.body || {};
       if (!terminal || !openingDateTime) {
         throw httpError(
@@ -3665,9 +3682,9 @@ router.post(
       const result = await query(
         `
         INSERT INTO pos_day_status
-          (company_id, branch_id, terminal_code, business_date, open_datetime, opening_float, supervisor_name, open_notes, open_denomination_counts, status)
+          (company_id, branch_id, terminal_code, business_date, open_datetime, opening_float, supervisor_name, open_notes, open_denomination_counts, momo_opening_main, momo_opening_pay, status)
         VALUES
-          (:companyId, :branchId, :terminal, DATE(:businessDate), :open_datetime, :opening_float, :supervisor_name, :open_notes, :open_denomination_counts, 'OPEN')
+          (:companyId, :branchId, :terminal, DATE(:businessDate), :open_datetime, :opening_float, :supervisor_name, :open_notes, :open_denomination_counts, :momo_opening_main, :momo_opening_pay, 'OPEN')
         `,
         {
           companyId,
@@ -3680,6 +3697,8 @@ router.post(
           open_notes: notes || null,
           open_denomination_counts:
             normalizeDenominationCounts(denominationCounts),
+          momo_opening_main: Number(momoOpeningMain || 0),
+          momo_opening_pay: Number(momoOpeningPay || 0),
         },
       );
       const [item] = await query(
@@ -3695,6 +3714,11 @@ router.post(
           open_denomination_counts,
           close_datetime,
           actual_cash,
+          actual_momo,
+          momo_opening_balance,
+          momo_closing_balance,
+          momo_opening_main,
+          momo_opening_pay,
           close_notes,
           close_denomination_counts,
           next_opening_float,
@@ -4221,6 +4245,7 @@ router.get(
                 ds.supervisor_name, ds.open_notes, ds.open_denomination_counts,
                 ds.close_datetime, ds.actual_cash, ds.actual_momo,
                 ds.momo_opening_balance, ds.momo_closing_balance,
+                ds.momo_opening_main, ds.momo_opening_pay,
                 ds.close_notes, ds.close_denomination_counts, ds.next_opening_float, ds.status,
                 ds.created_at, u.username AS created_by_name,
                 COALESCE((

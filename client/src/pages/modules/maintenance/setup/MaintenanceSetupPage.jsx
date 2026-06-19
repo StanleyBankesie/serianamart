@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { ArrowLeft, Save, Plus, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 
@@ -13,9 +14,20 @@ const DEFAULT_PARAMS = {
 
 const TAB_LABELS = [
   { key: "general", label: "General" },
-  { key: "catalogs", label: "Codes" },
-  { key: "structure", label: "Sections & Locations" },
+  { key: "sections", label: "Sections" },
+  { key: "departments", label: "Departments" },
+  { key: "locations", label: "Locations" },
+  { key: "brands", label: "Brands" },
+  { key: "models", label: "Models" },
+  { key: "status-types", label: "Status Types" },
+  { key: "maintenance-types", label: "Maint. Types" },
+  { key: "priorities", label: "Priorities" },
+  { key: "supervisors", label: "Supervisors" },
+  { key: "technicians", label: "Technicians" },
+  { key: "teams", label: "Teams" },
   { key: "assignments", label: "Assignments" },
+  { key: "service-providers", label: "Service Providers" },
+  { key: "job-order-types", label: "Job Order Types" },
   { key: "notifications", label: "Notifications" },
   { key: "scheduling", label: "Scheduling" },
 ];
@@ -26,6 +38,44 @@ const EMPTY_ITEM = {
   sort_order: "",
   is_active: true,
 };
+
+function ModalForm({ open, title, hideDescription, draft, onDraftChange, onClose, onSubmit }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-lg mx-4 p-6 space-y-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">{title}</h3>
+          <button type="button" onClick={onClose} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"><X size={20} /></button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="label">Name</label>
+            <input className="input w-full" value={draft.item_name} onChange={e => onDraftChange("item_name", e.target.value)} />
+          </div>
+          {!hideDescription && (
+            <div>
+              <label className="label">Description</label>
+              <input className="input w-full" value={draft.description} onChange={e => onDraftChange("description", e.target.value)} />
+            </div>
+          )}
+          <div>
+            <label className="label">Sort Order</label>
+            <input className="input w-full" type="number" value={draft.sort_order} onChange={e => onDraftChange("sort_order", e.target.value)} />
+          </div>
+          <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+            <input type="checkbox" checked={Boolean(draft.is_active)} onChange={e => onDraftChange("is_active", e.target.checked)} />
+            Active
+          </label>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn-primary" onClick={onSubmit}>Add</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function SetupItemsEditor({
   title,
@@ -38,57 +88,20 @@ function SetupItemsEditor({
   onSave,
   onDelete,
   hideDescription = false,
+  onOpenModal,
 }) {
   return (
     <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
-      <div>
-        <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-          {title}
-        </h3>
-        <p className="text-sm text-slate-500 dark:text-slate-400">{description}</p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-        <div className={hideDescription ? "md:col-span-8" : "md:col-span-4"}>
-          <label className="label">Name</label>
-          <input
-            className="input"
-            value={draft.item_name}
-            onChange={(e) => onDraftChange(kind, "item_name", e.target.value)}
-          />
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+            {title}
+          </h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400">{description}</p>
         </div>
-        {!hideDescription && (
-        <div className="md:col-span-4">
-          <label className="label">Description</label>
-          <input
-            className="input"
-            value={draft.description}
-            onChange={(e) => onDraftChange(kind, "description", e.target.value)}
-          />
-        </div>
-        )}
-        <div className="md:col-span-2">
-          <label className="label">Order</label>
-          <input
-            className="input"
-            type="number"
-            value={draft.sort_order}
-            onChange={(e) => onDraftChange(kind, "sort_order", e.target.value)}
-          />
-        </div>
-        <label className="md:col-span-1 inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
-          <input
-            type="checkbox"
-            checked={Boolean(draft.is_active)}
-            onChange={(e) => onDraftChange(kind, "is_active", e.target.checked)}
-          />
-          Active
-        </label>
-        <div className="md:col-span-1">
-          <button type="button" className="btn-primary w-full" onClick={() => onCreate(kind)}>
-            Add
-          </button>
-        </div>
+        <button type="button" className="btn-primary flex items-center gap-2" onClick={() => onOpenModal(kind)}>
+          <Plus size={16} /> Add
+        </button>
       </div>
 
       <div className="overflow-x-auto">
@@ -181,7 +194,13 @@ export default function MaintenanceSetupPage() {
     executionTypes: [],
     sections: [],
     locations: [],
+    departments: [],
+    brands: [],
+    models: [],
+    statusTypes: [],
   });
+  const [modalKind, setModalKind] = useState(null);
+  const [modalDraft, setModalDraft] = useState({ ...EMPTY_ITEM });
   const [sectionUsers, setSectionUsers] = useState([]);
   const [users, setUsers] = useState([]);
   const [drafts, setDrafts] = useState({
@@ -190,6 +209,15 @@ export default function MaintenanceSetupPage() {
     "execution-types": { ...EMPTY_ITEM },
     sections: { ...EMPTY_ITEM },
     locations: { ...EMPTY_ITEM },
+    departments: { ...EMPTY_ITEM },
+    brands: { ...EMPTY_ITEM },
+    models: { ...EMPTY_ITEM },
+    "status-types": { ...EMPTY_ITEM },
+    supervisors: { ...EMPTY_ITEM },
+    technicians: { ...EMPTY_ITEM },
+    teams: { ...EMPTY_ITEM },
+    "service-providers": { ...EMPTY_ITEM },
+    "job-order-types": { ...EMPTY_ITEM },
   });
   const [assignmentDraft, setAssignmentDraft] = useState({
     section_item_id: "",
@@ -204,12 +232,17 @@ export default function MaintenanceSetupPage() {
       api.get("/maintenance/parameters").catch(() => ({ data: { params: {} } })),
     ]);
 
-    setCatalogs(catalogRes.data?.catalogs || {
+    setCatalogs({
       maintenanceTypes: [],
       priorities: [],
       executionTypes: [],
       sections: [],
       locations: [],
+      departments: [],
+      brands: [],
+      models: [],
+      statusTypes: [],
+      ...(catalogRes.data?.catalogs || {}),
     });
     setSectionUsers(Array.isArray(catalogRes.data?.sectionUsers) ? catalogRes.data.sectionUsers : []);
     setUsers(Array.isArray(catalogRes.data?.users) ? catalogRes.data.users : []);
@@ -264,6 +297,15 @@ export default function MaintenanceSetupPage() {
         "execution-types": "executionTypes",
         sections: "sections",
         locations: "locations",
+        departments: "departments",
+        brands: "brands",
+        models: "models",
+        "status-types": "statusTypes",
+        supervisors: "supervisors",
+        technicians: "technicians",
+        teams: "teams",
+        "service-providers": "serviceProviders",
+        "job-order-types": "jobOrderTypes",
       };
       const key = mapping[kind];
       return {
@@ -293,6 +335,33 @@ export default function MaintenanceSetupPage() {
       toast.success("Item updated");
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to update item");
+    }
+  }
+
+  function openModal(kind) {
+    setModalKind(kind);
+    setModalDraft({ ...EMPTY_ITEM });
+  }
+  function closeModal() {
+    setModalKind(null);
+  }
+  function setModalField(key, value) {
+    setModalDraft((prev) => ({ ...prev, [key]: value }));
+  }
+  async function submitModal() {
+    if (!modalKind) return;
+    const payload = modalDraft;
+    if (!String(payload.item_name || "").trim()) {
+      toast.error("Item name is required");
+      return;
+    }
+    try {
+      await api.post(`/maintenance/setup/catalog/${modalKind}`, payload);
+      setModalKind(null);
+      await loadSetup();
+      toast.success("Item added");
+    } catch (e) {
+      toast.error(e?.response?.data?.message || "Failed to add item");
     }
   }
 
@@ -351,7 +420,7 @@ export default function MaintenanceSetupPage() {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+    <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 overflow-x-hidden">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
           <Link to="/maintenance" className="btn btn-secondary p-2">
@@ -368,7 +437,7 @@ export default function MaintenanceSetupPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700">
+      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-900 z-10 overflow-x-auto">
         {TAB_LABELS.map(t => (
           <button key={t.key} type="button"
             className={`px-6 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${tab === t.key ? "border-brand-600 text-brand-600 bg-brand-50/50" : "border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500"}`}
@@ -376,8 +445,8 @@ export default function MaintenanceSetupPage() {
         ))}
       </div>
 
-      <div className="card p-8">
-        <div className="space-y-8">
+      <div className="card max-h-[calc(100vh-280px)] overflow-y-auto">
+        <div className="p-4 space-y-6">
           {tab === "general" && (
             <div className="space-y-6">
               <div className="flex items-center gap-3 text-brand-600 border-b border-slate-50 dark:border-slate-700 pb-3">
@@ -399,11 +468,110 @@ export default function MaintenanceSetupPage() {
               </div>
             </div>
           )}
-          {tab === "catalogs" && (
+          {tab === "sections" && (
             <div className="space-y-8">
               <SetupItemsEditor
-                title="Maintenance Classification"
-                description="Define service categories for request sorting."
+                title="Maintenance Section"
+                description="Maintenance sections for organizing work."
+                kind="sections"
+                items={catalogs.sections}
+                draft={drafts.sections}
+                onDraftChange={setDraft}
+                onCreate={createItem}
+                onSave={saveItem}
+                onDelete={deleteItem}
+                onOpenModal={openModal}
+              />
+            </div>
+          )}
+          {tab === "departments" && (
+            <div className="space-y-8">
+              <SetupItemsEditor
+                title="Department"
+                description="Departments that request maintenance."
+                kind="departments"
+                items={catalogs.departments}
+                draft={drafts.departments}
+                onDraftChange={setDraft}
+                onCreate={createItem}
+                onSave={saveItem}
+                onDelete={deleteItem}
+                onOpenModal={openModal}
+              />
+            </div>
+          )}
+          {tab === "locations" && (
+            <div className="space-y-8">
+              <SetupItemsEditor
+                title="Sub-Locations"
+                description="Specific points or bins within sections."
+                kind="locations"
+                items={catalogs.locations}
+                draft={drafts.locations}
+                onDraftChange={setDraft}
+                onCreate={createItem}
+                onSave={saveItem}
+                onDelete={deleteItem}
+                onOpenModal={openModal}
+              />
+            </div>
+          )}
+          {tab === "brands" && (
+            <div className="space-y-8">
+              <SetupItemsEditor
+                title="Brands"
+                description="Equipment brand names."
+                kind="brands"
+                items={catalogs.brands}
+                draft={drafts.brands}
+                onDraftChange={setDraft}
+                onCreate={createItem}
+                onSave={saveItem}
+                onDelete={deleteItem}
+                hideDescription
+                onOpenModal={openModal}
+              />
+            </div>
+          )}
+          {tab === "models" && (
+            <div className="space-y-8">
+              <SetupItemsEditor
+                title="Models"
+                description="Equipment model names."
+                kind="models"
+                items={catalogs.models}
+                draft={drafts.models}
+                onDraftChange={setDraft}
+                onCreate={createItem}
+                onSave={saveItem}
+                onDelete={deleteItem}
+                hideDescription
+                onOpenModal={openModal}
+              />
+            </div>
+          )}
+          {tab === "status-types" && (
+            <div className="space-y-8">
+              <SetupItemsEditor
+                title="Status Types"
+                description="Equipment status types."
+                kind="status-types"
+                items={catalogs.statusTypes}
+                draft={drafts["status-types"]}
+                onDraftChange={setDraft}
+                onCreate={createItem}
+                onSave={saveItem}
+                onDelete={deleteItem}
+                hideDescription
+                onOpenModal={openModal}
+              />
+            </div>
+          )}
+          {tab === "maintenance-types" && (
+            <div className="space-y-8">
+              <SetupItemsEditor
+                title="Maintenance Type"
+                description="Types of maintenance activities."
                 kind="maintenance-types"
                 items={catalogs.maintenanceTypes}
                 draft={drafts["maintenance-types"]}
@@ -412,7 +580,12 @@ export default function MaintenanceSetupPage() {
                 onSave={saveItem}
                 onDelete={deleteItem}
                 hideDescription
+                onOpenModal={openModal}
               />
+            </div>
+          )}
+          {tab === "priorities" && (
+            <div className="space-y-8">
               <SetupItemsEditor
                 title="Service Priorities"
                 description="Manage allowed urgency levels for work orders."
@@ -424,32 +597,92 @@ export default function MaintenanceSetupPage() {
                 onSave={saveItem}
                 onDelete={deleteItem}
                 hideDescription
+                onOpenModal={openModal}
               />
             </div>
           )}
-          {tab === "structure" && (
+          {tab === "supervisors" && (
             <div className="space-y-8">
               <SetupItemsEditor
-                title="Facility Sections"
-                description="Manage physical or logical areas of maintenance."
-                kind="sections"
-                items={catalogs.sections}
-                draft={drafts.sections}
+                title="Supervisors"
+                description="Configure supervisor names for work orders."
+                kind="supervisors"
+                items={catalogs.supervisors}
+                draft={drafts.supervisors}
                 onDraftChange={setDraft}
                 onCreate={createItem}
                 onSave={saveItem}
                 onDelete={deleteItem}
+                hideDescription
+                onOpenModal={openModal}
               />
+            </div>
+          )}
+          {tab === "technicians" && (
+            <div className="space-y-8">
               <SetupItemsEditor
-                title="Sub-Locations"
-                description="Specific points or bins within sections."
-                kind="locations"
-                items={catalogs.locations}
-                draft={drafts.locations}
+                title="Technicians"
+                description="Configure technician names for work orders."
+                kind="technicians"
+                items={catalogs.technicians}
+                draft={drafts.technicians}
                 onDraftChange={setDraft}
                 onCreate={createItem}
                 onSave={saveItem}
                 onDelete={deleteItem}
+                hideDescription
+                onOpenModal={openModal}
+              />
+            </div>
+          )}
+          {tab === "teams" && (
+            <div className="space-y-8">
+              <SetupItemsEditor
+                title="Teams"
+                description="Configure team names for work orders."
+                kind="teams"
+                items={catalogs.teams}
+                draft={drafts.teams}
+                onDraftChange={setDraft}
+                onCreate={createItem}
+                onSave={saveItem}
+                onDelete={deleteItem}
+                hideDescription
+                onOpenModal={openModal}
+              />
+            </div>
+          )}
+          {tab === "service-providers" && (
+            <div className="space-y-8">
+              <SetupItemsEditor
+                title="Service Providers"
+                description="Configure service provider names for work orders."
+                kind="service-providers"
+                items={catalogs.serviceProviders}
+                draft={drafts["service-providers"]}
+                onDraftChange={setDraft}
+                onCreate={createItem}
+                onSave={saveItem}
+                onDelete={deleteItem}
+                hideDescription
+                onOpenModal={openModal}
+              />
+            </div>
+          )}
+          {tab === "job-order-types" && (
+            <div className="space-y-8">
+              <SetupItemsEditor
+                title="Job Order Types"
+                description="Configure job order types (e.g. Planned, Adhoc)."
+                kind="job-order-types"
+                items={catalogs.jobOrderTypes}
+                draft={drafts["job-order-types"]}
+                onDraftChange={setDraft}
+                onCreate={createItem}
+                onSave={saveItem}
+                onDelete={deleteItem}
+                hideDescription
+                onOpenModal={openModal}
               />
             </div>
           )}
@@ -564,30 +797,52 @@ export default function MaintenanceSetupPage() {
             </div>
           )}
           {tab === "notifications" && (
-            <div className="max-w-xl space-y-4">
-               <div>
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Notifications</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Configure alert and notification settings</p>
+              </div>
+              <div className="max-w-xl space-y-4">
+                <div>
                   <label className="label">Master Alert Email</label>
                   <input className="input w-full" type="email" value={params.notify_email} onChange={e => set("notify_email", e.target.value)} placeholder="maintenance@enterprise.com" />
                   <p className="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-tight">Receives global alerts for overdue schedules and critical faults.</p>
-               </div>
+                </div>
+              </div>
             </div>
           )}
           {tab === "scheduling" && (
-            <div className="max-w-xl space-y-4">
-              <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl">
-                <div>
-                  <div className="text-sm font-bold text-slate-900 dark:text-white">PM Auto-Generation</div>
-                  <div className="text-xs text-slate-500">Automatically spawn job orders from due PM schedules.</div>
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Scheduling</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Configure automatic scheduling settings</p>
+              </div>
+              <div className="max-w-xl space-y-4">
+                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl">
+                  <div>
+                    <div className="text-sm font-bold text-slate-900 dark:text-white">PM Auto-Generation</div>
+                    <div className="text-xs text-slate-500">Automatically spawn job orders from due PM schedules.</div>
+                  </div>
+                  <select className="input w-32" value={params.auto_schedule_enabled} onChange={e => set("auto_schedule_enabled", e.target.value)}>
+                    <option value="false">Off</option>
+                    <option value="true">On</option>
+                  </select>
                 </div>
-                <select className="input w-32" value={params.auto_schedule_enabled} onChange={e => set("auto_schedule_enabled", e.target.value)}>
-                  <option value="false">Off</option>
-                  <option value="true">On</option>
-                </select>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      <ModalForm
+        open={!!modalKind}
+        title={`Add ${TAB_LABELS.find(t => t.key === modalKind)?.label || ""}`}
+        hideDescription={["maintenance-types","priorities","brands","models","status-types","supervisors","technicians","teams","service-providers","job-order-types"].includes(modalKind)}
+        draft={modalDraft}
+        onDraftChange={setModalField}
+        onClose={closeModal}
+        onSubmit={submitModal}
+      />
     </div>
   );
 }

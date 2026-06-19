@@ -12,11 +12,19 @@ export default function EquipmentForm() {
   const isEdit = !!id;
   const [form, setForm] = useState({
     equipment_code: "", equipment_name: "", category: "", location: "",
+    brand: "", group_name: "", classification: "",
     manufacturer: "", model: "", serial_number: "",
     purchase_date: "", warranty_expiry: "", status: "ACTIVE", notes: ""
   });
   const [saving, setSaving] = useState(false);
+  const [catalog, setCatalog] = useState({ locations: [], brands: [] });
   const update = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  useEffect(() => {
+    api.get("/maintenance/setup/catalog")
+      .then(r => setCatalog(r.data?.catalogs || { locations: [], brands: [] }))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     let m = true;
@@ -52,7 +60,7 @@ export default function EquipmentForm() {
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="card">
           <div className="card-header bg-brand text-white rounded-t-lg font-semibold">Equipment Details</div>
-          <div className="card-body grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="card-body grid grid-cols-1 md:grid-cols-3 gap-3">
             <div><label className="label">Equipment Code</label><input className="input" value={form.equipment_code} onChange={e => update("equipment_code", e.target.value)} placeholder="e.g. EQ-001" /></div>
             <div><label className="label">Equipment Name *</label><input className="input" value={form.equipment_name} onChange={e => update("equipment_name", e.target.value)} placeholder="Equipment name" required /></div>
             <div>
@@ -62,7 +70,22 @@ export default function EquipmentForm() {
                 {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
-            <div><label className="label">Location</label><input className="input" value={form.location} onChange={e => update("location", e.target.value)} placeholder="Building, floor, room..." /></div>
+            <div>
+              <label className="label">Location</label>
+              <select className="input" value={form.location} onChange={e => update("location", e.target.value)}>
+                <option value="">-- Select Location --</option>
+                {catalog.locations.map(l => <option key={l.id} value={l.item_name}>{l.item_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Brand</label>
+              <select className="input" value={form.brand} onChange={e => update("brand", e.target.value)}>
+                <option value="">-- Select Brand --</option>
+                {catalog.brands.map(b => <option key={b.id} value={b.item_name}>{b.item_name}</option>)}
+              </select>
+            </div>
+            <div><label className="label">Group</label><input className="input" value={form.group_name} onChange={e => update("group_name", e.target.value)} placeholder="e.g. HVAC Group" /></div>
+            <div><label className="label">Classification</label><input className="input" value={form.classification} onChange={e => update("classification", e.target.value)} placeholder="e.g. Class A" /></div>
             <div><label className="label">Manufacturer</label><input className="input" value={form.manufacturer} onChange={e => update("manufacturer", e.target.value)} /></div>
             <div><label className="label">Model</label><input className="input" value={form.model} onChange={e => update("model", e.target.value)} /></div>
             <div><label className="label">Serial Number</label><input className="input" value={form.serial_number} onChange={e => update("serial_number", e.target.value)} /></div>
@@ -74,7 +97,7 @@ export default function EquipmentForm() {
             </div>
             <div><label className="label">Purchase Date</label><input className="input" type="date" value={form.purchase_date} onChange={e => update("purchase_date", e.target.value)} /></div>
             <div><label className="label">Warranty Expiry</label><input className="input" type="date" value={form.warranty_expiry} onChange={e => update("warranty_expiry", e.target.value)} /></div>
-            <div className="md:col-span-2"><label className="label">Notes</label><textarea className="input" rows={3} value={form.notes} onChange={e => update("notes", e.target.value)} /></div>
+            <div className="md:col-span-3"><label className="label">Notes</label><textarea className="input" rows={3} value={form.notes} onChange={e => update("notes", e.target.value)} /></div>
           </div>
         </div>
         <div className="flex justify-end gap-2">

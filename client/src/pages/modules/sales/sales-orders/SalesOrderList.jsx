@@ -1143,13 +1143,6 @@ export default function SalesOrderList() {
                       onToggle={toggle}
                     />
                     <SortableHeader
-                      label="Priority"
-                      sortKey="priority"
-                      currentKey={sortKey}
-                      direction={sortDir}
-                      onToggle={toggle}
-                    />
-                    <SortableHeader
                       label="Status"
                       sortKey="status"
                       currentKey={sortKey}
@@ -1195,7 +1188,6 @@ export default function SalesOrderList() {
                       <td className="font-medium">{order.order_no}</td>
                       <td>{new Date(order.order_date).toLocaleDateString()}</td>
                       <td>{order.customer_name}</td>
-                      <td>{order.priority || "-"}</td>
                       <td>
                         {getStatusBadge(
                           displayStatus,
@@ -1257,17 +1249,7 @@ export default function SalesOrderList() {
                             />
                           </div>
 
-                          {/* Slot 5: Attachments */}
-                          <div className="min-w-[80px]">
-                            <ListAttachmentIconButton
-                              onClick={() => {
-                                setActiveDocId(order.id);
-                                setShowAttach(true);
-                              }}
-                            />
-                          </div>
-
-                          {/* Slot 6: Workflow */}
+                          {/* Slot 5: Workflow */}
                           <div className="min-w-[160px]">
                             <div className="list-approval-slot">
                               {displayStatus === "APPROVED" ? (
@@ -1305,6 +1287,16 @@ export default function SalesOrderList() {
                                 </button>
                               )}
                             </div>
+                          </div>
+
+                          {/* Slot 6: Attachments */}
+                          <div className="min-w-[80px]">
+                            <ListAttachmentIconButton
+                              onClick={() => {
+                                setActiveDocId(order.id);
+                                setShowAttach(true);
+                              }}
+                            />
                           </div>
 
                           {/* Slot 8: exceptional cancel — fixed cell */}
@@ -1364,7 +1356,7 @@ export default function SalesOrderList() {
       </div>
       {showForwardModal ? (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-erp w/full max-w-md overflow-hidden">
+          <div className="bg-white rounded-lg shadow-erp w-full max-w-md overflow-hidden">
             <div className="p-4 bg-brand text-white flex justify-between items-center">
               <h2 className="text-lg font-bold">Forward for Approval</h2>
               <button

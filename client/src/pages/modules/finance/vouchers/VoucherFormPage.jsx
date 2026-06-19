@@ -3480,7 +3480,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         </form>
         {showForwardModal ? (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-lg w-[640px] max-w-[95%]">
+            <div className="bg-white rounded-lg shadow-erp w-full max-w-md">
               <div className="p-4 border-b flex justify-between items-center bg-brand text-white rounded-t-lg">
                 <div className="font-semibold">
                   Forward Receipt Voucher for Approval
@@ -4562,7 +4562,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         </form>
         {showForwardModal ? (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-lg w-[640px] max-w-[95%]">
+            <div className="bg-white rounded-lg shadow-erp w-full max-w-md">
               <div className="p-4 border-b flex justify-between items-center bg-brand text-white rounded-t-lg">
                 <div className="font-semibold">
                   Forward Contra Voucher for Approval
@@ -5670,7 +5670,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         </form>
         {showForwardModal ? (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-lg w-[640px] max-w-[95%]">
+            <div className="bg-white rounded-lg shadow-erp w-full max-w-md">
               <div className="p-4 border-b flex justify-between items-center bg-brand text-white rounded-t-lg">
                 <div className="font-semibold">
                   Forward Payment Voucher for Approval
@@ -6145,7 +6145,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         </form>
         {showForwardModal ? (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-lg w-[640px] max-w-[95%]">
+            <div className="bg-white rounded-lg shadow-erp w-full max-w-md">
               <div className="p-4 border-b flex justify-between items-center bg-brand text-white rounded-t-lg">
                 <div className="font-semibold">
                   Forward Contra Voucher for Approval

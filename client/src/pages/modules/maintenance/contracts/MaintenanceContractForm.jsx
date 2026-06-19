@@ -68,9 +68,11 @@ export default function MaintenanceContractForm() {
       </div>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="card">
-          <div className="card-header bg-brand text-white rounded-t-lg font-semibold">Contract Details</div>
-          <div className="card-body grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div><label className="label">Contract No</label><input className="input" value={form.contract_no} onChange={e => update("contract_no", e.target.value)} placeholder="Auto-generated" /></div>
+          <div className="card-header bg-brand text-white rounded-t-lg font-semibold flex items-center justify-between">
+            <span>Contract Details</span>
+            <span className="text-xs font-normal text-white/80">{isEdit ? `Ref: ${form.contract_no}` : "New Contract"}</span>
+          </div>
+          <div className="card-body grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="label">Supplier *</label>
               <select className="input" value={form.supplier_id} onChange={e => { const s = suppliers.find(x => String(x.id) === e.target.value); update("supplier_id", e.target.value); update("supplier_name", s?.supplier_name || s?.name || ""); }} required>
@@ -82,25 +84,25 @@ export default function MaintenanceContractForm() {
             <div><label className="label">End Date</label><input className="input" type="date" value={form.end_date} onChange={e => update("end_date", e.target.value)} /></div>
             <div><label className="label">Contract Value</label><input className="input text-right" type="number" step="0.01" value={form.contract_value} onChange={e => update("contract_value", e.target.value)} /></div>
             <div><label className="label">Payment Terms</label><input className="input" value={form.payment_terms} onChange={e => update("payment_terms", e.target.value)} /></div>
-            <div><label className="label">Renewal Alert (days before end)</label><input className="input" type="number" value={form.renewal_alert_days} onChange={e => update("renewal_alert_days", e.target.value)} /></div>
+            <div><label className="label">Renewal Alert (days)</label><input className="input" type="number" value={form.renewal_alert_days} onChange={e => update("renewal_alert_days", e.target.value)} /></div>
             <div><label className="label">Status</label><select className="input" value={form.status} onChange={e => update("status", e.target.value)}>{STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-            <div className="md:col-span-2"><label className="label">Scope of Contract</label><textarea className="input" rows={4} value={form.scope} onChange={e => update("scope", e.target.value)} placeholder="Services covered, response times, exclusions..." /></div>
-            <div className="md:col-span-2"><label className="label">Notes</label><textarea className="input" rows={2} value={form.notes} onChange={e => update("notes", e.target.value)} /></div>
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-header bg-brand text-white rounded-t-lg font-semibold">Covered Assets / Equipment</div>
-          <div className="card-body space-y-2">
-            {assets.map((a, i) => (
-              <div key={i} className="flex gap-2 items-center">
-                <select className="input flex-1" value={a.asset_id} onChange={e => updateAsset(i, e.target.value)}>
-                  <option value="">-- Select Equipment --</option>
-                  {equipment.map(eq => <option key={eq.id} value={eq.id}>{eq.equipment_code} – {eq.equipment_name}</option>)}
-                </select>
-                <button type="button" className="btn-danger btn-sm" onClick={() => removeAsset(i)}>Remove</button>
+            <div className="md:col-span-2"><label className="label">Scope of Contract</label><textarea className="input" rows={3} value={form.scope} onChange={e => update("scope", e.target.value)} placeholder="Services covered, response times, exclusions..." /></div>
+            <div><label className="label">Notes</label><textarea className="input" rows={3} value={form.notes} onChange={e => update("notes", e.target.value)} /></div>
+            <div className="md:col-span-2">
+              <label className="label">Assets / Equipment Covered</label>
+              <div className="space-y-2">
+                {assets.map((a, i) => (
+                  <div key={i} className="flex gap-2 items-center">
+                    <select className="input flex-1" value={a.asset_id} onChange={e => updateAsset(i, e.target.value)}>
+                      <option value="">-- Select Equipment --</option>
+                      {equipment.map(eq => <option key={eq.id} value={eq.id}>{eq.equipment_code} – {eq.equipment_name}</option>)}
+                    </select>
+                    <button type="button" className="btn-danger btn-sm" onClick={() => removeAsset(i)}>Remove</button>
+                  </div>
+                ))}
+                <button type="button" className="btn-secondary btn-sm" onClick={addAsset}>+ Add Asset</button>
               </div>
-            ))}
-            <button type="button" className="btn-secondary btn-sm" onClick={addAsset}>+ Add Asset</button>
+            </div>
           </div>
         </div>
         <div className="flex justify-end gap-2">

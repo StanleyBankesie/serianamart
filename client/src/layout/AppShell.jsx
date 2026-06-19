@@ -1435,7 +1435,7 @@ export default function AppShell() {
           </nav>
         </aside>
 
-        <main className=" bg-slate-50 (#f8fafc)  dark:bg-slate-900">
+        <main className=" bg-slate-50 (#f8fafc)  dark:bg-slate-900 overflow-x-hidden min-w-0">
           <div className="w-full max-w-full lg:max-w-[1200px] mx-auto p-2 md:p-2 lg:p-3">
             {pushPromptVisible ? (
               <div className="mb-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 flex items-center justify-between">

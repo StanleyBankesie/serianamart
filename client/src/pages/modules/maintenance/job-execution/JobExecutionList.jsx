@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { ArrowLeft, Search, ChevronRight } from "lucide-react";
+import { ArrowLeft, Search, ChevronRight, Plus } from "lucide-react";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 

@@ -168,7 +168,6 @@ export const FEATURES_REGISTRY = {
       { feature_key: "maintenance:equipment", type: "feature", label: "Equipment", path: "/maintenance/equipment" },
       { feature_key: "maintenance:contracts", type: "feature", label: "Maintenance Contracts", path: "/maintenance/contracts" },
       { feature_key: "maintenance:maintenance-requests", type: "feature", label: "Maintenance Requests", path: "/maintenance/maintenance-requests" },
-      { feature_key: "maintenance:work-orders", type: "feature", label: "Work Orders", path: "/maintenance/work-orders" },
       { feature_key: "maintenance:job-orders", type: "feature", label: "Job Orders", path: "/maintenance/job-orders" },
       { feature_key: "maintenance:pm-schedules", type: "feature", label: "PM Schedules", path: "/maintenance/pm-schedules" },
       { feature_key: "maintenance:schedules", type: "feature", label: "Maintenance Schedules", path: "/maintenance/schedules" },

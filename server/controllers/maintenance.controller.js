@@ -169,6 +169,16 @@ async function ensureTables(companyId, branchId) {
     notes TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+  await query(`ALTER TABLE maint_equipment
+    ADD COLUMN IF NOT EXISTS brand VARCHAR(200) NULL AFTER location`
+  ).catch(() => {});
+  await query(`ALTER TABLE maint_equipment
+    ADD COLUMN IF NOT EXISTS group_name VARCHAR(200) NULL AFTER brand`
+  ).catch(() => {});
+  await query(`ALTER TABLE maint_equipment
+    ADD COLUMN IF NOT EXISTS classification VARCHAR(200) NULL AFTER group_name`
+  ).catch(() => {});
+
   await query(`CREATE TABLE IF NOT EXISTS maint_parameters (
     id INT AUTO_INCREMENT PRIMARY KEY,
     company_id INT NOT NULL, branch_id INT NOT NULL,
@@ -240,12 +250,19 @@ async function ensureTables(companyId, branchId) {
     start_time TIMESTAMP NOT NULL,
     end_time TIMESTAMP NULL,
     reason VARCHAR(255) NULL,
-    category ENUM('PLANNED', 'UNPLANNED') DEFAULT 'UNPLANNED',
-    impact_level ENUM('LOW', 'MEDIUM', 'HIGH', 'CRITICAL') DEFAULT 'MEDIUM',
+    category VARCHAR(50) DEFAULT 'UNPLANNED',
+    impact_level VARCHAR(50) DEFAULT 'MEDIUM',
     recorded_by BIGINT UNSIGNED NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     KEY idx_dl_asset (asset_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  await query(`ALTER TABLE maint_downtime_logs
+    ADD COLUMN IF NOT EXISTS impact_level VARCHAR(50) DEFAULT 'MEDIUM' AFTER reason`
+  ).catch(() => {});
+  await query(`ALTER TABLE maint_downtime_logs
+    ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'UNPLANNED' AFTER impact_level`
+  ).catch(() => {});
 }
 
 // ===== HELPERS =====
@@ -319,6 +336,15 @@ const SETUP_ITEM_TYPE_MAP = {
   "execution-types": "EXECUTION_TYPE",
   sections: "SECTION",
   locations: "LOCATION",
+  departments: "DEPARTMENT",
+  brands: "BRAND",
+  models: "MODEL",
+  "status-types": "STATUS_TYPE",
+  supervisors: "SUPERVISOR",
+  technicians: "TECHNICIAN",
+  teams: "TEAM",
+  "service-providers": "SERVICE_PROVIDER",
+  "job-order-types": "JOB_ORDER_TYPE",
 };
 
 function resolveSetupItemType(kind) {
@@ -366,29 +392,29 @@ async function getSetupSummary(companyId, branchId) {
          su.assign_work,
          su.is_active,
          si.item_name AS section_name,
-         u.username,
-         u.full_name,
-         u.email,
+         uw.username,
+         uw.full_name,
+         uw.email,
           su.created_at,
-          u.username AS created_by_name
+          cu.username AS created_by_name
          FROM maint_section_users su
        JOIN maint_setup_items si
          ON si.id = su.section_item_id
         AND si.company_id = su.company_id
         AND si.branch_id = su.branch_id
-       JOIN adm_users u
-         ON u.id = su.user_id
-        LEFT JOIN adm_users u ON u.id = su.created_by
+       JOIN adm_users uw
+         ON uw.id = su.user_id
+        LEFT JOIN adm_users cu ON cu.id = su.created_by
          WHERE su.company_id = :companyId
          AND su.branch_id = :branchId
-       ORDER BY si.item_name ASC, COALESCE(u.full_name, u.username) ASC`,
+       ORDER BY si.item_name ASC, COALESCE(uw.full_name, uw.username) ASC`,
       { companyId, branchId },
     ),
     query(`SELECT id, username, email, full_name, is_active,
           created_at,
-          u.username AS created_by_name
+          cu.username AS created_by_name
          FROM adm_users
-        LEFT JOIN adm_users u ON u.id = created_by
+        LEFT JOIN adm_users cu ON cu.id = created_by
          WHERE company_id = :companyId
          AND is_active = 1
        ORDER BY COALESCE(full_name, username) ASC, id ASC`,
@@ -405,6 +431,15 @@ async function getSetupSummary(companyId, branchId) {
     executionTypes: [],
     sections: [],
     locations: [],
+    departments: [],
+    brands: [],
+    models: [],
+    statusTypes: [],
+    supervisors: [],
+    technicians: [],
+    teams: [],
+    serviceProviders: [],
+    jobOrderTypes: [],
   };
 
   for (const row of itemRows) {
@@ -424,6 +459,15 @@ async function getSetupSummary(companyId, branchId) {
       catalogs.executionTypes.push(item);
     if (row.item_type === "SECTION") catalogs.sections.push(item);
     if (row.item_type === "LOCATION") catalogs.locations.push(item);
+    if (row.item_type === "DEPARTMENT") catalogs.departments.push(item);
+    if (row.item_type === "BRAND") catalogs.brands.push(item);
+    if (row.item_type === "MODEL") catalogs.models.push(item);
+    if (row.item_type === "STATUS_TYPE") catalogs.statusTypes.push(item);
+    if (row.item_type === "SUPERVISOR") catalogs.supervisors.push(item);
+    if (row.item_type === "TECHNICIAN") catalogs.technicians.push(item);
+    if (row.item_type === "TEAM") catalogs.teams.push(item);
+    if (row.item_type === "SERVICE_PROVIDER") catalogs.serviceProviders.push(item);
+    if (row.item_type === "JOB_ORDER_TYPE") catalogs.jobOrderTypes.push(item);
   }
 
   const sectionUsers = linkRows.map((row) => ({
@@ -571,82 +615,21 @@ export const updateAsset = async (req, res, next) => {
   }
 };
 
-// ===== WORK ORDERS (legacy kept) =====
-export const listWorkOrders = async (req, res, next) => {
-  try {
-    const { companyId, branchId } = req.scope;
-    const items = await query(`SELECT id, work_order_no, work_order_date, status, created_at,
-          created_at,
-          u.username AS created_by_name
-         FROM maint_work_orders
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND branch_id = :branchId ORDER BY work_order_date DESC LIMIT 100`,
-      { companyId, branchId },
-    );
-    res.json({ items });
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const getWorkOrderById = async (req, res, next) => {
-  try {
-    const { companyId, branchId } = req.scope;
-    const id = toNumber(req.params.id);
-    if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM maint_work_orders
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
-      { id, companyId, branchId },
-    );
-    if (!items.length)
-      throw httpError(404, "NOT_FOUND", "Work order not found");
-    res.json({ item: items[0] });
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const createWorkOrder = async (req, res, next) => {
-  try {
-    const { companyId, branchId } = req.scope;
-    const { work_order_no, work_order_date, status, remarks } = req.body || {};
-    if (!work_order_no || !work_order_date)
-      throw httpError(
-        400,
-        "VALIDATION_ERROR",
-        "work_order_no and work_order_date are required",
-      );
-    const result = await query(`INSERT INTO maint_work_orders (company_id, branch_id, work_order_no, work_order_date, status, remarks) VALUES (:companyId, :branchId, :work_order_no, :work_order_date, :status, :remarks)`,
-      {
-        companyId,
-        branchId,
-        work_order_no,
-        work_order_date,
-        status: status || "DRAFT",
-        remarks: remarks || null,
-      },
-    );
-    res.status(201).json({ id: result.insertId });
-  } catch (err) {
-    next(err);
-  }
-};
-
 // ===== MAINTENANCE REQUESTS =====
 export const listRequests = async (req, res, next) => {
   try {
     const { companyId, branchId } = req.scope;
     await ensureTables(companyId, branchId);
-    const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM maint_requests
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND branch_id=:branchId ORDER BY created_at DESC LIMIT 200`,
+    const items = await query(`SELECT r.*,
+          r.created_at,
+          u.username AS created_by_name,
+          dw.assigned_to_user_id,
+          au.username AS forwarded_to_username
+         FROM maint_requests r
+        LEFT JOIN adm_users u ON u.id = r.created_by
+        LEFT JOIN adm_document_workflows dw ON dw.document_id = r.id AND dw.document_type = 'MAINT_REQUEST' AND dw.status = 'PENDING'
+        LEFT JOIN adm_users au ON au.id = dw.assigned_to_user_id
+         WHERE r.company_id=:companyId AND r.branch_id=:branchId ORDER BY r.created_at DESC LIMIT 200`,
       { companyId, branchId },
     );
     res.json({ items });
@@ -736,6 +719,57 @@ export const updateRequest = async (req, res, next) => {
       { id, companyId, branchId, ...payload },
     );
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const submitRequest = async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req.scope;
+    const id = toNumber(req.params.id);
+    await ensureTables(companyId, branchId);
+
+    const [doc] = await query(`SELECT id, status, request_no FROM maint_requests WHERE id=:id AND company_id=:companyId AND branch_id=:branchId LIMIT 1`,
+      { id, companyId, branchId },
+    );
+    if (!doc) throw httpError(404, "NOT_FOUND", "Not found");
+    if (doc.status !== "DRAFT") throw httpError(400, "BAD_REQUEST", "Can only submit DRAFT requests");
+
+    const docType = "MAINT_REQUEST";
+    const docRouteBase = "/maintenance/maintenance-requests";
+
+    const wfByRoute = await query(
+      `SELECT * FROM adm_workflows WHERE company_id=:companyId AND (document_route=:docRouteBase OR document_type=:docType) AND is_active=1 ORDER BY id ASC LIMIT 1`,
+      { companyId, docRouteBase, docType },
+    ).catch(() => []);
+    const activeWf = wfByRoute[0] || null;
+
+    if (!activeWf) {
+      await query(`UPDATE maint_requests SET status='APPROVED' WHERE id=:id`, { id });
+      return res.json({ status: "APPROVED" });
+    }
+
+    const steps = await query(
+      `SELECT * FROM adm_workflow_steps WHERE workflow_id=:wf ORDER BY step_order ASC LIMIT 1`,
+      { wf: activeWf.id },
+    );
+    if (!steps.length) {
+      await query(`UPDATE maint_requests SET status='APPROVED' WHERE id=:id`, { id });
+      return res.json({ status: "APPROVED" });
+    }
+
+    const first = steps[0];
+    const assignedToUserId = toNumber(req.body?.target_user_id) || toNumber(first.approver_user_id);
+
+    await query(
+      `INSERT INTO adm_document_workflows (company_id, workflow_id, document_id, document_type, current_step_order, status, assigned_to_user_id) VALUES (:companyId, :workflowId, :documentId, :docType, :stepOrder, 'PENDING', :assignedTo)`,
+      { companyId, workflowId: activeWf.id, documentId: id, docType, stepOrder: first.step_order, assignedTo: assignedToUserId },
+    );
+
+    await query(`UPDATE maint_requests SET status='PENDING_APPROVAL' WHERE id=:id`, { id });
+
+    res.status(201).json({ status: "PENDING_APPROVAL" });
   } catch (err) {
     next(err);
   }
@@ -1635,7 +1669,7 @@ export const createEquipment = async (req, res, next) => {
     const { companyId, branchId } = req.scope;
     await ensureTables(companyId, branchId);
     const b = req.body || {};
-    const r = await query(`INSERT INTO maint_equipment (company_id,branch_id,equipment_code,equipment_name,category,location,manufacturer,model,serial_number,purchase_date,warranty_expiry,status,notes) VALUES (:companyId,:branchId,:equipment_code,:equipment_name,:category,:location,:manufacturer,:model,:serial_number,:purchase_date,:warranty_expiry,:status,:notes)`,
+    const r = await query(`INSERT INTO maint_equipment (company_id,branch_id,equipment_code,equipment_name,category,location,brand,group_name,classification,manufacturer,model,serial_number,purchase_date,warranty_expiry,status,notes) VALUES (:companyId,:branchId,:equipment_code,:equipment_name,:category,:location,:brand,:group_name,:classification,:manufacturer,:model,:serial_number,:purchase_date,:warranty_expiry,:status,:notes)`,
       {
         companyId,
         branchId,
@@ -1643,6 +1677,9 @@ export const createEquipment = async (req, res, next) => {
         equipment_name: b.equipment_name || null,
         category: b.category || null,
         location: b.location || null,
+        brand: b.brand || null,
+        group_name: b.group_name || null,
+        classification: b.classification || null,
         manufacturer: b.manufacturer || null,
         model: b.model || null,
         serial_number: b.serial_number || null,
@@ -1663,7 +1700,7 @@ export const updateEquipment = async (req, res, next) => {
     const { companyId, branchId } = req.scope;
     const id = toNumber(req.params.id);
     const b = req.body || {};
-    await query(`UPDATE maint_equipment SET equipment_code=:equipment_code,equipment_name=:equipment_name,category=:category,location=:location,manufacturer=:manufacturer,model=:model,serial_number=:serial_number,purchase_date=:purchase_date,warranty_expiry=:warranty_expiry,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND branch_id=:branchId`,
+    await query(`UPDATE maint_equipment SET equipment_code=:equipment_code,equipment_name=:equipment_name,category=:category,location=:location,brand=:brand,group_name=:group_name,classification=:classification,manufacturer=:manufacturer,model=:model,serial_number=:serial_number,purchase_date=:purchase_date,warranty_expiry=:warranty_expiry,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND branch_id=:branchId`,
       {
         id,
         companyId,
@@ -1672,6 +1709,9 @@ export const updateEquipment = async (req, res, next) => {
         equipment_name: b.equipment_name || null,
         category: b.category || null,
         location: b.location || null,
+        brand: b.brand || null,
+        group_name: b.group_name || null,
+        classification: b.classification || null,
         manufacturer: b.manufacturer || null,
         model: b.model || null,
         serial_number: b.serial_number || null,

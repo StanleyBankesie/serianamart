@@ -163,6 +163,7 @@ export default function PosRegister() {
             expectedMoMo = mobileSales;
             momoVariance = storedActualMoMo - expectedMoMo;
           }
+          const momoClosingTotal = Number(item.momo_closing_balance || 0);
           return {
             dayStatusId: Number(item.id || 0) || null,
             no: `DAY-${String(item.id || "").padStart(6, "0")}`,
@@ -179,6 +180,7 @@ export default function PosRegister() {
             expectedCash,
             actualCash,
             cashVariance,
+            openingMoMo: momoClosingTotal,
             expectedMoMo,
             actualMoMo: storedActualMoMo,
             momoVariance,
@@ -564,6 +566,7 @@ export default function PosRegister() {
                   <th>Total Cash Sales</th>
                   <th>Actual Cash</th>
                   <th>Cash Variance</th>
+                  <th>Opening MoMo</th>
                   <th>Actual MoMo</th>
                   <th>MoMo Variance</th>
                   <th>Status</th>
@@ -573,7 +576,7 @@ export default function PosRegister() {
               <tbody>
                 {!sessionHistory.length ? (
                   <tr>
-                    <td colSpan="14">
+                    <td colSpan="15">
                       <div className="text-center text-slate-600 py-6">
                         No session history found
                       </div>
@@ -599,6 +602,9 @@ export default function PosRegister() {
                             {fmtCurrency(h.cashVariance)}
                           </span>
                         ) : "-"}
+                      </td>
+                      <td className="p-2">
+                        {h.openingMoMo ? fmtCurrency(h.openingMoMo) : "-"}
                       </td>
                       <td className="p-2">
                         {h.actualMoMo !== null ? fmtCurrency(h.actualMoMo) : "-"}
@@ -853,24 +859,26 @@ export default function PosRegister() {
                           >
                             View
                           </button>
-                          <button
-                            className="btn btn-secondary"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              printTransaction(t.id);
-                            }}
-                          >
-                            Print
-                          </button>
-                          <button
-                            className={`btn btn-danger ${!canPerformAction("pos:register", "delete") ? 'invisible pointer-events-none' : ''}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteTransaction(t.id);
-                            }}
-                          >
-                            Delete
-                          </button>
+                          <div style={{ display: 'none' }}>
+                            <button
+                              className="btn btn-secondary"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                printTransaction(t.id);
+                              }}
+                            >
+                              Print
+                            </button>
+                            <button
+                              className={`btn btn-danger ${!canPerformAction("pos:register", "delete") ? 'invisible pointer-events-none' : ''}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteTransaction(t.id);
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </div>
                       </td>
                     </tr>
