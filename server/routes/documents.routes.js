@@ -38,7 +38,7 @@ async function resolveTaxSummary(items, companyId) {
   });
 
   items.forEach((item) => {
-    const netAmount = Number(item.amount || item.total_net_amount || 0);
+    const netAmount = Number(item.net_amount || item.amount || 0);
     const comps = compsByCode[item.tax_code_id] || [];
     if (comps.length === 0) return;
 
@@ -85,6 +85,9 @@ Handlebars.registerHelper("formatDate", function (date) {
 Handlebars.registerHelper("inc", function (value) {
   return parseInt(value) + 1;
 });
+Handlebars.registerHelper("json", function (value) {
+  return JSON.stringify(value, null, 2);
+});
 Handlebars.registerHelper("salary_slip_amount", function (val) {
   const n = Number(val || 0);
   if (!Number.isFinite(n)) return "";
@@ -92,6 +95,16 @@ Handlebars.registerHelper("salary_slip_amount", function (val) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+});
+Handlebars.registerHelper("taxTotal", function (...args) {
+  const options = args[args.length - 1];
+  const items = args.length > 1 ? args[0] : (this?.items || this?.sales_order?.items || []);
+  const arr = Array.isArray(items) ? items : [];
+  const sum = arr.reduce((s, it) => s + Number(it.tax || it.tax_amount || 0), 0);
+  if (options && options.fn) {
+    return options.fn({ taxTotal: sum });
+  }
+  return sum;
 });
 
 function canonicalDocumentType(type) {
@@ -142,6 +155,14 @@ function canonicalDocumentType(type) {
     t === "pv"
   ) {
     return "payment-voucher";
+  }
+  if (
+    t === "receipt-voucher" ||
+    t === "receipt voucher" ||
+    t === "receipt_voucher" ||
+    t === "rv"
+  ) {
+    return "receipt-voucher";
   }
   if (t === "salary-slip" || t === "salaryslip" || t === "payslip") {
     return "salary-slip";
@@ -500,33 +521,54 @@ async function loadPreviewData(type, companyId, branchId) {
         number: "SO-PREVIEW",
         date: new Date().toDateString(),
         status: "DRAFT",
-        sub_total: 0,
-        tax_amount: 0,
-        total: 0,
+        sub_total: 250,
+        tax_amount: 31.25,
+        total: 281.25,
+        discount_amount: 0,
+        net_amount: 281.25,
         remarks: "",
+        payment_type: "CASH",
+        price_type: null,
         qr_code: `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent("SALES_ORDER|PREVIEW|SO-PREVIEW|" + new Date().toISOString().slice(0, 10))}`,
+        tax_code: "VAT-STANDARD",
+        tax_components: [
+          { name: "VAT", rate: "12.5%", amount: "31.25" },
+          { name: "NHIL", rate: "2.5%", amount: "6.25" },
+        ],
         items: [
           {
             name: "Sample Item",
             code: "ITEM001",
             quantity: 2,
             price: 100,
+            value: 200,
             discount: 0,
+            discount_amount: 0,
             amount: 200,
             net: 200,
-            tax: 0,
+            tax: 25,
             uom: "PCS",
+            tax_code_id: 1,
+            tax_components: [
+              { name: "VAT", rate: "12.5", amount: "25.00" },
+            ],
           },
           {
             name: "Sample Item 2",
             code: "ITEM002",
             quantity: 1,
             price: 50,
+            value: 50,
             discount: 0,
+            discount_amount: 0,
             amount: 50,
             net: 50,
-            tax: 0,
+            tax: 6.25,
             uom: "PCS",
+            tax_code_id: 1,
+            tax_components: [
+              { name: "VAT", rate: "12.5", amount: "6.25" },
+            ],
           },
         ],
       },
@@ -606,6 +648,7 @@ async function loadPreviewData(type, companyId, branchId) {
   if (type === "payment-voucher") {
     return {
       company: company || {},
+      approved_by: undefined,
       payment_voucher: {
         id: 0,
         number: "",
@@ -613,22 +656,16 @@ async function loadPreviewData(type, companyId, branchId) {
         narration: "",
         total_debit: 250,
         total_credit: 250,
+        type_code: "PV",
+        type_name: "Payment Voucher",
+        payment_method: "Cash",
+        currency: "GHS",
         items: [
           {
             account_code: "1000",
             account_name: "Cash",
             description: "Sample",
             debit: 250,
-            credit: 0,
-            reference_no: "",
-          },
-          {
-            account_code: "4000",
-            account_name: "Sales",
-            description: "Sample",
-            debit: 0,
-            credit: 250,
-            reference_no: "",
           },
         ],
       },
@@ -649,16 +686,21 @@ async function loadPreviewData(type, companyId, branchId) {
         number: "",
         date: new Date().toDateString(),
         status: "DRAFT",
-        sub_total: 0,
-        tax_amount: 0,
-        total: 0,
+        sub_total: 250,
+        discount_total: 0,
+        tax_total: 0,
+        grand_total: 250,
+        total: 250,
         remarks: "",
+        valid_until: null,
+        terms_and_conditions: "",
         items: [
           {
             name: "Sample Item",
             code: "ITEM001",
             quantity: 2,
             price: 100,
+            value: 200,
             discount: 0,
             amount: 200,
             net: 200,
@@ -670,6 +712,7 @@ async function loadPreviewData(type, companyId, branchId) {
             code: "ITEM002",
             quantity: 1,
             price: 50,
+            value: 50,
             discount: 0,
             amount: 50,
             net: 50,
@@ -683,31 +726,25 @@ async function loadPreviewData(type, companyId, branchId) {
   if (type === "receipt-voucher") {
     return {
       company: company || {},
+      approved_by: undefined,
       receipt_voucher: {
         id: 0,
         number: "",
         date: new Date().toDateString(),
         narration: "",
         total_debit: 0,
-        total_credit: 0,
+        total_credit: 250,
         type_code: "RV",
         type_name: "Receipt Voucher",
+        received_from: "Sample Customer",
+        payment_mode: "Cash",
+        currency: "GHS",
         items: [
-          {
-            account_code: "1000",
-            account_name: "Cash",
-            description: "Sample",
-            debit: 250,
-            credit: 0,
-            reference_no: "",
-          },
           {
             account_code: "1100",
             account_name: "Receivables",
             description: "Sample",
-            debit: 0,
             credit: 250,
-            reference_no: "",
           },
         ],
       },
@@ -894,6 +931,48 @@ async function loadPreviewData(type, companyId, branchId) {
       },
     };
   }
+  if (type === "grn") {
+    return {
+      company: { ...(company || {}), logo: `/api/admin/companies/${companyId}/logo` },
+      vendor: {
+        name: "Sample Supplier Ltd",
+        address: "Industrial Area",
+        address2: "Suite 12",
+        city: "Tema",
+        state: "Greater Accra",
+        country: "Ghana",
+      },
+      qr_code: `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent("GRN|PREVIEW|GRN-PREVIEW|" + new Date().toISOString().slice(0, 10))}`,
+      grn: {
+        number: "GRN-PREVIEW-001",
+        date: new Date().toDateString(),
+        po_reference: "PO-2024-001",
+        delivery_note_no: "DN-2024-001",
+        warehouse: "Main Warehouse",
+        vehicle_no: "GT-1234-24",
+        status: "RECEIVED",
+        item_count: 3,
+        total_po_quantity: 9,
+        total_received_quantity: 9,
+        total_rejected_quantity: 1,
+        total_accepted_quantity: 8,
+        inspection_remarks: "All items inspected and quality verified.",
+        remarks: "Goods received in satisfactory condition.",
+        inspected_by: "Samuel Quaye",
+        inspection_date: new Date().toDateString(),
+        carrier: "Swift Transport Ltd",
+        delivery_condition: "Good",
+        items: [
+          { code: "RM001", name: "Raw Material Alpha", po_quantity: 5, received_quantity: 5, rejected_quantity: 0, accepted_quantity: 5, unit: "KGS", condition: "ACCEPTED" },
+          { code: "RM002", name: "Raw Material Beta", po_quantity: 3, received_quantity: 3, rejected_quantity: 1, accepted_quantity: 2, unit: "KGS", condition: "PARTIAL" },
+          { code: "PK001", name: "Packaging Box", po_quantity: 1, received_quantity: 1, rejected_quantity: 0, accepted_quantity: 1, unit: "PCS", condition: "ACCEPTED" },
+        ],
+      },
+      received_by: "Kofi Mensah",
+      inspected_by: "Samuel Quaye",
+      store_manager: "Ama Serwaa",
+    };
+  }
   if (canonicalDocumentType(type) === "general-template") {
     return { company: company || {} };
   }
@@ -1029,6 +1108,58 @@ async function loadData(type, id, companyId, branchId) {
     ).catch(() => []);
     const extraRow = extra?.[0] || {};
     const items = Array.isArray(details) ? details : [];
+    const compRows = await query(`SELECT c.tax_code_id, td.component_name as name, c.rate_percent as rate, c.compound_level
+       FROM fin_tax_components c
+       JOIN fin_tax_details td ON td.id = c.tax_detail_id
+       WHERE c.company_id = :companyId AND c.is_active = 1
+       ORDER BY c.compound_level ASC, c.sort_order ASC`,
+      { companyId },
+    ).catch(() => []);
+    const compsByCode = {};
+    compRows.forEach((c) => {
+      if (!compsByCode[c.tax_code_id]) compsByCode[c.tax_code_id] = [];
+      compsByCode[c.tax_code_id].push(c);
+    });
+    const templateItems = items.map((d) => {
+      const itemComps = [];
+      const comps = compsByCode[d.tax_code_id] || [];
+      const netAmt = Number(d.net_amount || 0);
+      if (comps.length > 0 && netAmt > 0) {
+        const levels = {};
+        comps.forEach((c) => {
+          const lvl = c.compound_level || 0;
+          if (!levels[lvl]) levels[lvl] = [];
+          levels[lvl].push(c);
+        });
+        const sortedLvls = Object.keys(levels).map(Number).sort((a, b) => a - b);
+        let base = netAmt;
+        sortedLvls.forEach((lvl) => {
+          levels[lvl].forEach((c) => {
+            const tax = base * (Number(c.rate) / 100);
+            itemComps.push({ name: c.name, rate: c.rate, amount: tax.toFixed(2) });
+            base += tax;
+          });
+        });
+      }
+      const value = Number(d.quantity || 0) * Number(d.unit_price || 0);
+      return {
+        name: d.item_name,
+        description: d.item_name,
+        code: d.item_code,
+        quantity: d.quantity,
+        price: d.unit_price,
+        value,
+        discount: d.discount_percent,
+        discount_amount: value * (Number(d.discount_percent || 0) / 100),
+        amount: d.total_amount,
+        net: d.net_amount,
+        tax: d.tax_amount,
+        uom: d.uom,
+        tax_code_id: d.tax_code_id,
+        tax_components: itemComps,
+      };
+    });
+    const totalDiscountAmt = templateItems.reduce((s, it) => s + Number(it.discount_amount || 0), 0);
     const soObj = {
       company: company || {},
       customer: {
@@ -1052,10 +1183,11 @@ async function loadData(type, id, companyId, branchId) {
         actual_delivery_date: order.actual_delivery_date,
         payment_terms: order.payment_terms,
         priority: order.priority,
-        sub_total: order.sub_total,
+        sub_total: Math.round(templateItems.reduce((s, it) => s + Number(it.value || 0), 0) * 100) / 100,
+        discount_amount: Math.round(totalDiscountAmt * 100) / 100,
         tax_amount: order.tax_amount,
-        total: order.total_amount,
-        net_amount: order.total_amount,
+        total: 0,
+        net_amount: 0,
         remarks: order.remarks,
         price_type: order.price_type || null,
         payment_type: order.payment_type || null,
@@ -1064,25 +1196,17 @@ async function loadData(type, id, companyId, branchId) {
         currency_id: order.currency_id || null,
         currency_code: extraRow?.currency_code || null,
         exchange_rate: order.exchange_rate || null,
-        discount_amount: order.discount_amount || 0,
         shipping_charges: order.shipping_charges || 0,
         internal_notes: order.internal_notes || null,
         customer_notes: order.customer_notes || null,
         tax_summary,
-        items: items.map((d) => ({
-          name: d.item_name,
-          description: d.item_name,
-          code: d.item_code,
-          quantity: d.quantity,
-          price: d.unit_price,
-          discount: d.discount_percent,
-          amount: d.total_amount,
-          net: d.net_amount,
-          tax: d.tax_amount,
-          uom: d.uom,
-        })),
+        items: templateItems,
       },
     };
+    soObj.sales_order.total = Math.round(
+      (soObj.sales_order.sub_total - soObj.sales_order.discount_amount + Number(soObj.sales_order.tax_amount || 0)) * 100
+    ) / 100;
+    soObj.sales_order.net_amount = soObj.sales_order.total;
     try {
       const qrPayload = encodeURIComponent(
         `SALES_ORDER|${order.id}|${order.order_no || ""}|${order.order_date || ""}|${order.customer_name || ""}`,
@@ -1093,7 +1217,7 @@ async function loadData(type, id, companyId, branchId) {
     soObj.tax_summary = tax_summary;
     soObj.document = soObj.sales_order;
     soObj.order = soObj.sales_order;
-    soObj.items = soObj.sales_order.items;
+    soObj.items = templateItems;
     return soObj;
   }
   if (type === "invoice") {
@@ -1180,8 +1304,8 @@ async function loadData(type, id, companyId, branchId) {
       `,
       { id, companyId },
     ).catch(() => []);
-    
-    const tax_summary = await resolveTaxSummary(details, companyId);
+    const tax_summary = await resolveTaxSummary(details || [], companyId);
+
     const [company] = await query(`
       SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
           created_at,
@@ -1216,6 +1340,11 @@ async function loadData(type, id, companyId, branchId) {
     ).catch(() => []);
     const extraRow = extra?.[0] || {};
     const items = Array.isArray(details) ? details : [];
+    const invSubTotal = items.reduce((s, d) => s + Number(d.unit_price || 0) * Number(d.quantity || 0), 0);
+    const invDiscountAmount = items.reduce((s, d) => {
+      const lineTotal = Number(d.unit_price || 0) * Number(d.quantity || 0);
+      return s + lineTotal * (Number(d.discount_percent || 0) / 100);
+    }, 0);
     const invObj = {
       company: company || {},
       customer: {
@@ -1245,6 +1374,8 @@ async function loadData(type, id, companyId, branchId) {
         warehouse_id: inv.warehouse_id || null,
         warehouse_name: extraRow?.warehouse_name || null,
         net_total: inv.net_amount,
+        sub_total: invSubTotal,
+        discount_amount: invDiscountAmount,
         total: inv.total_amount,
         remarks: inv.remarks,
         tax_summary,
@@ -1254,6 +1385,7 @@ async function loadData(type, id, companyId, branchId) {
           code: d.item_code,
           quantity: d.quantity,
           price: d.unit_price,
+          value: Number(d.unit_price || 0) * Number(d.quantity || 0),
           discount: d.discount_percent,
           amount: d.total_amount,
           net: d.net_amount,
@@ -1372,7 +1504,7 @@ async function loadData(type, id, companyId, branchId) {
     ).catch(() => []);
     if (!hdr) throw httpError(404, "NOT_FOUND", "Document not found");
     const details = await query(`
-      SELECT d.id, d.item_id, d.qty, d.uom, d.unit_price, d.discount_percent, d.tax_percent, d.line_total, d.tax_code_id, i.item_code, i.item_name,
+      SELECT d.id, d.item_id, d.qty, d.uom, d.unit_price, d.discount_percent, d.tax_percent, d.line_total, d.tax_code_id, d.line_total AS net_amount, i.item_code, i.item_name,
           d.created_at,
           u.username AS created_by_name
          FROM pur_direct_purchase_dtl d
@@ -1396,7 +1528,12 @@ async function loadData(type, id, companyId, branchId) {
       `,
       { companyId },
     ).catch(() => []);
+    const whRow = await query(`SELECT warehouse_name FROM inv_warehouses WHERE id = :wid AND company_id = :companyId LIMIT 1`, { wid: hdr.warehouse_id, companyId }).catch(() => []);
+    const warehouseName = whRow?.[0]?.warehouse_name || "";
     const items = Array.isArray(details) ? details : [];
+    const itemCount = items.length;
+    const totalQuantity = items.reduce((s, d) => s + Number(d.qty || 0), 0);
+    const computedSubTotal = items.reduce((s, d) => s + Number(d.qty || 0) * Number(d.unit_price || 0), 0);
     const dpObj = {
       company: company || {},
       supplier: {
@@ -1410,28 +1547,41 @@ async function loadData(type, id, companyId, branchId) {
         number: hdr.dp_no,
         date: hdr.dp_date ? String(hdr.dp_date).slice(0, 10) : null,
         status: hdr.status,
-        remarks: hdr.remarks || "",
-        total: hdr.net_amount || 0,
-        items: items.map((d) => ({
-          name: d.item_name,
-          description: d.item_name,
-          code: d.item_code,
-          quantity: d.qty,
-          uom: d.uom,
-          price: d.unit_price,
-          discount: d.discount_percent || 0,
-          tax: d.tax_percent || 0,
-          amount:
-            d.line_total != null
-              ? d.line_total
-              : Number(d.qty || 0) * Number(d.unit_price || 0),
-        })),
+        invoice_date: hdr.supplier_invoice_date ? String(hdr.supplier_invoice_date).slice(0, 10) : null,
+        supplier_invoice_no: hdr.supplier_invoice_number || "",
+        warehouse: warehouseName,
+        sub_total: Number(hdr.subtotal) || computedSubTotal,
+        discount_amount: Number(hdr.discount_amount) || 0,
+        tax_amount: Number(hdr.tax_amount) || 0,
+        total: Number(hdr.net_amount) || 0,
+        payment_mode: hdr.payment_type || "",
+        item_count: itemCount,
+        total_quantity: totalQuantity,
+        tax_summary,
+        items: items.map((d) => {
+          const val = Number(d.qty || 0) * Number(d.unit_price || 0);
+          return {
+            name: d.item_name,
+            description: d.item_name,
+            code: d.item_code,
+            quantity: d.qty,
+            uom: d.uom,
+            price: d.unit_price,
+            value: val,
+            discount: d.discount_percent || 0,
+            tax: d.tax_percent || 0,
+            amount: d.line_total != null ? d.line_total : val,
+          };
+        }),
       },
     };
     try {
       const qrPayload = encodeURIComponent(`DIRECT_PURCHASE|${hdr.id}|${hdr.dp_no || ""}|${hdr.dp_date || ""}|${hdr.supplier_name || ""}`);
-      dpObj.direct_purchase.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
+      dpObj.qr_code = qrUrl;
+      dpObj.direct_purchase.qr_code = qrUrl;
     } catch {}
+    dpObj.tax_summary = tax_summary;
     dpObj.document = dpObj.direct_purchase;
     dpObj.items = dpObj.direct_purchase.items;
     return dpObj;
@@ -2070,6 +2220,8 @@ async function loadData(type, id, companyId, branchId) {
         q.total_amount,
         q.net_amount,
         q.remarks,
+        q.valid_until,
+        q.terms_and_conditions,
         COALESCE(NULLIF(q.customer_name, ''), c.customer_name, '') AS customer_name,
         COALESCE(c.address, '') AS customer_address,
         COALESCE(c.city, '') AS customer_city,
@@ -2115,7 +2267,7 @@ async function loadData(type, id, companyId, branchId) {
       SELECT
         d.id,
         d.item_id,
-        d.quantity,
+        d.qty AS quantity,
         d.unit_price,
         d.discount_percent,
         d.total_amount,
@@ -2137,7 +2289,6 @@ async function loadData(type, id, companyId, branchId) {
       { id, companyId },
     ).catch(() => []);
 
-    const tax_summary = await resolveTaxSummary(details, companyId);
     const [company] = await query(`
       SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
           created_at,
@@ -2172,6 +2323,74 @@ async function loadData(type, id, companyId, branchId) {
     ).catch(() => []);
     const extraRow = extra?.[0] || {};
     const items = Array.isArray(details) ? details : [];
+    const qCompsRows = await query(`SELECT c.tax_code_id, td.component_name as name, c.rate_percent as rate, c.compound_level
+       FROM fin_tax_components c
+       JOIN fin_tax_details td ON td.id = c.tax_detail_id
+       WHERE c.company_id = :companyId AND c.is_active = 1
+       ORDER BY c.compound_level ASC, c.sort_order ASC`,
+      { companyId },
+    ).catch(() => []);
+    const qCompsByCode = {};
+    qCompsRows.forEach((c) => {
+      if (!qCompsByCode[c.tax_code_id]) qCompsByCode[c.tax_code_id] = [];
+      qCompsByCode[c.tax_code_id].push(c);
+    });
+    const qTemplateItems = items.map((d) => {
+      const itemComps = [];
+      const comps = qCompsByCode[d.tax_code_id] || [];
+      const netAmt = Number(d.net_amount) || Number(d.total_amount) || 0;
+      if (comps.length > 0 && netAmt > 0) {
+        const levels = {};
+        comps.forEach((c) => {
+          const lvl = c.compound_level || 0;
+          if (!levels[lvl]) levels[lvl] = [];
+          levels[lvl].push(c);
+        });
+        const sortedLvls = Object.keys(levels).map(Number).sort((a, b) => a - b);
+        let base = netAmt;
+        sortedLvls.forEach((lvl) => {
+          levels[lvl].forEach((c) => {
+            const tax = base * (Number(c.rate) / 100);
+            itemComps.push({ name: c.name, rate: c.rate, amount: tax.toFixed(2) });
+            base += tax;
+          });
+        });
+      }
+      const itemValue = Number(d.quantity || 0) * Number(d.unit_price || 0);
+      return {
+        name: d.item_name,
+        description: d.item_name,
+        code: d.item_code,
+        quantity: d.quantity,
+        price: d.unit_price,
+        value: itemValue,
+        discount: d.discount_percent,
+        amount: d.total_amount,
+        net: d.net_amount,
+        tax: d.tax_amount,
+        uom: d.uom,
+        tax_code_id: d.tax_code_id,
+        tax_components: itemComps,
+      };
+    });
+    const computedSubTotal = qTemplateItems.reduce((s, i) => s + Number(i.value || 0), 0);
+    const computedDiscountTotal = qTemplateItems.reduce((s, i) => {
+      const v = Number(i.value || 0);
+      return s + v * (Number(i.discount || 0) / 100);
+    }, 0);
+    const computedTaxTotal = qTemplateItems.reduce((s, i) => s + Number(i.tax || 0), 0);
+    const computedGrandTotal = (computedSubTotal - computedDiscountTotal) + computedTaxTotal;
+    const taxCompMap = {};
+    qTemplateItems.forEach((item) => {
+      (item.tax_components || []).forEach((tc) => {
+        if (!taxCompMap[tc.name]) taxCompMap[tc.name] = { name: tc.name, rate: tc.rate, amount: 0 };
+        taxCompMap[tc.name].amount += Number(tc.amount || 0);
+      });
+    });
+    const tax_summary = Object.values(taxCompMap).map((tc) => ({
+      ...tc,
+      amount: tc.amount.toFixed(2),
+    }));
     const qObj = {
       company: company || {},
       customer: {
@@ -2197,26 +2416,23 @@ async function loadData(type, id, companyId, branchId) {
         exchange_rate: q.exchange_rate || null,
         warehouse_id: q.warehouse_id || null,
         warehouse_name: extraRow?.warehouse_name || null,
-        sub_total: q.net_amount,
-        tax_amount: items.reduce(
-          (acc, d) => acc + Number(d.tax_amount || 0),
-          0,
-        ),
+        sub_total: computedSubTotal,
+        discount_total: computedDiscountTotal,
+        tax_total: computedTaxTotal,
+        grand_total: computedGrandTotal,
         total: q.total_amount,
         remarks: q.remarks,
+        valid_until: q.valid_until || null,
+        terms_and_conditions: q.terms_and_conditions || "",
         tax_summary,
-        items: items.map((d) => ({
-          name: d.item_name,
-          description: d.item_name,
-          code: d.item_code,
-          quantity: d.quantity,
-          price: d.unit_price,
-          discount: d.discount_percent,
-          amount: Number(d.net_amount || 0) + Number(d.tax_amount || 0),
-          net: d.net_amount,
-          tax: d.tax_amount,
-          uom: d.uom,
-        })),
+        items: qTemplateItems,
+        _debug: {
+          qCompsRowsCount: qCompsRows.length,
+          qCompsByCodeKeys: Object.keys(qCompsByCode).join(","),
+          detailsCount: (details||[]).length,
+          details: JSON.stringify((details||[]).map(d=>({ item_id: d.item_id, tax_type: d.tax_code_id, net_amount: d.net_amount, total_amount: d.total_amount }))),
+          itemsTC: JSON.stringify(qTemplateItems.map(i=>({ code: i.code, tc: i.tax_components, netAmt: i.net }))),
+        },
       },
     };
     try {
@@ -2229,7 +2445,7 @@ async function loadData(type, id, companyId, branchId) {
     qObj.tax_summary = tax_summary;
     qObj.document = qObj.quotation;
     qObj.quote = qObj.quotation;
-    qObj.items = qObj.quotation.items;
+    qObj.items = qTemplateItems;
     return qObj;
   }
   if (type === "payment-voucher") {
@@ -2242,13 +2458,19 @@ async function loadData(type, id, companyId, branchId) {
         v.total_debit,
         v.total_credit,
         v.created_by,
+        v.approved_by,
+        v.currency_id,
         vt.code AS voucher_type_code,
         vt.name AS voucher_type_name,
           v.created_at,
-          u.username AS created_by_name
+          u.username AS created_by_name,
+          approver.username AS approved_by_name,
+          cur.code AS currency_code
          FROM fin_vouchers v
       JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id
         LEFT JOIN adm_users u ON u.id = v.created_by
+        LEFT JOIN adm_users approver ON approver.id = v.approved_by
+        LEFT JOIN fin_currencies cur ON cur.id = v.currency_id
          WHERE v.id = :id AND v.company_id = :companyId AND v.branch_id = :branchId
       LIMIT 1
       `,
@@ -2287,6 +2509,7 @@ async function loadData(type, id, companyId, branchId) {
         l.debit,
         l.credit,
         l.reference_no,
+        l.payment_method,
           l.created_at,
           u.username AS created_by_name
          FROM fin_voucher_lines l
@@ -2305,29 +2528,34 @@ async function loadData(type, id, companyId, branchId) {
          WHERE id = :companyId LIMIT 1`,
       { companyId },
     ).catch(() => []);
+    const narration = String(voucher.narration || "");
+    const firstPaymentMethod = (lines || []).find((l) => l.payment_method)?.payment_method || "";
     const voucherObj = {
       company: company || {},
       employee: employee || undefined,
       prepared_by: employee?.username || employee?.name || undefined,
+      approved_by: voucher.approved_by_name || undefined,
       payment_voucher: {
         id: voucher.id,
         number: voucher.voucher_no,
         date: voucher.voucher_date
           ? String(voucher.voucher_date).slice(0, 10)
           : null,
-        narration: voucher.narration,
+        narration: narration,
         total_debit: voucher.total_debit,
         total_credit: voucher.total_credit,
         type_code: voucher.voucher_type_code,
         type_name: voucher.voucher_type_name,
-        items: (lines || []).map((l) => ({
-          account_code: l.account_code,
-          account_name: l.account_name,
-          description: l.description,
-          debit: l.debit,
-          credit: l.credit,
-          reference_no: l.reference_no,
-        })),
+        payment_method: firstPaymentMethod,
+        currency: voucher.currency_code || "",
+        items: (lines || [])
+          .filter((l) => Number(l.debit || 0) !== 0)
+          .map((l) => ({
+            account_code: l.account_code,
+            account_name: l.account_name,
+            description: l.description,
+            debit: l.debit,
+          })),
       },
     };
     try {
@@ -2339,6 +2567,133 @@ async function loadData(type, id, companyId, branchId) {
     voucherObj.document = voucherObj.payment_voucher;
     voucherObj.voucher = voucherObj.payment_voucher;
     voucherObj.items = voucherObj.payment_voucher.items;
+    return voucherObj;
+  }
+  if (type === "receipt-voucher") {
+    const [voucher] = await query(`
+      SELECT 
+        v.id,
+        v.voucher_no,
+        v.voucher_date,
+        v.narration,
+        v.total_debit,
+        v.total_credit,
+        v.created_by,
+        v.approved_by,
+        v.currency_id,
+        vt.code AS voucher_type_code,
+        vt.name AS voucher_type_name,
+          v.created_at,
+          u.username AS created_by_name,
+          approver.username AS approved_by_name,
+          cur.code AS currency_code
+         FROM fin_vouchers v
+      JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id
+        LEFT JOIN adm_users u ON u.id = v.created_by
+        LEFT JOIN adm_users approver ON approver.id = v.approved_by
+        LEFT JOIN fin_currencies cur ON cur.id = v.currency_id
+         WHERE v.id = :id AND v.company_id = :companyId AND v.branch_id = :branchId
+      LIMIT 1
+      `,
+      { id, companyId, branchId },
+    ).catch(() => []);
+    if (!voucher) throw httpError(404, "NOT_FOUND", "Document not found");
+    let employee = null;
+    if (voucher.created_by) {
+      const [u] = await query(`
+        SELECT id, username, email, full_name,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :uid
+        LIMIT 1
+        `,
+        { uid: voucher.created_by },
+      ).catch(() => []);
+      if (u) {
+        employee = {
+          id: u.id,
+          username: u.username,
+          email: u.email,
+          name: u.full_name || u.username,
+        };
+      }
+    }
+    const lines = await query(`
+      SELECT 
+        l.id,
+        l.line_no,
+        a.code AS account_code,
+        a.name AS account_name,
+        l.description,
+        l.debit,
+        l.credit,
+        l.reference_no,
+        l.payment_method,
+          l.created_at,
+          u.username AS created_by_name
+         FROM fin_voucher_lines l
+      LEFT JOIN fin_accounts a ON a.id = l.account_id
+        LEFT JOIN adm_users u ON u.id = l.created_by
+         WHERE l.voucher_id = :id
+      ORDER BY l.line_no ASC
+      `,
+      { id },
+    ).catch(() => []);
+    const [company] = await query(`SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId LIMIT 1`,
+      { companyId },
+    ).catch(() => []);
+    const narration = String(voucher.narration || "");
+    const parseToken = (label) => {
+      const re = new RegExp(`${label}\\s*:\\s*([^|]+)`, "i");
+      const m = narration.match(re);
+      return m ? m[1].trim() : "";
+    };
+    const firstPaymentMethod = (lines || []).find((l) => l.payment_method)?.payment_method || "";
+    const voucherObj = {
+      company: company || {},
+      employee: employee || undefined,
+      prepared_by: employee?.username || employee?.name || undefined,
+      approved_by: voucher.approved_by_name || undefined,
+      receipt_voucher: {
+        id: voucher.id,
+        number: voucher.voucher_no,
+        date: voucher.voucher_date
+          ? String(voucher.voucher_date).slice(0, 10)
+          : null,
+        narration: narration,
+        total_debit: voucher.total_debit,
+        total_credit: voucher.total_credit,
+        type_code: voucher.voucher_type_code,
+        type_name: voucher.voucher_type_name,
+        received_from: parseToken("Received from") || (lines || []).find((l) => Number(l.credit || 0) > 0)?.account_name || "",
+        payment_mode: firstPaymentMethod,
+        currency: voucher.currency_code || "",
+        items: (lines || [])
+          .filter((l) => Number(l.credit || 0) !== 0)
+          .map((l) => ({
+            account_code: l.account_code,
+            account_name: l.account_name,
+            description: l.description,
+            credit: l.credit,
+          })),
+      },
+    };
+    try {
+      const qrPayload = encodeURIComponent(
+        `${voucher.voucher_type_name.toUpperCase()}|${voucher.id}|${voucher.voucher_no || ""}|${voucher.voucher_date || ""}|${voucher.total_credit || voucher.total_debit || ""}`,
+      );
+      voucherObj.receipt_voucher.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
+    } catch {}
+    voucherObj.document = voucherObj.receipt_voucher;
+    voucherObj.voucher = voucherObj.receipt_voucher;
+    voucherObj.items = voucherObj.receipt_voucher.items;
     return voucherObj;
   }
   if (type === "salary-slip") {
@@ -2776,7 +3131,6 @@ router.get(
       };
       const strictName = nameMap[type] || null;
 
-      // Always try to get the strict-named template, even if we already found another template
       if (strictName) {
         const [rowByName] = await query(`SELECT id, html_content,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
@@ -2790,45 +3144,7 @@ router.get(
            LIMIT 1`,
           { companyId, strictName },
         ).catch(() => []);
-        if (rowByName) {
-          tplObj = rowByName;
-        } else {
-          const fmt = String(
-            req.query.format || req.body?.format || "html",
-          ).toLowerCase();
-          if (fmt === "pdf") {
-            let page = null;
-            try {
-              const browser = await launchBrowser();
-              page = await browser.newPage();
-              await page.setContent(
-                "<!DOCTYPE html><html><head></head><body></body></html>",
-                { waitUntil: "domcontentloaded" },
-              );
-              const pdf = await page.pdf({
-                printBackground: true,
-                preferCSSPageSize: true,
-                margin: { top: "0", bottom: "0", left: "0", right: "0" },
-              });
-              res.setHeader("Content-Type", "application/pdf");
-              res.setHeader(
-                "Content-Length",
-                Buffer.byteLength(Buffer.from(pdf)),
-              );
-              res.setHeader(
-                "Content-Disposition",
-                `attachment; filename="${type}-${id}.pdf"`,
-              );
-              res.send(Buffer.from(pdf));
-              return;
-            } finally {
-              if (page) await page.close().catch(() => {});
-            }
-          }
-          res.setHeader("Content-Type", "text/html; charset=utf-8");
-          res.status(200).send("");
-          return;
-        }
+        if (rowByName) tplObj = rowByName;
       }
 
       const aliasesLower = tplObj ? [] : docTypeSynonymsLower(type);

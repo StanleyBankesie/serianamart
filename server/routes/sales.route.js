@@ -2168,6 +2168,20 @@ router.post(
           const quantity = Number(it?.quantity || 0);
           const unit_price = Number(it?.unit_price || 0);
           const uom = String(it?.uom || "PCS").trim();
+          if (!Number.isFinite(item_id) || quantity <= 0) continue;
+          await conn.execute(
+            `INSERT INTO sal_delivery_details
+               (delivery_id, item_id, quantity, unit_price, uom)
+             VALUES
+               (:delivery_id, :item_id, :quantity, :unit_price, :uom)`,
+            {
+              delivery_id: deliveryId,
+              item_id,
+              quantity,
+              unit_price,
+              uom,
+            },
+          );
           // Stock deduction is now handled inside allocateFromBatchesTx
           await allocateFromBatchesTx(conn, {
             companyId,
@@ -2240,6 +2254,10 @@ router.put(
         invoice_id,
         remarks,
         status,
+        delivery_instructions,
+        terms_and_conditions,
+        total_tax,
+        invoice_amount,
         items,
       } = req.body || {};
       const dno = String(delivery_no || "").trim();
@@ -2265,15 +2283,19 @@ router.put(
       if (!existing) throw httpError(404, "NOT_FOUND", "Delivery not found");
       await query(
         `
-        UPDATE sal_deliveries
-           SET delivery_no = :delivery_no,
-               delivery_date = DATE(:delivery_date),
-               customer_id = :customer_id,
-               sales_order_id = :sales_order_id,
-               invoice_id = :invoice_id,
-               remarks = :remarks,
-               status = :status
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+         UPDATE sal_deliveries
+            SET delivery_no = :delivery_no,
+                delivery_date = DATE(:delivery_date),
+                customer_id = :customer_id,
+                sales_order_id = :sales_order_id,
+                invoice_id = :invoice_id,
+                remarks = :remarks,
+                status = :status,
+                delivery_instructions = :delivery_instructions,
+                terms_and_conditions = :terms_and_conditions,
+                total_tax = :total_tax,
+                invoice_amount = :invoice_amount
+          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
         `,
         {
           id,
@@ -2286,6 +2308,10 @@ router.put(
           invoice_id: Number.isFinite(invId) ? invId : null,
           remarks: remarks || null,
           status: st,
+          delivery_instructions: delivery_instructions || null,
+          terms_and_conditions: terms_and_conditions || null,
+          total_tax: Number(total_tax || 0),
+          invoice_amount: Number(invoice_amount || 0),
         },
       );
       await query(
@@ -2777,7 +2803,7 @@ router.post(
             unit_price: Number(it?.unit_price || 0),
             discount_percent: Number(it?.discount_percent || 0),
             total_amount: Number(it?.total_amount ?? it?.line_total ?? 0),
-            net_amount: Number(it?.net_amount || 0),
+            net_amount: Number(it?.net_amount || it?.total_amount || it?.line_total || 0),
             tax_amount: Number(it?.tax_amount || 0),
             tax_type: it?.tax_type == null ? null : Number(it.tax_type) || null,
             uom: it?.uom ? String(it.uom) : null,
@@ -2948,7 +2974,7 @@ router.put(
             unit_price: Number(it?.unit_price || 0),
             discount_percent: Number(it?.discount_percent || 0),
             total_amount: Number(it?.total_amount ?? it?.line_total ?? 0),
-            net_amount: Number(it?.net_amount || 0),
+            net_amount: Number(it?.net_amount || it?.total_amount || it?.line_total || 0),
             tax_amount: Number(it?.tax_amount || 0),
             tax_type: it?.tax_type == null ? null : Number(it.tax_type) || null,
             uom: it?.uom ? String(it.uom) : null,
@@ -3347,6 +3373,7 @@ router.get(
           d.total_amount,
           d.net_amount,
           d.tax_amount,
+          d.tax_code_id,
           d.uom,
           it.item_code,
           it.item_name,
@@ -3448,6 +3475,7 @@ router.post(
         const total_amount = Number(it?.total_amount || 0);
         const net_amount = Number(it?.net_amount || 0);
         const tax_amount = Number(it?.tax_amount || 0);
+        const tax_code_id = it?.tax_id ? Number(it.tax_id) : null;
         const uom = String(it?.uom || "PCS").trim();
         if (!Number.isFinite(item_id) || qty <= 0) continue;
         // Campaign price override
@@ -3465,9 +3493,9 @@ router.post(
         await query(
           `
           INSERT INTO sal_order_details
-            (order_id, item_id, qty, unit_price, discount_percent, total_amount, net_amount, tax_amount, uom)
+            (order_id, item_id, qty, unit_price, discount_percent, total_amount, net_amount, tax_amount, uom, tax_code_id)
           VALUES
-            (:order_id, :item_id, :qty, :unit_price, :discount_percent, :total_amount, :net_amount, :tax_amount, :uom)
+            (:order_id, :item_id, :qty, :unit_price, :discount_percent, :total_amount, :net_amount, :tax_amount, :uom, :tax_code_id)
           `,
           {
             order_id: orderId,
@@ -3479,6 +3507,7 @@ router.post(
             net_amount,
             tax_amount,
             uom,
+            tax_code_id,
           },
         );
       }
@@ -3643,6 +3672,7 @@ router.put(
         const total_amount = Number(it?.total_amount || 0);
         const net_amount = Number(it?.net_amount || 0);
         const tax_amount = Number(it?.tax_amount || 0);
+        const tax_code_id = it?.tax_id ? Number(it.tax_id) : null;
         const uom = String(it?.uom || "PCS").trim();
         if (!Number.isFinite(item_id) || qty <= 0) continue;
         const prResult = await resolveBestPrice(
@@ -3659,9 +3689,9 @@ router.put(
         await query(
           `
           INSERT INTO sal_order_details
-            (order_id, item_id, qty, unit_price, discount_percent, total_amount, net_amount, tax_amount, uom)
+            (order_id, item_id, qty, unit_price, discount_percent, total_amount, net_amount, tax_amount, uom, tax_code_id)
           VALUES
-            (:order_id, :item_id, :qty, :unit_price, :discount_percent, :total_amount, :net_amount, :tax_amount, :uom)
+            (:order_id, :item_id, :qty, :unit_price, :discount_percent, :total_amount, :net_amount, :tax_amount, :uom, :tax_code_id)
           `,
           {
             order_id: id,
@@ -3673,6 +3703,7 @@ router.put(
             net_amount,
             tax_amount,
             uom,
+            tax_code_id,
           },
         );
       }
@@ -4149,6 +4180,8 @@ router.get(
           d.discount_percent,
           d.total_amount,
           d.net_amount,
+          d.tax_amount,
+          d.tax_type AS tax_id,
           d.uom,
           it.item_code,
           it.item_name,
@@ -5346,6 +5379,10 @@ router.get(
           d.status,
           d.sales_order_id,
           d.remarks,
+          d.delivery_instructions,
+          d.terms_and_conditions,
+          d.total_tax,
+          d.invoice_amount,
           d.created_at,
           u.username AS created_by_name
          FROM sal_deliveries d
@@ -6397,6 +6434,14 @@ async function resolveBestPrice(
 }
 
 // ===== PURCHASE REWARD HELPER (shared by orders & invoices) =====
+function parseItemIds(str) {
+  if (!str) return [];
+  return String(str)
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
+
 async function calculatePurchaseRewardFreeItems(companyId, items) {
   await ensurePurchaseRewardTables();
   const campaigns = await query(

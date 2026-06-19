@@ -707,6 +707,21 @@ async function ensurePosTables() {
       "ALTER TABLE pos_day_status ADD COLUMN next_opening_float DECIMAL(18,2) NULL AFTER close_denomination_counts",
     ).catch(() => {});
   }
+  if (!(await hasColumn("pos_day_status", "actual_momo"))) {
+    await query(
+      "ALTER TABLE pos_day_status ADD COLUMN actual_momo DECIMAL(18,2) NULL AFTER actual_cash",
+    ).catch(() => {});
+  }
+  if (!(await hasColumn("pos_day_status", "momo_opening_balance"))) {
+    await query(
+      "ALTER TABLE pos_day_status ADD COLUMN momo_opening_balance DECIMAL(18,2) NULL AFTER actual_momo",
+    ).catch(() => {});
+  }
+  if (!(await hasColumn("pos_day_status", "momo_closing_balance"))) {
+    await query(
+      "ALTER TABLE pos_day_status ADD COLUMN momo_closing_balance DECIMAL(18,2) NULL AFTER momo_opening_balance",
+    ).catch(() => {});
+  }
 
   await query(`
     CREATE TABLE IF NOT EXISTS pos_sessions (
@@ -4055,6 +4070,9 @@ router.post(
         nextOpeningFloat,
         notes,
         denominationCounts,
+        actualMoMo,
+        momoOpeningBalance,
+        momoClosingBalance,
       } = req.body || {};
       if (!terminal || !closingDateTime) {
         throw httpError(
@@ -4097,6 +4115,9 @@ router.post(
         UPDATE pos_day_status
         SET close_datetime = :close_datetime,
             actual_cash = :actual_cash,
+            actual_momo = :actual_momo,
+            momo_opening_balance = :momo_opening_balance,
+            momo_closing_balance = :momo_closing_balance,
             close_notes = :close_notes,
             close_denomination_counts = :close_denomination_counts,
             next_opening_float = :next_opening_float,
@@ -4111,6 +4132,9 @@ router.post(
           branchId,
           close_datetime: closeDate,
           actual_cash: Number(actualCash || 0),
+          actual_momo: Number(actualMoMo || 0),
+          momo_opening_balance: Number(momoOpeningBalance || 0),
+          momo_closing_balance: Number(momoClosingBalance || 0),
           close_notes: notes || null,
           close_denomination_counts:
             normalizeDenominationCounts(denominationCounts),
@@ -4130,6 +4154,9 @@ router.post(
           open_denomination_counts,
           close_datetime,
           actual_cash,
+          actual_momo,
+          momo_opening_balance,
+          momo_closing_balance,
           close_notes,
           close_denomination_counts,
           next_opening_float,
@@ -4192,8 +4219,9 @@ router.get(
       const rows = await query(
         `SELECT ds.id, ds.terminal_code, ds.business_date, ds.open_datetime, ds.opening_float,
                 ds.supervisor_name, ds.open_notes, ds.open_denomination_counts,
-                ds.close_datetime, ds.actual_cash, ds.close_notes,
-                ds.close_denomination_counts, ds.next_opening_float, ds.status,
+                ds.close_datetime, ds.actual_cash, ds.actual_momo,
+                ds.momo_opening_balance, ds.momo_closing_balance,
+                ds.close_notes, ds.close_denomination_counts, ds.next_opening_float, ds.status,
                 ds.created_at, u.username AS created_by_name,
                 COALESCE((
                   SELECT SUM(s.net_amount)
@@ -4217,13 +4245,14 @@ router.get(
         item.open_denomination_counts = coerceJsonValue(item.open_denomination_counts);
         item.close_denomination_counts = coerceJsonValue(item.close_denomination_counts);
         item.total_sales = Number(item.total_sales || 0);
-        // Compute cash_amount from matching sales, handling split payments
+        // Compute cash_amount and mobile_amount from matching sales, handling split payments
         let cashAmount = 0;
+        let mobileAmount = 0;
         try {
           const saleRows = await query(
             `SELECT s.payment_method, s.payments, s.net_amount
              FROM pos_sales s
-             LEFT JOIN pos_terminals t ON t.id = s.terminal_id AND t.company_id = s.company_id AND t.branch_id = s.branch_id
+             LEFT JOIN pos_terminals t ON t.id = s.terminal_id AND s.company_id = s.company_id AND s.branch_id = s.branch_id
              WHERE s.company_id = :companyId
                AND s.branch_id = :branchId
                AND t.code = :terminalCode
@@ -4245,8 +4274,11 @@ router.get(
                 const parsed = JSON.parse(payments);
                 if (Array.isArray(parsed)) {
                   for (const pmt of parsed) {
-                    if (String(pmt.method || "").toUpperCase() === "CASH") {
+                    const method = String(pmt.method || "").toUpperCase();
+                    if (method === "CASH") {
                       cashAmount += Number(pmt.amount || 0);
+                    } else if (method === "MOBILE") {
+                      mobileAmount += Number(pmt.amount || 0);
                     }
                   }
                   continue;
@@ -4254,12 +4286,16 @@ router.get(
               } catch {}
             }
             // Fallback: no payments JSON — use payment_method
-            if (String(sale.payment_method || "").toUpperCase() === "CASH") {
+            const method = String(sale.payment_method || "").toUpperCase();
+            if (method === "CASH") {
               cashAmount += Number(sale.net_amount || 0);
+            } else if (method === "MOBILE") {
+              mobileAmount += Number(sale.net_amount || 0);
             }
           }
         } catch {}
         item.cash_amount = cashAmount;
+        item.mobile_amount = mobileAmount;
         items.push(item);
       }
       res.json({ items });

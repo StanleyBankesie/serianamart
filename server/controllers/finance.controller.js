@@ -1781,7 +1781,7 @@ export const getVoucherById = async (req, res, next) => {
     if (!id) return next(httpError(400, "VALIDATION_ERROR", "Invalid id"));
     const headerRows = await query(
       `SELECT v.id, v.voucher_no, v.voucher_date, v.status,
-              v.narration AS remarks, v.total_debit, v.total_credit, v.balanced_amount,
+              v.narration AS remarks, v.narration, v.total_debit, v.total_credit, v.balanced_amount,
               v.total_debit AS total_amount,
               v.voucher_type_id, vt.code AS voucher_type_code, vt.name AS voucher_type_name,
               v.currency_id, c.code AS currency_code, v.exchange_rate
@@ -1837,6 +1837,7 @@ export const createVoucher = async (req, res, next) => {
       voucherDate,
       voucherNo,
       remarks,
+      narration: bodyNarration,
       currencyId,
       exchangeRate,
       status,
@@ -1848,6 +1849,7 @@ export const createVoucher = async (req, res, next) => {
       apply_to_sales_invoices: applyToSalesInvoices,
       paymentDetails,
     } = req.body || {};
+    const effectiveRemarks = remarks || bodyNarration || null;
     let finalVoucherTypeId = Number(voucherTypeId || 0) || 0;
     if (!finalVoucherTypeId && voucherTypeCode) {
       const vt = await ensureVoucherTypeForRequest({
@@ -2116,19 +2118,15 @@ export const createVoucher = async (req, res, next) => {
       });
     }
 
-    let mainNarration = remarks || null;
-    // RV description should come from payment details description (mapped to line description)
-    if (isRv && firstLineDescription) {
-      mainNarration = firstLineDescription;
-    }
+    let mainNarration = effectiveRemarks;
     // Keep linked hints for non-RV vouchers only
     if (!isRv) {
       if (purchaseVoucherId) {
         mainNarration =
-          `${remarks || ""} (Linked to PV#${purchaseVoucherId})`.trim();
+          `${effectiveRemarks || ""} (Linked to PV#${purchaseVoucherId})`.trim();
       } else if (salesVoucherId) {
         mainNarration =
-          `${remarks || ""} (Linked to SV#${salesVoucherId})`.trim();
+          `${effectiveRemarks || ""} (Linked to SV#${salesVoucherId})`.trim();
       }
     }
 
@@ -2388,7 +2386,8 @@ export const updateVoucher = async (req, res, next) => {
     const branchId = req.scope.branchId;
     const id = Number(req.params.id || 0);
     if (!id) return next(httpError(400, "VALIDATION_ERROR", "Invalid id"));
-    const { voucherDate, remarks, status, exchangeRate } = req.body || {};
+    const { voucherDate, remarks, narration: bodyNarration, status, exchangeRate } = req.body || {};
+    const effectiveRemarks = remarks || bodyNarration || null;
     await query(
       `UPDATE fin_vouchers
           SET voucher_date = COALESCE(:voucherDate, voucher_date),
@@ -2403,7 +2402,7 @@ export const updateVoucher = async (req, res, next) => {
         branchId,
         id,
         voucherDate: voucherDate || null,
-        remarks: remarks || null,
+        remarks: effectiveRemarks,
         exchangeRate: Number(exchangeRate || 0) || null,
         status: status || null,
       },

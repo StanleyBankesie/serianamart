@@ -1293,26 +1293,17 @@ export default function DirectPurchase() {
 
           <div className="bg-[#f8f9fa] p-5 rounded-lg mt-5 border border-[#dee2e6]">
             <div className="flex justify-between py-2 border-b border-[#dee2e6]">
-              <span className="text-sm font-medium">Sub Total:</span>
+              <span className="text-sm font-medium">Subtotal:</span>
               <span className="font-bold">
                 {Number(totals.subtotal || 0).toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                 })}
               </span>
             </div>
-            <div className="flex justify-between py-2 border-b border-[#dee2e6] text-[#dc3545]">
-              <span className="text-sm font-medium">Discount:</span>
+            <div className="flex justify-between py-2 border-b border-[#dee2e6]">
+              <span className="text-sm font-medium">Total Discount:</span>
               <span className="font-bold">
-                -
                 {Number(totals.totalDiscount || 0).toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                })}
-              </span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-[#dee2e6] text-[#0E3646]">
-              <span className="text-sm font-medium">Tax Amount:</span>
-              <span className="font-bold">
-                {Number(totals.totalTax || 0).toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                 })}
               </span>
@@ -1322,9 +1313,7 @@ export default function DirectPurchase() {
                 key={c.name}
                 className="flex justify-between py-1 text-xs text-gray-600 pl-4"
               >
-                <span>
-                  {c.name} ({c.rate}%):
-                </span>
+                <span>{c.name}</span>
                 <span>
                   {Number(c.amount || 0).toLocaleString(undefined, {
                     minimumFractionDigits: 2,
@@ -1332,8 +1321,16 @@ export default function DirectPurchase() {
                 </span>
               </div>
             ))}
+            <div className="flex justify-between py-2 border-b border-[#dee2e6]">
+              <span className="text-sm font-medium">Total Tax:</span>
+              <span className="font-bold">
+                {Number(totals.totalTax || 0).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                })}
+              </span>
+            </div>
             <div className="flex justify-between py-3 text-lg font-bold text-[#0E3646]">
-              <span>{`Total ${selectedCurrencyCode || baseCurrencyCode}:`}</span>
+              <span>Grand Total:</span>
               <span>
                 {Number(totalInCurrentCurrency || 0).toLocaleString(undefined, {
                   minimumFractionDigits: 2,

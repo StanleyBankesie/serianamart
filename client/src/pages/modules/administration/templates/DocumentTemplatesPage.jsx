@@ -1061,10 +1061,10 @@ export default function DocumentTemplatesPage() {
                     </div>
                   </div>
                 </div>
-                <div>
+                <div className="md:col-span-2">
                   <label className="label">HTML Content</label>
                   <textarea
-                    className="input min-h-[280px]"
+                    className="input min-h-[280px] w-full"
                     value={form.html_content}
                     onChange={(e) =>
                       setForm((p) => ({ ...p, html_content: e.target.value }))

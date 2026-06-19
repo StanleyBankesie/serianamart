@@ -559,11 +559,11 @@ export default function SalesOrderList() {
       const html =
         typeof resp.data === "string" ? resp.data : String(resp.data || "");
       const iframe = document.createElement("iframe");
-      iframe.style.position = "fixed";
-      iframe.style.right = "0";
-      iframe.style.bottom = "0";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
+      iframe.style.position = "absolute";
+      iframe.style.left = "-9999px";
+      iframe.style.top = "0";
+      iframe.style.width = "800px";
+      iframe.style.height = "600px";
       iframe.style.border = "0";
       document.body.appendChild(iframe);
       const doc =
@@ -586,7 +586,18 @@ export default function SalesOrderList() {
           document.body.removeChild(iframe);
         }, 100);
       };
-      setTimeout(doPrint, 200);
+      const waitForImages = () => {
+        const images = doc.images || [];
+        if (images.length === 0) { doPrint(); return; }
+        let loaded = 0;
+        for (const img of images) {
+          if (img.complete && img.naturalWidth > 0) { loaded++; continue; }
+          img.onload = () => { loaded++; if (loaded === images.length) doPrint(); };
+          img.onerror = () => { loaded++; if (loaded === images.length) doPrint(); };
+        }
+        if (loaded === images.length) doPrint();
+      };
+      waitForImages();
     } catch (e) {
       toast.error("Failed to render template for print");
     }

@@ -1378,11 +1378,10 @@ export default function PaymentVoucherForm() {
       const html =
         typeof resp.data === "string" ? resp.data : String(resp.data || "");
       const iframe = document.createElement("iframe");
-      iframe.style.position = "fixed";
-      iframe.style.right = "0";
-      iframe.style.bottom = "0";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
+      iframe.style.position = "absolute";
+      iframe.style.left = "-9999px";
+      iframe.style.width = "800px";
+      iframe.style.height = "600px";
       iframe.style.border = "0";
       document.body.appendChild(iframe);
       const doc =
@@ -1406,7 +1405,17 @@ export default function PaymentVoucherForm() {
           document.body.removeChild(iframe);
         }, 100);
       };
-      setTimeout(doPrint, 200);
+      const waitForImages = () => {
+        const images = doc.querySelectorAll("img");
+        if (images.length === 0) { doPrint(); return; }
+        let loaded = 0;
+        images.forEach((img) => {
+          if (img.complete) { loaded++; if (loaded === images.length) doPrint(); return; }
+          img.onload = () => { loaded++; if (loaded === images.length) doPrint(); };
+          img.onerror = () => { loaded++; if (loaded === images.length) doPrint(); };
+        });
+      };
+      setTimeout(waitForImages, 200);
     } catch (err) {
       toast.error(err?.response?.data?.message || "Failed to print voucher");
     }
@@ -1708,6 +1717,12 @@ export default function PaymentVoucherForm() {
               exchangeRate: Number(rvVoucherExchangeRate || 1) || 1,
             }
           : {}),
+        ...(isPAYV
+          ? {
+              currencyId: paymentAccountCurrencyId || payeeCurrencyId || null,
+              exchangeRate: Number(pvForm.exchangeRate || 1) || 1,
+            }
+          : {}),
         ...(isPAYV &&
         paymentType === "AGAINST_BILL" &&
         selectedBillId &&
@@ -1736,35 +1751,33 @@ export default function PaymentVoucherForm() {
             }
           : {}),
         narration:
-          isRV || isPAYV || isCV
-            ? voucherNarration
-            : isRV
+          isRV
+            ? [
+                rvForm.receivedFrom
+                  ? `Received from: ${rvForm.receivedFrom}`
+                  : null,
+                rvForm.paymentMethod
+                  ? `Method: ${rvForm.paymentMethod}`
+                  : null,
+                rvForm.reference ? `Ref: ${rvForm.reference}` : null,
+                voucherNarration || null,
+              ]
+                .filter(Boolean)
+                .join(" | ")
+            : isPAYV
               ? [
-                  rvForm.receivedFrom
-                    ? `Received from: ${rvForm.receivedFrom}`
+                  pvForm.payTo ? `Paid to: ${pvForm.payTo}` : null,
+                  pvForm.paymentMethod
+                    ? `Method: ${pvForm.paymentMethod}`
                     : null,
-                  rvForm.paymentMethod
-                    ? `Method: ${rvForm.paymentMethod}`
-                    : null,
-                  rvForm.reference ? `Ref: ${rvForm.reference}` : null,
-                  narration || null,
+                  pvForm.reference ? `Ref: ${pvForm.reference}` : null,
+                  voucherNarration || null,
                 ]
                   .filter(Boolean)
                   .join(" | ")
-              : isPAYV
+              : isCV
                 ? [
-                    pvForm.payTo ? `Paid to: ${pvForm.payTo}` : null,
-                    pvForm.paymentMethod
-                      ? `Method: ${pvForm.paymentMethod}`
-                      : null,
-                    pvForm.reference ? `Ref: ${pvForm.reference}` : null,
-                    narration || null,
-                  ]
-                    .filter(Boolean)
-                    .join(" | ")
-                : isCV
-                  ? [
-                      cvForm.fromAccountId
+                    cvForm.fromAccountId
                         ? `From: ${
                             accounts.find(
                               (a) =>

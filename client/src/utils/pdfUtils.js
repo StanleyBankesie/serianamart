@@ -1,3 +1,13 @@
+function isPageBlank(canvas) {
+  const ctx = canvas.getContext("2d");
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const step = Math.max(1, Math.floor((canvas.width * canvas.height) / 2000));
+  for (let i = 0; i < data.length; i += step * 4) {
+    if (data[i] < 250 || data[i + 1] < 250 || data[i + 2] < 250) return false;
+  }
+  return true;
+}
+
 export async function waitForImagesIn(el) {
   const imgs = Array.from(el?.querySelectorAll?.("img") || []);
   if (!imgs.length) return;
@@ -15,46 +25,63 @@ export async function waitForImagesIn(el) {
 }
 
 export async function renderHtmlToPdf(html, filename = "document.pdf") {
-  const { api } = await import("../api/client.js");
   const { toast } = await import("react-toastify");
+  const html2canvas = (await import("html2canvas")).default;
+  const { default: jsPDF } = await import("jspdf");
   const toastId = toast.loading("Generating PDF, please wait...");
 
   try {
-    const res = await api.post(
-      "/documents/raw-html-to-pdf",
-      JSON.stringify({ html }),
-      {
-        responseType: "blob",
-        headers: { "Content-Type": "application/json" },
-        transformRequest: [(data) => data],  // skip default transform, already stringified
-      },
-    );
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "absolute";
+    iframe.style.left = "-9999px";
+    iframe.style.top = "0";
+    iframe.style.width = "210mm";
+    iframe.style.height = "10000px";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
 
-    // Verify we actually got a PDF back, not an error JSON
-    const blob = res.data;
-    if (!blob || blob.size === 0) {
-      throw new Error("Empty PDF response from server");
+    const doc = iframe.contentWindow?.document || iframe.contentDocument;
+    if (!doc) throw new Error("Could not create render context");
+
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    await waitForImagesIn(doc.body);
+
+    const bodyEl = doc.body;
+    bodyEl.style.height = "auto";
+
+    const canvas = await html2canvas(bodyEl, {
+      scale: 1.5,
+      useCORS: true,
+      logging: false,
+      backgroundColor: "#ffffff",
+    });
+
+    const pdf = new jsPDF({ unit: "mm", format: "a4", compress: true });
+    const pdfW = pdf.internal.pageSize.getWidth();
+    const pdfH = pdf.internal.pageSize.getHeight();
+    const pageH = (pdfH * canvas.width) / pdfW;
+    let srcY = 0;
+    let pg = 0;
+    while (srcY < canvas.height) {
+      const h = Math.min(canvas.height - srcY, pageH);
+      const pc = document.createElement("canvas");
+      pc.width = canvas.width;
+      pc.height = h;
+      pc.getContext("2d").drawImage(canvas, 0, srcY, canvas.width, h, 0, 0, canvas.width, h);
+      if (!isPageBlank(pc)) {
+        if (pg > 0) pdf.addPage();
+        pdf.addImage(pc.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, pdfW, (h * pdfW) / canvas.width);
+        pg++;
+      }
+      srcY += h;
     }
 
-    // Check content type - if server returned JSON error, handle it
-    if (blob.type && blob.type.includes("application/json")) {
-      const text = await blob.text();
-      const err = JSON.parse(text);
-      throw new Error(err.message || "Server returned an error");
-    }
-
-    const url = window.URL.createObjectURL(
-      new Blob([blob], { type: "application/pdf" }),
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", filename);
-    document.body.appendChild(link);
-    link.click();
-    setTimeout(() => {
-      link.parentNode.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    }, 200);
+    if (pg === 0) pdf.addPage();
+    pdf.save(filename);
+    document.body.removeChild(iframe);
 
     toast.update(toastId, {
       render: "PDF downloaded successfully!",
@@ -64,34 +91,14 @@ export async function renderHtmlToPdf(html, filename = "document.pdf") {
     });
   } catch (err) {
     console.error("PDF generation failed:", err);
-    let msg = err?.message || "Failed to generate PDF";
-    try {
-      if (err?.response?.data instanceof Blob) {
-        const text = await err.response.data.text();
-        const parsed = JSON.parse(text);
-        if (parsed?.message) msg = parsed.message;
-      }
-    } catch {}
     toast.update(toastId, {
-      render: msg,
+      render: err?.message || "Failed to generate PDF",
       type: "error",
       isLoading: false,
       autoClose: 4000,
     });
     throw err;
   }
-}
-
-export async function fetchReportHeaderHtml(api, featureName) {
-  const body = { format: "html" };
-  if (featureName) body.feature_name = featureName;
-  const res = await api.post(`/documents/general-template/preview`, body);
-  return String(res.data || "");
-}
-
-export function joinHeaderAndBody(headerHtml, bodyHtml) {
-  // Naive join: place header above body
-  return `${headerHtml || ""}\n${bodyHtml || ""}`;
 }
 
 export async function renderDocumentHtml(api, docType, id, featureName, fetchDataFn) {

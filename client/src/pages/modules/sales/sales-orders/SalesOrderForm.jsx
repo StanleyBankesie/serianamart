@@ -667,11 +667,32 @@ export default function SalesOrderForm() {
 
         if (response.data?.details) {
           let mappedItems = response.data.details.map((line, index) => {
+            const storedTaxAmt = Number(line.tax_amount || 0);
+            const storedNet = Number(line.net_amount || 0);
+            const storedTotal = Number(line.total_amount || 0);
+            const hasStoredValues = storedTaxAmt > 0 || storedTotal > 0;
+            if (hasStoredValues) {
+              const qty = Number(line.qty ?? line.quantity ?? 0);
+              const price = Number(line.unit_price || 0);
+              const disc = Number(line.discount_percent || 0);
+              const sub = qty * price;
+              const discAmt = (sub * disc) / 100;
+              return {
+                ...line,
+                line_id: index + 1,
+                tax_type: line.tax_code_id ?? taxes?.[0]?.value ?? "",
+                sub,
+                discAmt,
+                net: storedNet,
+                taxAmt: storedTaxAmt,
+                total: storedTotal,
+              };
+            }
             const calculations = calcItemTotals({
               qty: line.qty ?? line.quantity ?? 0,
               unit_price: line.unit_price ?? 0,
               discount_percent: line.discount_percent ?? 0,
-              tax_type: line.tax_id ?? taxes?.[0]?.value ?? "",
+              tax_type: line.tax_code_id ?? taxes?.[0]?.value ?? "",
             });
             return {
               ...line,

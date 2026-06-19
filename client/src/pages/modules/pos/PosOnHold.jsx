@@ -66,7 +66,8 @@ export default function PosOnHold() {
     }
   }
 
-  async function handleUnhold(id) {
+  function handleUnhold(id) {
+    setItems((prev) => prev.filter((it) => it.id !== id));
     navigate(`/pos/sales-entry?resume=${id}`);
   }
 

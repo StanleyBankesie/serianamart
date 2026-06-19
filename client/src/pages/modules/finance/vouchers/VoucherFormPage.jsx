@@ -1371,11 +1371,10 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
       const html =
         typeof resp.data === "string" ? resp.data : String(resp.data || "");
       const iframe = document.createElement("iframe");
-      iframe.style.position = "fixed";
-      iframe.style.right = "0";
-      iframe.style.bottom = "0";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
+      iframe.style.position = "absolute";
+      iframe.style.left = "-9999px";
+      iframe.style.width = "800px";
+      iframe.style.height = "600px";
       iframe.style.border = "0";
       document.body.appendChild(iframe);
       const doc =
@@ -1399,7 +1398,17 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
           document.body.removeChild(iframe);
         }, 100);
       };
-      setTimeout(doPrint, 200);
+      const waitForImages = () => {
+        const images = doc.querySelectorAll("img");
+        if (images.length === 0) { doPrint(); return; }
+        let loaded = 0;
+        images.forEach((img) => {
+          if (img.complete) { loaded++; if (loaded === images.length) doPrint(); return; }
+          img.onload = () => { loaded++; if (loaded === images.length) doPrint(); };
+          img.onerror = () => { loaded++; if (loaded === images.length) doPrint(); };
+        });
+      };
+      setTimeout(waitForImages, 200);
     } catch (err) {
       toast.error(err?.response?.data?.message || "Failed to print voucher");
     }
